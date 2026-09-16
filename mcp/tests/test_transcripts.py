@@ -36,7 +36,12 @@ def transcript(**changes):
         "indexing_started_at": NOW, "indexing_completed_at": NOW, "error_code": None,
         "size_bytes": 180, "mime_type": "application/x-ndjson", "format": "claude_code_jsonl",
         "sha256": "a" * 64, "text_sha256": HASH, "metadata": {}, "truncated": False,
-        "created_at": NOW, "snippet": None, "score": None, **changes,
+        "created_at": NOW, "snippet": None, "score": None,
+        "normalization_status": "ready", "normalization_error_code": None,
+        "normalized_revision": "b" * 64, "normalized_sha256": "c" * 64,
+        "normalization_schema_version": 1, "normalizer_version": 1,
+        "normalized_size_bytes": 400, "segment_count": 2, "normalization_incomplete": False,
+        "segment_id": None, "content_kind": None, **changes,
     }
 
 
@@ -159,7 +164,7 @@ async def test_search_is_metadata_by_default_and_fulltext_is_explicit(settings):
     await call(settings, "search_transcript_contents", args, handler)
     await call(settings, "search_transcript_contents", {**args, "fulltext": True}, handler)
     assert requests == [{"query": "objective", "fulltext": fulltext, "limit": 50,
-                         "offset": 0, "work_item_id": WORK_ID} for fulltext in (False, True)]
+                         "offset": 0, "detail": "full", "work_item_id": WORK_ID} for fulltext in (False, True)]
 
 
 @pytest.mark.parametrize("failure", ["project", "work", "duplicate", "page", "snippet", "oversize", "coverage"])
@@ -198,7 +203,9 @@ async def test_listing_exposes_failed_disposition_and_incomplete_coverage(settin
 async def test_text_pages_are_hash_pinned_and_coherent(settings, failure):
     result = {"project_id": PROJECT_ID, "transcript_id": TRANSCRIPT_ID, "text_sha256": HASH,
               "text": TEXT[:12], "total_chars": len(TEXT), "offset": 0, "limit": 12,
-              "next_offset": 12, "status": "ready", "truncated": False}
+              "next_offset": 12, "status": "ready", "truncated": False,
+              "normalized_revision": None, "segments": None, "segment_window": None,
+              "next_segment_id": None, "next_segment_offset": None, "next_segment_after": None}
     if failure == "hash":
         result["text_sha256"] = "b" * 64
     if failure == "identity":

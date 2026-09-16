@@ -1104,12 +1104,12 @@ def test_resource_saturation_falls_back_or_returns_bounded_retry(
 
     invalid_search = api.get(
         f"/api/v1/projects/{project['id']}/work-items",
-        params={"q": "cache", "semantic": "t", "limit": "invalid"},
+        params={"detail": "full", "q": "cache", "semantic": "t", "limit": "invalid"},
     )
     assert invalid_search.status_code == 422
     unavailable_search = api.get(
         f"/api/v1/projects/{project['id']}/work-items",
-        params={"q": "cache", "semantic": "y"},
+        params={"detail": "full", "q": "cache", "semantic": "y"},
     )
     assert unavailable_search.status_code == 503
     assert unavailable_search.json()["detail"]["code"] == "semantic_unavailable"
@@ -1326,5 +1326,5 @@ def test_title_key_function_and_partial_expression_index_are_frozen(postgres_eng
                 """
             )
         ).one()
-        assert head == "0039_manual_review_requests"
+        assert head == "0040_normalized_transcripts"
         assert capacity == 64

@@ -126,9 +126,9 @@ def test_claim_replay_context_readiness_renew_release_and_no_work_activity(
     assert different_request.status_code == 409
     assert different_request.json()["detail"]["code"] == "lease_held"
 
-    summary = api.get(collection(project), params={"status": "active"}).json()["items"][0][
-        "summary"
-    ]
+    summary = api.get(collection(project), params={"detail": "full", "status": "active"}).json()[
+        "items"
+    ][0]["summary"]
     assert summary["readiness"] == readiness
     assert "lease_token" not in json.dumps(summary)
 
@@ -705,7 +705,7 @@ def test_capabilities_are_body_only_and_lease_routes_reject_every_query_paramete
 
     # Ordinary retrieval queries remain valid, and the same capability is accepted
     # once it is carried in the request body instead of the URL.
-    search = api.get(collection(project), params={"q": "cache", "status": "all"})
+    search = api.get(collection(project), params={"detail": "full", "q": "cache", "status": "all"})
     assert search.status_code == 200
     assert search.json()["total"] >= 1
     accepted_deletion = api.post(

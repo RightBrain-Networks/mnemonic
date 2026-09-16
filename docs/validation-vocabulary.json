@@ -6,12 +6,14 @@
     "actor_model",
     "actor_session_id",
     "affected_paths",
+    "after",
     "allow_remediation_code_reviews",
     "answer",
     "artifact_references",
     "artifact_type",
     "availability",
     "base_commit",
+    "before",
     "body",
     "canonical_work_item_id",
     "change_summary",
@@ -24,6 +26,7 @@
     "code_review_required_min_priority",
     "command",
     "completion_evidence",
+    "content_kinds",
     "context_checkpoint_id",
     "coverage",
     "created_by_client",
@@ -33,6 +36,7 @@
     "decisions",
     "description",
     "destination_work_item_id",
+    "detail",
     "direction",
     "duplicate_scope",
     "end_line",
@@ -41,6 +45,7 @@
     "exit_code",
     "expected_code_review_version",
     "expected_follow_up_version",
+    "expected_normalized_revision",
     "expected_question_version",
     "expected_review_version",
     "expected_version",
@@ -99,6 +104,7 @@
     "reviewed_source_revision",
     "scope",
     "scope_sha256",
+    "segment_id",
     "semantic",
     "severity",
     "slug",
@@ -134,7 +140,6 @@
   ],
   "surface_fields": {
     "backend": [
-      "after",
       "claim_request_id",
       "cookie",
       "current_context_revision",
@@ -186,7 +191,6 @@
       "status_only"
     ],
     "mcp": [
-      "after",
       "agent_session_id",
       "artifact_id",
       "artifacts",
@@ -262,5 +266,35 @@
     "header",
     "path",
     "query"
-  ]
+  ],
+  "rules": {
+    "absolute_http_url_required": {
+      "field": null,
+      "message": "Include an absolute http:// or https:// URL."
+    },
+    "canonical_filter_requires_alias_scope": {
+      "field": "canonical_work_item_id",
+      "message": "canonical_work_item_id requires duplicate_scope=aliases or all."
+    },
+    "content_kinds_requires_fulltext": {
+      "field": "content_kinds",
+      "message": "content_kinds requires fulltext=true."
+    },
+    "external_url_requires_full_view": {
+      "field": "view",
+      "message": "external_url requires view=full."
+    },
+    "roots_require_canonical_scope": {
+      "field": "duplicate_scope",
+      "message": "view=roots requires duplicate_scope=canonical."
+    },
+    "semantic_requires_query": {
+      "field": "q",
+      "message": "semantic=true requires a nonblank q."
+    },
+    "view_requires_blank_query": {
+      "field": "view",
+      "message": "view=roots requires blank q; use view=full for text search."
+    }
+  }
 }

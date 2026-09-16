@@ -41,6 +41,7 @@ from .code_review_models import (
     ReviewVersionArgument,
     scope_hash,
 )
+from .compact_search import compact_work_matches
 from .config import Settings
 from .external_records import (
     ExternalCandidates,
@@ -58,6 +59,8 @@ from .models import (
     CheckpointRead,
     ClaimAndRecall,
     ClaimReceipt,
+    CompactHierarchyHit,
+    CompactWorkHit,
     CompletionEvidenceArgument,
     CompletionEvidenceCursorArgument,
     CompletionEvidenceInput,
@@ -120,6 +123,12 @@ from .response_validation import (
     matches_requested_limit,
     matches_requested_offset_page,
     response_matches,
+)
+from .search_disclosure import (
+    SearchDetail,
+    WorkAppliedFilters,
+    disclosure_matches,
+    search_disclosure,
 )
 from .security import LocalAccessMiddleware
 from .title_normalization import nfkc_unicode_15_1
@@ -787,6 +796,8 @@ def _work_page_matches_request(
     *,
     project_id: UUID,
     view: SearchView,
+    detail: SearchDetail,
+    status: SearchStatus,
     duplicate_scope: DuplicateScope,
     canonical_work_item_id: UUID | None,
     blank_query: bool,
@@ -794,9 +805,17 @@ def _work_page_matches_request(
     limit: int,
     offset: int,
 ) -> bool:
-    if not matches_requested_offset_page(page, limit=limit, offset=offset):
+    if page.detail != detail or not matches_requested_offset_page(page, limit=limit, offset=offset):
         return False
-    for item in page.items:
+    for index, item in enumerate(page.items, start=offset + 1):
+        if isinstance(item, CompactWorkHit):
+            if (isinstance(item, CompactHierarchyHit) != (view == "roots")
+                    or item.rank != index or not compact_work_matches(
+                        item, project_id, status=status, duplicate_scope=duplicate_scope,
+                        canonical_work_item_id=canonical_work_item_id, blank_query=blank_query,
+                    )):
+                return False
+            continue
         if view == "roots" and not isinstance(item, HierarchySummary):
             return False
         if view == "full" and not isinstance(item, WorkSearchHit):
@@ -1016,18 +1035,19 @@ def _register_discovery_tools(server: FastMCP, api: MnemonicAPI) -> None:
         project_id: UUID,
         q: Annotated[str | None, Field(max_length=500)] = None,
         external_url: ExternalURL | None = None,
-        status: SearchStatus = "pending",
+        status: SearchStatus = "all",
         semantic: bool = False,
         tag: Annotated[str | None, Field(max_length=50)] = None,
         source_client: Annotated[str | None, Field(max_length=80)] = None,
         source_session_id: Annotated[str | None, Field(max_length=200)] = None,
         view: SearchView = "full",
+        detail: SearchDetail = "compact",
         duplicate_scope: DuplicateScope = "canonical",
         canonical_work_item_id: UUID | None = None,
-        limit: Annotated[int, Field(ge=1, le=100)] = 30,
+        limit: Annotated[int, Field(ge=1, le=100)] = 20,
         offset: Annotated[int, Field(ge=0)] = 0,
     ) -> WorkPage:
-        """external_url filters exact accepted URL spelling on the owning row and requires view=full. For inverse lookup use status=all, duplicate_scope=all and paginate every match; follow alias roots explicitly. Retrieve pointer-only work, canonical and lexical by default; search is never the actionable ready queue. Full results are WorkSearchHit objects: summary is the returned row and matched_member identifies the exact canonical-group member that won text matching. That member is evidence only, never authority to merge or permission to substitute IDs. duplicate_scope=canonical returns one root per group; use aliases or all only for explicit audit, and canonical_work_item_id only with those two scopes. view=roots accepts only blank/filter browsing and returns canonical hierarchy summaries. ancestor_path follows parent-child edges only. Pending excludes active and dropped leases. To-review selects Done implementation with a requested review or pending recommendation; done excludes those obligations. Review claims remain purpose-bound. No result contains checkpoint bodies or affected_paths. Fully recall the exact checkpoint whose assertions will govern before any local repository assessment. Use list_ready_work to choose claimable work and recall_work on an exact selected ID for context."""
+        """external_url filters exact accepted URL spelling on the owning row and requires view=full. For inverse lookup use status=all, duplicate_scope=all and paginate every match; follow alias roots explicitly. Search all statuses by default; pass status=pending explicitly for pending-only discovery. applied_filters echoes the effective scope even when there are no hits. query_interpretation describes actual matching and warnings disclose ignored phrase operators. Default detail=compact returns bounded work pointers at limit=20; detail=full opts into summaries, current context metadata and readiness. detail controls payload size; view controls hierarchy. Compact rank is one-based within all work results, not confidence; work_rank_scope=work_items names its scope. Compact search_status explains membership separately from lifecycle status and display_state. Retrieve canonical and lexical results by default; search is never the actionable ready queue. With detail=full results are WorkSearchHit objects: summary is the returned row and matched_member identifies the exact canonical-group member that won text matching. That member is evidence only, never authority to merge or permission to substitute IDs. duplicate_scope=canonical returns one root per group; use aliases or all only for explicit audit, and canonical_work_item_id only with those two scopes. view=roots accepts only blank/filter browsing and returns canonical hierarchy pointers or summaries according to detail. Compact matched_member is omitted unless a different canonical-group member supplied the match evidence. ancestor_path follows parent-child edges only. Pending excludes active and dropped leases. To-review selects Done implementation with a requested review or pending recommendation; done excludes those obligations. Review claims remain purpose-bound. No result contains checkpoint bodies or affected_paths. Fully recall the exact checkpoint whose assertions will govern before any local repository assessment. Use list_ready_work to choose claimable work and recall_work on an exact selected ID for context."""
         if external_url is not None and view == "roots":
             raise ToolError("external_url requires view=full.")
         params: dict[str, object | None] = {
@@ -1038,6 +1058,7 @@ def _register_discovery_tools(server: FastMCP, api: MnemonicAPI) -> None:
             "source_client": source_client,
             "source_session_id": source_session_id,
             "view": view,
+            "detail": detail,
             "duplicate_scope": duplicate_scope,
             "canonical_work_item_id": canonical_work_item_id,
             "limit": limit,
@@ -1045,6 +1066,13 @@ def _register_discovery_tools(server: FastMCP, api: MnemonicAPI) -> None:
         }
         if semantic:
             params["semantic"] = True
+        disclosure = search_disclosure(
+            project_id, q, semantic=semantic,
+            work_items=WorkAppliedFilters.model_validate({
+                name: value for name, value in params.items()
+                if name not in {"q", "semantic", "detail", "limit", "offset"}
+            }),
+        )
         return cast(
             WorkPage,
             await api.request(
@@ -1055,10 +1083,12 @@ def _register_discovery_tools(server: FastMCP, api: MnemonicAPI) -> None:
                 effect=TransportEffect.SAFE_READ,
                 response_validator=response_matches(
                     WorkPage,
-                    lambda page: _work_page_matches_request(
+                    lambda page: disclosure_matches(page, disclosure) and _work_page_matches_request(
                         page,
                         project_id=project_id,
                         view=view,
+                        detail=detail,
+                        status=status,
                         duplicate_scope=duplicate_scope,
                         canonical_work_item_id=canonical_work_item_id,
                         blank_query=q is None or not q.strip(),

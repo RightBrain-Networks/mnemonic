@@ -35,7 +35,9 @@ def extract(api, storage):
 
 
 def search(api, project, query, **options):
-    response = api.post(collection(project) + "/search-content", json={"q": query, **options})
+    response = api.post(
+        collection(project) + "/search-content", json={"detail": "full", "q": query, **options}
+    )
     assert response.status_code == 200, response.text
     assert response.headers["cache-control"] == "no-store"
     return response.json()

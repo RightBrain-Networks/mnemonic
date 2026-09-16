@@ -3,8 +3,8 @@
 Use [unified search](search.md) to retrieve work, artifacts, and transcripts in one
 ranked, filtered, paginated read through REST or MCP.
 
-This architecture describes application/API/MCP `0.55.0`, Claude plugin `0.33.0`,
-and Alembic head `0039_manual_review_requests`.
+This architecture describes application/API/MCP `0.58.0`, Claude plugin `0.36.0`,
+and Alembic head `0040_normalized_transcripts`.
 
 Transcript copying, indexing, and project backups run in a shared RabbitMQ worker.
 PostgreSQL retains job intent and outcomes; raw transcripts live in a private bind

@@ -1,3 +1,4 @@
+import { decodeSearchDisclosure, SEARCH_DISCLOSURE_FIELDS, validateSearchDisclosure, type SearchDisclosure, type FullWorkSearchDetail } from "./search-disclosure.ts";
 import { decodeLeaseSettings } from "./work-lease-settings.ts";
 import { validSparseReferences, referenceKeys } from "./external-references.ts";
 import { decodeArtifact } from "./artifacts.ts";
@@ -97,7 +98,7 @@ export const DUPLICATE_HANDLING_DECODER_FIELDS = {
   decodeWorkContext: [...CONTEXT_FIELDS, "code_review_context"],
   decodeWorkItemDetail: [...DETAIL_FIELDS, "code_review_context"],
   "decodeWorkSearchPage:item": SEARCH_HIT_FIELDS,
-  decodeWorkSearchPage: PAGE_FIELDS
+  decodeWorkSearchPage: [...PAGE_FIELDS, "detail", "work_rank_scope", ...SEARCH_DISCLOSURE_FIELDS]
 } as const;
 
 function pointerEqual(left: WorkIdentityPointer, right: WorkIdentityPointer): boolean {
@@ -213,13 +214,16 @@ export function decodeWorkSearchPage(
     query?: string;
     expectedLimit?: number;
     expectedOffset?: number;
+    expectedFilters?: Record<string, unknown>;
+    semantic?: boolean;
   } = {}
-): Page<WorkSearchHit> {
+): Page<WorkSearchHit> & SearchDisclosure & FullWorkSearchDetail {
   const page = objectValue(value);
   const duplicateScope = options.duplicateScope ?? "canonical";
   if (
     !page
-    || !exactKeys(page, PAGE_FIELDS)
+    || !exactKeys(page, [...PAGE_FIELDS, "detail", "work_rank_scope", ...SEARCH_DISCLOSURE_FIELDS])
+    || page.detail !== "full" || page.work_rank_scope !== "work_items"
     || !Array.isArray(page.items)
     || !finiteInteger(page.total)
     || !finiteInteger(page.limit, 1, 100)
@@ -234,7 +238,12 @@ export function decodeWorkSearchPage(
       duplicateScope === "canonical" || !validUuid(options.canonicalWorkItemId)
     )
   ) throw new Error("Mnemonic returned an invalid work search page.");
+  const disclosure = decodeSearchDisclosure(page, projectId, ["work_items"]);
+  validateSearchDisclosure(disclosure, "work_items", {
+    ...options.expectedFilters, duplicate_scope: duplicateScope, canonical_work_item_id: options.canonicalWorkItemId ?? null, view: "full"
+  }, undefined, options.query);
   const blankQuery = (options.query ?? "").trim().length === 0;
+  if (options.semantic !== undefined && !blankQuery && disclosure.query_interpretation.work_items?.match_mode !== (options.semantic ? "hybrid_lexical_semantic" : "postgresql_plain_terms_or_substring")) throw new Error("Mnemonic returned an unexpected work matching mode.");
   const items = page.items.map((valueItem) => {
     const item = objectValue(valueItem);
     if (!item || !exactKeys(item, SEARCH_HIT_FIELDS)) {
@@ -260,6 +269,9 @@ export function decodeWorkSearchPage(
     throw new Error("Mnemonic returned repeated work search hits.");
   }
   return {
+    ...disclosure,
+    detail: "full",
+    work_rank_scope: "work_items",
     items,
     total: page.total,
     limit: page.limit,

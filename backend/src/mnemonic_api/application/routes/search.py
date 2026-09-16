@@ -17,6 +17,7 @@ from mnemonic_api.application.routes.artifacts import (
 )
 from mnemonic_api.application.state import embedder_of, settings_of
 from mnemonic_api.application.suggestion_resources import semantic_search_inference_acquired
+from mnemonic_api.application.validation import raise_reviewed_body_validation
 from mnemonic_api.database import Database
 from mnemonic_api.errors import ApplicationError, semantic_unavailable
 from mnemonic_api.search_schemas import SearchPage, SearchRequest
@@ -55,7 +56,8 @@ async def _payload(request: Request) -> SearchRequest:
         raise ApplicationError(408, "search_timeout", "Search request timed out.") from None
     try:
         return SearchRequest.model_validate(json.loads(body, object_pairs_hook=_unique_object))
-    except ValueError, RecursionError:
+    except (ValueError, RecursionError) as exc:
+        raise_reviewed_body_validation(exc)
         raise ApplicationError(422, "search_invalid", "Provide valid search parameters.") from None
 
 

@@ -34,6 +34,120 @@
         "title": "AdjacentRelationshipRead",
         "type": "object"
       },
+      "AppliedSearchFilters": {
+        "additionalProperties": false,
+        "properties": {
+          "artifacts": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ArtifactAppliedFilters"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "transcripts": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TranscriptAppliedFilters"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "work_items": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WorkAppliedFilters"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "project_id"
+        ],
+        "title": "AppliedSearchFilters",
+        "type": "object"
+      },
+      "ArtifactAppliedFilters": {
+        "additionalProperties": false,
+        "properties": {
+          "artifact_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Artifact Id"
+          },
+          "created_by_agent_session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By Agent Session Id"
+          },
+          "include_deleted": {
+            "default": false,
+            "title": "Include Deleted",
+            "type": "boolean"
+          },
+          "mime_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mime Type"
+          },
+          "sensitive": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sensitive"
+          },
+          "work_item_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Work Item Id"
+          }
+        },
+        "title": "ArtifactAppliedFilters",
+        "type": "object"
+      },
       "ArtifactAuditRead": {
         "additionalProperties": false,
         "properties": {
@@ -235,7 +349,15 @@
         "additionalProperties": false,
         "properties": {
           "artifact": {
-            "$ref": "#/components/schemas/ArtifactSearchMatch"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ArtifactSearchMatch"
+              },
+              {
+                "$ref": "#/components/schemas/CompactArtifactMatch"
+              }
+            ],
+            "title": "Artifact"
           },
           "created_at": {
             "format": "date-time",
@@ -1058,6 +1180,17 @@
       "ArtifactSearchPage": {
         "additionalProperties": false,
         "properties": {
+          "applied_filters": {
+            "$ref": "#/components/schemas/AppliedSearchFilters"
+          },
+          "detail": {
+            "enum": [
+              "compact",
+              "full"
+            ],
+            "title": "Detail",
+            "type": "string"
+          },
           "fulltext": {
             "title": "Fulltext",
             "type": "boolean"
@@ -1067,7 +1200,14 @@
           },
           "items": {
             "items": {
-              "$ref": "#/components/schemas/ArtifactSearchMatch"
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/ArtifactSearchMatch"
+                },
+                {
+                  "$ref": "#/components/schemas/CompactArtifactMatch"
+                }
+              ]
             },
             "title": "Items",
             "type": "array"
@@ -1089,6 +1229,9 @@
             "title": "Offset",
             "type": "integer"
           },
+          "query_interpretation": {
+            "$ref": "#/components/schemas/QueryInterpretation"
+          },
           "sensitive_content_withheld": {
             "default": 0,
             "minimum": 0.0,
@@ -1107,9 +1250,21 @@
             "minimum": 0.0,
             "title": "Total",
             "type": "integer"
+          },
+          "warnings": {
+            "items": {
+              "$ref": "#/components/schemas/SearchWarning"
+            },
+            "maxItems": 1,
+            "title": "Warnings",
+            "type": "array"
           }
         },
         "required": [
+          "applied_filters",
+          "query_interpretation",
+          "warnings",
+          "detail",
           "term_diagnostics",
           "items",
           "total",
@@ -3127,6 +3282,646 @@
           "command"
         ],
         "title": "CommandVerificationRead",
+        "type": "object"
+      },
+      "CompactArtifactMatch": {
+        "additionalProperties": false,
+        "properties": {
+          "artifact": {
+            "$ref": "#/components/schemas/CompactArtifactRead"
+          },
+          "matched_fields": {
+            "items": {
+              "enum": [
+                "metadata",
+                "content"
+              ],
+              "type": "string"
+            },
+            "title": "Matched Fields",
+            "type": "array"
+          },
+          "score": {
+            "minimum": 0.0,
+            "title": "Score",
+            "type": "number"
+          },
+          "snippet": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Snippet"
+          }
+        },
+        "required": [
+          "artifact",
+          "score",
+          "matched_fields"
+        ],
+        "title": "CompactArtifactMatch",
+        "type": "object"
+      },
+      "CompactArtifactRead": {
+        "additionalProperties": false,
+        "properties": {
+          "content_available": {
+            "title": "Content Available",
+            "type": "boolean"
+          },
+          "deleted_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deleted At"
+          },
+          "extraction": {
+            "$ref": "#/components/schemas/CompactExtractionStatus"
+          },
+          "filename": {
+            "title": "Filename",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          },
+          "sensitive": {
+            "title": "Sensitive",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "project_id",
+          "filename",
+          "revision",
+          "sensitive",
+          "deleted_at",
+          "content_available",
+          "extraction"
+        ],
+        "title": "CompactArtifactRead",
+        "type": "object"
+      },
+      "CompactExtractionStatus": {
+        "additionalProperties": false,
+        "properties": {
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "processing",
+              "ready",
+              "failed",
+              "superseded",
+              "deleted"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "truncated": {
+            "title": "Truncated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "status",
+          "truncated",
+          "error_code"
+        ],
+        "title": "CompactExtractionStatus",
+        "type": "object"
+      },
+      "CompactHierarchyHit": {
+        "additionalProperties": false,
+        "properties": {
+          "ancestor_path": {
+            "items": {
+              "$ref": "#/components/schemas/WorkIdentityPointer"
+            },
+            "title": "Ancestor Path",
+            "type": "array"
+          },
+          "ancestor_path_truncated": {
+            "default": false,
+            "title": "Ancestor Path Truncated",
+            "type": "boolean"
+          },
+          "canonical_work_item_id": {
+            "format": "uuid",
+            "title": "Canonical Work Item Id",
+            "type": "string"
+          },
+          "display_state": {
+            "enum": [
+              "pending",
+              "active",
+              "to-review",
+              "dropped",
+              "blocked",
+              "waiting",
+              "duplicate",
+              "deferred",
+              "done",
+              "wont-do",
+              "promoted"
+            ],
+            "title": "Display State",
+            "type": "string"
+          },
+          "has_matching_descendants": {
+            "title": "Has Matching Descendants",
+            "type": "boolean"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "matched_member": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WorkIdentityPointer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "presentation": {
+            "$ref": "#/components/schemas/HierarchyPresentation"
+          },
+          "priority": {
+            "title": "Priority",
+            "type": "integer"
+          },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "rank": {
+            "description": "One-based rank within the complete work result set.",
+            "minimum": 1.0,
+            "title": "Rank",
+            "type": "integer"
+          },
+          "search_status": {
+            "enum": [
+              "pending",
+              "active",
+              "to-review",
+              "dropped",
+              "deferred",
+              "done",
+              "wont-do",
+              "promoted"
+            ],
+            "title": "Search Status",
+            "type": "string"
+          },
+          "self_matches_filter": {
+            "title": "Self Matches Filter",
+            "type": "boolean"
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "deferred",
+              "done",
+              "wont-do",
+              "promoted"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "project_id",
+          "title",
+          "status",
+          "display_state",
+          "priority",
+          "updated_at",
+          "rank",
+          "canonical_work_item_id",
+          "search_status",
+          "self_matches_filter",
+          "has_matching_descendants",
+          "presentation"
+        ],
+        "title": "CompactHierarchyHit",
+        "type": "object"
+      },
+      "CompactTranscriptRead": {
+        "additionalProperties": false,
+        "properties": {
+          "client": {
+            "title": "Client",
+            "type": "string"
+          },
+          "content_kind": {
+            "anyOf": [
+              {
+                "enum": [
+                  "human_text",
+                  "assistant_text",
+                  "tool_call",
+                  "tool_result",
+                  "system_text",
+                  "reasoning",
+                  "summary",
+                  "unsupported"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Content Kind"
+          },
+          "copy_status": {
+            "enum": [
+              "pending",
+              "processing",
+              "ready",
+              "failed"
+            ],
+            "title": "Copy Status",
+            "type": "string"
+          },
+          "filename": {
+            "title": "Filename",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "index_status": {
+            "enum": [
+              "waiting",
+              "pending",
+              "processing",
+              "ready",
+              "failed"
+            ],
+            "title": "Index Status",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "primary",
+              "subagent",
+              "imported"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "normalization_error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Normalization Error Code"
+          },
+          "normalization_incomplete": {
+            "default": false,
+            "title": "Normalization Incomplete",
+            "type": "boolean"
+          },
+          "normalization_schema_version": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Normalization Schema Version"
+          },
+          "normalization_status": {
+            "default": "pending",
+            "enum": [
+              "pending",
+              "processing",
+              "ready",
+              "failed"
+            ],
+            "title": "Normalization Status",
+            "type": "string"
+          },
+          "normalized_revision": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Normalized Revision"
+          },
+          "normalized_sha256": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Normalized Sha256"
+          },
+          "normalized_size_bytes": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Normalized Size Bytes"
+          },
+          "normalizer_version": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Normalizer Version"
+          },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Score"
+          },
+          "segment_count": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Segment Count",
+            "type": "integer"
+          },
+          "segment_id": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{24}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Segment Id"
+          },
+          "session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Id"
+          },
+          "snippet": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Snippet"
+          },
+          "status": {
+            "enum": [
+              "waiting",
+              "pending",
+              "processing",
+              "ready",
+              "failed"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "truncated": {
+            "title": "Truncated",
+            "type": "boolean"
+          },
+          "work_item_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Work Item Id"
+          }
+        },
+        "required": [
+          "id",
+          "project_id",
+          "work_item_id",
+          "client",
+          "session_id",
+          "filename",
+          "kind",
+          "status",
+          "index_status",
+          "copy_status",
+          "truncated"
+        ],
+        "title": "CompactTranscriptRead",
+        "type": "object"
+      },
+      "CompactWorkHit": {
+        "additionalProperties": false,
+        "properties": {
+          "ancestor_path": {
+            "items": {
+              "$ref": "#/components/schemas/WorkIdentityPointer"
+            },
+            "title": "Ancestor Path",
+            "type": "array"
+          },
+          "ancestor_path_truncated": {
+            "default": false,
+            "title": "Ancestor Path Truncated",
+            "type": "boolean"
+          },
+          "canonical_work_item_id": {
+            "format": "uuid",
+            "title": "Canonical Work Item Id",
+            "type": "string"
+          },
+          "display_state": {
+            "enum": [
+              "pending",
+              "active",
+              "to-review",
+              "dropped",
+              "blocked",
+              "waiting",
+              "duplicate",
+              "deferred",
+              "done",
+              "wont-do",
+              "promoted"
+            ],
+            "title": "Display State",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "matched_member": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WorkIdentityPointer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "priority": {
+            "title": "Priority",
+            "type": "integer"
+          },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "rank": {
+            "description": "One-based rank within the complete work result set.",
+            "minimum": 1.0,
+            "title": "Rank",
+            "type": "integer"
+          },
+          "search_status": {
+            "enum": [
+              "pending",
+              "active",
+              "to-review",
+              "dropped",
+              "deferred",
+              "done",
+              "wont-do",
+              "promoted"
+            ],
+            "title": "Search Status",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "deferred",
+              "done",
+              "wont-do",
+              "promoted"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "project_id",
+          "title",
+          "status",
+          "display_state",
+          "priority",
+          "updated_at",
+          "rank",
+          "canonical_work_item_id",
+          "search_status"
+        ],
+        "title": "CompactWorkHit",
         "type": "object"
       },
       "CompletionCheckpointCreate": {
@@ -7386,45 +8181,6 @@
         "title": "Page[ProjectRead]",
         "type": "object"
       },
-      "Page_Union_WorkSearchHit__HierarchySummary__": {
-        "additionalProperties": false,
-        "properties": {
-          "items": {
-            "items": {
-              "anyOf": [
-                {
-                  "$ref": "#/components/schemas/WorkSearchHit"
-                },
-                {
-                  "$ref": "#/components/schemas/HierarchySummary"
-                }
-              ]
-            },
-            "title": "Items",
-            "type": "array"
-          },
-          "limit": {
-            "title": "Limit",
-            "type": "integer"
-          },
-          "offset": {
-            "title": "Offset",
-            "type": "integer"
-          },
-          "total": {
-            "title": "Total",
-            "type": "integer"
-          }
-        },
-        "required": [
-          "items",
-          "total",
-          "limit",
-          "offset"
-        ],
-        "title": "Page[Union[WorkSearchHit, HierarchySummary]]",
-        "type": "object"
-      },
       "PriorityChange": {
         "additionalProperties": false,
         "properties": {
@@ -8279,6 +9035,51 @@
           "expected_revision"
         ],
         "title": "PromptUpdate",
+        "type": "object"
+      },
+      "QueryInterpretation": {
+        "additionalProperties": false,
+        "properties": {
+          "artifacts": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SourceQueryInterpretation"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "q": {
+            "maxLength": 1000,
+            "title": "Q",
+            "type": "string"
+          },
+          "transcripts": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SourceQueryInterpretation"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "work_items": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SourceQueryInterpretation"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "q"
+        ],
+        "title": "QueryInterpretation",
         "type": "object"
       },
       "Readiness": {
@@ -9272,8 +10073,19 @@
       "SearchPage": {
         "additionalProperties": false,
         "properties": {
+          "applied_filters": {
+            "$ref": "#/components/schemas/AppliedSearchFilters"
+          },
           "coverage": {
             "$ref": "#/components/schemas/SearchCoverage"
+          },
+          "detail": {
+            "enum": [
+              "compact",
+              "full"
+            ],
+            "title": "Detail",
+            "type": "string"
           },
           "facet_totals": {
             "$ref": "#/components/schemas/FacetTotals"
@@ -9318,6 +10130,9 @@
             "title": "Offset",
             "type": "integer"
           },
+          "query_interpretation": {
+            "$ref": "#/components/schemas/QueryInterpretation"
+          },
           "search_scope": {
             "$ref": "#/components/schemas/SearchScope"
           },
@@ -9333,9 +10148,27 @@
             "minimum": 0.0,
             "title": "Total",
             "type": "integer"
+          },
+          "warnings": {
+            "items": {
+              "$ref": "#/components/schemas/SearchWarning"
+            },
+            "maxItems": 1,
+            "title": "Warnings",
+            "type": "array"
+          },
+          "work_rank_scope": {
+            "const": "work_items",
+            "title": "Work Rank Scope",
+            "type": "string"
           }
         },
         "required": [
+          "applied_filters",
+          "query_interpretation",
+          "warnings",
+          "detail",
+          "work_rank_scope",
           "search_scope",
           "term_diagnostics",
           "items",
@@ -9386,6 +10219,341 @@
           "transcripts"
         ],
         "title": "SearchScope",
+        "type": "object"
+      },
+      "SearchWarning": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "const": "phrase_operators_ignored",
+            "default": "phrase_operators_ignored",
+            "title": "Code",
+            "type": "string"
+          },
+          "message": {
+            "const": "Quoted phrases are not supported; quotation marks do not require adjacent words.",
+            "default": "Quoted phrases are not supported; quotation marks do not require adjacent words.",
+            "title": "Message",
+            "type": "string"
+          },
+          "sources": {
+            "items": {
+              "enum": [
+                "work_items",
+                "artifacts",
+                "transcripts"
+              ],
+              "type": "string"
+            },
+            "maxItems": 3,
+            "minItems": 1,
+            "title": "Sources",
+            "type": "array"
+          }
+        },
+        "required": [
+          "sources"
+        ],
+        "title": "SearchWarning",
+        "type": "object"
+      },
+      "SegmentRead": {
+        "additionalProperties": false,
+        "properties": {
+          "call_id": {
+            "anyOf": [
+              {
+                "maxLength": 4096,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Call Id"
+          },
+          "channel": {
+            "anyOf": [
+              {
+                "maxLength": 4096,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Channel"
+          },
+          "content_kind": {
+            "enum": [
+              "human_text",
+              "assistant_text",
+              "tool_call",
+              "tool_result",
+              "system_text",
+              "reasoning",
+              "summary",
+              "unsupported"
+            ],
+            "title": "Content Kind",
+            "type": "string"
+          },
+          "dispositions": {
+            "items": {
+              "maxLength": 80,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 16,
+            "title": "Dispositions",
+            "type": "array"
+          },
+          "event_id": {
+            "pattern": "^[0-9a-f]{24}$",
+            "title": "Event Id",
+            "type": "string"
+          },
+          "is_error": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Error"
+          },
+          "is_sidechain": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Sidechain"
+          },
+          "native_branch_id": {
+            "anyOf": [
+              {
+                "maxLength": 4096,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Native Branch Id"
+          },
+          "native_event_id": {
+            "anyOf": [
+              {
+                "maxLength": 4096,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Native Event Id"
+          },
+          "native_parent_id": {
+            "anyOf": [
+              {
+                "maxLength": 4096,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Native Parent Id"
+          },
+          "ordinal": {
+            "minimum": 0.0,
+            "title": "Ordinal",
+            "type": "integer"
+          },
+          "payload": {
+            "$ref": "#/components/schemas/JsonValue"
+          },
+          "related_segment_id": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{24}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Related Segment Id"
+          },
+          "role": {
+            "anyOf": [
+              {
+                "maxLength": 4096,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Role"
+          },
+          "segment_id": {
+            "pattern": "^[0-9a-f]{24}$",
+            "title": "Segment Id",
+            "type": "string"
+          },
+          "source_block": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Source Block",
+            "type": "string"
+          },
+          "source_record": {
+            "minimum": 1.0,
+            "title": "Source Record",
+            "type": "integer"
+          },
+          "text": {
+            "maxLength": 200000,
+            "title": "Text",
+            "type": "string"
+          },
+          "text_offset": {
+            "minimum": 0.0,
+            "title": "Text Offset",
+            "type": "integer"
+          },
+          "text_truncated": {
+            "title": "Text Truncated",
+            "type": "boolean"
+          },
+          "timestamp": {
+            "anyOf": [
+              {
+                "maxLength": 4096,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timestamp"
+          },
+          "tool_name": {
+            "anyOf": [
+              {
+                "maxLength": 4096,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tool Name"
+          }
+        },
+        "required": [
+          "segment_id",
+          "event_id",
+          "ordinal",
+          "source_record",
+          "source_block",
+          "content_kind",
+          "text",
+          "text_offset",
+          "text_truncated"
+        ],
+        "title": "SegmentRead",
+        "type": "object"
+      },
+      "SegmentWindow": {
+        "additionalProperties": false,
+        "properties": {
+          "anchor_ordinal": {
+            "minimum": 0.0,
+            "title": "Anchor Ordinal",
+            "type": "integer"
+          },
+          "anchor_segment_id": {
+            "pattern": "^[0-9a-f]{24}$",
+            "title": "Anchor Segment Id",
+            "type": "string"
+          },
+          "first_ordinal": {
+            "minimum": 0.0,
+            "title": "First Ordinal",
+            "type": "integer"
+          },
+          "last_ordinal": {
+            "minimum": 0.0,
+            "title": "Last Ordinal",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "anchor_segment_id",
+          "anchor_ordinal",
+          "first_ordinal",
+          "last_ordinal"
+        ],
+        "title": "SegmentWindow",
+        "type": "object"
+      },
+      "SourceQueryInterpretation": {
+        "additionalProperties": false,
+        "properties": {
+          "fields": {
+            "items": {
+              "enum": [
+                "title",
+                "summary",
+                "tags",
+                "checkpoint",
+                "identifiers",
+                "provenance",
+                "metadata",
+                "content"
+              ],
+              "type": "string"
+            },
+            "maxItems": 6,
+            "title": "Fields",
+            "type": "array"
+          },
+          "fulltext": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fulltext"
+          },
+          "match_mode": {
+            "enum": [
+              "browse",
+              "postgresql_plain_terms_or_substring",
+              "hybrid_lexical_semantic",
+              "all_terms"
+            ],
+            "title": "Match Mode",
+            "type": "string"
+          }
+        },
+        "required": [
+          "match_mode",
+          "fields",
+          "fulltext"
+        ],
+        "title": "SourceQueryInterpretation",
         "type": "object"
       },
       "SourceWorkState": {
@@ -9568,6 +10736,107 @@
         "title": "TitleChange",
         "type": "object"
       },
+      "TranscriptAppliedFilters": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Session Id"
+          },
+          "client": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client"
+          },
+          "content_kinds": {
+            "anyOf": [
+              {
+                "items": {
+                  "enum": [
+                    "human_text",
+                    "assistant_text",
+                    "tool_call",
+                    "tool_result",
+                    "system_text",
+                    "reasoning",
+                    "summary",
+                    "unsupported"
+                  ],
+                  "type": "string"
+                },
+                "maxItems": 8,
+                "minItems": 1,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Content Kinds"
+          },
+          "kind": {
+            "anyOf": [
+              {
+                "enum": [
+                  "primary",
+                  "subagent",
+                  "imported"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kind"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "enum": [
+                  "waiting",
+                  "pending",
+                  "processing",
+                  "ready",
+                  "failed"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          },
+          "work_item_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Work Item Id"
+          }
+        },
+        "title": "TranscriptAppliedFilters",
+        "type": "object"
+      },
       "TranscriptFacetHit": {
         "additionalProperties": false,
         "properties": {
@@ -9593,7 +10862,15 @@
             "type": "number"
           },
           "transcript": {
-            "$ref": "#/components/schemas/TranscriptRead"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TranscriptRead"
+              },
+              {
+                "$ref": "#/components/schemas/CompactTranscriptRead"
+              }
+            ],
+            "title": "Transcript"
           },
           "updated_at": {
             "format": "date-time",
@@ -9697,14 +10974,33 @@
         "type": "object"
       },
       "TranscriptPage": {
+        "additionalProperties": false,
         "properties": {
+          "applied_filters": {
+            "$ref": "#/components/schemas/AppliedSearchFilters"
+          },
+          "detail": {
+            "enum": [
+              "compact",
+              "full"
+            ],
+            "title": "Detail",
+            "type": "string"
+          },
           "indexing_incomplete": {
             "title": "Indexing Incomplete",
             "type": "boolean"
           },
           "items": {
             "items": {
-              "$ref": "#/components/schemas/TranscriptRead"
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/TranscriptRead"
+                },
+                {
+                  "$ref": "#/components/schemas/CompactTranscriptRead"
+                }
+              ]
             },
             "title": "Items",
             "type": "array"
@@ -9717,6 +11013,9 @@
             "title": "Offset",
             "type": "integer"
           },
+          "query_interpretation": {
+            "$ref": "#/components/schemas/QueryInterpretation"
+          },
           "term_diagnostics": {
             "items": {
               "$ref": "#/components/schemas/TermDiagnostic"
@@ -9728,9 +11027,21 @@
           "total": {
             "title": "Total",
             "type": "integer"
+          },
+          "warnings": {
+            "items": {
+              "$ref": "#/components/schemas/SearchWarning"
+            },
+            "maxItems": 1,
+            "title": "Warnings",
+            "type": "array"
           }
         },
         "required": [
+          "applied_filters",
+          "query_interpretation",
+          "warnings",
+          "detail",
           "items",
           "total",
           "limit",
@@ -9745,6 +11056,27 @@
           "client": {
             "title": "Client",
             "type": "string"
+          },
+          "content_kind": {
+            "anyOf": [
+              {
+                "enum": [
+                  "human_text",
+                  "assistant_text",
+                  "tool_call",
+                  "tool_result",
+                  "system_text",
+                  "reasoning",
+                  "summary",
+                  "unsupported"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Content Kind"
           },
           "copied_at": {
             "anyOf": [
@@ -9903,6 +11235,93 @@
             ],
             "title": "Mime Type"
           },
+          "normalization_error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Normalization Error Code"
+          },
+          "normalization_incomplete": {
+            "default": false,
+            "title": "Normalization Incomplete",
+            "type": "boolean"
+          },
+          "normalization_schema_version": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Normalization Schema Version"
+          },
+          "normalization_status": {
+            "default": "pending",
+            "enum": [
+              "pending",
+              "processing",
+              "ready",
+              "failed"
+            ],
+            "title": "Normalization Status",
+            "type": "string"
+          },
+          "normalized_revision": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Normalized Revision"
+          },
+          "normalized_sha256": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Normalized Sha256"
+          },
+          "normalized_size_bytes": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Normalized Size Bytes"
+          },
+          "normalizer_version": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Normalizer Version"
+          },
           "project_id": {
             "format": "uuid",
             "title": "Project Id",
@@ -9919,6 +11338,24 @@
             ],
             "title": "Score"
           },
+          "segment_count": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Segment Count",
+            "type": "integer"
+          },
+          "segment_id": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{24}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Segment Id"
+          },
           "session_id": {
             "anyOf": [
               {
@@ -9933,6 +11370,7 @@
           "sha256": {
             "anyOf": [
               {
+                "pattern": "^[0-9a-f]{64}$",
                 "type": "string"
               },
               {
@@ -9981,6 +11419,7 @@
           "text_sha256": {
             "anyOf": [
               {
+                "pattern": "^[0-9a-f]{64}$",
                 "type": "string"
               },
               {
@@ -10080,13 +11519,48 @@
       "TranscriptSearch": {
         "additionalProperties": false,
         "properties": {
+          "content_kinds": {
+            "anyOf": [
+              {
+                "items": {
+                  "enum": [
+                    "human_text",
+                    "assistant_text",
+                    "tool_call",
+                    "tool_result",
+                    "system_text",
+                    "reasoning",
+                    "summary",
+                    "unsupported"
+                  ],
+                  "type": "string"
+                },
+                "maxItems": 8,
+                "minItems": 1,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Content Kinds"
+          },
+          "detail": {
+            "default": "compact",
+            "enum": [
+              "compact",
+              "full"
+            ],
+            "title": "Detail",
+            "type": "string"
+          },
           "fulltext": {
             "default": false,
             "title": "Fulltext",
             "type": "boolean"
           },
           "limit": {
-            "default": 50,
+            "default": 20,
             "maximum": 100.0,
             "minimum": 1.0,
             "title": "Limit",
@@ -10203,14 +11677,18 @@
         "type": "object"
       },
       "TranscriptText": {
+        "additionalProperties": false,
         "properties": {
           "limit": {
+            "maximum": 200000.0,
+            "minimum": 1.0,
             "title": "Limit",
             "type": "integer"
           },
           "next_offset": {
             "anyOf": [
               {
+                "minimum": 0.0,
                 "type": "integer"
               },
               {
@@ -10219,7 +11697,57 @@
             ],
             "title": "Next Offset"
           },
+          "next_segment_after": {
+            "anyOf": [
+              {
+                "maximum": 20.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Segment After"
+          },
+          "next_segment_id": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{24}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Segment Id"
+          },
+          "next_segment_offset": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Segment Offset"
+          },
+          "normalized_revision": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Normalized Revision"
+          },
           "offset": {
+            "minimum": 0.0,
             "title": "Offset",
             "type": "integer"
           },
@@ -10227,6 +11755,32 @@
             "format": "uuid",
             "title": "Project Id",
             "type": "string"
+          },
+          "segment_window": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SegmentWindow"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "segments": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/SegmentRead"
+                },
+                "maxItems": 21,
+                "minItems": 1,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Segments"
           },
           "status": {
             "enum": [
@@ -10240,12 +11794,14 @@
             "type": "string"
           },
           "text": {
+            "maxLength": 200000,
             "title": "Text",
             "type": "string"
           },
           "text_sha256": {
             "anyOf": [
               {
+                "pattern": "^[0-9a-f]{64}$",
                 "type": "string"
               },
               {
@@ -10255,6 +11811,7 @@
             "title": "Text Sha256"
           },
           "total_chars": {
+            "minimum": 0.0,
             "title": "Total Chars",
             "type": "integer"
           },
@@ -10321,6 +11878,104 @@
           "type"
         ],
         "title": "ValidationError",
+        "type": "object"
+      },
+      "WorkAppliedFilters": {
+        "additionalProperties": false,
+        "properties": {
+          "canonical_work_item_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Canonical Work Item Id"
+          },
+          "duplicate_scope": {
+            "default": "canonical",
+            "enum": [
+              "canonical",
+              "aliases",
+              "all"
+            ],
+            "title": "Duplicate Scope",
+            "type": "string"
+          },
+          "external_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "External Url"
+          },
+          "source_client": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Client"
+          },
+          "source_session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Session Id"
+          },
+          "status": {
+            "default": "all",
+            "enum": [
+              "pending",
+              "active",
+              "to-review",
+              "dropped",
+              "deferred",
+              "done",
+              "wont-do",
+              "promoted",
+              "all"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "tag": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tag"
+          },
+          "view": {
+            "default": "full",
+            "enum": [
+              "full",
+              "roots"
+            ],
+            "title": "View",
+            "type": "string"
+          }
+        },
+        "title": "WorkAppliedFilters",
         "type": "object"
       },
       "WorkChangeSet": {
@@ -11530,7 +13185,15 @@
             "type": "string"
           },
           "work_item": {
-            "$ref": "#/components/schemas/WorkSearchHit"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WorkSearchHit"
+              },
+              {
+                "$ref": "#/components/schemas/CompactWorkHit"
+              }
+            ],
+            "title": "Work Item"
           }
         },
         "required": [
@@ -12982,6 +14645,83 @@
         "title": "WorkSearchHit",
         "type": "object"
       },
+      "WorkSearchPage": {
+        "additionalProperties": false,
+        "properties": {
+          "applied_filters": {
+            "$ref": "#/components/schemas/AppliedSearchFilters"
+          },
+          "detail": {
+            "enum": [
+              "compact",
+              "full"
+            ],
+            "title": "Detail",
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/WorkSearchHit"
+                },
+                {
+                  "$ref": "#/components/schemas/HierarchySummary"
+                },
+                {
+                  "$ref": "#/components/schemas/CompactWorkHit"
+                },
+                {
+                  "$ref": "#/components/schemas/CompactHierarchyHit"
+                }
+              ]
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "query_interpretation": {
+            "$ref": "#/components/schemas/QueryInterpretation"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          },
+          "warnings": {
+            "items": {
+              "$ref": "#/components/schemas/SearchWarning"
+            },
+            "maxItems": 1,
+            "title": "Warnings",
+            "type": "array"
+          },
+          "work_rank_scope": {
+            "const": "work_items",
+            "title": "Work Rank Scope",
+            "type": "string"
+          }
+        },
+        "required": [
+          "applied_filters",
+          "query_interpretation",
+          "warnings",
+          "detail",
+          "work_rank_scope",
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "WorkSearchPage",
+        "type": "object"
+      },
       "WorkSnapshot": {
         "additionalProperties": false,
         "properties": {
@@ -13323,7 +15063,7 @@
   "info": {
     "description": "Durable project-scoped work with immutable agent checkpoints.",
     "title": "Mnemonic API",
-    "version": "0.55.0"
+    "version": "0.58.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -13933,6 +15673,15 @@
                     ],
                     "title": "Artifact Id"
                   },
+                  "detail": {
+                    "default": "compact",
+                    "enum": [
+                      "compact",
+                      "full"
+                    ],
+                    "title": "Detail",
+                    "type": "string"
+                  },
                   "fulltext": {
                     "default": false,
                     "title": "Fulltext",
@@ -13949,7 +15698,7 @@
                     "type": "boolean"
                   },
                   "limit": {
-                    "default": 50,
+                    "default": 20,
                     "maximum": 100,
                     "minimum": 1,
                     "title": "Limit",
@@ -15839,6 +17588,15 @@
               "schema": {
                 "additionalProperties": false,
                 "properties": {
+                  "detail": {
+                    "default": "compact",
+                    "enum": [
+                      "compact",
+                      "full"
+                    ],
+                    "title": "Detail",
+                    "type": "string"
+                  },
                   "facet_order": {
                     "items": {
                       "additionalProperties": false,
@@ -16016,6 +17774,32 @@
                             ],
                             "title": "Client"
                           },
+                          "content_kinds": {
+                            "anyOf": [
+                              {
+                                "items": {
+                                  "enum": [
+                                    "human_text",
+                                    "assistant_text",
+                                    "tool_call",
+                                    "tool_result",
+                                    "system_text",
+                                    "reasoning",
+                                    "summary",
+                                    "unsupported"
+                                  ],
+                                  "type": "string"
+                                },
+                                "maxItems": 8,
+                                "minItems": 1,
+                                "type": "array"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "title": "Content Kinds"
+                          },
                           "kind": {
                             "anyOf": [
                               {
@@ -16178,7 +17962,7 @@
                     "type": "boolean"
                   },
                   "limit": {
-                    "default": 50,
+                    "default": 20,
                     "maximum": 100,
                     "minimum": 1,
                     "title": "Limit",
@@ -16520,6 +18304,51 @@
           },
           {
             "in": "query",
+            "name": "content_kinds",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "enum": [
+                      "human_text",
+                      "assistant_text",
+                      "tool_call",
+                      "tool_result",
+                      "system_text",
+                      "reasoning",
+                      "summary",
+                      "unsupported"
+                    ],
+                    "type": "string"
+                  },
+                  "maxItems": 8,
+                  "minItems": 1,
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Content Kinds"
+            }
+          },
+          {
+            "in": "query",
+            "name": "detail",
+            "required": false,
+            "schema": {
+              "default": "compact",
+              "enum": [
+                "compact",
+                "full"
+              ],
+              "title": "Detail",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
             "name": "work_item_id",
             "required": false,
             "schema": {
@@ -16540,7 +18369,7 @@
             "name": "limit",
             "required": false,
             "schema": {
-              "default": 50,
+              "default": 20,
               "maximum": 100,
               "minimum": 1,
               "title": "Limit",
@@ -16910,7 +18739,7 @@
             "required": false,
             "schema": {
               "default": 0,
-              "maximum": 8000000,
+              "maximum": 1073741824,
               "minimum": 0,
               "title": "Offset",
               "type": "integer"
@@ -16943,6 +18772,64 @@
                 }
               ],
               "title": "Expected Sha256"
+            }
+          },
+          {
+            "in": "query",
+            "name": "segment_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "pattern": "^[0-9a-f]{24}$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Segment Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "expected_normalized_revision",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "pattern": "^[0-9a-f]{64}$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Expected Normalized Revision"
+            }
+          },
+          {
+            "in": "query",
+            "name": "before",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "maximum": 20,
+              "minimum": 0,
+              "title": "Before",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "after",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "maximum": 20,
+              "minimum": 0,
+              "title": "After",
+              "type": "integer"
             }
           }
         ],
@@ -17145,10 +19032,24 @@
           },
           {
             "in": "query",
+            "name": "detail",
+            "required": false,
+            "schema": {
+              "default": "compact",
+              "enum": [
+                "compact",
+                "full"
+              ],
+              "title": "Detail",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
             "name": "status",
             "required": false,
             "schema": {
-              "default": "pending",
+              "default": "all",
               "enum": [
                 "pending",
                 "active",
@@ -17284,7 +19185,7 @@
             "name": "limit",
             "required": false,
             "schema": {
-              "default": 30,
+              "default": 20,
               "maximum": 100,
               "minimum": 1,
               "title": "Limit",
@@ -17308,7 +19209,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Page_Union_WorkSearchHit__HierarchySummary__"
+                  "$ref": "#/components/schemas/WorkSearchPage"
                 }
               }
             },
@@ -19698,7 +21599,7 @@
         "frontend/lib/duplicate-handling.ts:decodeWorkContext": "WorkContext",
         "frontend/lib/duplicate-handling.ts:decodeWorkItemDetail": "WorkItemDetailRead",
         "frontend/lib/duplicate-handling.ts:decodeWorkPointer": "WorkPointer",
-        "frontend/lib/duplicate-handling.ts:decodeWorkSearchPage": "Page_Union_WorkSearchHit__HierarchySummary__",
+        "frontend/lib/duplicate-handling.ts:decodeWorkSearchPage": "WorkSearchPage",
         "frontend/lib/duplicate-handling.ts:decodeWorkSearchPage:item": "WorkSearchHit",
         "frontend/lib/duplicate-suggestions.ts:decodeDuplicateCandidateSummary": "DuplicateCandidateSummary",
         "frontend/lib/duplicate-suggestions.ts:decodeDuplicateSuggestion:item": "DuplicateSuggestion",
@@ -19706,9 +21607,10 @@
         "frontend/lib/duplicate-suggestions.ts:decodeExternalCandidateReference": "ExternalCandidateReference",
         "frontend/lib/duplicate-suggestions.ts:decodeExternalSuggestion": "ExternalDuplicateSuggestion",
         "frontend/lib/external-references.ts:decodeExternalReference": "ExternalReference",
-        "frontend/lib/hierarchy-presentation.ts:decodeHierarchyPage": "Page_Union_WorkSearchHit__HierarchySummary__",
+        "frontend/lib/hierarchy-presentation.ts:decodeHierarchyPage": "Page_HierarchySummary_",
         "frontend/lib/hierarchy-presentation.ts:decodeHierarchyPage:item": "HierarchySummary",
         "frontend/lib/hierarchy-presentation.ts:decodeHierarchyPresentation": "HierarchyPresentation",
+        "frontend/lib/hierarchy-presentation.ts:decodeHierarchySearchPage": "WorkSearchPage",
         "frontend/lib/human-gates.ts:GATE_FIELDS": "HumanGateRead",
         "frontend/lib/human-gates.ts:decodeCursorPage:attention": "HumanAttentionPage",
         "frontend/lib/human-gates.ts:decodeCursorPage:gates": "HumanGatePage",
@@ -19749,7 +21651,7 @@
         "RelationshipPage": "Page_AdjacentRelationshipRead_",
         "WorkCompletion": "WorkCompletionRead",
         "WorkDeletionResult": "WorkDeletionRead",
-        "WorkPage": "Page_Union_WorkSearchHit__HierarchySummary__"
+        "WorkPage": "WorkSearchPage"
       },
       "default_component_rule": "CanonicalResponse class name equals component name"
     }

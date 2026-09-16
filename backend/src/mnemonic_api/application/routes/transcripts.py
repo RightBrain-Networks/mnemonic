@@ -15,6 +15,7 @@ from mnemonic_api.errors import ApplicationError, conflict
 from mnemonic_api.models import Transcript
 from mnemonic_api.services import transcript_imports, transcripts
 from mnemonic_api.services.project_mutations import project_mutation
+from mnemonic_api.services.transcript_segments import segment_range
 from mnemonic_api.transcript_discovery import discover_transcripts
 from mnemonic_api.transcript_schemas import (
     TranscriptImportRead,
@@ -101,17 +102,33 @@ def _text_record(database, project_id, transcript_id, expected_sha256) -> Transc
             dependencies=[Depends(reject_read_body_and_duplicate_query)])
 def get_transcript_text(
     project_id: UUID, transcript_id: UUID, database: Database,
-    offset: int = Query(default=0, ge=0, le=8_000_000),
+    offset: int = Query(default=0, ge=0, le=1_073_741_824),
     limit: int = Query(default=20_000, ge=1, le=200_000),
     expected_sha256: str | None = Query(default=None, pattern="^[0-9a-f]{64}$"),
+    segment_id: str | None = Query(default=None, pattern="^[0-9a-f]{24}$"),
+    expected_normalized_revision: str | None = Query(default=None, pattern="^[0-9a-f]{64}$"),
+    before: int = Query(default=0, ge=0, le=20),
+    after: int = Query(default=0, ge=0, le=20),
 ) -> TranscriptText:
+    begin_coherent_read(database)
+    if segment_id is not None:
+        record = transcripts.require_transcript(database, project_id, transcript_id)
+        if expected_sha256 is not None and record.text_sha256 != expected_sha256:
+            raise conflict("transcript_content_changed",
+                           "The indexed transcript changed; reload it.")
+        return segment_range(database, record, project_id, segment_id,
+                             expected_normalized_revision, before, after, offset, limit)
+    if before or after or expected_normalized_revision is not None:
+        raise ApplicationError(422, "transcript_segment_required",
+                               "Supply segment_id for normalized revision and surrounding context.")
     record = _text_record(database, project_id, transcript_id, expected_sha256)
     value = record.normalized_text or ""
     end = min(len(value), offset + limit)
     return TranscriptText(transcript_id=transcript_id, project_id=project_id,
         text=value[offset:end], total_chars=len(value), offset=offset, limit=limit,
         next_offset=end if end < len(value) else None, status="ready",
-        truncated=record.truncated, text_sha256=record.text_sha256)
+        truncated=record.truncated, text_sha256=record.text_sha256,
+        normalized_revision=record.normalized_revision)
 
 
 @router.get(_collection + "/{transcript_id}/content",

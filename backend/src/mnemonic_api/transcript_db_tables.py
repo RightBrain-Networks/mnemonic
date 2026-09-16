@@ -7,7 +7,7 @@ from mnemonic_api.transcript_copy_db import INDEX_LEASE_CHECK
 
 
 def transcript_elements(*, include_imports: bool = True, include_copies: bool = True,
-                        include_recovery: bool = True) -> list:
+                        include_recovery: bool = True, include_normalization: bool = True) -> list:
     elements = [
         sa.Column("id", UUID, primary_key=True),
         sa.Column("work_item_id", UUID, sa.ForeignKey("work_items.id", ondelete="RESTRICT"),
@@ -78,6 +78,13 @@ def transcript_elements(*, include_imports: bool = True, include_copies: bool = 
             from mnemonic_api.transcript_recovery_db import recovery_pointer_elements
 
             elements.extend(recovery_pointer_elements())
+            if include_normalization:
+                from mnemonic_api.transcript_normalization_db import (
+                    normalization_checks,
+                    normalization_columns,
+                )
+
+                elements.extend(normalization_columns() + normalization_checks())
     return elements
 
 

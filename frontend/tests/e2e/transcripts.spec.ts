@@ -72,11 +72,31 @@ test(`${client} transcripts index after closeout and support search, metadata, s
     await expect(page.locator(".artifact-search-excerpt").first()).toContainText("magenta otter");
     const filename = `${runId}.jsonl`;
     const name = page.getByRole("button", { name: filename, exact: true });
+    const contentKind = page.getByRole("combobox", { name: "Conversation content", exact: true });
+    await contentKind.selectOption("tool_result");
+    await expect(page.getByText("No matching transcripts.", { exact: true })).toBeVisible();
+    await contentKind.selectOption("assistant_text");
+    await expect(page.locator(".transcript-table tbody tr")).toHaveCount(2);
+    await page.getByRole("button", { name: `Open match in ${filename}`, exact: true }).click();
+    const conversation = page.getByRole("dialog", { name: filename, exact: true });
+    await expect(conversation.getByRole("region", { name: "Conversation context", exact: true })).toContainText("magenta otter");
+    await expect(conversation.getByRole("heading", { name: /Assistant messages.*Search match/ })).toBeVisible();
+    await expect(conversation.getByRole("button", { name: "Next context", exact: true })).toBeDisabled();
+    if (testInfo.project.name === "chromium-narrow") {
+      await expect.poll(async () => (await conversation.boundingBox())?.width).toBe(page.viewportSize()!.width);
+    }
+    expect(await page.evaluate(() => (window as Window & { transcriptExecuted?: boolean }).transcriptExecuted)).toBeUndefined();
+    await page.screenshot({ path: testInfo.outputPath("transcript-conversation.png"), animations: "disabled" });
+    await testInfo.attach("Normalized conversation match context", { path: testInfo.outputPath("transcript-conversation.png"), contentType: "image/png" });
+    await conversation.getByRole("button", { name: "Close preview", exact: true }).click();
+    await contentKind.selectOption("");
     await name.click();
     const details = page.getByRole("dialog", { name: filename, exact: true });
     await expect(details).toContainText("Indexing started");
     await expect(details).toContainText("Indexing completed");
     await expect(details).toContainText("Copy status");
+    await expect(details).toContainText("Conversation revision");
+    await expect(details).toContainText("Conversation blocks");
     await expect(details).toContainText(primary);
     await expect(details.getByRole("link", { name: work.id })).toHaveAttribute("href", `/?work=${work.id}`);
     await expect(details.getByRole("button", { name: "Close details" })).toBeFocused();

@@ -18,11 +18,9 @@ from mnemonic_api.database import Database, begin_coherent_read
 from mnemonic_api.errors import ApplicationError, semantic_unavailable
 from mnemonic_api.models import WorkItem
 from mnemonic_api.schemas import (
-    HierarchySummary,
-    Page,
     WorkIdentityPointer,
     WorkItemListQuery,
-    WorkSearchHit,
+    WorkSearchPage,
 )
 from mnemonic_api.semantic import (
     Embedder,
@@ -41,10 +39,10 @@ from mnemonic_api.services.work_search import (
     _lexical_selections,
     _page,
     _scope_rows,
-    _summaries_with_ancestry,
     _validate_root_filter,
     provenance_conditions,
     status_conditions,
+    work_search_disclosure,
 )
 
 logger = logging.getLogger(__name__)
@@ -53,17 +51,22 @@ router = APIRouter()
 
 @router.get(
     "/projects/{project_id}/work-items",
-    response_model=Page[WorkSearchHit | HierarchySummary],
+    response_model=WorkSearchPage,
 )
 def search_work(
     project_id: UUID,
     filters: Annotated[WorkItemListQuery, Query()],
     request: Request,
     database: Database,
-) -> Page[WorkSearchHit | HierarchySummary]:
+) -> WorkSearchPage:
     if filters.view == "roots":
         roots, total = hierarchy_page(database, project_id, filters)
-        return Page(items=roots, total=total, limit=filters.limit, offset=filters.offset)
+        return WorkSearchPage(
+            work_rank_scope="work_items",
+            **work_search_disclosure(project_id, filters).model_dump(),
+            detail=filters.detail, items=roots, total=total,
+            limit=filters.limit, offset=filters.offset,
+        )
 
     query = (filters.q or "").strip()
     embedder = embedder_of(request)
@@ -133,17 +136,11 @@ def search_work(
     selections = _lexical_selections(scoped, filters, projections, lexical_rows, query)
     total = len(selections)
     page = selections[filters.offset : filters.offset + filters.limit]
-    summaries = _summaries_with_ancestry(
-        database,
-        project_id,
-        [selection.work_item for selection in page],
-        as_of=as_of,
-    )
     pointers = {
         item.id: WorkIdentityPointer.model_validate(item)
         for item in all_visible
     }
-    return _page(filters, page, summaries, pointers, total)
+    return _page(database, project_id, filters, page, pointers, total, as_of=as_of)
 
 
 def _semantic_response(
@@ -158,20 +155,13 @@ def _semantic_response(
     query_vector: Sequence[float],
     embedder: Embedder,
     as_of: datetime,
-) -> Page[WorkSearchHit | HierarchySummary]:
+) -> WorkSearchPage:
     semantic_pool = all_visible if filters.duplicate_scope == "canonical" else scoped
     captured: list[EmbeddingCandidate] = capture_embedding_candidates(
         database,
         semantic_pool,
         dimensions=len(query_vector),
     )
-    summaries = _summaries_with_ancestry(
-        database,
-        project_id,
-        scoped,
-        as_of=as_of,
-    )
-    database.commit()
     try:
         ranked_ids, updates = rank_embedding_candidates(
             captured,
@@ -179,7 +169,6 @@ def _semantic_response(
             query_vector,
             embedder,
         )
-        persist_embedding_updates(database, updates)
     except Exception as exc:
         database.rollback()
         raise _semantic_unavailable(exc) from None
@@ -198,13 +187,19 @@ def _semantic_response(
             selections.append(SearchSelection(by_id[member_id], member_id))
     total = len(selections)
     page = selections[filters.offset : filters.offset + filters.limit]
-    summaries_by_id = {summary.work_item.id: summary for summary in summaries}
-    page_summaries = [summaries_by_id[selection.work_item.id] for selection in page]
     pointers = {
         item.id: WorkIdentityPointer.model_validate(item)
         for item in all_visible
     }
-    return _page(filters, page, page_summaries, pointers, total)
+    result = _page(database, project_id, filters, page, pointers, total, as_of=as_of)
+    # Keep page evidence on the original read-only snapshot while ranking. No row
+    # or advisory locks are held; shared inference admission bounds this work.
+    database.commit()
+    try:
+        persist_embedding_updates(database, updates)
+    except Exception as exc:
+        raise _semantic_unavailable(exc) from None
+    return result
 
 
 def _semantic_unavailable(exc: Exception) -> ApplicationError:

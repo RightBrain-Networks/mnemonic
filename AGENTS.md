@@ -83,8 +83,8 @@ git pull --ff-only origin main
 
 Use Semantic Versioning (`MAJOR.MINOR.PATCH`) for application releases. `MAJOR` version bumps are reserved and require explicit human approval. Increment `MINOR` for user-facing changes and `PATCH` for all other changes.
 
-The current application/API/MCP/dashboard release is `0.55.0`, Claude plugin
-`0.33.0`, and Alembic head `0039_manual_review_requests`. The catalog is exactly
+The current application/API/MCP/dashboard release is `0.58.0`, Claude plugin
+`0.36.0`, and Alembic head `0040_normalized_transcripts`. The catalog is exactly
 55 MCP tools, 17 receipt-protected MCP writes, 24 REST receipt kinds, 21 protected
 browser mutations, 24 work-event types, and three plugin skills. The suggestion
 POST is a safe read. Completion evidence and job completion reports are nested
@@ -162,8 +162,11 @@ Path verification does not require reading transcript bodies. Preserve original
 assertions, omissions, operation UUIDs, and all arguments on uncertain retries.
 Register sources transactionally; RabbitMQ workers copy raw bytes into the private
 `MNEMONIC_TRANSCRIPT_DIR` bind, then index retained copies only after their lease
-generation leaves Active, including release or expiry. Rebuilds reuse immutable
-copies. PostgreSQL retains a durable job ledger; messages carry only job UUIDs.
+generation leaves Active, including release or expiry. Client adapters persist a shared,
+versioned conversation manifest and typed segments before text indexing; search and bounded
+segment retrieval consume that common representation. Native copies remain immutable.
+Rebuilds reuse persisted segments when capture and normalizer versions match. See
+`docs/transcript-normalization.md`. PostgreSQL retains a durable job ledger; messages carry only job UUIDs.
 Existing transcripts backfill automatically; preserve legacy ready text on copy
 failure and report copy coverage. See `docs/transcript-jobs.md` and use
 `scripts/migrate_transcript_copies.py --wait --verify` inside the new worker.

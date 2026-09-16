@@ -67,7 +67,7 @@ def register(api, project, work_payload, tmp_path, *, client="claude-code"):
     work = create_work(api, project, work_payload)["work_item"]
     receipt, _ = claim(api, item_path(project, work),
                        source={"client": client, "path": str(source)})
-    response = api.get(collection(project))
+    response = api.get(collection(project), params={"detail": "full"})
     assert response.status_code == 200, response.text
     return work, receipt, response.json()["items"][0], source
 
@@ -134,7 +134,9 @@ def test_metadata_search_opt_in_fulltext_and_project_isolation(
     assert "needle" in page["items"][0]["snippet"]
     assert not page["indexing_incomplete"]
     other = api.post("/api/v1/projects", json={"name": "Other"}).json()
-    assert api.get(collection(other), params={"fulltext": True}).json()["total"] == 0
+    assert (
+        api.get(collection(other), params={"detail": "full", "fulltext": True}).json()["total"] == 0
+    )
     assert api.get(collection(other) + "/" + record["id"] + "/text").status_code == 404
 
 
@@ -166,8 +168,12 @@ def test_rebuild_during_tika_call_discards_result_and_retains_old_search(
     work, _, record, _ = register(api, project, work_payload, tmp_path)
     expire_lease(postgres_engine, work["id"])
     assert run(api)
-    assert api.get(collection(project), params={"query": "needle", "fulltext": True})\
-        .json()["total"] == 1
+    assert (
+        api.get(
+            collection(project), params={"detail": "full", "query": "needle", "fulltext": True}
+        ).json()["total"]
+        == 1
+    )
     def rebuild():
         return api.post(collection(project) + "/rebuild",
                         json={"client_operation_id": str(uuid4())})
@@ -175,8 +181,12 @@ def test_rebuild_during_tika_call_discards_result_and_retains_old_search(
     assert run(api, Parser(callback=rebuild))
     current = read(api, project, record)
     assert current["status"] == "ready" and current["index_status"] == "pending"
-    assert api.get(collection(project), params={"query": "needle", "fulltext": True})\
-        .json()["total"] == 1
+    assert (
+        api.get(
+            collection(project), params={"detail": "full", "query": "needle", "fulltext": True}
+        ).json()["total"]
+        == 1
+    )
 
 
 @pytest.mark.parametrize("failure,code", [
@@ -214,7 +224,7 @@ def test_failures_have_terminal_metadata_and_do_not_poison_queue(
         assert failed["mime_type"] == "application/x-ndjson"
         assert failed["sha256"] is not None
     assert not run(api)
-    assert api.get(collection(project)).json()["indexing_incomplete"]
+    assert api.get(collection(project), params={"detail": "full"}).json()["indexing_incomplete"]
 
 
 def test_settings_pause_claims_revision_guard_and_effective_operator_limit(
@@ -289,7 +299,10 @@ def test_capacity_preflight_rejects_before_loading_corpus(
 
     event.listen(postgres_engine, "before_cursor_execute", before_cursor)
     try:
-        response = api.get(collection(project), params={"query": "anything", "fulltext": fulltext})
+        response = api.get(
+            collection(project),
+            params={"detail": "full", "query": "anything", "fulltext": fulltext},
+        )
     finally:
         event.remove(postgres_engine, "before_cursor_execute", before_cursor)
     assert response.status_code == 503, response.text
@@ -324,14 +337,18 @@ def test_corpus_cursor_fetches_one_document_from_a_coherent_snapshot(
     api.app.state.settings.transcript_search_max_bytes = 4096
     event.listen(postgres_engine, "before_cursor_execute", before_cursor)
     try:
-        response = api.get(collection(project), params={"query": "needle", "fulltext": True})
+        response = api.get(
+            collection(project), params={"detail": "full", "query": "needle", "fulltext": True}
+        )
     finally:
         event.remove(postgres_engine, "before_cursor_execute", before_cursor)
     assert response.status_code == 200, response.text
     assert response.json()["total"] == 1
     assert "needle" in response.json()["items"][0]["snippet"]
     assert batches == [1]
-    changed = api.get(collection(project), params={"query": "needle", "fulltext": True})
+    changed = api.get(
+        collection(project), params={"detail": "full", "query": "needle", "fulltext": True}
+    )
     assert changed.status_code == 503
     assert changed.json()["detail"]["code"] == "transcript_search_capacity"
 
@@ -358,14 +375,19 @@ def test_search_admission_bounds_parallel_corpus_loading(
                                 params={"query": "needle", "fulltext": True})
         assert entered.wait(5)
         try:
-            second = api.get(collection(project), params={"query": "needle", "fulltext": True})
+            second = api.get(
+                collection(project), params={"detail": "full", "query": "needle", "fulltext": True}
+            )
             assert second.status_code == 503, second.text
             assert second.json()["detail"]["code"] == "transcript_search_busy"
             assert len(calls) == 1
         finally:
             release.set()
         assert first.result(timeout=5).status_code == 200
-    assert api.get(collection(project), params={"query": "needle"}).status_code == 200
+    assert (
+        api.get(collection(project), params={"detail": "full", "query": "needle"}).status_code
+        == 200
+    )
 
 
 def test_moved_work_transcript_follows_current_project_without_source_leakage(
@@ -382,9 +404,11 @@ def test_moved_work_transcript_follows_current_project_without_source_leakage(
     assert response.status_code == 200, response.text
     for suffix in ("", "/text", "/content"):
         assert api.get(old_path + suffix).status_code == 404
-    page = api.get(collection(project), params={"query": "needle", "fulltext": True})
+    page = api.get(
+        collection(project), params={"detail": "full", "query": "needle", "fulltext": True}
+    )
     assert page.json()["total"] == 0
-    moved = api.get(collection(target)).json()["items"]
+    moved = api.get(collection(target), params={"detail": "full"}).json()["items"]
     assert len(moved) == 1
     assert moved[0]["id"] == record["id"]
     assert moved[0]["project_id"] == target["id"]
@@ -565,7 +589,7 @@ def test_list_counts_and_items_share_snapshot_across_concurrent_mutation(
 
     event.listen(postgres_engine, "after_cursor_execute", after_count)
     try:
-        response = api.get(collection(project))
+        response = api.get(collection(project), params={"detail": "full"})
     finally:
         event.remove(postgres_engine, "after_cursor_execute", after_count)
     assert response.status_code == 200, response.text
@@ -574,7 +598,7 @@ def test_list_counts_and_items_share_snapshot_across_concurrent_mutation(
     assert snapshot["total"] == len(snapshot["items"]) == 1
     assert snapshot["items"][0]["status"] == "ready"
     assert not snapshot["indexing_incomplete"]
-    current = api.get(collection(project)).json()
+    current = api.get(collection(project), params={"detail": "full"}).json()
     assert current["indexing_incomplete"]
     assert current["total"] == (2 if mutation == "register" else 1)
 
@@ -609,7 +633,9 @@ def test_index_retry_reuses_copied_provenance_when_source_changes(
     assert current["metadata"] == first["metadata"] | {"dc:creator": ["Synthetic Author"]}
     assert current["text_sha256"] is not None
     assert not current["truncated"]
-    page = api.get(collection(project), params={"query": "obsoleteprovenancetoken"})
+    page = api.get(
+        collection(project), params={"detail": "full", "query": "obsoleteprovenancetoken"}
+    )
     assert page.status_code == 200, page.text
     assert page.json()["total"] == 1
 

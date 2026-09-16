@@ -297,8 +297,8 @@ The browser uses `request_code_review=true` inside receipt-protected `update_wor
 with a work version, dashboard actor, and operation UUID. This field is human-only
 and must be submitted alone. Exact retries return their original response. There
 are no new MCP tools, protected writes, receipt kinds, or work-event types.
-Upgrade API/MCP/dashboard to 0.55.0, plugin to 0.33.0, and Alembic to
-`0039_manual_review_requests` together. Quiesce writers and back up first. Existing
+Upgrade API/MCP/dashboard to 0.58.0, plugin to 0.36.0, and Alembic to
+`0040_normalized_transcripts` together. Quiesce writers and back up first. Existing
 requests and receipts are unchanged; no reviews are inferred by migration.
 Downgrade is refused once human requests have been recorded. Run both integrity
 audits on the new schema, including after a restore.

@@ -16,6 +16,7 @@ from conftest import (
 from mcp.server.fastmcp.exceptions import ToolError
 
 from mnemonic_mcp.api import MnemonicAPI
+from mnemonic_mcp.search_disclosure import WorkAppliedFilters, search_disclosure
 from mnemonic_mcp.server import build_server
 
 OFFSET_TOOLS = (
@@ -55,6 +56,10 @@ def pages(project, work_summary, checkpoint, adjacent_relationship, progress_eve
     return {
         tool: {
             "items": [row], "total": 6, "limit": 3,
+            **(search_disclosure(UUID(PROJECT_ID), "", work_items=WorkAppliedFilters())
+               .model_dump(mode="json") if tool == "search_work" else {}),
+            **({"detail": "full", "work_rank_scope": "work_items"}
+               if tool == "search_work" else {}),
             **({"offset": 2} if tool in OFFSET_TOOLS else {"next_cursor": None}),
             **({"pre_phase5_history_may_be_incomplete": False}
                if tool == "list_work_events" else {}),
@@ -65,6 +70,8 @@ def pages(project, work_summary, checkpoint, adjacent_relationship, progress_eve
 
 def arguments(tool):
     args = {"limit": 3}
+    if tool == "search_work":
+        args["detail"] = "full"
     if tool in OFFSET_TOOLS:
         args["offset"] = 2
     if tool != "list_projects":

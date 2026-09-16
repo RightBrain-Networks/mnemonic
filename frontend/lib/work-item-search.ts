@@ -93,6 +93,7 @@ export function workSearchParams({
   const params = new URLSearchParams({
     status,
     sort,
+    detail: "full",
     view: isFlatWorkSearch({ query, duplicateScope, canonicalWorkItemId }) ? "full" : "roots",
     limit: String(limit),
     offset: String(offset),

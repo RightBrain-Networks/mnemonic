@@ -62,6 +62,7 @@ from .external_records import (
 from .lease_models import LeaseSettingsRead
 from .phase12_models import JobCompletionReportRead, reject_null_report
 from .response_validation import validate_page_bounds, validate_page_items
+from .search_disclosure import SearchDetail, SearchDisclosure
 
 Status = Literal["pending", "deferred", "done", "wont-do", "promoted"]
 EventStatus = Literal["open", "pending", "deferred", "done", "wont-do", "promoted"]
@@ -2479,8 +2480,62 @@ class HierarchySummary(CanonicalResponse):
         return self
 
 
-class WorkPage(CanonicalResponse):
-    items: list[WorkSearchHit | HierarchySummary]
+class CompactWorkHit(CanonicalResponse):
+    id: UUID
+    project_id: UUID
+    title: str
+    status: Status
+    display_state: DisplayState
+    priority: StrictInt = Field(ge=0, le=100)
+    updated_at: UTCDateTime
+    rank: StrictInt = Field(ge=1)
+    canonical_work_item_id: UUID
+    search_status: Literal[
+        "pending", "active", "to-review", "dropped", "deferred", "done", "wont-do", "promoted",
+    ]
+    ancestor_path: list[WorkIdentityPointer] = Field(default_factory=list)
+    ancestor_path_truncated: StrictBool = False
+    matched_member: WorkIdentityPointer | None = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
+
+    @model_validator(mode="after")
+    def coherent_pointer(self) -> Self:
+        ancestors = [ancestor.id for ancestor in self.ancestor_path]
+        if self.id in ancestors or len(ancestors) != len(set(ancestors)):
+            raise ValueError("Compact search ancestry cannot repeat its identity")
+        if (self.canonical_work_item_id != self.id) != (self.display_state == "duplicate"):
+            raise ValueError("Compact search duplicate identity is inconsistent")
+        if self.matched_member is not None and self.matched_member.id == self.id:
+            raise ValueError("Compact search omits redundant matched members")
+        statuses = {"pending": {"pending", "active", "dropped"},
+                    "done": {"done", "to-review", "deferred", "wont-do"}}
+        if self.search_status not in statuses.get(self.status, {self.status}):
+            raise ValueError("Compact search status disagrees with lifecycle")
+        masked = self.status == "pending" and self.display_state in {"waiting", "blocked"}
+        if self.display_state != "duplicate" and not masked and (
+            self.display_state != self.search_status
+        ):
+            raise ValueError("Compact search display disagrees with status")
+        return self
+
+
+class CompactHierarchyHit(CompactWorkHit):
+    self_matches_filter: StrictBool
+    has_matching_descendants: StrictBool
+    presentation: HierarchyPresentation
+
+    @model_validator(mode="after")
+    def canonical_hierarchy(self) -> Self:
+        if self.canonical_work_item_id != self.id or self.matched_member is not None:
+            raise ValueError("Compact hierarchy requires canonical work identity")
+        return self
+
+
+class WorkPage(CanonicalResponse, SearchDisclosure):
+    detail: SearchDetail
+    work_rank_scope: Literal["work_items"]
+    items: list[WorkSearchHit | HierarchySummary | CompactWorkHit | CompactHierarchyHit]
     total: StrictInt = Field(ge=0)
     limit: StrictInt = Field(ge=1, le=100)
     offset: StrictInt = Field(ge=0)
@@ -2489,11 +2544,16 @@ class WorkPage(CanonicalResponse):
     def enforce_page_contract(self) -> Self:
         validate_page_items(
             self.items, total=self.total, limit=self.limit, offset=self.offset,
-            key=lambda item: item.summary.work_item.id,
+            key=lambda item: item.id if isinstance(item, CompactWorkHit) else item.summary.work_item.id,
         )
+        if any(isinstance(item, CompactWorkHit) != (self.detail == "compact")
+               for item in self.items):
+            raise ValueError("Search detail does not match its work result shape")
         if self.items and not (
             all(isinstance(item, WorkSearchHit) for item in self.items)
             or all(isinstance(item, HierarchySummary) for item in self.items)
+            or all(type(item) is CompactWorkHit for item in self.items)
+            or all(isinstance(item, CompactHierarchyHit) for item in self.items)
         ):
             raise ValueError("A work page cannot mix full search hits and hierarchy roots.")
         return self

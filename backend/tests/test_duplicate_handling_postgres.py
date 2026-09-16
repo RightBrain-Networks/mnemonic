@@ -395,8 +395,8 @@ def test_chains_group_search_before_paging_and_stay_out_of_hierarchy(
     ]
 
     query = {"q": "xylophoneevidence", "status": "all", "limit": 1}
-    first_page = api.get(collection(project), params=query)
-    second_page = api.get(collection(project), params={**query, "offset": 1})
+    first_page = api.get(collection(project), params={"detail": "full", **query})
+    second_page = api.get(collection(project), params={"detail": "full", **query, "offset": 1})
     assert first_page.status_code == second_page.status_code == 200
     assert first_page.json()["total"] == second_page.json()["total"] == 2
     paged_hits = [first_page.json()["items"][0], second_page.json()["items"][0]]
@@ -412,6 +412,7 @@ def test_chains_group_search_before_paging_and_stay_out_of_hierarchy(
     alias_hits = api.get(
         collection(project),
         params={
+            "detail": "full",
             "q": "xylophoneevidence",
             "status": "all",
             "duplicate_scope": "aliases",
@@ -430,6 +431,7 @@ def test_chains_group_search_before_paging_and_stay_out_of_hierarchy(
     group_aliases = api.get(
         collection(project),
         params={
+            "detail": "full",
             "status": "all",
             "duplicate_scope": "aliases",
             "canonical_work_item_id": root_c["id"],
@@ -443,6 +445,7 @@ def test_chains_group_search_before_paging_and_stay_out_of_hierarchy(
     whole_group = api.get(
         collection(project),
         params={
+            "detail": "full",
             "status": "all",
             "duplicate_scope": "all",
             "canonical_work_item_id": root_c["id"],
@@ -458,25 +461,26 @@ def test_chains_group_search_before_paging_and_stay_out_of_hierarchy(
     # Non-text filters qualify the returned root, not an alias that nominated it.
     alias_only_filter = api.get(
         collection(project),
-        params={"q": "xylophoneevidence", "tag": "alias-only", "status": "all"},
+        params={"detail": "full", "q": "xylophoneevidence", "tag": "alias-only", "status": "all"},
     )
     assert alias_only_filter.status_code == 200
     assert alias_only_filter.json()["total"] == 0
     root_filter = api.get(
         collection(project),
-        params={"q": "xylophoneevidence", "tag": "root-only", "status": "all"},
+        params={"detail": "full", "q": "xylophoneevidence", "tag": "root-only", "status": "all"},
     )
     assert root_filter.status_code == 200
     assert root_filter.json()["total"] == 1
     assert root_filter.json()["items"][0]["matched_member"]["id"] == alias_a["id"]
 
     invalid_default_group = api.get(
-        collection(project), params={"canonical_work_item_id": root_c["id"]}
+        collection(project), params={"detail": "full", "canonical_work_item_id": root_c["id"]}
     )
     assert invalid_default_group.status_code == 422
     alias_as_group = api.get(
         collection(project),
         params={
+            "detail": "full",
             "status": "all",
             "duplicate_scope": "all",
             "canonical_work_item_id": alias_b["id"],
@@ -494,6 +498,7 @@ def test_chains_group_search_before_paging_and_stay_out_of_hierarchy(
         missing = api.get(
             collection(project),
             params={
+                "detail": "full",
                 "status": "all",
                 "duplicate_scope": "all",
                 "canonical_work_item_id": invisible_id,
@@ -503,7 +508,8 @@ def test_chains_group_search_before_paging_and_stay_out_of_hierarchy(
         assert missing.json()["detail"]["code"] == "work_item_not_found"
 
     roots = api.get(
-        collection(project), params={"view": "roots", "status": "all", "limit": 100}
+        collection(project),
+        params={"detail": "full", "view": "roots", "status": "all", "limit": 100},
     )
     assert roots.status_code == 200, roots.text
     root_entries = {

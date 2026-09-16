@@ -32,9 +32,9 @@ def seed_transcripts(api, project, body, count=1):
 
 
 def search(api, project, endpoint="content", *, query="needle", fulltext=True, **pagination):
-    payload = {"query": query, "fulltext": fulltext, **pagination}
+    payload = {"detail": "full", "query": query, "fulltext": fulltext, **pagination}
     if endpoint == "list":
-        return api.get(collection(project), params=payload)
+        return api.get(collection(project), params={"detail": "full", **payload})
     if endpoint == "unified":
         payload["q"] = payload.pop("query")
         return api.post(unified_path(project), json={**payload, "facets": ["transcripts"]})

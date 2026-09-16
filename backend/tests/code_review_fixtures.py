@@ -134,7 +134,7 @@ def assert_work_state(api, project, work, state):
     assert response.json()["readiness"]["display_state"] == state
     for view in ("full", "roots"):
         for status in ("to-review", "done", "pending"):
-            response = api.get(base, params={"view": view, "status": status})
+            response = api.get(base, params={"detail": "full", "view": view, "status": status})
             assert response.status_code == 200, response.text
             rows = [row["summary"] for row in response.json()["items"]
                     if row["summary"]["work_item"]["id"] == work["id"]]

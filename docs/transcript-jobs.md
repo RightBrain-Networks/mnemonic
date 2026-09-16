@@ -114,7 +114,8 @@ to survive a crash after archive creation without duplicating retention effects.
 Restore remains an explicitly confirmed synchronous operation protected by the
 existing storage lock. Worker jobs are excluded from project archives.
 
-Project archives contain transcript metadata and normalized text. Raw transcript
+Project archives contain transcript metadata, canonical normalization manifests and
+segments, and derived search text. Raw transcript
 copies, artifact files, and prompt files remain separate filesystem backup
 responsibilities. Preserve the transcript bind together with a database snapshot;
 a raw-file checksum verification detects absent or damaged retained copies.

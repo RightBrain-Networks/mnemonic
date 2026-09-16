@@ -617,7 +617,7 @@ def test_attention_filter_project_isolation_and_ancestor_path(
 
     blank_full_view = api.get(
         collection(project),
-        params={"q": " \n ", "status": "all", "view": "full"},
+        params={"detail": "full", "q": " \n ", "status": "all", "view": "full"},
     )
     assert blank_full_view.status_code == 200, blank_full_view.text
     child_summary = next(
@@ -1312,7 +1312,7 @@ def test_hierarchy_presentation_uses_structural_descendants_and_explicit_discove
 
     roots = api.get(
         collection(project),
-        params={"view": "roots", "status": "all"},
+        params={"detail": "full", "view": "roots", "status": "all"},
     )
     assert roots.status_code == 200, roots.text
     root_entry = next(

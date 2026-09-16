@@ -1,3 +1,4 @@
+import { disclosure } from "./search-disclosure-fixtures.mjs";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { artifactQueryKeys, artifactMaximumBytes, boundedArtifactStream, proxyArtifact, safeArtifactDisposition } from "../lib/artifact-proxy.ts";
@@ -139,7 +140,7 @@ test("artifact search POST is a bounded safe read with strict controls and no op
 
 test("artifact search validates scope, pagination, fields, counts and untrusted plain snippets", () => {
   const match = { artifact: metadata, score: 1.5, snippet: "<script>untrusted text</script>", matched_fields: ["content"] };
-  const result = { match_mode: "all_terms", term_diagnostics: [], items: [match], total: 1, limit: 50, offset: 0, fulltext: true, sensitive_content_withheld: 0, indexing: { ready: 1, pending: 0, failed: 0, truncated: 0 } };
+  const result = { detail: "full", ...disclosure(project, ["artifacts"], { fulltext: true }), match_mode: "all_terms", term_diagnostics: [], items: [match], total: 1, limit: 50, offset: 0, fulltext: true, sensitive_content_withheld: 0, indexing: { ready: 1, pending: 0, failed: 0, truncated: 0 } };
   assert.equal(decodeArtifactSearchPage(result, project, true).items[0].snippet, match.snippet);
   for (const invalid of [
     { ...result, fulltext: false }, { ...result, offset: 1 }, { ...result, total: 2 },
@@ -153,7 +154,7 @@ test("artifact search validates scope, pagination, fields, counts and untrusted 
     { ...result, items: [{ ...match, matched_fields: ["content", "content"] }] }
   ]) assert.throws(() => decodeArtifactSearchPage(invalid, project, true));
   assert.throws(() => decodeArtifactSearchPage({ ...result, fulltext: false }, project, false));
-  const safe = { ...result, fulltext: false, items: [{ ...match, snippet: null, matched_fields: ["metadata"] }] };
+  const safe = { ...result, ...disclosure(project, ["artifacts"]), fulltext: false, items: [{ ...match, snippet: null, matched_fields: ["metadata"] }] };
   assert.equal(decodeArtifactSearchPage(safe, project, false).items[0].snippet, null);
 });
 

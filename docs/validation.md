@@ -1,5 +1,108 @@
 # Mnemonic validation record
 
+## Shared transcript normalization and conversation retrieval (0.58.0)
+
+Claude Code and Codex captures now normalize into one durable versioned manifest
+and ordered segment representation before indexing. Retained native copies remain
+immutable provenance. Import, lease enrollment, backfill, and rebuild share the
+same publication fences; search and context retrieval consume the canonical
+segments. Content-kind filters distinguish authored human/assistant text from tool
+calls/results, including user-role tool-result blocks.
+
+Existing text checksums and normalized-text downloads retain their meanings.
+Search locators open bounded conversation windows pinned to a normalized revision,
+with typed segment identities, Unicode character offsets, forward continuation,
+and explicit metadata/payload omissions. Dashboard context reads render untrusted
+text safely at desktop and narrow widths. Screenshots:
+[desktop](images/transcript-conversation-desktop.png) and
+[narrow](images/transcript-conversation-narrow.png).
+
+Local full backend verification against PostgreSQL/RabbitMQ passed 2,913 tests;
+seven legacy assertions needed the newly echoed content-kind filter or current
+migration head, and all 46 affected checks then passed. The earlier complete
+transcript/Codex suite passed 496 tests; combined compact/normalization checks passed
+95, including stable revisions, stale-worker fencing, native payload preservation,
+backup witnesses, budgeted metadata, and structured offsets beyond the flat-text
+cap. Catalog witnesses were captured from both fresh migration and PostgreSQL
+schema dump/restore. Backend lint/types pass.
+
+The full MCP run passed 1,761 tests; its two in-flight plugin-version failures were
+corrected and rerun successfully. Another 27 normalized/OpenAPI contract checks
+pass. Frontend verification passes 461 tests, type checking, and production build
+on Node 24. All 12 transcript browser cases pass; both narrow conversation cases
+also pass after the scoped mobile-width correction. Isolated backup-service
+acceptance passes. MCP lint/types pass. Required CI remains the merge gate.
+
+API/MCP/dashboard are 0.58.0 and plugin is 0.36.0. Quiesce old writers/workers,
+back up the database and native transcript bind, apply migration
+`0040_normalized_transcripts`, and upgrade coordinated consumers. Existing captures
+backfill through durable jobs while prior ready text remains usable; inspect
+normalization/indexing coverage until complete. See
+[normalization migration and retrieval](transcript-normalization.md).
+The 55-tool catalog and receipt/write contracts are unchanged. Repository merge
+does not deploy running services or apply production migrations.
+
+## Compact search discovery (0.57.0)
+
+All four discovery tools default to `detail=compact` and a 20-row page. Full
+summaries remain available with `detail=full`; hierarchy `view` is independent.
+Work summaries hydrate only after pagination, including semantic search, and
+semantic inference keeps its read snapshot without blocking concurrent writers.
+Strict MCP and dashboard decoders validate the requested shape and effective
+scope. Artifact reads no longer repeat upload guidance.
+
+A measured 20-work-item page uses 8,135 UTF-8 bytes and 3,018 tokens in compact
+form versus 50,511 bytes and 12,799 tokens in full form: 84% fewer bytes and 76%
+fewer tokens (`tiktoken` 0.14.0, `o200k_base`). The regression fixture also checks
+page-only hydration and a bounded response size.
+
+Local verification ran the full PostgreSQL/RabbitMQ backend suite: 2,840 tests
+passed, and eight old full-shape assertions were corrected to request full detail;
+all 64 affected checks then passed. The full MCP run passed 1,717 tests; six
+fixture/schema/default-limit failures were corrected and their affected suites
+passed. Frontend verification passes all 451 tests, type checking and the
+production build on Node 24. Backend/MCP Ruff and ty pass. Plugin tests pass
+71 cases, with the macOS-only case reserved for CI.
+
+Desktop and narrow-browser acceptance passed the artifact and transcript search
+cases. Four work-library cases exposed stale menu/copy assertions and an existing
+URL reconciliation defect after moving deferred work; the assertions and the
+one-effect dependency were corrected, and all eight affected browser cases passed.
+The isolated stack also passed every backup-service acceptance group. Required CI
+remains the merge gate.
+
+API/MCP/dashboard are 0.57.0 and the Claude plugin is 0.35.0. Upgrade consumers
+together for compact defaults and required response detail/rank-scope fields.
+No migration or configuration change is needed; Alembic remains
+`0039_manual_review_requests`, and the 55-tool and receipt/write catalogs are
+unchanged. Repository merge does not deploy running services.
+
+## Effective search scope and actionable validation (0.56.0)
+
+All four search surfaces now disclose effective filters and source-specific query
+interpretation, including empty pages. Work discovery defaults to all statuses;
+explicit queue filters retain their meaning. Quoted queries disclose that phrase
+operators are currently ignored. Six reviewed validation rules provide static,
+actionable messages without echoing rejected values. MCP and dashboard consumers
+validate these disclosures against the request.
+
+Local backend verification ran the full suite against real PostgreSQL and RabbitMQ:
+2,834 passed, with an old pending-default assertion and a concurrently regenerated
+OpenAPI snapshot subsequently corrected; all 49 affected checks then passed.
+The full MCP run passed 1,686 tests; two in-flight fixture failures and one stale
+release pin were corrected, with the affected 94-response and seven-stack-checker
+test suites passing. Node 24 passes all 448 frontend tests, type checking and the
+production build. Backend/MCP Ruff and ty pass. Plugin runtime verification passes
+71 tests, with its macOS-only check reserved for CI. Required CI is the merge gate.
+
+API/MCP/dashboard are 0.56.0 and the Claude plugin is 0.34.0. Upgrade the consumers
+together for required response fields. No migration or configuration change is
+needed; Alembic remains `0039_manual_review_requests`. The 55-tool catalog and
+receipt/write contracts are unchanged. This is item 1 of the approved
+[search improvement plan](search-improvement-plan.md); compact output and structured
+transcript normalization remain separate deliveries. Repository merge does not
+deploy running services.
+
 ## Search diagnostics and MCP discovery (0.55.0)
 
 Zero-hit content searches now return document counts per term and searched source.

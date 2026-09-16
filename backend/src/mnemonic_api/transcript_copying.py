@@ -119,7 +119,7 @@ def _copy_success(record: Transcript, copy: TranscriptCopy, now: datetime) -> No
     record.copied_at = now
     record.copy_error_code = None
     if record.status == "ready":
-        if record.sha256 != copy.sha256:
+        if record.sha256 != copy.sha256 or record.normalized_revision is None:
             record.reindex_status, record.reindex_error_code = "pending", None
             record.attempts, record.next_attempt_at = 0, now
         return

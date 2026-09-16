@@ -72,7 +72,7 @@ def test_review_descendants_search_pagination_and_expired_leases(
     claimed = children[0]
     claim_review(api, project, claimed, checkpoint_fields)
     base = f"/api/v1/projects/{project['id']}/work-items"
-    response = api.get(base, params={"view": "roots", "status": "to-review"})
+    response = api.get(base, params={"detail": "full", "view": "roots", "status": "to-review"})
     assert response.status_code == 200, response.text
     roots = response.json()
     assert roots["total"] == 1
@@ -94,7 +94,7 @@ def test_review_descendants_search_pagination_and_expired_leases(
         if summary["work_item"]["id"] == claimed["work_item"]["id"]:
             assert summary["readiness"]["active_lease"]["purpose"] == "code_review"
     assert found == expected
-    response = api.get(base, params={"status": "to-review", "q": "Review child"})
+    response = api.get(base, params={"detail": "full", "status": "to-review", "q": "Review child"})
     assert response.status_code == 200, response.text
     assert {row["summary"]["work_item"]["id"] for row in response.json()["items"]} == expected
     context = api.get(f"{base}/{parent['id']}/context").json()

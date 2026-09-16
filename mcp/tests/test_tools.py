@@ -1,4 +1,5 @@
 import json
+from uuid import UUID
 
 import httpx
 import pytest
@@ -401,7 +402,22 @@ def protected_success_responses(
 
 
 def adapter(settings, handler):
-    return build_server(settings, MnemonicAPI(settings, httpx.MockTransport(handler)))
+    from search_fixtures import disclosed_response
+
+    server = build_server(settings, MnemonicAPI(settings, httpx.MockTransport(
+        lambda request: disclosed_response(request, handler(request)),
+    )))
+    # Legacy boundary fixtures explicitly request full summaries; native compact defaults
+    # are exercised without this adapter in test_compact_search.py.
+    original_call = server.call_tool
+
+    async def full_detail_call(name, arguments=None):
+        if name == "search_work":
+            arguments = {"detail": "full", "limit": 30, **(arguments or {})}
+        return await original_call(name, arguments)
+
+    server.call_tool = full_detail_call
+    return server
 
 
 def structured(result):
@@ -426,6 +442,7 @@ def test_claim_receipt_repr_redacts_token_but_serialization_retains_it(
 
 
 def test_work_pages_reject_repeated_work_items(work_summary):
+    from mnemonic_mcp.search_disclosure import WorkAppliedFilters, search_disclosure
     hit = {
         "summary": work_summary,
         "matched_member": {
@@ -436,7 +453,10 @@ def test_work_pages_reject_repeated_work_items(work_summary):
     }
     with pytest.raises(ValueError, match="cannot repeat their identity"):
         WorkPage.model_validate(
-            {"items": [hit, hit], "total": 2, "limit": 20, "offset": 0}
+            {**search_disclosure(
+                UUID(PROJECT_ID), "", work_items=WorkAppliedFilters(),
+            ).model_dump(mode="json"), "detail": "full", "work_rank_scope": "work_items",
+                "items": [hit, hit], "total": 2, "limit": 20, "offset": 0}
         )
 
 
@@ -1690,7 +1710,7 @@ async def test_relationship_tools_use_exact_rest_contract_and_pointer_only_count
     ]
 
 
-async def test_search_work_is_open_only_and_pointer_only(settings, work_summary):
+async def test_search_work_defaults_to_all_statuses_and_omits_checkpoint_bodies(settings, work_summary):
     upstream_summary = {
         **work_summary,
         "current_context": {
@@ -1706,7 +1726,8 @@ async def test_search_work_is_open_only_and_pointer_only(settings, work_summary)
         assert request.url.path == f"/api/v1/projects/{PROJECT_ID}/work-items"
         assert dict(request.url.params) == {
             "q": "src/search.py",
-            "status": "pending",
+            "detail": "full",
+            "status": "all",
             "view": "full",
             "duplicate_scope": "canonical",
             "limit": "30",
@@ -3479,7 +3500,7 @@ async def test_search_passes_explicit_filters_and_pagination(settings, status):
         assert request.url.path == f"/api/v1/projects/{PROJECT_ID}/work-items"
         assert dict(request.url.params) == {
             "status": status, "tag": "search", "source_client": "opencode",
-            "source_session_id": "ses_123/opaque", "view": "full", "limit": "5",
+            "source_session_id": "ses_123/opaque", "view": "full", "detail": "full", "limit": "5",
             "duplicate_scope": "canonical", "offset": "10", "semantic": "true",
         }
         assert request.extensions["timeout"]["read"] == 60.0
@@ -3493,7 +3514,7 @@ async def test_search_passes_explicit_filters_and_pagination(settings, status):
     })
 
 
-async def test_search_defaults_to_full_canonical_hits(settings, work_summary):
+async def test_full_detail_defaults_to_canonical_hits(settings, work_summary):
     seen: list[dict[str, str]] = []
 
     def handler(request):
@@ -3521,7 +3542,8 @@ async def test_search_defaults_to_full_canonical_hits(settings, work_summary):
     assert hit["summary"]["current_context"]["id"] == work_summary["current_context"]["id"]
     assert hit["matched_member"]["id"] == WORK_ID
     assert seen == [{
-        "status": "pending",
+        "detail": "full",
+        "status": "all",
         "view": "full",
         "duplicate_scope": "canonical",
         "limit": "30",
@@ -5087,7 +5109,8 @@ async def test_alias_audit_search_and_canonical_root_hierarchy_shapes(
     assert seen == [
         {
             "q": "retained symptom",
-            "status": "pending",
+            "detail": "full",
+            "status": "all",
             "view": "full",
             "duplicate_scope": "aliases",
             "canonical_work_item_id": OTHER_WORK_ID,
@@ -5095,7 +5118,8 @@ async def test_alias_audit_search_and_canonical_root_hierarchy_shapes(
             "offset": "0",
         },
         {
-            "status": "pending",
+            "status": "all",
+            "detail": "full",
             "view": "roots",
             "duplicate_scope": "canonical",
             "limit": "30",

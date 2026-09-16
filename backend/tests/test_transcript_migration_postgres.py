@@ -39,7 +39,7 @@ def test_populated_transcript_data_blocks_downgrade(
     with postgres_engine.connect() as connection:
         assert connection.scalar(text(f"SELECT count(*) FROM {populated}")) == before
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) \
-            == "0039_manual_review_requests"
+            == "0040_normalized_transcripts"
 
 
 def test_empty_transcript_schema_downgrades_and_upgrades(pristine_postgres_engine):
@@ -66,7 +66,7 @@ def test_import_receipts_and_sources_prevent_downgrade(api, project, tmp_path,
         assert connection.scalar(text("SELECT count(*) FROM transcript_imports")) == 1
         assert connection.scalar(text("SELECT count(*) FROM transcripts")) == int(with_sources)
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) \
-            == "0039_manual_review_requests"
+            == "0040_normalized_transcripts"
     assert import_folder(api, project, tmp_path, receipt["client_operation_id"]).json() == receipt
 
 
@@ -83,7 +83,8 @@ def test_copy_migration_blocks_rollback_without_changing_enrollment_or_receipts(
     response = api.post(collection(project) + "/rebuild", json=rebuild).json()
     assert run(api)
     before = read(api, project, record)
-    with pytest.raises(RuntimeError, match="transcript copies cannot be safely downgraded"):
+    message = "(transcript copies|normalized conversations) cannot be safely downgraded"
+    with pytest.raises(RuntimeError, match=message):
         migrate(postgres_engine, "0032_agent_transcripts", downgrade=True)
     assert read(api, project, record) == before
     assert before["sha256"] == original["sha256"]
@@ -133,12 +134,14 @@ def test_populated_0035_upgrade_queues_every_source_and_preserves_ready_evidence
         after = {row["id"]: dict(row) for row in connection.execute(
             text("SELECT * FROM transcripts")).mappings()}
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) \
-            == "0039_manual_review_requests"
+            == "0040_normalized_transcripts"
         assert connection.scalar(text("SELECT count(*) FROM background_jobs")) == 0
     for status, identity in identities.items():
         row = after[identity]
         expected = before[identity]
-        if status == "processing":
+        expected = expected | {"generation": expected["generation"] + 1, "attempts": 0,
+                               "next_attempt_at": row["next_attempt_at"]}
+        if status in {"processing", "failed"}:
             expected = expected | {"status": "pending", "lease_token": None,
                                    "lease_expires_at": None}
         assert {name: row[name] for name in expected} == expected
@@ -147,12 +150,13 @@ def test_populated_0035_upgrade_queues_every_source_and_preserves_ready_evidence
         assert row["copy_next_attempt_at"] is not None
         assert all(row[name] is None for name in (
             "storage_key", "copy_sha256", "copy_size_bytes", "copied_at", "copy_error_code",
-            "copy_lease_token", "copy_lease_expires_at", "reindex_status", "reindex_error_code",
+            "copy_lease_token", "copy_lease_expires_at", "reindex_error_code",
         ))
+        assert row["reindex_status"] == ("pending" if status == "ready" else None)
     assert len({row["snapshot_id"] for row in after.values()}) == 3
     response = api.get(collection(project) + f"/{identities['ready']}/content")
     assert response.status_code == 200 and response.text == retained_text
-    assert api.get(collection(project)).json()["indexing_incomplete"]
+    assert api.get(collection(project), params={"detail": "full"}).json()["indexing_incomplete"]
     with api.app.state.session_factory.begin() as database:
         assert enqueue_transcript_jobs(database, api.app.state.settings) == 3
         jobs = database.execute(text("SELECT kind, payload FROM background_jobs")).all()

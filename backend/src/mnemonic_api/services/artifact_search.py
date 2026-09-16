@@ -22,9 +22,13 @@ from mnemonic_api.artifact_search_schemas import (
     ArtifactSearchMatch,
     ArtifactSearchPage,
     ArtifactSearchRequest,
+    CompactArtifactMatch,
+    CompactArtifactRead,
+    CompactExtractionStatus,
 )
 from mnemonic_api.models import Artifact, ArtifactExtraction, ArtifactWorkLink
 from mnemonic_api.search_diagnostics import TermDiagnostic, TermMatchCounts
+from mnemonic_api.search_disclosure import ArtifactAppliedFilters, search_disclosure
 from mnemonic_api.search_schemas import ArtifactSearchFilters
 from mnemonic_api.services.artifact_approvals import require_sensitive_access
 from mnemonic_api.services.artifacts import _has_pending_operation, artifact_read
@@ -174,7 +178,8 @@ def _documents(
 def _match(
     database: Session, index: ArtifactSearchIndex, corpus: dict[str, Artifact],
     hit: SearchHit, query: str, searcher: tantivy.Searcher | None,
-) -> ArtifactSearchMatch:
+    *, detail: Literal["compact", "full"] = "full",
+) -> ArtifactSearchMatch | CompactArtifactMatch:
     artifact = corpus[hit.identity]
     fields: list[Literal["metadata", "content"]] = []
     snippet = None
@@ -188,9 +193,28 @@ def _match(
         ))
         if searcher is not None:
             snippet = index.snippet(content or "", query, searcher)
+    if detail == "compact":
+        return CompactArtifactMatch(
+            artifact=compact_artifact_read(database, artifact), score=hit.score,
+            snippet=snippet, matched_fields=fields,
+        )
     return ArtifactSearchMatch(
         artifact=artifact_read(database, artifact), score=hit.score,
         snippet=snippet, matched_fields=fields,
+    )
+
+
+def compact_artifact_read(database: Session, artifact: Artifact) -> CompactArtifactRead:
+    extraction = database.get(ArtifactExtraction, (artifact.id, artifact.revision))
+    return CompactArtifactRead(
+        id=artifact.id, project_id=artifact.project_id, filename=artifact.filename,
+        revision=artifact.revision, sensitive=artifact.sensitive, deleted_at=artifact.deleted_at,
+        content_available=artifact.revision > 0 and artifact.deleted_at is None,
+        extraction=CompactExtractionStatus.model_validate({
+            "status": extraction.status if extraction else "pending",
+            "truncated": extraction.truncated if extraction else False,
+            "error_code": extraction.error_code if extraction else None,
+        }),
     )
 
 
@@ -230,8 +254,16 @@ def _search_page(
     )
     identities = {str(artifact.id): artifact for artifact, _ in corpus}
     return ArtifactSearchPage(
+        **search_disclosure(
+            project_id, filters.q, fulltext=filters.fulltext,
+            artifacts=ArtifactAppliedFilters.model_validate(
+                filters.model_dump(include=set(ArtifactAppliedFilters.model_fields)),
+            ),
+        ).model_dump(),
+        detail=filters.detail,
         items=[
-            _match(database, index, identities, hit, filters.q, result.searcher)
+            _match(database, index, identities, hit, filters.q, result.searcher,
+                   detail=filters.detail)
             for hit in result.hits[filters.offset:filters.offset + filters.limit]
         ],
         total=len(result.hits), limit=filters.limit, offset=filters.offset,

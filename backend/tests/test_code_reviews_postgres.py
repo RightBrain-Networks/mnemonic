@@ -44,7 +44,9 @@ def test_concurrent_review_results_create_only_one_remediation(
     ), [response.text for response in responses]
     success = next(response.json() for response in responses if response.status_code == 200)
     assert success["remediation_work"]["work_item"]["status"] == "pending"
-    page = api.get(f"/api/v1/projects/{project['id']}/work-items", params={"status": "all"}).json()
+    page = api.get(
+        f"/api/v1/projects/{project['id']}/work-items", params={"detail": "full", "status": "all"}
+    ).json()
     assert page["total"] == 2
 
 
@@ -342,11 +344,12 @@ def test_remediation_summary_is_discoverable_in_flat_and_unified_search(
         assert row["problem"] in created["initial_checkpoint"]["prompt"]
     base = f"/api/v1/projects/{project['id']}"
     for query in ("ownership", "writers", "cache.py"):
-        flat = api.get(base + "/work-items", params={"q": query, "status": "all"})
+        flat = api.get(base + "/work-items", params={"detail": "full", "q": query, "status": "all"})
         assert flat.status_code == 200, flat.text
         assert any(hit["summary"]["work_item"] == created["work_item"]
                    for hit in flat.json()["items"])
-        unified = api.post(base + "/search", json={"q": query, "facets": ["work_items"]})
+        unified = api.post(base + "/search",
+            json={"detail": "full", "q": query, "facets": ["work_items"]})
         assert unified.status_code == 200, unified.text
         hit = next(hit for hit in unified.json()["items"]
                    if hit["id"] == created["work_item"]["id"])

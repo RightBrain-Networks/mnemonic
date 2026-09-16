@@ -9,13 +9,19 @@ a fixed message per family.
 
 from collections.abc import Iterable, Mapping
 
+from fastapi.exceptions import RequestValidationError
+from pydantic import ValidationError
+
+from mnemonic_api.validation_rules import VALIDATION_RULES
+
 PUBLIC_LOCATION_REPLACEMENT = "field"
 # Reviewed in docs/validation-vocabulary.json; test_validation_vocabulary.py pins this subset.
 PUBLIC_LOCATION_SEGMENTS = frozenset(
     """
     body query path header cookie project_id work_item_id relationship_id
     name description slug q semantic status tag source_client source_session_id
-    view sort limit offset min_priority parent_work_item_id direction type order
+    content_kinds segment_id expected_normalized_revision before
+    view detail sort limit offset min_priority parent_work_item_id direction type order
     event_type recent_limit recent_event_limit title summary priority expected_version
     initial_checkpoint initial_relationships checkpoint kind prompt source_model
     source_session_url repository_branch verified_against affected_paths tags source_metadata
@@ -95,15 +101,24 @@ def public_validation_errors(
 
 def _public_error(error: Mapping[str, object]) -> dict[str, object]:
     error_type = _public_type(error.get("type"))
+    location = _public_location(error.get("loc"))
+    rule = VALIDATION_RULES.get(error_type)
+    if rule is not None:
+        field, message = rule
+        if field is not None and (not location or location[-1] != field):
+            location.append(field)
+        return {"type": error_type, "loc": location, "msg": message}
     return {
         "type": error_type,
-        "loc": _public_location(error.get("loc")),
+        "loc": location,
         "msg": PUBLIC_ERROR_MESSAGES.get(error_type, _UNKNOWN_MESSAGE),
     }
 
 
 def _public_type(raw: object) -> str:
-    return raw if isinstance(raw, str) and raw in PUBLIC_ERROR_MESSAGES else _UNKNOWN_TYPE
+    return raw if isinstance(raw, str) and (
+        raw in PUBLIC_ERROR_MESSAGES or raw in VALIDATION_RULES
+    ) else _UNKNOWN_TYPE
 
 
 def _public_location(raw: object) -> list[str | int]:
@@ -117,3 +132,14 @@ def _public_segment(part: object) -> str | int:
     if isinstance(part, str) and part in PUBLIC_LOCATION_SEGMENTS:
         return part
     return PUBLIC_LOCATION_REPLACEMENT
+
+
+def raise_reviewed_body_validation(error: ValueError | RecursionError) -> None:
+    """Keep manually bounded search bodies on the same reviewed rule boundary."""
+    if not isinstance(error, ValidationError):
+        return
+    failures = error.errors()
+    if any(failure["type"] in VALIDATION_RULES for failure in failures):
+        raise RequestValidationError([
+            {**failure, "loc": ("body", *failure["loc"])} for failure in failures
+        ]) from None

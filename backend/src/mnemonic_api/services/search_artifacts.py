@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from mnemonic_api.artifact_access_schemas import ArtifactAccessRequest
 from mnemonic_api.artifact_index import ArtifactSearchIndex
-from mnemonic_api.artifact_search_schemas import ArtifactSearchMatch
+from mnemonic_api.artifact_search_schemas import ArtifactSearchMatch, CompactArtifactMatch
 from mnemonic_api.search_schemas import (
     ArtifactFacetHit,
     ArtifactSearchCoverage,
@@ -21,6 +21,7 @@ from mnemonic_api.services.artifact_search import (
     _indexing,
     _match,
     _signature,
+    compact_artifact_read,
 )
 from mnemonic_api.services.artifacts import artifact_read
 from mnemonic_api.services.search_sources import SearchCandidate, SearchSource
@@ -78,11 +79,18 @@ def artifact_source(
         rendered: dict[UUID, SearchHit] = {}
         for item in page:
             identity = str(item.id)
-            match = (_match(database, index, records, hits[identity], request.q, searcher)
-                     if request.q else ArtifactSearchMatch(
-                         artifact=artifact_read(database, records[identity]), score=0,
-                         matched_fields=[],
-                     ))
+            if request.q:
+                match = _match(database, index, records, hits[identity], request.q, searcher,
+                               detail=request.detail)
+            elif request.detail == "compact":
+                match = CompactArtifactMatch(
+                    artifact=compact_artifact_read(database, records[identity]), score=0,
+                    matched_fields=[],
+                )
+            else:
+                match = ArtifactSearchMatch(
+                    artifact=artifact_read(database, records[identity]), score=0, matched_fields=[],
+                )
             rendered[item.id] = ArtifactFacetHit(**item.fields(), artifact=match)
         return rendered
 

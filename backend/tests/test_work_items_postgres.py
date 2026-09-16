@@ -137,7 +137,7 @@ def test_create_search_get_and_bounded_context_contract(api, project, work_paylo
             "duplicate_member_count": 0,
         },
     }
-    result = api.get(collection(project)).json()
+    result = api.get(collection(project), params={"detail": "full"}).json()
     assert result["total"] == 1
     hit = result["items"][0]
     assert hit["matched_member"] == {
@@ -217,12 +217,12 @@ def test_affected_paths_round_trip_only_through_full_checkpoint_surfaces(
     endpoint = item_path(project, work_item)
     assert initial["affected_paths"] == initial_paths
 
-    summary = api.get(collection(project)).json()["items"][0]["summary"]
+    summary = api.get(collection(project), params={"detail": "full"}).json()["items"][0]["summary"]
     assert "affected_paths" not in summary["current_context"]
     assert (
         api.get(
             collection(project),
-            params={"q": "Phase10ScopeOnlyMarker", "status": "all"},
+            params={"detail": "full", "q": "Phase10ScopeOnlyMarker", "status": "all"},
         ).json()["total"]
         == 0
     )
@@ -320,18 +320,23 @@ def test_affected_paths_round_trip_only_through_full_checkpoint_surfaces(
             )
 
 
-def test_minimal_view_is_removed_and_full_search_hit_is_the_default(
+def test_minimal_view_is_removed_and_full_detail_preserves_search_hits(
     api, project, work_payload
 ):
     created = api.post(collection(project), json=work_payload).json()
     work_item = created["work_item"]
 
-    minimal = api.get(collection(project), params={"view": "minimal"})
+    minimal = api.get(collection(project), params={"detail": "full", "view": "minimal"})
     assert minimal.status_code == 422, minimal.text
 
-    # Full canonical-aware search hits are the REST default.
-    default = api.get(collection(project)).json()["items"][0]
-    assert default == api.get(collection(project), params={"view": "full"}).json()["items"][0]
+    # Explicit full detail retains canonical-aware search summaries.
+    default = api.get(collection(project), params={"detail": "full"}).json()["items"][0]
+    assert (
+        default
+        == api.get(collection(project), params={"detail": "full", "view": "full"}).json()["items"][
+            0
+        ]
+    )
     assert set(default) == {"summary", "matched_member"}
     assert default["matched_member"]["id"] == work_item["id"]
     assert set(default["summary"]) == {
@@ -528,7 +533,10 @@ def test_lifecycle_versions_typed_errors_and_soft_delete(api, project, work_payl
         "version": 6,
     }
     assert api.get(endpoint).status_code == 404
-    assert api.get(collection(project), params={"status": "all"}).json()["total"] == 0
+    assert (
+        api.get(collection(project), params={"detail": "full", "status": "all"}).json()["total"]
+        == 0
+    )
 
 
 def test_deferral_is_dedicated_nonterminal_and_excluded_from_agent_claims(
@@ -565,8 +573,13 @@ def test_deferral_is_dedicated_nonterminal_and_excluded_from_agent_claims(
     assert context["readiness"]["is_terminal"] is False
     assert context["readiness"]["is_ready"] is False
     assert context["readiness"]["display_state"] == "deferred"
-    assert api.get(collection(project)).json()["total"] == 0
-    assert api.get(collection(project), params={"status": "deferred"}).json()["total"] == 1
+    assert api.get(collection(project), params={"status": "pending"}).json()["total"] == 0
+    assert (
+        api.get(collection(project), params={"detail": "full", "status": "deferred"}).json()[
+            "total"
+        ]
+        == 1
+    )
     assert api.get(f"/api/v1/projects/{project['id']}/ready-work").json()["total"] == 0
 
     claim = api.post(
@@ -599,7 +612,7 @@ def test_deferral_is_dedicated_nonterminal_and_excluded_from_agent_claims(
     )
     assert pending.status_code == 200, pending.text
     assert pending.json()["version"] == 3
-    assert api.get(collection(project)).json()["total"] == 1
+    assert api.get(collection(project), params={"detail": "full"}).json()["total"] == 1
 
     claimed = api.post(
         f"{endpoint}/claim",
@@ -694,16 +707,21 @@ def test_search_aggregates_checkpoint_hits_and_filter_contract(api, project, wor
         )
         assert response.status_code == 201
 
-    found = api.get(collection(project), params={"q": "frobnicate"}).json()
+    found = api.get(collection(project), params={"detail": "full", "q": "frobnicate"}).json()
     assert found["total"] == 1
     assert [row["summary"]["work_item"]["id"] for row in found["items"]] == [
         first["work_item"]["id"]
     ]
-    assert api.get(collection(project), params={"tag": "later-tag"}).json()["total"] == 1
+    assert (
+        api.get(collection(project), params={"detail": "full", "tag": "later-tag"}).json()["total"]
+        == 1
+    )
     assert api.get(
-        collection(project), params={"source_session_id": "shared-hit-b"}
+        collection(project), params={"detail": "full", "source_session_id": "shared-hit-b"}
     ).json()["total"] == 1
-    initial_only = api.get(collection(project), params={"tag": "initial-only"}).json()
+    initial_only = api.get(
+        collection(project), params={"detail": "full", "tag": "initial-only"}
+    ).json()
     assert initial_only["total"] == 1
     assert initial_only["items"][0]["summary"]["work_item"]["id"] == second["work_item"]["id"]
 
@@ -763,7 +781,7 @@ def test_cross_project_isolation_and_two_appenders_plus_editor_succeed(
 
 def test_missing_project_and_work_return_typed_not_found(api, project, work_payload):
     missing_project = uuid4()
-    response = api.get(f"/api/v1/projects/{missing_project}/work-items")
+    response = api.get(f"/api/v1/projects/{missing_project}/work-items", params={"detail": "full"})
     assert response.status_code == 404
     assert response.json()["detail"]["code"] == "project_not_found"
     response = api.get(f"{collection(project)}/{uuid4()}")

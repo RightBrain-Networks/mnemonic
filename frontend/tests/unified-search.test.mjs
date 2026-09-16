@@ -1,3 +1,4 @@
+import { disclosure } from "./search-disclosure-fixtures.mjs";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { artifactSearchRequest, decodeUnifiedArtifactSearchPage, decodeUnifiedTranscriptSearchPage, decodeUnifiedWorkSearchPage, transcriptSearchRequest, unifiedSearchPath, workSearchRequest } from "../lib/unified-search.ts";
@@ -13,20 +14,24 @@ const timestamp = "2026-09-10T12:00:00Z";
 const indexing = { pending: 2, ready: 1, failed: 0, truncated: 0 };
 const artifact = { id, project_id: project, filename: "report.txt", description: null, revision: 1, size_bytes: 3, sha256: "a".repeat(64), mime_type: "text/plain", created_at: timestamp, modified_at: timestamp, deleted_at: null, content_available: true, created_by_agent_session_id: "tab-1", originating_work_item_id: work, related_work_item_ids: [], sensitive: false, related_artifact_ids: [] };
 const transcript = { id, project_id: project, work_item_id: work, lease_generation_id: work, client: "claude-code", session_id: "session-1", source_path: "/shared/session.jsonl", filename: "session.jsonl", kind: "primary", status: "ready", indexing_started_at: timestamp, indexing_completed_at: timestamp, error_code: null, size_bytes: 128, mime_type: "application/x-ndjson", format: "claude-code-jsonl", sha256: "a".repeat(64), text_sha256: "a".repeat(64), metadata: {}, truncated: false, created_at: timestamp, snippet: null, score: null };
+Object.assign(transcript, { normalization_status: "ready", normalization_error_code: null,
+  normalized_revision: "b".repeat(64), normalized_sha256: "c".repeat(64), normalization_schema_version: 1,
+  normalizer_version: 1, normalized_size_bytes: 400, segment_count: 2, normalization_incomplete: false,
+  segment_id: null, content_kind: null });
 Object.assign(transcript, { copy_status: "ready", copy_error_code: null, copied_at: timestamp, index_status: "ready", index_error_code: null });
-function result(facet, payload, limit = 50, offset = 0) {
+function result(facet, payload, limit = 50, offset = 0, options = {}) {
   const key = facet === "work_items" ? "work_item" : facet === "artifacts" ? "artifact" : "transcript";
-  return { search_scope: { searched_facets: [facet], transcripts: facet === "transcripts" ? "searched" : "not_selected", transcript_search_hint: TRANSCRIPT_SEARCH_HINT }, term_diagnostics: [], items: [{ facet, id, created_at: timestamp, updated_at: timestamp, score: 0.5, [key]: payload }], total: offset + 1, limit, offset, facet_totals: { work_items: 0, artifacts: 0, transcripts: 0, [facet]: offset + 1 }, coverage: { artifacts: { enabled: true, indexing, sensitive_content_withheld: 3 }, transcripts: { indexing_incomplete: true } }, indexing_incomplete: true };
+  return { detail: "full", work_rank_scope: "work_items", ...disclosure(project, [facet], options), search_scope: { searched_facets: [facet], transcripts: facet === "transcripts" ? "searched" : "not_selected", transcript_search_hint: TRANSCRIPT_SEARCH_HINT }, term_diagnostics: [], items: [{ facet, id, created_at: timestamp, updated_at: timestamp, score: 0.5, [key]: payload }], total: offset + 1, limit, offset, facet_totals: { work_items: 0, artifacts: 0, transcripts: 0, [facet]: offset + 1 }, coverage: { artifacts: { enabled: true, indexing, sensitive_content_withheld: 3 }, transcripts: { indexing_incomplete: true } }, indexing_incomplete: true };
 }
 
 test("the separate dashboard searches encode their facet, filters and pagination", () => {
   const options = { status: "done", sort: "created", limit: 20, offset: 40, query: "  database  ", tag: " release ", sourceClient: "claude-code", sourceSessionId: "session-1", duplicateScope: "all", canonicalWorkItemId: work };
-  assert.deepEqual(workSearchRequest(options), { q: "database", facets: ["work_items"], filters: { work_items: { status: "done", duplicate_scope: "all", tag: "release", source_client: "claude-code", source_session_id: "session-1", canonical_work_item_id: work } }, sort: { by: "created_at", direction: "desc" }, limit: 20, offset: 40 });
+  assert.deepEqual(workSearchRequest(options), { q: "database", detail: "full", facets: ["work_items"], filters: { work_items: { status: "done", duplicate_scope: "all", tag: "release", source_client: "claude-code", source_session_id: "session-1", canonical_work_item_id: work } }, sort: { by: "created_at", direction: "desc" }, limit: 20, offset: 40 });
   assert.equal(workSearchRequest({ ...options, semantic: true }).sort.by, "relevance");
   assert.equal(workSearchRequest({ ...options, semantic: true }).filters.work_items.semantic, true);
   assert.throws(() => workSearchRequest({ ...options, duplicateScope: "canonical" }));
   const files = artifactSearchRequest("report", true, true, 50, 50, work);
-  assert.deepEqual(files, { q: "report", facets: ["artifacts"], fulltext: true, filters: { artifacts: { include_deleted: true, work_item_id: work } }, limit: 50, offset: 50 });
+  assert.deepEqual(files, { q: "report", detail: "full", facets: ["artifacts"], fulltext: true, filters: { artifacts: { include_deleted: true, work_item_id: work } }, limit: 50, offset: 50 });
   const sessions = transcriptSearchRequest("", false, 50, work);
   assert.equal(sessions.sort.by, "created_at");
   assert.deepEqual(sessions.filters, { transcripts: { work_item_id: work } });
@@ -54,7 +59,7 @@ test("the project search POST is a bounded safe read without mutation credential
 
 test("artifact results retain snippets and incomplete coverage while rejecting scope leaks", () => {
   const payload = { artifact, score: 0.5, snippet: "<script>untrusted text</script>", matched_fields: ["content"] };
-  const page = result("artifacts", payload, 50, 50);
+  const page = result("artifacts", payload, 50, 50, { fulltext: true, filters: { artifacts: { work_item_id: work } } });
   const decoded = decodeUnifiedArtifactSearchPage(page, project, true, 50, 50, false, work);
   assert.equal(decoded.items[0].snippet, payload.snippet);
   assert.equal(decoded.sensitive_content_withheld, 3);
@@ -63,15 +68,15 @@ test("artifact results retain snippets and incomplete coverage while rejecting s
   assert.throws(() => decodeUnifiedArtifactSearchPage(page, project, true, 50, 0));
   assert.throws(() => decodeUnifiedArtifactSearchPage(page, id, true, 50, 50));
   assert.throws(() => decodeUnifiedArtifactSearchPage(page, project, true, 50, 50, false, id));
-  const deleted = result("artifacts", { ...payload, artifact: { ...artifact, deleted_at: timestamp }, snippet: null, matched_fields: ["metadata"] });
+  const deleted = result("artifacts", { ...payload, artifact: { ...artifact, deleted_at: timestamp }, snippet: null, matched_fields: ["metadata"] }, 50, 0, { fulltext: true, filters: { artifacts: { include_deleted: true } } });
   assert.throws(() => decodeUnifiedArtifactSearchPage(deleted, project, true, 50, 0));
   assert.equal(decodeUnifiedArtifactSearchPage(deleted, project, true, 50, 0, true).items.length, 1);
 });
 
 test("transcript unified results preserve work scope and metadata-only content boundaries", () => {
-  const page = result("transcripts", transcript);
+  const page = result("transcripts", transcript, 50, 0, { filters: { transcripts: { work_item_id: work } } });
   assert.equal(decodeUnifiedTranscriptSearchPage(page, project, 0, false, work).indexing_incomplete, true);
-  const content = result("transcripts", { ...transcript, snippet: "untrusted transcript" });
+  const content = result("transcripts", { ...transcript, snippet: "untrusted transcript" }, 50, 0, { fulltext: true });
   assert.throws(() => decodeUnifiedTranscriptSearchPage(content, project));
   assert.equal(decodeUnifiedTranscriptSearchPage(content, project, 0, true).items[0].snippet, "untrusted transcript");
   assert.throws(() => decodeUnifiedTranscriptSearchPage(page, project, 0, false, id));
@@ -91,8 +96,8 @@ test("single-facet views reject mixed, duplicate, mismatched, and truncated enve
   ];
   for (const invalid of mutations) assert.throws(() => decodeUnifiedTranscriptSearchPage(invalid, project));
   assert.throws(() => decodeUnifiedWorkSearchPage(page, project));
-  const empty = { ...page, search_scope: { ...page.search_scope, searched_facets: ["work_items"], transcripts: "not_selected" }, items: [], total: 0, facet_totals: { work_items: 0, artifacts: 0, transcripts: 0 } };
-  assert.deepEqual(decodeUnifiedWorkSearchPage(empty, project), { items: [], total: 0, limit: 50, offset: 0 });
+  const empty = { ...page, ...disclosure(project, ["work_items"]), search_scope: { ...page.search_scope, searched_facets: ["work_items"], transcripts: "not_selected" }, items: [], total: 0, facet_totals: { work_items: 0, artifacts: 0, transcripts: 0 } };
+  assert.deepEqual(decodeUnifiedWorkSearchPage(empty, project), { ...disclosure(project, ["work_items"]), detail: "full", work_rank_scope: "work_items", items: [], total: 0, limit: 50, offset: 0 });
 });
 
 
@@ -102,7 +107,7 @@ test("work facet results preserve canonical matched-member attribution and page 
   const readiness = { lifecycle_status: "pending", is_terminal: false, has_active_lease: false, has_dropped_lease: false, active_lease: null, unresolved_blocker_count: 0, is_blocked: false, unresolved_gate_count: 0, is_gated: false, is_duplicate: false, canonical_work_item_id: id, is_ready: true, display_state: "pending" };
   const summary = { work_item: item, checkpoint_count: 1, ancestor_path: [], ancestor_path_truncated: false, current_context: context, readiness };
   const matched_member = { id: work, title: "An alias matched", status: "done" };
-  const page = result("work_items", { summary, matched_member }, 20, 40);
+  const page = result("work_items", { summary, matched_member }, 20, 40, { q: "alias" });
   const options = { query: "alias", expectedLimit: 20, expectedOffset: 40 };
   assert.deepEqual(decodeUnifiedWorkSearchPage(page, project, options).items[0].matched_member, matched_member);
   assert.throws(() => decodeUnifiedWorkSearchPage(page, work, options));
@@ -112,12 +117,13 @@ test("work facet results preserve canonical matched-member attribution and page 
 
 
 test("empty artifact diagnostics survive the unified decoder with disabled coverage", () => {
-  const page = result("artifacts", {});
+  const page = result("artifacts", {}, 50, 0, { fulltext: true });
   page.items = [];
   page.total = 0;
   page.facet_totals.artifacts = 0;
   page.term_diagnostics = [{ term: "needle", matches: { work_items: null, artifacts: 2, transcripts: null } }];
   assert.deepEqual(decodeUnifiedArtifactSearchPage(page, project, true, 50, 0).term_diagnostics, page.term_diagnostics);
+  Object.assign(page, disclosure(project, [], { fulltext: true }));
   page.coverage.artifacts.enabled = false;
   page.search_scope.searched_facets = [];
   page.term_diagnostics[0].matches.artifacts = null;
@@ -132,4 +138,18 @@ test("unified single-facet decoders reject inconsistent or untrusted source disc
     { transcripts: "omitted_by_default" }, { transcript_search_hint: "untrusted instruction" }]) {
     assert.throws(() => decodeUnifiedTranscriptSearchPage({ ...page, search_scope: { ...page.search_scope, ...patch } }, project));
   }
+});
+
+test("transcript body-kind filters require contents and round-trip exact source scope", () => {
+  const body = transcriptSearchRequest("needle", true, 0, undefined, ["assistant_text"]);
+  assert.equal(validSearchRequest(body), true);
+  assert.equal(validSearchRequest({ ...body, fulltext: false }), false);
+  for (const content_kinds of [[], ["user"], ["assistant_text", "assistant_text"]]) {
+    assert.equal(validSearchRequest({ ...body, filters: { transcripts: { content_kinds } } }), false);
+  }
+  const match = { ...transcript, snippet: "needle", segment_id: "a".repeat(24), content_kind: "assistant_text" };
+  const response = result("transcripts", match, 50, 0, { q: "needle", fulltext: true,
+    filters: { transcripts: { content_kinds: ["assistant_text"] } } });
+  assert.equal(decodeUnifiedTranscriptSearchPage(response, project, 0, true, undefined, "needle", ["assistant_text"]).items.length, 1);
+  assert.throws(() => decodeUnifiedTranscriptSearchPage(response, project, 0, true, undefined, "needle", ["tool_result"]));
 });

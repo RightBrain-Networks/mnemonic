@@ -12,6 +12,7 @@ from mcp.types import AnyFunction, Icon, ToolAnnotations
 from pydantic import ConfigDict, ValidationError
 
 from .transport import bounded_stdio_server
+from .validation_rules import VALIDATION_RULES
 
 # Reviewed in docs/validation-vocabulary.json; test_validation_vocabulary.py pins this subset.
 VALIDATION_FIELDS = frozenset(
@@ -26,6 +27,8 @@ VALIDATION_FIELDS = frozenset(
         "sort",
         "by",
         "fulltext",
+        "detail",
+    "content_kinds", "segment_id", "expected_normalized_revision", "before", "after",
         "artifact_id",
         "include_deleted",
         "sensitive",
@@ -128,7 +131,6 @@ VALIDATION_FIELDS = frozenset(
         "prompt_revision",
         "report_id",
         "dismissal",
-        "after",
         "start",
         "verification_results",
         "artifact_references",
@@ -201,11 +203,13 @@ VALIDATION_FIELDS = frozenset(
     }
 )
 
+
 VALIDATION_ERROR_TYPES = frozenset(
     {
         "missing",
         "extra_forbidden",
         "value_error",
+        *VALIDATION_RULES,
         "literal_error",
         "enum",
         "string_type",
@@ -292,7 +296,11 @@ def validation_error_message(
     safe_fields = sorted(path for path in field_types if _is_safe_path(path))
     if safe_fields:
         rendered = ", ".join(_rendered(field, field_types[field]) for field in safe_fields)
-        return f"Mnemonic rejected the input. Check: {rendered}."
+        hints = sorted({VALIDATION_RULES[kind][1] for field in safe_fields
+                        for kind in field_types[field] if kind in VALIDATION_RULES})
+        return f"Mnemonic rejected the input. Check: {rendered}." + (
+            " " + " ".join(hints) if hints else ""
+        )
     safe_types = sorted(set(unattributed_types) & VALIDATION_ERROR_TYPES)
     if safe_types:
         return (
@@ -328,6 +336,9 @@ def validation_details(
     for location, raw_type in locations_and_types:
         kind = raw_type if isinstance(raw_type, str) and raw_type in VALIDATION_ERROR_TYPES else None
         parts = location if isinstance(location, tuple | list) else ()
+        rule = VALIDATION_RULES.get(kind or "")
+        if rule is not None and rule[0] is not None:
+            parts = (rule[0],)
         matched = [
             part for part in parts if isinstance(part, str) and part in VALIDATION_FIELDS
         ]

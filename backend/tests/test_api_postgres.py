@@ -182,7 +182,7 @@ def test_postgres_full_text_stemming_and_weighted_ranking(api, project, work_pay
     # "migrates" does not occur literally in any record; only PostgreSQL's
     # English-language stemming can satisfy this query. Title (weight A) must
     # outrank summary (weight B), which must outrank checkpoint prompt (weight C).
-    result = api.get(path(project), params={"q": "migrates"})
+    result = api.get(path(project), params={"detail": "full", "q": "migrates"})
     assert result.status_code == 200, result.text
     items = result.json()["items"]
     assert [item["summary"]["work_item"]["id"] for item in items] == [
@@ -221,14 +221,14 @@ def test_literal_identifiers_paths_and_wildcards_are_safe(api, project, work_pay
         "session:opaque_7251",
         "special-tag",
     ]:
-        result = api.get(path(project), params={"q": query})
+        result = api.get(path(project), params={"detail": "full", "q": query})
         assert result.status_code == 200, result.text
         assert [item["summary"]["work_item"]["id"] for item in result.json()["items"]] == [
             target["id"]
         ], query
-    attack = api.get(path(project), params={"q": "'; DROP TABLE work_items;--"})
+    attack = api.get(path(project), params={"detail": "full", "q": "'; DROP TABLE work_items;--"})
     assert attack.status_code == 200
-    assert api.get(path(project)).json()["total"] == 2
+    assert api.get(path(project), params={"detail": "full"}).json()["total"] == 2
     # Tags are normalized and deduplicated on the checkpoint that carries them.
     assert created["initial_checkpoint"]["tags"] == ["special-tag", "cache"]
 
@@ -240,16 +240,18 @@ def test_pagination_and_combined_filters(api, project, work_payload):
     save(api, project, work_payload, status="promoted", tags=["cache"])
     result = api.get(
         path(project),
-        params={"q": "cache", "tag": " CACHE ", "source_client": "claude-code", "limit": 1},
+        params={"detail": "full", "q": "cache", "tag": " CACHE ", "source_client": "claude-code",
+                "status": "pending", "limit": 1},
     ).json()
     assert result["total"] == 2
     assert result["items"][0]["summary"]["work_item"]["id"] == second["id"]
     next_page = api.get(
         path(project),
-        params={
+        params={"detail": "full",
             "q": "cache",
             "tag": "cache",
             "source_client": "claude-code",
+            "status": "pending",
             "limit": 1,
             "offset": 1,
         },
@@ -257,13 +259,16 @@ def test_pagination_and_combined_filters(api, project, work_payload):
     assert next_page["total"] == 2
     assert next_page["items"][0]["summary"]["work_item"]["id"] == first["id"]
     scoped = api.get(
-        path(project), params={"source_client": "claude-code", "source_session_id": "alpha"}
+        path(project), params={"detail": "full", "source_client": "claude-code",
+            "source_session_id": "alpha"}
     ).json()
     assert scoped["total"] == 1
     assert scoped["items"][0]["summary"]["work_item"]["id"] == first["id"]
-    assert api.get(path(project), params={"q": " \n "}).json()["total"] == 3
-    assert api.get(path(project), params={"status": "all", "offset": 200}).json()["total"] == 4
-    assert api.get(path(project), params={"status": "all", "offset": 200}).json()["items"] == []
+    assert api.get(path(project), params={"detail": "full", "q": " \n "}).json()["total"] == 4
+    assert api.get(path(project),
+        params={"detail": "full", "status": "all", "offset": 200}).json()["total"] == 4
+    assert api.get(path(project),
+        params={"detail": "full", "status": "all", "offset": 200}).json()["items"] == []
 
 
 def test_work_list_sort_orders_flat_and_hierarchy_pages(api, project, work_payload):
@@ -291,7 +296,7 @@ def test_work_list_sort_orders_flat_and_hierarchy_pages(api, project, work_paylo
         params = {"status": "all", "view": view}
         if sort is not None:
             params["sort"] = sort
-        response = api.get(path(project), params=params)
+        response = api.get(path(project), params={"detail": "full", **params})
         assert response.status_code == 200, response.text
         return [
             item["summary"]["work_item"]["id"]
@@ -343,7 +348,7 @@ def test_active_and_dropped_filters_derive_pending_lease_state(
         )
 
     def filtered_ids(status):
-        response = api.get(path(project), params={"status": status})
+        response = api.get(path(project), params={"detail": "full", "status": status})
         assert response.status_code == 200, response.text
         body = response.json()
         assert body["total"] == len(body["items"])
@@ -360,7 +365,8 @@ def test_active_and_dropped_filters_derive_pending_lease_state(
         deferred["id"],
         promoted["id"],
     }
-    dropped_result = api.get(path(project), params={"status": "dropped"}).json()["items"][0][
+    dropped_result = api.get(path(project),
+        params={"detail": "full", "status": "dropped"}).json()["items"][0][
         "summary"
     ]
     assert dropped_result["readiness"] == {
@@ -389,13 +395,15 @@ def test_active_and_dropped_filters_derive_pending_lease_state(
 
 def test_edit_refreshes_search_vector(api, project, work_payload):
     work_item = save(api, project, work_payload, title="Orchestrating state")["work_item"]
-    assert api.get(path(project), params={"q": "orchestrates"}).json()["total"] == 1
+    assert api.get(path(project),
+        params={"detail": "full", "q": "orchestrates"}).json()["total"] == 1
     update = api.patch(
         path(project, work_item), json={"expected_version": 1, "title": "Brand new heading"}
     )
     assert update.status_code == 200
-    assert api.get(path(project), params={"q": "orchestrates"}).json()["total"] == 0
-    assert api.get(path(project), params={"q": "heading"}).json()["total"] == 1
+    assert api.get(path(project),
+        params={"detail": "full", "q": "orchestrates"}).json()["total"] == 0
+    assert api.get(path(project), params={"detail": "full", "q": "heading"}).json()["total"] == 1
 
 
 def test_two_simultaneous_writers_cannot_overwrite_each_other(api, project, work_payload):
@@ -431,7 +439,7 @@ def test_two_simultaneous_writers_cannot_overwrite_each_other(api, project, work
     ],
 )
 def test_invalid_query_returns_422(api, project, query):
-    assert api.get(path(project), params=query).status_code == 422
+    assert api.get(path(project), params={"detail": "full", **query}).status_code == 422
 
 
 def test_database_readiness_is_public(api):
