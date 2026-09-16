@@ -13,6 +13,7 @@ from pydantic import (
     StrictInt,
     model_validator,
 )
+from pydantic_core import PydanticCustomError
 
 from .artifact_models import (
     ArtifactClient,
@@ -27,6 +28,7 @@ from .models import CompactWorkHit, DuplicateScope, SearchStatus, WorkSearchHit
 from .search_diagnostics import SearchScope, TermDiagnostics
 from .search_disclosure import SearchDetail, SearchDisclosure
 from .transcript_models import CompactTranscriptRead, TranscriptRead, TranscriptStatus
+from .transcript_segments import ContentKinds
 
 SearchFacet = Literal["work_items", "artifacts", "transcripts"]
 SearchQuery = Annotated[str, Field(max_length=1000)]
@@ -96,6 +98,7 @@ class ArtifactSearchFilters(SearchModel):
 
 
 class TranscriptSearchFilters(SearchModel):
+    content_kinds: ContentKinds | None = None
     work_item_id: UUID | None = None
     agent_session_id: ArtifactSession | None = None
     client: ArtifactClient | None = None
@@ -123,6 +126,13 @@ class SearchRequest(SearchModel):
     facet_order: SearchFacetOrder = Field(default_factory=list)
     limit: SearchLimit = 20
     offset: SearchOffset = 0
+
+    @model_validator(mode="after")
+    def content_kind_requires_fulltext(self) -> Self:
+        if self.filters.transcripts.content_kinds and not self.fulltext:
+            raise PydanticCustomError("content_kinds_requires_fulltext",
+                                      "content_kinds requires fulltext=true.")
+        return self
 
 
 class FacetTotals(SearchModel):

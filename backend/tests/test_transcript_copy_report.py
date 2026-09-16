@@ -57,3 +57,5 @@ def test_report_counts_reindexing_while_last_good_text_stays_readable(
     with factory() as database:
         completed = SCRIPT["report"](database)
     assert completed["index_pending"] == completed["failed"] == 0
+    assert completed["normalized"] == 1
+    assert completed["normalization_failed"] == completed["normalization_pending"] == 0

@@ -4,6 +4,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from uuid import UUID
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from mnemonic_api.artifact_index import ArtifactSearchIndex
@@ -22,6 +23,7 @@ from mnemonic_api.services.transcripts import (
     _bounded_records,
     _search_read,
     _search_records,
+    has_content_kind,
     transcript_query,
     transcript_search_read,
 )
@@ -45,14 +47,27 @@ def _source(
     maximum_content_bytes: int,
 ) -> tuple[SearchSource, TranscriptSearchCoverage]:
     fulltext = bool(request.q and request.fulltext)
-    rows = _bounded_records(database, _filtered_statement(project_id, request), fulltext,
+    content_kinds = request.filters.transcripts.content_kinds
+    rows = _bounded_records(database, _filtered_statement(project_id, request),
+                            fulltext and not content_kinds,
                             maximum_content_bytes)
+    coverage = TranscriptSearchCoverage(indexing_incomplete=any(
+        record.status != "ready" or record.copy_status != "ready"
+        or record.reindex_status is not None or record.truncated
+        or record.normalization_status != "ready" or record.normalization_incomplete
+        for record in rows
+    ))
+    if content_kinds:
+        eligible = set(database.scalars(select(Transcript.id).where(
+            Transcript.id.in_([row.id for row in rows]), has_content_kind(content_kinds),
+        )))
+        rows = [row for row in rows if row.id in eligible]
     records = {str(record.id): record for record in rows}
     hits = {}
     searcher = None
     if request.q:
         result = _search_records(database, rows, request.q, fulltext, index,
-                                 maximum_content_bytes)
+                                 maximum_content_bytes, content_kinds)
         hits = {hit.identity: hit for hit in result.hits}
         searcher = result.searcher
     candidates = [SearchCandidate(
@@ -60,19 +75,15 @@ def _source(
         updated_at=record.indexing_completed_at or record.created_at,
         score=hits[identity].score if request.q else 0.0,
     ) for identity, record in records.items() if not request.q or identity in hits]
-    coverage = TranscriptSearchCoverage(indexing_incomplete=any(
-        record.status != "ready" or record.copy_status != "ready"
-        or record.reindex_status is not None or record.truncated
-        for record in rows
-    ))
+
 
     def hydrate(page: list[SearchCandidate]) -> dict[UUID, SearchHit]:
         rendered: dict[UUID, SearchHit] = {}
         for item in page:
             record = records[str(item.id)]
             transcript = (_search_read(database, project_id, record, hits[str(item.id)],
-                                       request.q, index, searcher, detail=request.detail)
-                          if request.q else
+                                       request.q, index, searcher, content_kinds,
+                                       detail=request.detail) if request.q else
                           transcript_search_read(record, project_id, request.detail))
             rendered[item.id] = TranscriptFacetHit(**item.fields(), transcript=transcript)
         return rendered

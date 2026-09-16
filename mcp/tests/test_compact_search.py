@@ -50,6 +50,10 @@ def transcript_pointer():
     return {key: value[key] for key in (
         "id", "project_id", "work_item_id", "client", "session_id", "filename", "kind",
         "status", "index_status", "copy_status", "truncated", "snippet", "score",
+        "normalization_status", "normalization_error_code", "normalized_revision",
+        "normalized_sha256", "normalization_schema_version", "normalizer_version",
+        "normalized_size_bytes", "segment_count", "normalization_incomplete", "segment_id",
+        "content_kind",
     )}
 
 

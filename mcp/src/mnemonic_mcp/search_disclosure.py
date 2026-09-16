@@ -10,6 +10,9 @@ from .search_diagnostics import SearchFacet
 SearchDetail = Literal["compact", "full"]
 
 
+from .transcript_segments import ContentKinds
+
+
 class DisclosureModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -38,6 +41,7 @@ class ArtifactAppliedFilters(DisclosureModel):
 
 
 class TranscriptAppliedFilters(DisclosureModel):
+    content_kinds: ContentKinds | None = None
     work_item_id: UUID | None = None
     agent_session_id: Annotated[str, Field(max_length=200)] | None = None
     client: Annotated[str, Field(max_length=80)] | None = None

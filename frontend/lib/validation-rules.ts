@@ -1,5 +1,6 @@
 // Reviewed static explanations; never render upstream text for these rule codes.
 export const VALIDATION_RULES: Readonly<Record<string, readonly [string | null, string]>> = {
+  "content_kinds_requires_fulltext": ["content_kinds", "content_kinds requires fulltext=true."],
   "view_requires_blank_query": [
     "view",
     "view=roots requires blank q; use view=full for text search."

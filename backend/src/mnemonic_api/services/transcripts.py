@@ -3,7 +3,7 @@
 import hashlib
 import json
 import threading
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from datetime import UTC, datetime
 from pathlib import PurePosixPath
 from typing import Literal
@@ -27,14 +27,17 @@ from mnemonic_api.models import Transcript, TranscriptRebuild, TranscriptSetting
 from mnemonic_api.search_diagnostics import TermDiagnostic, TermMatchCounts
 from mnemonic_api.search_disclosure import TranscriptAppliedFilters, search_disclosure
 from mnemonic_api.services.work_items import require_project
+from mnemonic_api.transcript_normalized_storage import SEGMENTS
 from mnemonic_api.transcript_schemas import (
     CompactTranscriptRead,
+    TranscriptNormalizationRead,
     TranscriptPage,
     TranscriptRead,
     TranscriptSearch,
     TranscriptSettingsPatch,
     TranscriptSettingsRead,
 )
+from mnemonic_api.transcript_segment_search import filtered_documents, matching_segment
 from mnemonic_api.transcript_snapshots import empty_transcript_snapshot
 
 # The admission slot covers corpus preflight, loading, Tantivy building and
@@ -74,7 +77,7 @@ def register_transcripts(
 def transcript_read(record: Transcript, project_id: UUID) -> TranscriptRead:
     fields = {name: getattr(record, name) for name in TranscriptRead.model_fields
               if name not in {"project_id", "filename", "metadata", "snippet", "score",
-                              "index_status", "index_error_code"}}
+                              "index_status", "index_error_code", "segment_id", "content_kind"}}
     fields["index_status"] = record.reindex_status or record.status
     return TranscriptRead(**fields, project_id=project_id,
                           index_error_code=record.reindex_error_code or record.error_code,
@@ -94,6 +97,8 @@ def transcript_search_read(
         "filename": PurePosixPath(record.source_path).name, "kind": record.kind,
         "status": record.status, "index_status": record.reindex_status or record.status,
         "copy_status": record.copy_status, "truncated": record.truncated,
+        **{name: getattr(record, name) for name in TranscriptNormalizationRead.model_fields
+           if name not in {"segment_id", "content_kind"}},
     })
 
 
@@ -124,18 +129,24 @@ def _metadata(record: Transcript) -> str:
                       str(record.work_item_id), json.dumps(record.extracted_metadata)])
 
 
-def _corpus_key(records: list[Transcript], fulltext: bool) -> str:
-    digest = hashlib.sha256(str(fulltext).encode())
+def _corpus_key(records: list[Transcript], fulltext: bool,
+                content_kinds: Sequence[str] | None = None) -> str:
+    digest = hashlib.sha256(json.dumps([fulltext, sorted(content_kinds or [])]).encode())
     for record in records:
         digest.update(json.dumps([
             str(record.id), _metadata(record), record.generation, record.status,
-            record.text_sha256, str(record.indexing_completed_at),
+            record.text_sha256, str(record.indexing_completed_at), record.normalized_revision,
         ]).encode())
     return digest.hexdigest()
 
 
 def _documents(database: Session, records: list[Transcript], fulltext: bool,
-               maximum_content_bytes: int) -> Iterator[SearchDocument]:
+               maximum_content_bytes: int,
+               content_kinds: Sequence[str] | None = None) -> Iterator[SearchDocument]:
+    if fulltext and content_kinds:
+        yield from filtered_documents(database, records, content_kinds, maximum_content_bytes,
+                                      _metadata)
+        return
     # Only a cache miss calls this generator. Never attach the streamed bodies
     # to the ORM instances retained for ranking and metadata hydration.
     by_id = {record.id: record for record in records}
@@ -160,10 +171,11 @@ def _documents(database: Session, records: list[Transcript], fulltext: bool,
 
 
 def _search_records(database: Session, records: list[Transcript], query: str, fulltext: bool,
-                    index: ArtifactSearchIndex, maximum_content_bytes: int) -> IndexSearchResult:
+                    index: ArtifactSearchIndex, maximum_content_bytes: int,
+                    content_kinds: Sequence[str] | None = None) -> IndexSearchResult:
     return index.search(
-        _corpus_key(records, fulltext),
-        lambda: _documents(database, records, fulltext, maximum_content_bytes),
+        _corpus_key(records, fulltext, content_kinds),
+        lambda: _documents(database, records, fulltext, maximum_content_bytes, content_kinds),
         query=query, fulltext=fulltext, count=len(records),
     )
 
@@ -171,17 +183,33 @@ def _search_records(database: Session, records: list[Transcript], query: str, fu
 def _search_read(
     database: Session, project_id: UUID, record: Transcript, hit: SearchHit, query: str,
     index: ArtifactSearchIndex, searcher: tantivy.Searcher | None,
-    *, detail: Literal["compact", "full"] = "full",
+    content_kinds: Sequence[str] | None = None, *, detail: Literal["compact", "full"] = "full",
 ) -> TranscriptRead | CompactTranscriptRead:
     rendered = transcript_search_read(record, project_id, detail)
     rendered.score = hit.score
     if hit.content and searcher is not None:
         # Hydrate only the returned page, one body at a time, using the same
         # database snapshot and immutable Tantivy searcher that produced the hit.
-        content = database.scalar(select(Transcript.normalized_text).where(
-            Transcript.id == record.id))
-        rendered.snippet = index.snippet(content or "", query, searcher)
+        match = matching_segment(database, record, query, content_kinds)
+        if match is not None:
+            segment, searchable = match
+            rendered.snippet = index.snippet(searchable, query, searcher)
+            rendered.segment_id = segment.segment_id
+            rendered.content_kind = segment.content_kind
+        elif not content_kinds:
+            content = database.scalar(select(Transcript.normalized_text).where(
+                Transcript.id == record.id))
+            rendered.snippet = index.snippet(content or "", query, searcher)
     return rendered
+
+
+def has_content_kind(content_kinds: Sequence[str]):
+    """Only the published canonical revision can satisfy a content-kind filter."""
+    return select(SEGMENTS.c.transcript_id).where(
+        SEGMENTS.c.transcript_id == Transcript.id,
+        SEGMENTS.c.revision == Transcript.normalized_revision,
+        SEGMENTS.c.content_kind.in_(content_kinds),
+    ).exists()
 
 
 def list_transcripts(database: Session, project_id: UUID, filters: TranscriptSearch,
@@ -194,7 +222,11 @@ def list_transcripts(database: Session, project_id: UUID, filters: TranscriptSea
         statement = statement.where(Transcript.work_item_id == filters.work_item_id)
     incomplete = bool(database.scalar(select(func.count()).select_from(statement.where(
         (Transcript.status != "ready") | (Transcript.copy_status != "ready")
-        | Transcript.reindex_status.is_not(None) | Transcript.truncated).subquery())))
+        | Transcript.reindex_status.is_not(None) | Transcript.truncated
+        | (Transcript.normalization_status != "ready")
+        | Transcript.normalization_incomplete).subquery())))
+    if filters.content_kinds:
+        statement = statement.where(has_content_kind(filters.content_kinds))
     if filters.query and filters.query.strip():
         return _searched_page(database, project_id, filters, index, statement, incomplete,
                               maximum_content_bytes)
@@ -204,7 +236,10 @@ def list_transcripts(database: Session, project_id: UUID, filters: TranscriptSea
         .limit(filters.limit))
     return TranscriptPage(**search_disclosure(
                               project_id, filters.query, fulltext=filters.fulltext,
-                              transcripts=TranscriptAppliedFilters(work_item_id=filters.work_item_id),
+                              transcripts=TranscriptAppliedFilters(
+                                  work_item_id=filters.work_item_id,
+                                  content_kinds=filters.content_kinds,
+                              ),
                           ).model_dump(), detail=filters.detail,
                           items=[transcript_search_read(row, project_id, filters.detail)
                                  for row in records],
@@ -226,16 +261,20 @@ def _searched_page(database, project_id, filters, index, statement, incomplete,
 
 def _searched_page_locked(database, project_id, filters, index, statement, incomplete,
                           maximum_content_bytes):
-    records = _bounded_records(database, statement, filters.fulltext, maximum_content_bytes)
+    records = _bounded_records(database, statement, filters.fulltext and not filters.content_kinds,
+                               maximum_content_bytes)
     result = _search_records(database, records, filters.query, filters.fulltext, index,
-                             maximum_content_bytes)
+                             maximum_content_bytes, filters.content_kinds)
     by_id = {str(record.id): record for record in records}
     items = [_search_read(database, project_id, by_id[hit.identity], hit, filters.query,
-                          index, result.searcher, detail=filters.detail)
+                          index, result.searcher, filters.content_kinds, detail=filters.detail)
              for hit in result.hits[filters.offset:filters.offset + filters.limit]]
     return TranscriptPage(**search_disclosure(
                               project_id, filters.query, fulltext=filters.fulltext,
-                              transcripts=TranscriptAppliedFilters(work_item_id=filters.work_item_id),
+                              transcripts=TranscriptAppliedFilters(
+                                  work_item_id=filters.work_item_id,
+                                  content_kinds=filters.content_kinds,
+                              ),
                           ).model_dump(), detail=filters.detail, items=items,
                           total=len(result.hits),
                           limit=filters.limit,

@@ -1,3 +1,4 @@
+import { validContentKinds } from "./transcript-segments.ts";
 import { boundedText, finiteInteger, objectValue, validUuid } from "./wire-guards.ts";
 
 const facets = ["work_items", "artifacts", "transcripts"];
@@ -17,10 +18,11 @@ function validFilters(value: unknown): boolean {
     if (!filter) return false;
     const keys = facet === "work_items" ? ["status", "tag", "source_client", "source_session_id", "duplicate_scope", "canonical_work_item_id", "external_url", "semantic"]
       : facet === "artifacts" ? ["work_item_id", "artifact_id", "include_deleted", "sensitive", "mime_type", "created_by_agent_session_id"]
-        : ["work_item_id", "agent_session_id", "client", "kind", "status"];
+        : ["work_item_id", "agent_session_id", "client", "kind", "status", "content_kinds"];
     if (!allowed(filter, keys)) return false;
     return Object.entries(filter).every(([key, value]) => {
       if (value === null) return !["semantic", "include_deleted", "duplicate_scope"].includes(key) && !(facet === "work_items" && key === "status");
+      if (key === "content_kinds") return validContentKinds(value);
       if (["work_item_id", "artifact_id", "canonical_work_item_id"].includes(key)) return validUuid(value);
       if (["semantic", "include_deleted", "sensitive"].includes(key)) return typeof value === "boolean";
       if (key === "status") return (facet === "work_items" ? ["all", "pending", "active", "to-review", "dropped", "deferred", "done", "wont-do", "promoted"] : ["waiting", "pending", "processing", "ready", "failed"]).includes(String(value));
@@ -39,6 +41,7 @@ export function validSearchRequest(value: unknown): boolean {
     || !optional(body.detail, (value) => value === "compact" || value === "full") || !optional(body.filters, validFilters)
     || !optional(body.sort, validSort) || !optional(body.limit, (value) => finiteInteger(value, 1, 100))
     || !optional(body.offset, (value) => finiteInteger(value, 0, 1_000_000))) return false;
+  if (objectValue(objectValue(body.filters)?.transcripts)?.content_kinds != null && body.fulltext !== true) return false;
   if (body.facet_order !== undefined) {
     if (!Array.isArray(body.facet_order) || body.facet_order.length > 3) return false;
     const selected = body.facets as string[] | undefined;

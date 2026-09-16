@@ -153,7 +153,7 @@ def test_transcript_search_and_browse_explain_their_scope(api, project, endpoint
     assert page["applied_filters"]["project_id"] == project["id"]
     assert page["applied_filters"]["transcripts"] == {
         "work_item_id": work_id, "agent_session_id": None, "client": None,
-        "kind": None, "status": None,
+        "kind": None, "status": None, "content_kinds": None,
     }
     assert page["query_interpretation"]["transcripts"]["match_mode"] == (
         "all_terms" if query else "browse"

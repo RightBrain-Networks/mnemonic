@@ -35,6 +35,7 @@ from mnemonic_api import manual_review_db as manual_reviews
 from mnemonic_api import phase12_db_tables as phase12
 from mnemonic_api import transcript_db_tables as transcripts
 from mnemonic_api.background_job_db import job_elements
+from mnemonic_api.transcript_normalization_db import normalization_elements, segment_elements
 from mnemonic_api.transcript_recovery_db import recovery_elements
 
 # The work lifecycle vocabulary. WorkItem's status_valid check constraint is the
@@ -2172,6 +2173,15 @@ class Transcript(Base):
     reindex_status: Mapped[str | None]
     reindex_error_code: Mapped[str | None]
     recovery_operation_id: Mapped[UUID | None]
+    normalization_status: Mapped[str]
+    normalization_error_code: Mapped[str | None]
+    normalized_revision: Mapped[str | None]
+    normalized_sha256: Mapped[str | None]
+    normalization_schema_version: Mapped[int | None]
+    normalized_size_bytes: Mapped[int | None]
+    normalizer_version: Mapped[int | None]
+    segment_count: Mapped[int]
+    normalization_incomplete: Mapped[bool]
 
 
 class TranscriptRecovery(Base):
@@ -2242,3 +2252,12 @@ class BackgroundJob(Base):
     created_at: Mapped[datetime]
     updated_at: Mapped[datetime]
     completed_at: Mapped[datetime | None]
+
+
+
+class TranscriptNormalization(Base):
+    __table__ = Table("transcript_normalizations", Base.metadata, *normalization_elements())
+
+
+class TranscriptSegment(Base):
+    __table__ = Table("transcript_segments", Base.metadata, *segment_elements())

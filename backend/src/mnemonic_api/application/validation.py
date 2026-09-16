@@ -9,6 +9,9 @@ a fixed message per family.
 
 from collections.abc import Iterable, Mapping
 
+from fastapi.exceptions import RequestValidationError
+from pydantic import ValidationError
+
 from mnemonic_api.validation_rules import VALIDATION_RULES
 
 PUBLIC_LOCATION_REPLACEMENT = "field"
@@ -17,6 +20,7 @@ PUBLIC_LOCATION_SEGMENTS = frozenset(
     """
     body query path header cookie project_id work_item_id relationship_id
     name description slug q semantic status tag source_client source_session_id
+    content_kinds segment_id expected_normalized_revision before
     view detail sort limit offset min_priority parent_work_item_id direction type order
     event_type recent_limit recent_event_limit title summary priority expected_version
     initial_checkpoint initial_relationships checkpoint kind prompt source_model
@@ -128,3 +132,14 @@ def _public_segment(part: object) -> str | int:
     if isinstance(part, str) and part in PUBLIC_LOCATION_SEGMENTS:
         return part
     return PUBLIC_LOCATION_REPLACEMENT
+
+
+def raise_reviewed_body_validation(error: ValueError | RecursionError) -> None:
+    """Keep manually bounded search bodies on the same reviewed rule boundary."""
+    if not isinstance(error, ValidationError):
+        return
+    failures = error.errors()
+    if any(failure["type"] in VALIDATION_RULES for failure in failures):
+        raise RequestValidationError([
+            {**failure, "loc": ("body", *failure["loc"])} for failure in failures
+        ]) from None

@@ -100,6 +100,7 @@ export const SAFE_VALIDATION_LOCATION_PARTS: ReadonlySet<string> = new Set([
   "description",
   "direction",
   "detail",
+  "content_kinds", "segment_id", "expected_normalized_revision", "before", "after",
   "destination_work_item_id",
   "duplicate_scope",
   "event_type",

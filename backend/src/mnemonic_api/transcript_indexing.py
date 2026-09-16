@@ -23,7 +23,12 @@ from mnemonic_api.services.project_mutations import project_mutation
 from mnemonic_api.services.transcripts import transcript_project_id
 from mnemonic_api.transcript_copies import TranscriptCopy, TranscriptStorage
 from mnemonic_api.transcript_detection import detect_transcript_client
-from mnemonic_api.transcript_parsers import TranscriptParserFactory
+from mnemonic_api.transcript_normalization import (
+    NormalizedConversation,
+    conversation_text,
+    normalize_transcript,
+)
+from mnemonic_api.transcript_normalized_storage import load_normalization, publish_normalization
 from mnemonic_api.transcript_recovery_sources import effective_copy_path
 from mnemonic_api.transcript_snapshots import empty_transcript_snapshot
 from mnemonic_api.transcript_storage import canonical_source_path
@@ -43,6 +48,7 @@ class TranscriptJob:
     imported: bool
     copy: TranscriptCopy
     started_at: datetime
+    snapshot_id: UUID
 
 
 @dataclass(frozen=True)
@@ -138,7 +144,7 @@ def _start_claim(database: Session, row, settings: Settings) -> TranscriptJob | 
                          min(maximum or settings.transcript_max_bytes,
                              settings.transcript_max_bytes), transcript.kind == "imported",
                          TranscriptCopy(transcript.storage_key, transcript.copy_sha256,
-                                        transcript.copy_size_bytes), now)
+                                        transcript.copy_size_bytes), now, transcript.snapshot_id)
 
 
 def claim_transcript_job(
@@ -202,6 +208,7 @@ def complete_transcript_job(
     source_size: int | None = None, source_details: dict | None = None,
     detected_client: str | None = None,
     context: JobContext | None = None,
+    normalized: NormalizedConversation | None = None,
 ) -> None:
     with factory() as database:
         project_id = database.scalar(select(transcript_project_id()).select_from(Transcript)
@@ -214,6 +221,8 @@ def complete_transcript_job(
                 context.assert_owned(database)
             record = database.scalar(select(Transcript).where(
                 Transcript.id == job.transcript_id, Transcript.generation == job.generation,
+                Transcript.snapshot_id == job.snapshot_id,
+                Transcript.copy_sha256 == job.copy.sha256,
                 (Transcript.status == "processing") | (Transcript.reindex_status == "processing"),
                 Transcript.lease_token == job.lease_token,
             ).with_for_update())
@@ -224,6 +233,12 @@ def complete_transcript_job(
                 record.client = detected_client
             record.lease_token = None
             record.lease_expires_at = None
+            if normalized is not None:
+                publish_normalization(database, record, normalized,
+                                      activate=result is not None or record.status != "ready")
+            elif error is not None:
+                record.normalization_status = "pending" if error.retryable else "failed"
+                record.normalization_error_code = error.code
             if error is not None:
                 _index_failure(record, error, source_size, source_details)
             elif result is not None:
@@ -257,29 +272,39 @@ def index_next_transcript(
         return False
     result, error, size, detected_client = None, None, None, None
     source_details = {}
+    normalized = None
     try:
-        parser = None if job.imported else TranscriptParserFactory.create(job.client)
-        data = TranscriptStorage(settings.transcript_root, job.maximum_bytes).read_copy(job.copy)
-        size = len(data)
-        source_details["sha256"] = hashlib.sha256(data).hexdigest()
-        if parser is None:
-            detected_client = detect_transcript_client(io.BytesIO(data))
-            parser = TranscriptParserFactory.create(detected_client)
-        parsed = parser.parse(data, settings.artifact_extraction_max_chars)
-        source_details.update(format=parsed.format, mime_type=parsed.mime_type,
-                              extracted_metadata=parsed.metadata, truncated=parsed.truncated)
-        normalized = parsed.text.encode("utf-8")
-        extracted = extractor.extract(io.BytesIO(normalized), filename="transcript.txt",
-                                      size_bytes=len(normalized))
-        metadata, metadata_truncated = _combined_metadata(extracted, parsed.metadata)
+        if job.copy.size_bytes > job.maximum_bytes:
+            raise ExtractionError("transcript_too_large")
+        with factory() as database:
+            normalized = load_normalization(database, job.transcript_id,
+                                             job.snapshot_id, job.copy.sha256,
+                                             settings.artifact_extraction_max_chars)
+        if normalized is None:
+            storage = TranscriptStorage(settings.transcript_root, job.maximum_bytes)
+            data = storage.read_copy(job.copy)
+            detected_client = detect_transcript_client(io.BytesIO(data)) if job.imported else None
+            normalized = normalize_transcript(data, detected_client or job.client, job.snapshot_id)
+        size = job.copy.size_bytes
+        source_details.update(sha256=job.copy.sha256, format=normalized.format,
+            mime_type=normalized.mime_type, extracted_metadata=normalized.metadata,
+            truncated=normalized.incomplete)
+        searchable, truncated = conversation_text(normalized.segments,
+                                                   settings.artifact_extraction_max_chars)
+        data = searchable.encode("utf-8")
+        extracted = extractor.extract(io.BytesIO(data), filename="transcript.txt",
+                                      size_bytes=len(data))
+        metadata, metadata_truncated = _combined_metadata(extracted, normalized.metadata)
+        # Search and segment offsets have one authoritative extractor. Tika may
+        # enrich metadata, but may not rewrite boundaries in this structured text.
         result = TranscriptResult(ExtractedArtifact(
-            extracted.text, metadata,
-            extracted.truncated or parsed.truncated or metadata_truncated,
-        ), len(data), hashlib.sha256(data).hexdigest(), parsed.format, parsed.mime_type)
+            searchable, metadata, truncated or normalized.extraction_partial
+            or normalized.incomplete or metadata_truncated,
+        ), size, job.copy.sha256, normalized.format, normalized.mime_type)
     except ExtractionError as failure:
         error = failure
     complete_transcript_job(factory, job, result, error, size, source_details, detected_client,
-                            context)
+                            context, normalized)
     return True
 
 

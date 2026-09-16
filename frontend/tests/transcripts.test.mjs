@@ -9,6 +9,10 @@ const operation = "91b9168a-37d1-4a6a-aa1f-bb538b65cb55";
 const digest = "a".repeat(64);
 const root = `projects/${project}/transcripts`;
 const row = { id, project_id: project, work_item_id: operation, lease_generation_id: operation, client: "claude-code", session_id: "session-1", source_path: "/shared/session.jsonl", filename: "session.jsonl", kind: "primary", status: "ready", indexing_started_at: "2026-09-10T12:00:00Z", indexing_completed_at: "2026-09-10T12:00:01Z", error_code: null, size_bytes: 128, mime_type: "application/x-ndjson", format: "claude-code-jsonl", sha256: digest, text_sha256: digest, metadata: { title: ["<script>untrusted</script>"] }, truncated: false, created_at: "2026-09-10T12:00:00Z", snippet: null, score: null };
+Object.assign(row, { normalization_status: "ready", normalization_error_code: null,
+  normalized_revision: "b".repeat(64), normalized_sha256: "c".repeat(64), normalization_schema_version: 1,
+  normalizer_version: 1, normalized_size_bytes: 400, segment_count: 2, normalization_incomplete: false,
+  segment_id: null, content_kind: null });
 Object.assign(row, { copy_status: "ready", copy_error_code: null, copied_at: "2026-09-10T12:00:00Z", index_status: "ready", index_error_code: null });
 const listing = { detail: "full", ...disclosure(project, ["transcripts"]), term_diagnostics: [], items: [row], total: 1, limit: 50, offset: 0, indexing_incomplete: false };
 const environment = { MNEMONIC_API_KEY: "k".repeat(64), MNEMONIC_API_URL: "http://api:8000" };
@@ -26,7 +30,7 @@ test("transcript metadata and listings enforce project, work, pagination and con
 });
 
 test("preview validates unicode pagination and rejects stale indexed text", () => {
-  const text = { transcript_id: id, project_id: project, next_offset: null, text: "Hi 😀", total_chars: 4, offset: 0, limit: 20000, status: "ready", truncated: false, text_sha256: digest };
+  const text = { normalized_revision: null, segments: null, segment_window: null, next_segment_id: null, next_segment_offset: null, next_segment_after: null, transcript_id: id, project_id: project, next_offset: null, text: "Hi 😀", total_chars: 4, offset: 0, limit: 20000, status: "ready", truncated: false, text_sha256: digest };
   assert.equal(decodeTranscriptText(text, id, digest, 0, project).text, "Hi 😀");
   for (const change of [{ text_sha256: "b".repeat(64) }, { total_chars: 5 }, { offset: 1 }, { status: "pending" }, { transcript_id: project }]) assert.throws(() => decodeTranscriptText({ ...text, ...change }, id, digest, 0, project));
 });
@@ -212,4 +216,48 @@ test("Codex transcripts retain client metadata and display their provider name",
   assert.equal(transcriptClientLabel(codex.client), "OpenAI Codex");
   assert.equal(transcriptClientLabel("claude_code"), "Claude Code");
   assert.equal(transcriptClientLabel("future-client"), "future-client");
+});
+
+test("normalization coverage and matched content kinds remain explicit in transcript results", () => {
+  const contentKinds = ["human_text", "assistant_text"];
+  const matched = { ...row, snippet: "needle", segment_id: "a".repeat(24), content_kind: "human_text" };
+  const result = { ...listing, ...disclosure(project, ["transcripts"], { fulltext: true,
+    filters: { transcripts: { content_kinds: contentKinds } } }), items: [matched] };
+  assert.equal(decodeTranscriptPage(result, project, 0, true, undefined, contentKinds).items[0].segment_id, matched.segment_id);
+  for (const change of [{ content_kind: "tool_result" }, { normalized_revision: null }, { segment_id: null },
+    { normalization_incomplete: true }, { normalization_status: "failed" }, { normalized_size_bytes: -1 },
+    { normalization_schema_version: 0 }, { segment_count: true }]) {
+    assert.throws(() => decodeTranscriptPage({ ...result, items: [{ ...matched, ...change }] }, project, 0, true, undefined, contentKinds));
+  }
+  assert.throws(() => decodeTranscriptPage(result, project, 0, true, undefined, ["tool_result"]));
+  assert.equal(decodeTranscriptPage({ ...result, indexing_incomplete: true,
+    items: [{ ...matched, normalization_status: "failed", normalization_incomplete: true }] }, project, 0, true, undefined, contentKinds).indexing_incomplete, true);
+});
+
+test("the transcript proxy preserves normalized revision pins and bounded context windows", () => {
+  const base = `segment_id=${"a".repeat(24)}&expected_normalized_revision=${digest}`;
+  assert.equal(validTranscriptQuery(new URLSearchParams(`${base}&offset=8000001&before=0&after=20`), "text"), true);
+  assert.equal(validTranscriptQuery(new URLSearchParams(`${base}&expected_sha256=${digest}`), "text"), true);
+  for (const query of ["before=1", `expected_normalized_revision=${digest}`, `segment_id=${"a".repeat(24)}`,
+    `${base}&before=1&offset=1`, `${base}&before=20&after=1`, `${base}&after=-1`, `${base}&offset=1073741825`,
+    `${base}&segment_id=${"a".repeat(24)}`]) assert.equal(validTranscriptQuery(new URLSearchParams(query), "text"), false);
+});
+
+test("conversation text responses have a smaller transport budget than discovery listings", async () => {
+  const path = `${root}/${id}/text`;
+  const response = await proxyTranscript(request(`${path}?expected_sha256=${digest}`), path.split("/"), environment,
+    async () => Response.json({ text: "x".repeat(1024 * 1024) }));
+  assert.equal(response.status, 502);
+});
+
+
+test("valid escaped Unicode segment windows fit the browser text transport budget", async () => {
+  const path = `${root}/${id}/text`;
+  const text = "🌲".repeat(20000);
+  const encoded = JSON.stringify({ text, segments: [{ text }] }).replace(/[\u007f-\uffff]/g, (character) => `\\u${character.charCodeAt(0).toString(16).padStart(4, "0")}`);
+  assert.ok(encoded.length > 256 * 1024);
+  const response = await proxyTranscript(request(`${path}?segment_id=${"a".repeat(24)}&expected_normalized_revision=${digest}&limit=20000`), path.split("/"), environment,
+    async () => new Response(encoded, { headers: { "Content-Type": "application/json" } }));
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).text, text);
 });

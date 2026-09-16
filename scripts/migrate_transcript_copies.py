@@ -1,6 +1,6 @@
 """Wait for the resumable worker backfill; optionally verify retained raw bytes.
 
-Run inside the shared worker after upgrading to 0039_manual_review_requests.
+Run inside the shared worker after upgrading to 0040_normalized_transcripts.
 This command never reads transcript bodies into its output or rewrites provenance.
 """
 
@@ -18,19 +18,22 @@ from mnemonic_api.models import Transcript, TranscriptSettings, WorkItem
 from mnemonic_api.services.transcripts import transcript_project_id
 from mnemonic_api.transcript_indexing import _active_generation
 from mnemonic_api.transcript_storage import _open_source
+from mnemonic_backup.archive_schema import HEAD
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
 
 def report(database: Session) -> dict:
     head = database.scalar(text("SELECT version_num FROM alembic_version"))
-    if head != "0039_manual_review_requests":
-        raise RuntimeError("Upgrade all application processes to 0039_manual_review_requests first")
+    if head != HEAD:
+        raise RuntimeError(f"Upgrade all application processes to {HEAD} first")
     rows = database.execute(select(
         Transcript.copy_status, Transcript.copy_error_code, func.count(),
     ).group_by(Transcript.copy_status, Transcript.copy_error_code)).all()
     index_status = func.coalesce(Transcript.reindex_status, Transcript.status)
     indexes = database.execute(select(index_status, func.count()).group_by(index_status)).all()
+    normalizations = database.execute(select(Transcript.normalization_status, func.count())
+        .group_by(Transcript.normalization_status)).all()
     pending = select(func.count()).select_from(Transcript).outerjoin(
         WorkItem, WorkItem.id == Transcript.work_item_id,
     ).outerjoin(TranscriptSettings, TranscriptSettings.project_id == transcript_project_id())
@@ -46,6 +49,10 @@ def report(database: Session) -> dict:
         "index_pending": sum(count for status, count in indexes
                              if status in {"waiting", "pending", "processing"}),
         "index_failed": sum(count for status, count in indexes if status == "failed"),
+        "normalized": sum(count for status, count in normalizations if status == "ready"),
+        "normalization_pending": sum(count for status, count in normalizations
+                                     if status in {"pending", "processing"}),
+        "normalization_failed": sum(count for status, count in normalizations if status == "failed"),
         "deferred_active_or_paused": deferred,
         "dispositions": [{"status": status, "error_code": code, "count": count}
                          for status, code, count in rows],

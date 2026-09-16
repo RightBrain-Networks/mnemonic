@@ -1,3 +1,4 @@
+import { validTranscriptNormalization, type TranscriptNormalization, type TranscriptContentKind } from "./transcript-segments.ts";
 import { decodeSearchDisclosure, validateSearchDisclosure, type SearchDisclosure } from "./search-disclosure.ts";
 import { readBoundedJson } from "./bounded-json.ts";
 import { decodeTermDiagnostics, type TermDiagnostic } from "./search-diagnostics.ts";
@@ -8,7 +9,7 @@ export const TRANSCRIPT_MAX_BYTES = 256 * 1024 * 1024;
 export const TRANSCRIPT_PAGE_SIZE = 50;
 export const TRANSCRIPT_TEXT_PAGE_SIZE = 20000;
 export type TranscriptStatus = "waiting" | "pending" | "processing" | "ready" | "failed";
-export interface Transcript {
+export interface Transcript extends TranscriptNormalization {
   id: string;
   project_id: string;
   work_item_id: string | null;
@@ -65,6 +66,12 @@ export interface TranscriptText {
   status: TranscriptStatus;
   truncated: boolean;
   text_sha256: string;
+  normalized_revision: string | null;
+  segments: null;
+  segment_window: null;
+  next_segment_id: null;
+  next_segment_offset: null;
+  next_segment_after: null;
 }
 const statuses = ["waiting", "pending", "processing", "ready", "failed"];
 const timestamp = (value: unknown) => typeof value === "string" && value.length <= 40 && Number.isFinite(Date.parse(value));
@@ -74,7 +81,7 @@ export const transcriptDigest = (value: unknown): value is string => typeof valu
 export function decodeTranscript(value: unknown, projectId: string, transcriptId?: string): Transcript {
   const row = objectValue(value);
   const metadata = objectValue(row?.metadata);
-  if (!row || !validUuid(row.id) || !sameUuid(row.project_id, projectId)
+  if (!row || !validTranscriptNormalization(row) || !validUuid(row.id) || !sameUuid(row.project_id, projectId)
     || transcriptId !== undefined && !sameUuid(row.id, transcriptId)
     || (row.kind === "imported"
       ? row.work_item_id !== null || row.lease_generation_id !== null || row.session_id !== null
@@ -102,17 +109,20 @@ export function decodeTranscript(value: unknown, projectId: string, transcriptId
   return row as unknown as Transcript;
 }
 
-export function decodeTranscriptPage(value: unknown, projectId: string, offset = 0, fulltext = false, workItemId?: string): TranscriptPage {
+export function decodeTranscriptPage(value: unknown, projectId: string, offset = 0, fulltext = false, workItemId?: string, contentKinds?: TranscriptContentKind[]): TranscriptPage {
   const page = objectValue(value);
   if (!page || page.detail !== "full" || !Array.isArray(page.items) || !finiteInteger(page.total) || page.limit !== TRANSCRIPT_PAGE_SIZE
     || page.offset !== offset || page.items.length !== Math.min(page.limit, Math.max(0, page.total - offset))
     || typeof page.indexing_incomplete !== "boolean") throw new Error("Mnemonic returned an invalid transcript listing.");
   decodeTermDiagnostics(page.term_diagnostics, page.total as number, ["transcripts"]);
   const disclosure = decodeSearchDisclosure(page, projectId, ["transcripts"]);
-  validateSearchDisclosure(disclosure, "transcripts", { work_item_id: workItemId ?? null }, fulltext);
+  validateSearchDisclosure(disclosure, "transcripts", { work_item_id: workItemId ?? null, content_kinds: contentKinds ?? null }, fulltext);
   const items = page.items.map((item) => decodeTranscript(item, projectId));
   if (new Set(items.map((item) => item.id.toLowerCase())).size !== items.length
-    || !fulltext && items.some((item) => item.snippet != null)
+    || !fulltext && items.some((item) => item.snippet != null || item.segment_id != null)
+    || contentKinds && items.some((item) => item.snippet != null && (!item.segment_id || !contentKinds.includes(item.content_kind!)))
+    || !page.indexing_incomplete && items.some((item) => item.normalization_status !== "ready" || item.normalization_incomplete
+      || item.status !== "ready" || item.copy_status !== "ready" || item.index_status !== "ready" || item.truncated)
     || workItemId && items.some((item) => !sameUuid(item.work_item_id, workItemId))) {
     throw new Error("Mnemonic returned transcripts outside the requested scope.");
   }
@@ -136,7 +146,10 @@ export function decodeTranscriptText(value: unknown, transcriptId: string, diges
     || !finiteInteger(row.total_chars) || row.offset !== offset || row.limit !== TRANSCRIPT_TEXT_PAGE_SIZE
     || Array.from(row.text).length !== Math.min(TRANSCRIPT_TEXT_PAGE_SIZE, Math.max(0, row.total_chars - offset))
     || row.next_offset !== (offset + TRANSCRIPT_TEXT_PAGE_SIZE < row.total_chars ? offset + TRANSCRIPT_TEXT_PAGE_SIZE : null)
-    || row.status !== "ready" || typeof row.truncated !== "boolean") throw new Error("The transcript changed or its text response is invalid. Close and reopen it to load the latest index.");
+    || row.status !== "ready" || typeof row.truncated !== "boolean"
+    || !(row.normalized_revision === null || transcriptDigest(row.normalized_revision))
+    || row.segments !== null || row.segment_window !== null || row.next_segment_id !== null
+    || row.next_segment_offset !== null || row.next_segment_after !== null) throw new Error("The transcript changed or its text response is invalid. Close and reopen it to load the latest index.");
   return row as unknown as TranscriptText;
 }
 
