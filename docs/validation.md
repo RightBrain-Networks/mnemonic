@@ -1,5 +1,38 @@
 # Mnemonic validation record
 
+## Search diagnostics and MCP discovery (0.55.0)
+
+Zero-hit content searches now return document counts per term and searched source.
+Unified multi-term queries omit transcripts unless explicitly selected in `facets`;
+blank and single-term queries retain all three sources. Every unified response
+states its actual search scope and explains how to opt into agent sessions. Null
+counts identify unsearched sources, while zero counts describe the searchable
+corpus subject to the existing coverage and sensitive-content limits. Diagnostic
+labels preserve accents so work and content engines apply their own matching rules.
+
+Both dedicated content tools accept `q` alongside canonical `query`, rejecting
+missing or ambiguous input locally. Static validation hints correct `search.sources`
+and claim `client_operation_id` mistakes while arbitrary unknown keys remain
+redacted. Server instructions direct clients to the installed search skill for
+helper paths. The plugin documents pinned local downloads and bounded text search
+for large artifacts; raw file positions are not normalized-text offsets.
+
+Local validation passes the full backend suite with real PostgreSQL and RabbitMQ
+(2,800 tests), plus all 88 affected search tests after the final accent-count
+correction. Coverage includes default transcript exclusion without loading its
+source, explicit opt-in, source filters, disabled storage, withheld sensitive
+bodies, incomplete indexing, immutable index snapshots, and empty offset pages.
+The full MCP suite passes 1,654 tests, including authentic fresh/updated plugin
+installs; 67 targeted MCP checks also pass after the final instruction edit.
+Node 24 passes all 443 frontend tests, type checking and production build. Python
+Ruff/ty and Gitleaks pass. The plugin runtime suite passes 71 tests with its one
+macOS-only check reserved for CI. Required CI remains the merge gate.
+
+API/MCP/dashboard are 0.55.0 and the Claude plugin is 0.33.0. Upgrade API, MCP and
+dashboard together for the new response fields. No migration, configuration,
+tool-catalog, receipt or write-contract changes are required; Alembic remains
+`0039_manual_review_requests`. Repository merge does not deploy running services.
+
 ## Human-requested code reviews (0.54.0)
 
 The Defer split menu now offers Review on queue and detail cards. Done work

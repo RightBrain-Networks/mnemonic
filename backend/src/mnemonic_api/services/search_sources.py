@@ -28,3 +28,4 @@ class SearchCandidate:
 class SearchSource:
     candidates: list[SearchCandidate]
     hydrate: Callable[[list[SearchCandidate]], dict[UUID, SearchHit]]
+    term_counts: Callable[[list[str]], dict[str, int]]

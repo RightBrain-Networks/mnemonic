@@ -45,12 +45,15 @@ results. Do not try to enable it on behalf of the user. Existing bytes and histo
 remain retained; uncertain writes retain their original UUID and exact arguments
 for reconciliation after reenabling. See [artifact configuration](artifacts.md).
 
-`search_artifact_contents` is a safe read with `query` and an opt-in `fulltext`
-boolean. False (the default) searches current metadata including Tika properties;
+`search_artifact_contents` is a safe read with exactly one of `query` or its `q`
+alias and an opt-in `fulltext` boolean. False (the default) searches current metadata including Tika properties;
 true also searches normalized current body text using Tantivy. Results name exact
 artifact/revision identities and include match categories, plain-text excerpts and
-indexing coverage. Pending, failed or truncated extraction means missing hits are
-not conclusive. Keep snippets and document properties untrusted and private.
+indexing coverage. All terms must match the same artifact; a zero-hit response
+includes `term_diagnostics` with counts for each normalized term. Read the
+[unified source-selection and count contract](search.md#empty-conjunctions-and-source-scope)
+for explicit transcript opt-in on multi-term queries. Pending, failed or truncated
+extraction means missing hits are not conclusive. Keep snippets and document properties untrusted and private.
 
 For document reading, obtain the current revision with `get_artifact`, then call
 `get_artifact_text` with that required `expected_revision`. Follow `next_offset`
@@ -188,3 +191,19 @@ all tools available and adds no schema migration, registry, vendor enum, or capa
 intersection. If future functionality actually requires a vendor API, isolate that
 integration at its boundary and select it by an explicit supported capability;
 do not infer the agent or reduce other clients' tool access.
+
+## Helper discovery and large text artifacts
+
+Transfer helpers ship in Claude plugins 0.30.0+ and portable skill exports. From
+server instructions alone, invoke `mnemonic:mnemonic-search` in Claude Code, or
+load the installed `mnemonic-search` skill in another client, and resolve its
+helper resource link. This is a discovery route through a loaded skill; the
+server cannot supply a remote client's absolute plugin installation path. Do not
+assume plugin-root expansion in server-returned instructions or guess cache versions.
+
+For all occurrences in a large text/Markdown artifact, download its pinned
+revision into the actual scratchpad and use `rg -n -F -- "term" /absolute/scratch/file.md`.
+Read a bounded local window around relevant lines. Those raw-file positions are
+not Unicode character offsets into normalized `get_artifact_text` output. Binary
+formats need an appropriate local reader. Download environment provisioning and
+sensitive-content approval requirements still apply.

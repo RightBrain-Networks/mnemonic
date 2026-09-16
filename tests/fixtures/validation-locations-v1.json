@@ -55,21 +55,21 @@
       "id": "cursor",
       "location": ["query", "cursor"],
       "backend_location": ["query", "cursor"],
-      "mcp_path": "cursor",
+      "mcp_path": "query.cursor",
       "browser_location": "cursor"
     },
     {
       "id": "duplicate_scope",
       "location": ["query", "duplicate_scope"],
       "backend_location": ["query", "duplicate_scope"],
-      "mcp_path": "duplicate_scope",
+      "mcp_path": "query.duplicate_scope",
       "browser_location": "duplicate_scope"
     },
     {
       "id": "canonical_filter",
       "location": ["query", "canonical_work_item_id"],
       "backend_location": ["query", "canonical_work_item_id"],
-      "mcp_path": "canonical_work_item_id",
+      "mcp_path": "query.canonical_work_item_id",
       "browser_location": "canonical_work_item_id"
     },
     {

@@ -10,7 +10,7 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from importlib.metadata import version
 from pathlib import Path
-from typing import cast
+from typing import Protocol, cast
 
 import tantivy
 
@@ -39,14 +39,26 @@ class IndexSearchResult:
     searcher: tantivy.Searcher | None
 
 
-def _analyzer() -> tantivy.TextAnalyzer:
-    return (
+class _CountedSearchResult(Protocol):
+    # The pinned Tantivy wheel exposes count but does not declare it in its stubs.
+    @property
+    def count(self) -> int: ...
+
+
+def _analyzer(*, fold_accents: bool = True) -> tantivy.TextAnalyzer:
+    builder = (
         tantivy.TextAnalyzerBuilder(tantivy.Tokenizer.simple())
         .filter(tantivy.Filter.remove_long(200))
         .filter(tantivy.Filter.lowercase())
-        .filter(tantivy.Filter.ascii_fold())
-        .build()
     )
+    if fold_accents:
+        builder = builder.filter(tantivy.Filter.ascii_fold())
+    return builder.build()
+
+
+def literal_terms(query: str, *, fold_accents: bool = True) -> list[str]:
+    """Index terms select defaults; diagnostic labels preserve source-specific accents."""
+    return list(dict.fromkeys(_analyzer(fold_accents=fold_accents).analyze(query)))
 
 
 def _schema() -> tantivy.Schema:
@@ -246,6 +258,20 @@ class ArtifactSearchIndex:
             self._key = None
             if self._storage is not None:
                 self._storage.close()
+
+    def term_counts(
+        self, terms: list[str], fulltext: bool, searcher: tantivy.Searcher | None,
+    ) -> dict[str, int]:
+        # The retained searcher pins this request's filtered, access-checked
+        # corpus even if another request replaces the process-wide cache.
+        return {
+            term: cast(_CountedSearchResult, searcher.search(
+                _literal_query(self._schema, self._analyzer.analyze(term), fulltext),
+                limit=1, count=True,
+            )).count
+            if searcher is not None else 0
+            for term in terms
+        }
 
     def snippet(self, text: str, query: str, searcher: tantivy.Searcher) -> str:
         """Use Tantivy's plain fragment, never its HTML renderer."""

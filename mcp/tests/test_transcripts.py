@@ -41,7 +41,7 @@ def transcript(**changes):
 
 
 def page(**changes):
-    return {"items": [transcript()], "total": 1, "limit": 50, "offset": 0,
+    return {"term_diagnostics": [], "items": [transcript()], "total": 1, "limit": 50, "offset": 0,
             "indexing_incomplete": False, **changes}
 
 

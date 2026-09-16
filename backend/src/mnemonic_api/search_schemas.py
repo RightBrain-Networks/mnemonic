@@ -1,11 +1,12 @@
 """One project search, with optional facet filters and explicit group ordering."""
 
 from datetime import datetime
-from typing import Annotated, Literal, Self
+from typing import Annotated, Any, Literal, Self
 from uuid import UUID
 
 from pydantic import Field, field_validator, model_validator
 
+from mnemonic_api.artifact_index import literal_terms
 from mnemonic_api.artifact_search_schemas import ArtifactIndexingStatus, ArtifactSearchMatch
 from mnemonic_api.schemas import (
     APIModel,
@@ -15,12 +16,13 @@ from mnemonic_api.schemas import (
     Tag,
     WorkSearchHit,
 )
+from mnemonic_api.search_diagnostics import SearchFacet, SearchScope, TermDiagnostics
 from mnemonic_api.transcript_schemas import TranscriptRead, TranscriptStatus
 
-SearchFacet = Literal["work_items", "artifacts", "transcripts"]
 
-
-def _default_facets() -> list[SearchFacet]:
+def _default_facets(data: dict[str, Any]) -> list[SearchFacet]:
+    if len(literal_terms(data.get("q", ""))) > 1:
+        return ["work_items", "artifacts"]
     return ["work_items", "artifacts", "transcripts"]
 
 
@@ -169,6 +171,8 @@ class SearchCoverage(APIModel):
 
 
 class SearchPage(APIModel):
+    search_scope: SearchScope
+    term_diagnostics: TermDiagnostics
     items: list[SearchHit]
     total: int = Field(ge=0)
     limit: int = Field(ge=1, le=100)

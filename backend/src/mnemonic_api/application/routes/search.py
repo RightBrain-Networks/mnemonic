@@ -87,7 +87,10 @@ def _request_schema() -> dict[str, Any]:
         "requestBody": {
             "required": True,
             "description": (
-                "Bounded JSON (16384 bytes). Defaults to all sources, all work statuses, "
+                "Bounded JSON (16384 bytes). Multi-term queries default to work_items "
+                "and artifacts. "
+                "Explicit facets including transcripts opts into agent sessions. Blank and "
+                "single-term queries default to all sources. Defaults are all work statuses, "
                 "metadata-only artifact/transcript matching, relevance order, "
                 "limit 50 and offset 0. "
                 "Facet groups precede remaining co-mingled facets. Relevance uses tied reciprocal "

@@ -222,6 +222,7 @@
       "other_work_item_id",
       "parent_work_item_id",
       "prompt_revision",
+      "query",
       "question",
       "report_id",
       "requested_by_client",

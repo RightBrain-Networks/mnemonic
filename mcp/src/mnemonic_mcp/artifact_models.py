@@ -7,6 +7,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, model_validator
 
+from .search_diagnostics import TermDiagnostics
+
 MCP_ARTIFACT_MAX_BYTES = 64 * 1024 * 1024
 ArtifactContent = Annotated[str, Field(max_length=4 * ((MCP_ARTIFACT_MAX_BYTES + 2) // 3))]
 ArtifactSort = Literal["filename", "created_at", "modified_at", "size_bytes", "revision"]
@@ -168,6 +170,8 @@ class ArtifactIndexingStatus(ArtifactModel):
 
 
 class ArtifactContentSearch(ArtifactModel):
+    match_mode: Literal["all_terms"]
+    term_diagnostics: TermDiagnostics
     items: Annotated[list[ArtifactSearchMatch], Field(max_length=100)]
     total: Annotated[StrictInt, Field(ge=0)]
     limit: ArtifactLimit
@@ -223,6 +227,8 @@ class ArtifactToolSearchMatch(ArtifactModel):
 
 
 class ArtifactToolContentSearch(ArtifactPage[ArtifactToolSearchMatch]):
+    match_mode: Literal["all_terms"]
+    term_diagnostics: TermDiagnostics
     fulltext: StrictBool
     indexing: ArtifactIndexingStatus
     sensitive_content_withheld: Annotated[StrictInt, Field(ge=0)]

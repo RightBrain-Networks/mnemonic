@@ -86,4 +86,6 @@ def artifact_source(
             rendered[item.id] = ArtifactFacetHit(**item.fields(), artifact=match)
         return rendered
 
-    return SearchSource(candidates, hydrate), coverage
+    return SearchSource(
+        candidates, hydrate, lambda terms: index.term_counts(terms, request.fulltext, searcher),
+    ), coverage

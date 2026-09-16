@@ -17,11 +17,13 @@ from mnemonic_api.artifact_index import (
     IndexSearchResult,
     SearchDocument,
     SearchHit,
+    literal_terms,
 )
 from mnemonic_api.config import DEFAULT_TRANSCRIPT_SEARCH_MAX_BYTES, Settings
 from mnemonic_api.database import rows_affected
 from mnemonic_api.errors import ApplicationError, conflict
 from mnemonic_api.models import Transcript, TranscriptRebuild, TranscriptSettings, WorkItem
+from mnemonic_api.search_diagnostics import TermDiagnostic, TermMatchCounts
 from mnemonic_api.services.work_items import require_project
 from mnemonic_api.transcript_schemas import (
     TranscriptPage,
@@ -208,7 +210,13 @@ def _searched_page_locked(database, project_id, filters, index, statement, incom
                           index, result.searcher)
              for hit in result.hits[filters.offset:filters.offset + filters.limit]]
     return TranscriptPage(items=items, total=len(result.hits), limit=filters.limit,
-                          offset=filters.offset, indexing_incomplete=incomplete)
+                          offset=filters.offset, indexing_incomplete=incomplete,
+                          term_diagnostics=[TermDiagnostic(
+                              term=term, matches=TermMatchCounts(transcripts=count),
+                          ) for term, count in index.term_counts(
+                              literal_terms(filters.query, fold_accents=False),
+                              filters.fulltext, result.searcher,
+                          ).items()] if not result.hits else [])
 
 
 def _capacity_error(*, content: bool = False) -> ApplicationError:

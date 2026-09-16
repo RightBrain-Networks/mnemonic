@@ -11,7 +11,12 @@ from sqlalchemy import and_, exists, select
 from sqlalchemy.orm import Session, defer
 
 from mnemonic_api.artifact_access_schemas import ArtifactAccessRequest
-from mnemonic_api.artifact_index import ArtifactSearchIndex, SearchDocument, SearchHit
+from mnemonic_api.artifact_index import (
+    ArtifactSearchIndex,
+    SearchDocument,
+    SearchHit,
+    literal_terms,
+)
 from mnemonic_api.artifact_search_schemas import (
     ArtifactIndexingStatus,
     ArtifactSearchMatch,
@@ -19,6 +24,7 @@ from mnemonic_api.artifact_search_schemas import (
     ArtifactSearchRequest,
 )
 from mnemonic_api.models import Artifact, ArtifactExtraction, ArtifactWorkLink
+from mnemonic_api.search_diagnostics import TermDiagnostic, TermMatchCounts
 from mnemonic_api.search_schemas import ArtifactSearchFilters
 from mnemonic_api.services.artifact_approvals import require_sensitive_access
 from mnemonic_api.services.artifacts import _has_pending_operation, artifact_read
@@ -230,6 +236,11 @@ def _search_page(
         ],
         total=len(result.hits), limit=filters.limit, offset=filters.offset,
         fulltext=filters.fulltext, indexing=_indexing(corpus),
+        term_diagnostics=[TermDiagnostic(term=term, matches=TermMatchCounts(artifacts=count))
+                          for term, count in index.term_counts(
+                              literal_terms(filters.q, fold_accents=False),
+                              filters.fulltext, result.searcher,
+                          ).items()] if not result.hits else [],
         sensitive_content_withheld=sum(
             1 for artifact, _ in corpus if filters.fulltext and artifact.sensitive
             and artifact.deleted_at is None and artifact.id not in approved

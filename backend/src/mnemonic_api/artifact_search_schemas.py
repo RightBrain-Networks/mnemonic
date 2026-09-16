@@ -7,6 +7,7 @@ from pydantic import Field, field_validator
 
 from mnemonic_api.artifact_access_schemas import ArtifactAccessRequest
 from mnemonic_api.artifact_schemas import ArtifactModel, ArtifactRead
+from mnemonic_api.search_diagnostics import TermDiagnostics
 
 
 class ArtifactSearchRequest(ArtifactAccessRequest):
@@ -42,6 +43,8 @@ class ArtifactSearchMatch(ArtifactModel):
 
 
 class ArtifactSearchPage(ArtifactModel):
+    match_mode: Literal["all_terms"] = "all_terms"
+    term_diagnostics: TermDiagnostics
     items: list[ArtifactSearchMatch]
     total: int = Field(ge=0)
     limit: int = Field(ge=1, le=100)
