@@ -17,6 +17,8 @@ from pydantic import (
 )
 from pydantic.json_schema import SkipJsonSchema
 
+from mnemonic_api.validation_rules import validation_rule
+
 _PCHAR = r"[A-Za-z0-9._~!$&'()*+,;=:@%-]"
 _URL = re.compile(
     rf"https?://(?:\[[0-9A-Fa-f:.]+\]|[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?\.?)"
@@ -28,6 +30,8 @@ _TIME = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\
 
 
 def external_url(value: str) -> str:
+    if re.match(r"https?://", value, re.IGNORECASE) is None:
+        raise validation_rule("absolute_http_url_required")
     if not 1 <= len(value) <= 2000 or not value.isascii() or not _URL.fullmatch(value):
         raise ValueError("External URLs must use the bounded ASCII HTTP(S) URI grammar")
     if re.search(r"%(?![0-9A-Fa-f]{2})", value):

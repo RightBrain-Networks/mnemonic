@@ -1,5 +1,31 @@
 # Mnemonic validation record
 
+## Effective search scope and actionable validation (0.56.0)
+
+All four search surfaces now disclose effective filters and source-specific query
+interpretation, including empty pages. Work discovery defaults to all statuses;
+explicit queue filters retain their meaning. Quoted queries disclose that phrase
+operators are currently ignored. Six reviewed validation rules provide static,
+actionable messages without echoing rejected values. MCP and dashboard consumers
+validate these disclosures against the request.
+
+Local backend verification ran the full suite against real PostgreSQL and RabbitMQ:
+2,834 passed, with an old pending-default assertion and a concurrently regenerated
+OpenAPI snapshot subsequently corrected; all 49 affected checks then passed.
+The full MCP run passed 1,686 tests; two in-flight fixture failures and one stale
+release pin were corrected, with the affected 94-response and seven-stack-checker
+test suites passing. Node 24 passes all 448 frontend tests, type checking and the
+production build. Backend/MCP Ruff and ty pass. Plugin runtime verification passes
+71 tests, with its macOS-only check reserved for CI. Required CI is the merge gate.
+
+API/MCP/dashboard are 0.56.0 and the Claude plugin is 0.34.0. Upgrade the consumers
+together for required response fields. No migration or configuration change is
+needed; Alembic remains `0039_manual_review_requests`. The 55-tool catalog and
+receipt/write contracts are unchanged. This is item 1 of the approved
+[search improvement plan](search-improvement-plan.md); compact output and structured
+transcript normalization remain separate deliveries. Repository merge does not
+deploy running services.
+
 ## Search diagnostics and MCP discovery (0.55.0)
 
 Zero-hit content searches now return document counts per term and searched source.

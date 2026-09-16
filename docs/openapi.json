@@ -34,6 +34,120 @@
         "title": "AdjacentRelationshipRead",
         "type": "object"
       },
+      "AppliedSearchFilters": {
+        "additionalProperties": false,
+        "properties": {
+          "artifacts": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ArtifactAppliedFilters"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "transcripts": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TranscriptAppliedFilters"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "work_items": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WorkAppliedFilters"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "project_id"
+        ],
+        "title": "AppliedSearchFilters",
+        "type": "object"
+      },
+      "ArtifactAppliedFilters": {
+        "additionalProperties": false,
+        "properties": {
+          "artifact_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Artifact Id"
+          },
+          "created_by_agent_session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By Agent Session Id"
+          },
+          "include_deleted": {
+            "default": false,
+            "title": "Include Deleted",
+            "type": "boolean"
+          },
+          "mime_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mime Type"
+          },
+          "sensitive": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sensitive"
+          },
+          "work_item_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Work Item Id"
+          }
+        },
+        "title": "ArtifactAppliedFilters",
+        "type": "object"
+      },
       "ArtifactAuditRead": {
         "additionalProperties": false,
         "properties": {
@@ -1058,6 +1172,9 @@
       "ArtifactSearchPage": {
         "additionalProperties": false,
         "properties": {
+          "applied_filters": {
+            "$ref": "#/components/schemas/AppliedSearchFilters"
+          },
           "fulltext": {
             "title": "Fulltext",
             "type": "boolean"
@@ -1089,6 +1206,9 @@
             "title": "Offset",
             "type": "integer"
           },
+          "query_interpretation": {
+            "$ref": "#/components/schemas/QueryInterpretation"
+          },
           "sensitive_content_withheld": {
             "default": 0,
             "minimum": 0.0,
@@ -1107,9 +1227,20 @@
             "minimum": 0.0,
             "title": "Total",
             "type": "integer"
+          },
+          "warnings": {
+            "items": {
+              "$ref": "#/components/schemas/SearchWarning"
+            },
+            "maxItems": 1,
+            "title": "Warnings",
+            "type": "array"
           }
         },
         "required": [
+          "applied_filters",
+          "query_interpretation",
+          "warnings",
           "term_diagnostics",
           "items",
           "total",
@@ -7386,45 +7517,6 @@
         "title": "Page[ProjectRead]",
         "type": "object"
       },
-      "Page_Union_WorkSearchHit__HierarchySummary__": {
-        "additionalProperties": false,
-        "properties": {
-          "items": {
-            "items": {
-              "anyOf": [
-                {
-                  "$ref": "#/components/schemas/WorkSearchHit"
-                },
-                {
-                  "$ref": "#/components/schemas/HierarchySummary"
-                }
-              ]
-            },
-            "title": "Items",
-            "type": "array"
-          },
-          "limit": {
-            "title": "Limit",
-            "type": "integer"
-          },
-          "offset": {
-            "title": "Offset",
-            "type": "integer"
-          },
-          "total": {
-            "title": "Total",
-            "type": "integer"
-          }
-        },
-        "required": [
-          "items",
-          "total",
-          "limit",
-          "offset"
-        ],
-        "title": "Page[Union[WorkSearchHit, HierarchySummary]]",
-        "type": "object"
-      },
       "PriorityChange": {
         "additionalProperties": false,
         "properties": {
@@ -8279,6 +8371,51 @@
           "expected_revision"
         ],
         "title": "PromptUpdate",
+        "type": "object"
+      },
+      "QueryInterpretation": {
+        "additionalProperties": false,
+        "properties": {
+          "artifacts": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SourceQueryInterpretation"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "q": {
+            "maxLength": 1000,
+            "title": "Q",
+            "type": "string"
+          },
+          "transcripts": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SourceQueryInterpretation"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "work_items": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SourceQueryInterpretation"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "q"
+        ],
+        "title": "QueryInterpretation",
         "type": "object"
       },
       "Readiness": {
@@ -9272,6 +9409,9 @@
       "SearchPage": {
         "additionalProperties": false,
         "properties": {
+          "applied_filters": {
+            "$ref": "#/components/schemas/AppliedSearchFilters"
+          },
           "coverage": {
             "$ref": "#/components/schemas/SearchCoverage"
           },
@@ -9318,6 +9458,9 @@
             "title": "Offset",
             "type": "integer"
           },
+          "query_interpretation": {
+            "$ref": "#/components/schemas/QueryInterpretation"
+          },
           "search_scope": {
             "$ref": "#/components/schemas/SearchScope"
           },
@@ -9333,9 +9476,20 @@
             "minimum": 0.0,
             "title": "Total",
             "type": "integer"
+          },
+          "warnings": {
+            "items": {
+              "$ref": "#/components/schemas/SearchWarning"
+            },
+            "maxItems": 1,
+            "title": "Warnings",
+            "type": "array"
           }
         },
         "required": [
+          "applied_filters",
+          "query_interpretation",
+          "warnings",
           "search_scope",
           "term_diagnostics",
           "items",
@@ -9386,6 +9540,93 @@
           "transcripts"
         ],
         "title": "SearchScope",
+        "type": "object"
+      },
+      "SearchWarning": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "const": "phrase_operators_ignored",
+            "default": "phrase_operators_ignored",
+            "title": "Code",
+            "type": "string"
+          },
+          "message": {
+            "const": "Quoted phrases are not supported; quotation marks do not require adjacent words.",
+            "default": "Quoted phrases are not supported; quotation marks do not require adjacent words.",
+            "title": "Message",
+            "type": "string"
+          },
+          "sources": {
+            "items": {
+              "enum": [
+                "work_items",
+                "artifacts",
+                "transcripts"
+              ],
+              "type": "string"
+            },
+            "maxItems": 3,
+            "minItems": 1,
+            "title": "Sources",
+            "type": "array"
+          }
+        },
+        "required": [
+          "sources"
+        ],
+        "title": "SearchWarning",
+        "type": "object"
+      },
+      "SourceQueryInterpretation": {
+        "additionalProperties": false,
+        "properties": {
+          "fields": {
+            "items": {
+              "enum": [
+                "title",
+                "summary",
+                "tags",
+                "checkpoint",
+                "identifiers",
+                "provenance",
+                "metadata",
+                "content"
+              ],
+              "type": "string"
+            },
+            "maxItems": 6,
+            "title": "Fields",
+            "type": "array"
+          },
+          "fulltext": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fulltext"
+          },
+          "match_mode": {
+            "enum": [
+              "browse",
+              "postgresql_plain_terms_or_substring",
+              "hybrid_lexical_semantic",
+              "all_terms"
+            ],
+            "title": "Match Mode",
+            "type": "string"
+          }
+        },
+        "required": [
+          "match_mode",
+          "fields",
+          "fulltext"
+        ],
+        "title": "SourceQueryInterpretation",
         "type": "object"
       },
       "SourceWorkState": {
@@ -9568,6 +9809,81 @@
         "title": "TitleChange",
         "type": "object"
       },
+      "TranscriptAppliedFilters": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Session Id"
+          },
+          "client": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client"
+          },
+          "kind": {
+            "anyOf": [
+              {
+                "enum": [
+                  "primary",
+                  "subagent",
+                  "imported"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kind"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "enum": [
+                  "waiting",
+                  "pending",
+                  "processing",
+                  "ready",
+                  "failed"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          },
+          "work_item_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Work Item Id"
+          }
+        },
+        "title": "TranscriptAppliedFilters",
+        "type": "object"
+      },
       "TranscriptFacetHit": {
         "additionalProperties": false,
         "properties": {
@@ -9697,7 +10013,11 @@
         "type": "object"
       },
       "TranscriptPage": {
+        "additionalProperties": false,
         "properties": {
+          "applied_filters": {
+            "$ref": "#/components/schemas/AppliedSearchFilters"
+          },
           "indexing_incomplete": {
             "title": "Indexing Incomplete",
             "type": "boolean"
@@ -9717,6 +10037,9 @@
             "title": "Offset",
             "type": "integer"
           },
+          "query_interpretation": {
+            "$ref": "#/components/schemas/QueryInterpretation"
+          },
           "term_diagnostics": {
             "items": {
               "$ref": "#/components/schemas/TermDiagnostic"
@@ -9728,9 +10051,20 @@
           "total": {
             "title": "Total",
             "type": "integer"
+          },
+          "warnings": {
+            "items": {
+              "$ref": "#/components/schemas/SearchWarning"
+            },
+            "maxItems": 1,
+            "title": "Warnings",
+            "type": "array"
           }
         },
         "required": [
+          "applied_filters",
+          "query_interpretation",
+          "warnings",
           "items",
           "total",
           "limit",
@@ -10321,6 +10655,104 @@
           "type"
         ],
         "title": "ValidationError",
+        "type": "object"
+      },
+      "WorkAppliedFilters": {
+        "additionalProperties": false,
+        "properties": {
+          "canonical_work_item_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Canonical Work Item Id"
+          },
+          "duplicate_scope": {
+            "default": "canonical",
+            "enum": [
+              "canonical",
+              "aliases",
+              "all"
+            ],
+            "title": "Duplicate Scope",
+            "type": "string"
+          },
+          "external_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "External Url"
+          },
+          "source_client": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Client"
+          },
+          "source_session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Session Id"
+          },
+          "status": {
+            "default": "all",
+            "enum": [
+              "pending",
+              "active",
+              "to-review",
+              "dropped",
+              "deferred",
+              "done",
+              "wont-do",
+              "promoted",
+              "all"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "tag": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tag"
+          },
+          "view": {
+            "default": "full",
+            "enum": [
+              "full",
+              "roots"
+            ],
+            "title": "View",
+            "type": "string"
+          }
+        },
+        "title": "WorkAppliedFilters",
         "type": "object"
       },
       "WorkChangeSet": {
@@ -12982,6 +13414,62 @@
         "title": "WorkSearchHit",
         "type": "object"
       },
+      "WorkSearchPage": {
+        "additionalProperties": false,
+        "properties": {
+          "applied_filters": {
+            "$ref": "#/components/schemas/AppliedSearchFilters"
+          },
+          "items": {
+            "items": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/WorkSearchHit"
+                },
+                {
+                  "$ref": "#/components/schemas/HierarchySummary"
+                }
+              ]
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "query_interpretation": {
+            "$ref": "#/components/schemas/QueryInterpretation"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          },
+          "warnings": {
+            "items": {
+              "$ref": "#/components/schemas/SearchWarning"
+            },
+            "maxItems": 1,
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "applied_filters",
+          "query_interpretation",
+          "warnings",
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "WorkSearchPage",
+        "type": "object"
+      },
       "WorkSnapshot": {
         "additionalProperties": false,
         "properties": {
@@ -13323,7 +13811,7 @@
   "info": {
     "description": "Durable project-scoped work with immutable agent checkpoints.",
     "title": "Mnemonic API",
-    "version": "0.55.0"
+    "version": "0.56.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -17148,7 +17636,7 @@
             "name": "status",
             "required": false,
             "schema": {
-              "default": "pending",
+              "default": "all",
               "enum": [
                 "pending",
                 "active",
@@ -17308,7 +17796,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Page_Union_WorkSearchHit__HierarchySummary__"
+                  "$ref": "#/components/schemas/WorkSearchPage"
                 }
               }
             },
@@ -19698,7 +20186,7 @@
         "frontend/lib/duplicate-handling.ts:decodeWorkContext": "WorkContext",
         "frontend/lib/duplicate-handling.ts:decodeWorkItemDetail": "WorkItemDetailRead",
         "frontend/lib/duplicate-handling.ts:decodeWorkPointer": "WorkPointer",
-        "frontend/lib/duplicate-handling.ts:decodeWorkSearchPage": "Page_Union_WorkSearchHit__HierarchySummary__",
+        "frontend/lib/duplicate-handling.ts:decodeWorkSearchPage": "WorkSearchPage",
         "frontend/lib/duplicate-handling.ts:decodeWorkSearchPage:item": "WorkSearchHit",
         "frontend/lib/duplicate-suggestions.ts:decodeDuplicateCandidateSummary": "DuplicateCandidateSummary",
         "frontend/lib/duplicate-suggestions.ts:decodeDuplicateSuggestion:item": "DuplicateSuggestion",
@@ -19706,9 +20194,10 @@
         "frontend/lib/duplicate-suggestions.ts:decodeExternalCandidateReference": "ExternalCandidateReference",
         "frontend/lib/duplicate-suggestions.ts:decodeExternalSuggestion": "ExternalDuplicateSuggestion",
         "frontend/lib/external-references.ts:decodeExternalReference": "ExternalReference",
-        "frontend/lib/hierarchy-presentation.ts:decodeHierarchyPage": "Page_Union_WorkSearchHit__HierarchySummary__",
+        "frontend/lib/hierarchy-presentation.ts:decodeHierarchyPage": "Page_HierarchySummary_",
         "frontend/lib/hierarchy-presentation.ts:decodeHierarchyPage:item": "HierarchySummary",
         "frontend/lib/hierarchy-presentation.ts:decodeHierarchyPresentation": "HierarchyPresentation",
+        "frontend/lib/hierarchy-presentation.ts:decodeHierarchySearchPage": "WorkSearchPage",
         "frontend/lib/human-gates.ts:GATE_FIELDS": "HumanGateRead",
         "frontend/lib/human-gates.ts:decodeCursorPage:attention": "HumanAttentionPage",
         "frontend/lib/human-gates.ts:decodeCursorPage:gates": "HumanGatePage",
@@ -19749,7 +20238,7 @@
         "RelationshipPage": "Page_AdjacentRelationshipRead_",
         "WorkCompletion": "WorkCompletionRead",
         "WorkDeletionResult": "WorkDeletionRead",
-        "WorkPage": "Page_Union_WorkSearchHit__HierarchySummary__"
+        "WorkPage": "WorkSearchPage"
       },
       "default_component_rule": "CanonicalResponse class name equals component name"
     }

@@ -8,6 +8,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, model_validator
 
 from .search_diagnostics import TermDiagnostics
+from .search_disclosure import SearchDisclosure
 
 MCP_ARTIFACT_MAX_BYTES = 64 * 1024 * 1024
 ArtifactContent = Annotated[str, Field(max_length=4 * ((MCP_ARTIFACT_MAX_BYTES + 2) // 3))]
@@ -169,7 +170,7 @@ class ArtifactIndexingStatus(ArtifactModel):
     truncated: Annotated[StrictInt, Field(ge=0)]
 
 
-class ArtifactContentSearch(ArtifactModel):
+class ArtifactContentSearch(ArtifactModel, SearchDisclosure):
     match_mode: Literal["all_terms"]
     term_diagnostics: TermDiagnostics
     items: Annotated[list[ArtifactSearchMatch], Field(max_length=100)]
@@ -226,7 +227,7 @@ class ArtifactToolSearchMatch(ArtifactModel):
     matched_fields: Annotated[list[Literal["metadata", "content"]], Field(min_length=1, max_length=2)]
 
 
-class ArtifactToolContentSearch(ArtifactPage[ArtifactToolSearchMatch]):
+class ArtifactToolContentSearch(ArtifactPage[ArtifactToolSearchMatch], SearchDisclosure):
     match_mode: Literal["all_terms"]
     term_diagnostics: TermDiagnostics
     fulltext: StrictBool

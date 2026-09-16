@@ -9,6 +9,8 @@ a fixed message per family.
 
 from collections.abc import Iterable, Mapping
 
+from mnemonic_api.validation_rules import VALIDATION_RULES
+
 PUBLIC_LOCATION_REPLACEMENT = "field"
 # Reviewed in docs/validation-vocabulary.json; test_validation_vocabulary.py pins this subset.
 PUBLIC_LOCATION_SEGMENTS = frozenset(
@@ -95,15 +97,24 @@ def public_validation_errors(
 
 def _public_error(error: Mapping[str, object]) -> dict[str, object]:
     error_type = _public_type(error.get("type"))
+    location = _public_location(error.get("loc"))
+    rule = VALIDATION_RULES.get(error_type)
+    if rule is not None:
+        field, message = rule
+        if field is not None and (not location or location[-1] != field):
+            location.append(field)
+        return {"type": error_type, "loc": location, "msg": message}
     return {
         "type": error_type,
-        "loc": _public_location(error.get("loc")),
+        "loc": location,
         "msg": PUBLIC_ERROR_MESSAGES.get(error_type, _UNKNOWN_MESSAGE),
     }
 
 
 def _public_type(raw: object) -> str:
-    return raw if isinstance(raw, str) and raw in PUBLIC_ERROR_MESSAGES else _UNKNOWN_TYPE
+    return raw if isinstance(raw, str) and (
+        raw in PUBLIC_ERROR_MESSAGES or raw in VALIDATION_RULES
+    ) else _UNKNOWN_TYPE
 
 
 def _public_location(raw: object) -> list[str | int]:

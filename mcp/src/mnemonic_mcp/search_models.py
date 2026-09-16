@@ -24,6 +24,7 @@ from .artifact_models import (
 from .external_records import ExternalURL
 from .models import DuplicateScope, SearchStatus, WorkSearchHit
 from .search_diagnostics import SearchScope, TermDiagnostics
+from .search_disclosure import SearchDisclosure
 from .transcript_models import TranscriptRead, TranscriptStatus
 
 SearchFacet = Literal["work_items", "artifacts", "transcripts"]
@@ -182,7 +183,7 @@ SearchHit = Annotated[
 ]
 
 
-class SearchPage(SearchModel):
+class SearchPage(SearchModel, SearchDisclosure):
     search_scope: SearchScope
     term_diagnostics: TermDiagnostics
     items: Annotated[list[SearchHit], Field(max_length=100)]
@@ -218,7 +219,7 @@ SearchToolHit = Annotated[
 ]
 
 
-class SearchToolPage(SearchModel):
+class SearchToolPage(SearchModel, SearchDisclosure):
     search_scope: SearchScope
     term_diagnostics: TermDiagnostics
     items: Annotated[list[SearchToolHit], Field(max_length=100)]

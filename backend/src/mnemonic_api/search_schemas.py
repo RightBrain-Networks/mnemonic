@@ -17,6 +17,7 @@ from mnemonic_api.schemas import (
     WorkSearchHit,
 )
 from mnemonic_api.search_diagnostics import SearchFacet, SearchScope, TermDiagnostics
+from mnemonic_api.search_disclosure import SearchDisclosure
 from mnemonic_api.transcript_schemas import TranscriptRead, TranscriptStatus
 
 
@@ -170,7 +171,7 @@ class SearchCoverage(APIModel):
     transcripts: TranscriptSearchCoverage = Field(default_factory=TranscriptSearchCoverage)
 
 
-class SearchPage(APIModel):
+class SearchPage(APIModel, SearchDisclosure):
     search_scope: SearchScope
     term_diagnostics: TermDiagnostics
     items: list[SearchHit]

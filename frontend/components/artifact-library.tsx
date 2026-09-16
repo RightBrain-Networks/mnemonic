@@ -136,7 +136,7 @@ export default function ArtifactLibrary({ projectId, maximumBytes, refreshSignal
         if (!response.ok) throw new Error(detailMessage((result as { detail?: unknown }).detail).message || "Unable to load artifacts.");
         let freshPage: ArtifactPage;
         if (search) {
-          const matches = decodeUnifiedArtifactSearchPage(result, projectId, fulltext, PAGE_SIZE, offset, includeDeleted, workFilter || undefined);
+          const matches = decodeUnifiedArtifactSearchPage(result, projectId, fulltext, PAGE_SIZE, offset, includeDeleted, workFilter || undefined, search);
           if (!includeDeleted && matches.items.some((item) => item.artifact.deleted_at !== null)) throw new Error("Mnemonic returned deleted artifacts outside the requested search scope.");
           setSearchPage(matches); freshPage = { ...matches, items: matches.items.map((item) => item.artifact) };
         } else { setSearchPage(null); freshPage = decodeArtifactPage(result, projectId); }

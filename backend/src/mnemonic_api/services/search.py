@@ -11,6 +11,13 @@ from mnemonic_api.artifact_index import ArtifactSearchIndex, literal_terms
 from mnemonic_api.config import DEFAULT_TRANSCRIPT_SEARCH_MAX_BYTES
 from mnemonic_api.errors import semantic_unavailable
 from mnemonic_api.search_diagnostics import SearchScope, TermDiagnostic, TermMatchCounts
+from mnemonic_api.search_disclosure import (
+    ArtifactAppliedFilters,
+    SearchDisclosure,
+    TranscriptAppliedFilters,
+    WorkAppliedFilters,
+    search_disclosure,
+)
 from mnemonic_api.search_schemas import (
     ArtifactSearchCoverage,
     FacetTotals,
@@ -94,6 +101,7 @@ def _scope(sources: dict[SearchFacet, SearchSource], request: SearchRequest) -> 
 
 def _page(
     sources: dict[SearchFacet, SearchSource], request: SearchRequest, coverage: SearchCoverage,
+    project_id: UUID,
 ) -> SearchPage:
     if request.q:
         for source in sources.values():
@@ -114,6 +122,7 @@ def _page(
         or coverage.transcripts.indexing_incomplete
     )
     return SearchPage(
+        **_disclosure(project_id, sources, request).model_dump(),
         search_scope=_scope(sources, request),
         term_diagnostics=_term_diagnostics(sources, request.q),
         items=[results[(item.facet, item.id)] for item in selected], total=len(ordered),
@@ -121,6 +130,24 @@ def _page(
         facet_totals=FacetTotals(**{facet: len(source.candidates)
                                   for facet, source in sources.items()}),
         coverage=coverage, indexing_incomplete=incomplete,
+    )
+
+
+def _disclosure(
+    project_id: UUID, sources: dict[SearchFacet, SearchSource], request: SearchRequest,
+) -> SearchDisclosure:
+    filters = request.filters
+    return search_disclosure(
+        project_id, request.q, fulltext=request.fulltext, semantic=filters.work_items.semantic,
+        work_items=WorkAppliedFilters.model_validate(
+            filters.work_items.model_dump(exclude={"semantic"}),
+        ) if "work_items" in sources else None,
+        artifacts=ArtifactAppliedFilters.model_validate(
+            filters.artifacts.model_dump(),
+        ) if "artifacts" in sources else None,
+        transcripts=TranscriptAppliedFilters.model_validate(
+            filters.transcripts.model_dump(),
+        ) if "transcripts" in sources else None,
     )
 
 
@@ -150,7 +177,7 @@ def _search_locked(
                 database, project_id, request, transcript_index,
                 maximum_content_bytes=maximum_transcript_content_bytes,
             ))
-        return _page(sources, request, coverage), updates
+        return _page(sources, request, coverage, project_id), updates
 
 
 def search(

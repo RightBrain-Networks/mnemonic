@@ -61,7 +61,9 @@ from mnemonic_api.phase12_schemas import (
     PositiveRevision,
     RenderedAuthoringPrompt,
 )
+from mnemonic_api.search_disclosure import SearchDisclosure
 from mnemonic_api.transcript_locations import TranscriptLocation, TranscriptSources
+from mnemonic_api.validation_rules import validation_rule
 
 AFFECTED_PATH_MAX_COUNT = 64
 AFFECTED_PATH_MAX_BYTES = 512
@@ -4175,6 +4177,10 @@ class ProjectListQuery(APIModel):
     offset: int = Field(default=0, ge=0)
 
 
+class WorkSearchPage(Page[WorkSearchHit | HierarchySummary], SearchDisclosure):
+    pass
+
+
 class WorkItemListQuery(APIModel):
     external_url: ExternalURL | None = None
     q: Annotated[str, StringConstraints(max_length=500), AfterValidator(no_nul)] | None = None
@@ -4182,7 +4188,7 @@ class WorkItemListQuery(APIModel):
     status: Literal[
         "pending", "active", "to-review", "dropped", "deferred", "done",
         "wont-do", "promoted", "all"
-    ] = "pending"
+    ] = "all"
     sort: Literal["updated", "created", "priority"] = "updated"
     tag: Tag | None = None
     source_client: ClientName | None = None
@@ -4202,15 +4208,15 @@ class WorkItemListQuery(APIModel):
     def query_view_rules(self) -> Self:
         query = (self.q or "").strip()
         if self.semantic and not query:
-            raise ValueError("semantic=true requires a nonblank q")
+            raise validation_rule("semantic_requires_query")
         if self.view == "roots" and self.external_url is not None:
-            raise ValueError("external_url requires view=full")
+            raise validation_rule("external_url_requires_full_view")
         if self.view == "roots" and query:
-            raise ValueError("A nonblank q requires view=full")
+            raise validation_rule("view_requires_blank_query")
         if self.view == "roots" and self.duplicate_scope != "canonical":
-            raise ValueError("Hierarchy roots require duplicate_scope=canonical")
+            raise validation_rule("roots_require_canonical_scope")
         if self.canonical_work_item_id is not None and self.duplicate_scope == "canonical":
-            raise ValueError("canonical_work_item_id requires duplicate_scope=aliases or all")
+            raise validation_rule("canonical_filter_requires_alias_scope")
         return self
 
 

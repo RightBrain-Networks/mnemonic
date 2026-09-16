@@ -50,7 +50,7 @@ export default function TranscriptLibrary({ projectId, refreshSignal }: { projec
     const body = transcriptSearchRequest(search, fulltext, offset, workFilter || undefined);
     void api<unknown>(unifiedSearchPath(projectId), { method: "POST", body: JSON.stringify(body), signal: controller.signal }).then((value) => {
       if (controller.signal.aborted) return;
-      const result = decodeUnifiedTranscriptSearchPage(value, projectId, offset, fulltext, workFilter || undefined);
+      const result = decodeUnifiedTranscriptSearchPage(value, projectId, offset, fulltext, workFilter || undefined, search);
       setPage(result);
       setSelected((current) => current ? result.items.find((item) => sameUuid(item.id, current.id)) ?? current : null);
     }).catch((error) => { if (!controller.signal.aborted) { setPage(null); setError(errorMessage(error)); } })

@@ -19,6 +19,7 @@ from pydantic import (
 from pydantic.experimental.missing_sentinel import MISSING
 
 from .search_diagnostics import TermDiagnostics
+from .search_disclosure import SearchDisclosure
 
 TranscriptLimit = Annotated[StrictInt, Field(ge=1, le=100)]
 TranscriptOffset = Annotated[StrictInt, Field(ge=0, le=10_000)]
@@ -128,7 +129,7 @@ class TranscriptRead(TranscriptModel):
         return value
 
 
-class TranscriptPage(TranscriptModel):
+class TranscriptPage(TranscriptModel, SearchDisclosure):
     term_diagnostics: TermDiagnostics
     items: Annotated[list[TranscriptRead], Field(max_length=100)]
     total: Annotated[StrictInt, Field(ge=0)]

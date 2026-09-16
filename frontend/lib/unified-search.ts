@@ -1,3 +1,4 @@
+import { decodeSearchDisclosure, validateSearchDisclosure, type SearchDisclosure } from "./search-disclosure.ts";
 import { decodeArtifactSearchPage, type ArtifactSearchPage } from "./artifacts.ts";
 import { decodeWorkSearchPage } from "./duplicate-handling.ts";
 import { decodeTermDiagnostics, validateSingleFacetScope } from "./search-diagnostics.ts";
@@ -49,7 +50,7 @@ export function transcriptSearchRequest(q: string, fulltext: boolean, offset: nu
   return { q, facets: ["transcripts"], fulltext, filters: { transcripts: { ...(workItemId ? { work_item_id: workItemId } : {}) } }, sort: { by: q ? "relevance" : "created_at", direction: "desc" }, limit: TRANSCRIPT_PAGE_SIZE, offset };
 }
 
-function facetPage(value: unknown, facet: SearchFacet, limit: number, offset: number) {
+function facetPage(value: unknown, projectId: string, facet: SearchFacet, limit: number, offset: number) {
   const page = objectValue(value);
   const totals = objectValue(page?.facet_totals);
   const coverage = objectValue(page?.coverage);
@@ -75,26 +76,28 @@ function facetPage(value: unknown, facet: SearchFacet, limit: number, offset: nu
   const searched = facet === "artifacts" && objectValue(coverage.artifacts)?.enabled === false ? [] : [facet];
   validateSingleFacetScope(page.search_scope, facet, searched);
   const term_diagnostics = decodeTermDiagnostics(page.term_diagnostics, page.total as number, searched);
-  return { items, total: page.total, limit, offset, coverage, term_diagnostics };
+  return { items, total: page.total, limit, offset, coverage, term_diagnostics, disclosure: decodeSearchDisclosure(page, projectId, searched) };
 }
 
-export function decodeUnifiedWorkSearchPage(value: unknown, projectId: string, options: Parameters<typeof decodeWorkSearchPage>[2] = {}): Page<WorkSearchHit> {
-  const page = facetPage(value, "work_items", options.expectedLimit ?? 50, options.expectedOffset ?? 0);
-  return decodeWorkSearchPage({ items: page.items, total: page.total, limit: page.limit, offset: page.offset }, projectId, options);
+export function decodeUnifiedWorkSearchPage(value: unknown, projectId: string, options: Parameters<typeof decodeWorkSearchPage>[2] = {}): Page<WorkSearchHit> & SearchDisclosure {
+  const page = facetPage(value, projectId, "work_items", options.expectedLimit ?? 50, options.expectedOffset ?? 0);
+  return decodeWorkSearchPage({ items: page.items, total: page.total, limit: page.limit, offset: page.offset, ...page.disclosure }, projectId, options);
 }
 
-export function decodeUnifiedArtifactSearchPage(value: unknown, projectId: string, fulltext: boolean, limit: number, offset: number, includeDeleted = false, workItemId?: string): ArtifactSearchPage {
-  const page = facetPage(value, "artifacts", limit, offset);
+export function decodeUnifiedArtifactSearchPage(value: unknown, projectId: string, fulltext: boolean, limit: number, offset: number, includeDeleted = false, workItemId?: string, query?: string): ArtifactSearchPage {
+  const page = facetPage(value, projectId, "artifacts", limit, offset);
   const coverage = objectValue(page.coverage.artifacts);
   if (!coverage || typeof coverage.enabled !== "boolean") throw new Error("Mnemonic returned invalid artifact search coverage.");
-  const result = decodeArtifactSearchPage({ items: page.items, total: page.total, limit, offset, fulltext, match_mode: "all_terms", term_diagnostics: page.term_diagnostics, indexing: coverage.indexing, sensitive_content_withheld: coverage.sensitive_content_withheld }, projectId, fulltext, limit, offset, coverage.enabled);
+  validateSearchDisclosure(page.disclosure, "artifacts", { include_deleted: includeDeleted, work_item_id: workItemId ?? null }, fulltext, query);
+  const result = decodeArtifactSearchPage({ items: page.items, total: page.total, limit, offset, fulltext, ...page.disclosure, match_mode: "all_terms", term_diagnostics: page.term_diagnostics, indexing: coverage.indexing, sensitive_content_withheld: coverage.sensitive_content_withheld }, projectId, fulltext, limit, offset, coverage.enabled);
   if (result.items.some(({ artifact }) => !includeDeleted && artifact.deleted_at !== null
     || workItemId && !sameUuid(artifact.originating_work_item_id, workItemId) && !artifact.related_work_item_ids.some((id) => sameUuid(id, workItemId)))) throw new Error("Mnemonic returned artifacts outside the requested search scope.");
   return result;
 }
 
-export function decodeUnifiedTranscriptSearchPage(value: unknown, projectId: string, offset = 0, fulltext = false, workItemId?: string): TranscriptPage {
-  const page = facetPage(value, "transcripts", TRANSCRIPT_PAGE_SIZE, offset);
+export function decodeUnifiedTranscriptSearchPage(value: unknown, projectId: string, offset = 0, fulltext = false, workItemId?: string, query?: string): TranscriptPage {
+  const page = facetPage(value, projectId, "transcripts", TRANSCRIPT_PAGE_SIZE, offset);
   const coverage = objectValue(page.coverage.transcripts);
-  return decodeTranscriptPage({ items: page.items, total: page.total, limit: page.limit, offset, term_diagnostics: page.term_diagnostics, indexing_incomplete: coverage?.indexing_incomplete }, projectId, offset, fulltext, workItemId);
+  validateSearchDisclosure(page.disclosure, "transcripts", { work_item_id: workItemId ?? null }, fulltext, query);
+  return decodeTranscriptPage({ items: page.items, total: page.total, limit: page.limit, offset, term_diagnostics: page.term_diagnostics, indexing_incomplete: coverage?.indexing_incomplete, ...page.disclosure }, projectId, offset, fulltext, workItemId);
 }

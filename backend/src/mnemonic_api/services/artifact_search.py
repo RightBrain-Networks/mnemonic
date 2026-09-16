@@ -25,6 +25,7 @@ from mnemonic_api.artifact_search_schemas import (
 )
 from mnemonic_api.models import Artifact, ArtifactExtraction, ArtifactWorkLink
 from mnemonic_api.search_diagnostics import TermDiagnostic, TermMatchCounts
+from mnemonic_api.search_disclosure import ArtifactAppliedFilters, search_disclosure
 from mnemonic_api.search_schemas import ArtifactSearchFilters
 from mnemonic_api.services.artifact_approvals import require_sensitive_access
 from mnemonic_api.services.artifacts import _has_pending_operation, artifact_read
@@ -230,6 +231,12 @@ def _search_page(
     )
     identities = {str(artifact.id): artifact for artifact, _ in corpus}
     return ArtifactSearchPage(
+        **search_disclosure(
+            project_id, filters.q, fulltext=filters.fulltext,
+            artifacts=ArtifactAppliedFilters.model_validate(
+                filters.model_dump(include=set(ArtifactAppliedFilters.model_fields)),
+            ),
+        ).model_dump(),
         items=[
             _match(database, index, identities, hit, filters.q, result.searcher)
             for hit in result.hits[filters.offset:filters.offset + filters.limit]

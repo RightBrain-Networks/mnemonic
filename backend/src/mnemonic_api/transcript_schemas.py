@@ -7,6 +7,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from mnemonic_api.search_diagnostics import TermDiagnostics
+from mnemonic_api.search_disclosure import SearchDisclosure
 from mnemonic_api.transcript_locations import TranscriptLocation
 
 TranscriptStatus = Literal["waiting", "pending", "processing", "ready", "failed"]
@@ -52,7 +53,7 @@ class TranscriptSearch(BaseModel):
     offset: int = Field(default=0, ge=0, le=10000)
 
 
-class TranscriptPage(BaseModel):
+class TranscriptPage(SearchDisclosure):
     term_diagnostics: TermDiagnostics = Field(default_factory=list)
     items: list[TranscriptRead]
     total: int

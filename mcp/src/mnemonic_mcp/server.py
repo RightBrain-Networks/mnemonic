@@ -121,6 +121,7 @@ from .response_validation import (
     matches_requested_offset_page,
     response_matches,
 )
+from .search_disclosure import WorkAppliedFilters, disclosure_matches, search_disclosure
 from .security import LocalAccessMiddleware
 from .title_normalization import nfkc_unicode_15_1
 from .transcript_models import (
@@ -1016,7 +1017,7 @@ def _register_discovery_tools(server: FastMCP, api: MnemonicAPI) -> None:
         project_id: UUID,
         q: Annotated[str | None, Field(max_length=500)] = None,
         external_url: ExternalURL | None = None,
-        status: SearchStatus = "pending",
+        status: SearchStatus = "all",
         semantic: bool = False,
         tag: Annotated[str | None, Field(max_length=50)] = None,
         source_client: Annotated[str | None, Field(max_length=80)] = None,
@@ -1027,7 +1028,7 @@ def _register_discovery_tools(server: FastMCP, api: MnemonicAPI) -> None:
         limit: Annotated[int, Field(ge=1, le=100)] = 30,
         offset: Annotated[int, Field(ge=0)] = 0,
     ) -> WorkPage:
-        """external_url filters exact accepted URL spelling on the owning row and requires view=full. For inverse lookup use status=all, duplicate_scope=all and paginate every match; follow alias roots explicitly. Retrieve pointer-only work, canonical and lexical by default; search is never the actionable ready queue. Full results are WorkSearchHit objects: summary is the returned row and matched_member identifies the exact canonical-group member that won text matching. That member is evidence only, never authority to merge or permission to substitute IDs. duplicate_scope=canonical returns one root per group; use aliases or all only for explicit audit, and canonical_work_item_id only with those two scopes. view=roots accepts only blank/filter browsing and returns canonical hierarchy summaries. ancestor_path follows parent-child edges only. Pending excludes active and dropped leases. To-review selects Done implementation with a requested review or pending recommendation; done excludes those obligations. Review claims remain purpose-bound. No result contains checkpoint bodies or affected_paths. Fully recall the exact checkpoint whose assertions will govern before any local repository assessment. Use list_ready_work to choose claimable work and recall_work on an exact selected ID for context."""
+        """external_url filters exact accepted URL spelling on the owning row and requires view=full. For inverse lookup use status=all, duplicate_scope=all and paginate every match; follow alias roots explicitly. Search all statuses by default; pass status=pending explicitly for pending-only discovery. applied_filters echoes the effective scope even when there are no hits. query_interpretation describes actual matching and warnings disclose ignored phrase operators. Retrieve work summaries, canonical and lexical by default; search is never the actionable ready queue. Full results are WorkSearchHit objects: summary is the returned row and matched_member identifies the exact canonical-group member that won text matching. That member is evidence only, never authority to merge or permission to substitute IDs. duplicate_scope=canonical returns one root per group; use aliases or all only for explicit audit, and canonical_work_item_id only with those two scopes. view=roots accepts only blank/filter browsing and returns canonical hierarchy summaries. ancestor_path follows parent-child edges only. Pending excludes active and dropped leases. To-review selects Done implementation with a requested review or pending recommendation; done excludes those obligations. Review claims remain purpose-bound. No result contains checkpoint bodies or affected_paths. Fully recall the exact checkpoint whose assertions will govern before any local repository assessment. Use list_ready_work to choose claimable work and recall_work on an exact selected ID for context."""
         if external_url is not None and view == "roots":
             raise ToolError("external_url requires view=full.")
         params: dict[str, object | None] = {
@@ -1045,6 +1046,13 @@ def _register_discovery_tools(server: FastMCP, api: MnemonicAPI) -> None:
         }
         if semantic:
             params["semantic"] = True
+        disclosure = search_disclosure(
+            project_id, q, semantic=semantic,
+            work_items=WorkAppliedFilters.model_validate({
+                name: value for name, value in params.items()
+                if name not in {"q", "semantic", "limit", "offset"}
+            }),
+        )
         return cast(
             WorkPage,
             await api.request(
@@ -1055,7 +1063,7 @@ def _register_discovery_tools(server: FastMCP, api: MnemonicAPI) -> None:
                 effect=TransportEffect.SAFE_READ,
                 response_validator=response_matches(
                     WorkPage,
-                    lambda page: _work_page_matches_request(
+                    lambda page: disclosure_matches(page, disclosure) and _work_page_matches_request(
                         page,
                         project_id=project_id,
                         view=view,
