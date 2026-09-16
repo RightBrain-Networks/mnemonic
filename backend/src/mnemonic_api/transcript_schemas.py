@@ -8,6 +8,9 @@ from pydantic import BaseModel, ConfigDict, Field, StrictBool, field_validator, 
 
 from mnemonic_api.search_diagnostics import TermDiagnostics
 from mnemonic_api.search_disclosure import SearchDisclosure
+from mnemonic_api.search_exploration_schemas import SearchOptions
+from mnemonic_api.search_query import QueryMode, parse_query
+from mnemonic_api.search_ranking import ScoreType, SearchRanking
 from mnemonic_api.transcript_locations import TranscriptLocation
 from mnemonic_api.transcript_normalization import ContentKind
 from mnemonic_api.transcript_read_schemas import (
@@ -24,6 +27,8 @@ TranscriptStatus = Literal["waiting", "pending", "processing", "ready", "failed"
 
 
 class TranscriptNormalizationRead(BaseModel):
+    rank: int | None = Field(default=None, ge=1)
+    score_type: ScoreType = "none"
     normalization_status: Literal["pending", "processing", "ready", "failed"] = "pending"
     normalization_error_code: str | None = None
     normalized_revision: Digest | None = None
@@ -35,6 +40,8 @@ class TranscriptNormalizationRead(BaseModel):
     normalization_incomplete: bool = False
     segment_id: SegmentIdentity | None = None
     content_kind: ContentKind | None = None
+    snippet_omission_reason: Literal["matched_span_exceeds_budget"] | None = None
+    matched_fields: list[Literal["metadata", "content"]] = Field(default_factory=list, max_length=2)
 
 
 class TranscriptRead(TranscriptNormalizationRead):
@@ -85,12 +92,13 @@ class CompactTranscriptRead(TranscriptNormalizationRead):
     score: float | None = None
 
 
-class TranscriptSearch(BaseModel):
+class TranscriptSearch(SearchOptions):
     model_config = ConfigDict(extra="forbid")
     query: str | None = Field(default=None, max_length=1000)
+    query_mode: QueryMode = "terms"
     fulltext: bool = False
-    content_kinds: list[ContentKind] | None = Field(default=None, min_length=1, max_length=8)
     detail: Literal["compact", "full"] = "compact"
+    content_kinds: list[ContentKind] | None = Field(default=None, min_length=1, max_length=8)
     work_item_id: UUID | None = None
     limit: int = Field(default=20, ge=1, le=100)
     offset: int = Field(default=0, ge=0, le=10000)
@@ -98,6 +106,7 @@ class TranscriptSearch(BaseModel):
 
     @model_validator(mode="after")
     def content_kind_requires_fulltext(self) -> TranscriptSearch:
+        parse_query(self.query, self.query_mode)
         if self.content_kinds and not self.fulltext:
             raise validation_rule("content_kinds_requires_fulltext")
         if self.content_kinds and len(set(self.content_kinds)) != len(self.content_kinds):
@@ -105,7 +114,7 @@ class TranscriptSearch(BaseModel):
         return self
 
 
-class TranscriptPage(SearchDisclosure):
+class TranscriptPage(SearchDisclosure, SearchRanking):
     detail: Literal["compact", "full"]
     term_diagnostics: TermDiagnostics = Field(default_factory=list)
     items: list[TranscriptRead | CompactTranscriptRead]
@@ -113,6 +122,7 @@ class TranscriptPage(SearchDisclosure):
     limit: int
     offset: int
     indexing_incomplete: bool
+    unsegmented_content_omitted: int = Field(default=0, ge=0)
 
 
     @model_validator(mode="after")

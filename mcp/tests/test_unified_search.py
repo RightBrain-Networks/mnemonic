@@ -44,7 +44,7 @@ def page(items=(), **changes):
             "coverage": {"artifacts": {"enabled": True, "indexing": {
                 "pending": 0, "ready": sum(item["facet"] == "artifacts" for item in items),
                 "failed": 0, "truncated": 0,
-            }, "sensitive_content_withheld": 0}, "transcripts": {"indexing_incomplete": False}},
+            }, "sensitive_content_withheld": 0}, "transcripts": {"indexing_incomplete": False, "unsegmented_content_omitted": 0}},
             "indexing_incomplete": False, **changes}
 
 

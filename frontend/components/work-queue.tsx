@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import SearchEvidence from "@/components/search-evidence";
 import WorkHierarchy, { SearchBreadcrumb } from "@/components/work-hierarchy";
 import WorkQueueCard, { QueueOptionsContext, type QueueOptions } from "@/components/work-queue-card";
 import { useWorkItemMotion } from "@/components/use-work-item-motion";
@@ -66,6 +67,7 @@ export type WorkQueueProps = {
   paneRef: RefObject<HTMLDivElement | null>;
   items: WorkQueueItem[];
   flatSearch: boolean;
+  semantic?: boolean;
   total: number | null;
   loading: boolean;
   refreshing: boolean;
@@ -107,6 +109,7 @@ export default function WorkQueue({
   paneRef,
   items,
   flatSearch,
+  semantic = false,
   total,
   loading,
   refreshing,
@@ -316,7 +319,7 @@ export default function WorkQueue({
     return () => window.removeEventListener("keydown", shortcut);
   }, []);
 
-  const countLabel = resultCountLabel({ loading, pendingQuery, flatSearch, total });
+  const countLabel = resultCountLabel({ loading, pendingQuery, flatSearch, total, ranked: semantic });
 
   return <QueueOptionsContext.Provider value={options}>
     <div ref={paneRef} className="work-queue">
@@ -333,11 +336,12 @@ export default function WorkQueue({
           aria-label="Durable work items"
           onScroll={(event) => setScrolled(event.currentTarget.scrollTop > 4)}
         >
+          {flatSearch && semantic && <p className="field-hint" role="note">Candidates are ranked by text and meaning; their count is not a count of confirmed matches.</p>}
           {error && hasData && <div className="error-notice background-list-error" role="alert"><p>{error}</p><button className="button button-secondary" type="button" onClick={onRetry}>Try again</button></div>}
           {error && !hasData ? <div className="error-notice" role="alert"><p>{error}</p><button className="button button-secondary" type="button" onClick={onRetry}>Try again</button></div> :
             loading && !hasData ? <Skeletons count={3} label="Loading work items" /> :
             hasData ? <>
-              {flatSearch ? <section ref={searchMotionRef} className="work-list search-results" aria-label="Matching durable work records">{searchResults.map(({ summary: item, matched_member: matchedMember }) => <div className="search-result" data-work-item-id={item.work_item.id} key={item.work_item.id}><div className="matched-member" role="note"><span>{matchedMember.id.toLowerCase() === item.work_item.id.toLowerCase() ? "Matched record" : "Matched duplicate member"}</span><bdi dir="auto">{matchedMember.title}</bdi><code>{matchedMember.id}</code></div><SearchBreadcrumb summary={item} /><WorkQueueCard summary={item} /></div>)}</section> :
+              {flatSearch ? <section ref={searchMotionRef} className="work-list search-results" aria-label="Matching durable work records">{searchResults.map(({ summary: item, matched_member: matchedMember, ...evidence }) => <div className="search-result" data-work-item-id={item.work_item.id} key={item.work_item.id}><div className="matched-member" role="note"><span>{matchedMember.id.toLowerCase() === item.work_item.id.toLowerCase() ? "Matched record" : "Matched duplicate member"}</span><bdi dir="auto">{matchedMember.title}</bdi><code>{matchedMember.id}</code></div><SearchEvidence hit={{ ...evidence, summary: item, matched_member: matchedMember }} /><SearchBreadcrumb summary={item} /><WorkQueueCard summary={item} /></div>)}</section> :
                 <WorkHierarchy
                   items={hierarchyResults}
                   status={status}

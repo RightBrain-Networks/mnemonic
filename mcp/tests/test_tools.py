@@ -442,6 +442,8 @@ def test_claim_receipt_repr_redacts_token_but_serialization_retains_it(
 
 
 def test_work_pages_reject_repeated_work_items(work_summary):
+    from search_ranking_fixtures import add_ranking
+
     from mnemonic_mcp.search_disclosure import WorkAppliedFilters, search_disclosure
     hit = {
         "summary": work_summary,
@@ -452,12 +454,12 @@ def test_work_pages_reject_repeated_work_items(work_summary):
         },
     }
     with pytest.raises(ValueError, match="cannot repeat their identity"):
-        WorkPage.model_validate(
+        WorkPage.model_validate(add_ranking(
             {**search_disclosure(
                 UUID(PROJECT_ID), "", work_items=WorkAppliedFilters(),
             ).model_dump(mode="json"), "detail": "full", "work_rank_scope": "work_items",
-                "items": [hit, hit], "total": 2, "limit": 20, "offset": 0}
-        )
+                "items": [hit, hit], "total": 2, "limit": 20, "offset": 0}, "work_items",
+        ))
 
 
 def test_recall_model_rejects_misordered_events(
@@ -1726,7 +1728,7 @@ async def test_search_work_defaults_to_all_statuses_and_omits_checkpoint_bodies(
         assert request.url.path == f"/api/v1/projects/{PROJECT_ID}/work-items"
         assert dict(request.url.params) == {
             "q": "src/search.py",
-            "detail": "full",
+            "detail": "full", "diagnostics": "on_empty", "query_mode": "terms", "work_fields": "title",
             "status": "all",
             "view": "full",
             "duplicate_scope": "canonical",
@@ -3502,6 +3504,7 @@ async def test_search_passes_explicit_filters_and_pagination(settings, status):
             "status": status, "tag": "search", "source_client": "opencode",
             "source_session_id": "ses_123/opaque", "view": "full", "detail": "full", "limit": "5",
             "duplicate_scope": "canonical", "offset": "10", "semantic": "true",
+            "diagnostics": "on_empty", "query_mode": "terms", "work_fields": "title",
         }
         assert request.extensions["timeout"]["read"] == 60.0
         assert request.extensions["timeout"]["connect"] == 5.0
@@ -3542,7 +3545,7 @@ async def test_full_detail_defaults_to_canonical_hits(settings, work_summary):
     assert hit["summary"]["current_context"]["id"] == work_summary["current_context"]["id"]
     assert hit["matched_member"]["id"] == WORK_ID
     assert seen == [{
-        "detail": "full",
+        "detail": "full", "diagnostics": "on_empty", "query_mode": "terms", "work_fields": "title",
         "status": "all",
         "view": "full",
         "duplicate_scope": "canonical",
@@ -5109,7 +5112,7 @@ async def test_alias_audit_search_and_canonical_root_hierarchy_shapes(
     assert seen == [
         {
             "q": "retained symptom",
-            "detail": "full",
+            "detail": "full", "diagnostics": "on_empty", "query_mode": "terms", "work_fields": "title",
             "status": "all",
             "view": "full",
             "duplicate_scope": "aliases",
@@ -5119,7 +5122,7 @@ async def test_alias_audit_search_and_canonical_root_hierarchy_shapes(
         },
         {
             "status": "all",
-            "detail": "full",
+            "detail": "full", "diagnostics": "on_empty", "query_mode": "terms", "work_fields": "title",
             "view": "roots",
             "duplicate_scope": "canonical",
             "limit": "30",

@@ -1,5 +1,6 @@
 "use client";
 
+import { comparisonNotice } from "@/lib/search-ranking";
 import ExternalCandidatesEditor from "@/components/external-candidates-editor";
 import ExternalReferences from "@/components/external-references";
 import { useEffect, useRef, useState, type MouseEvent } from "react";
@@ -163,6 +164,7 @@ export default function DuplicateSuggestionPanel({
         page,
         message: page.items.length || page.external_items?.length
           ? `${page.items.length} possible existing work groups${page.external_items ? `; ${page.external_items.length} possible external records` : ""}.`
+          : page.semantic.comparison_incomplete ? "No candidates were returned by the available comparison. The duplicate check is incomplete."
           : page.external_scope === "unavailable"
             ? "No possible existing work was found. External comparison is unavailable; the supplied records were not successfully compared."
             : page.external_items ? "No possible existing work or supplied external records matched." : "No possible existing work was found. No external records were supplied."
@@ -215,6 +217,7 @@ export default function DuplicateSuggestionPanel({
     >{state.message}</p>}
 
     {state.page && <>
+      {comparisonNotice(state.page.semantic) && <p className="duplicate-suggestion-state" role="status">{comparisonNotice(state.page.semantic)}</p>}
       <div className="duplicate-suggestion-scope" aria-label="Suggestion comparison scope">
         <span>{scopeLabel(state.page)}</span>
         {state.page.exact_title_group_total > 0 && <span>

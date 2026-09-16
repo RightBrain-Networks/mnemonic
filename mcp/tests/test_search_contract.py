@@ -34,7 +34,7 @@ def search_result(tool, status="all"):
         scopes = {"work_items": WorkAppliedFilters(status=status),
                   "artifacts": ArtifactAppliedFilters(), "transcripts": TranscriptAppliedFilters()}
     elif tool == "search_artifact_contents":
-        result = search_page()
+        result = search_page(match_mode="phrase")
         scopes = {"artifacts": ArtifactAppliedFilters()}
     else:
         result = transcript_page(items=[], total=0)
@@ -43,7 +43,7 @@ def search_result(tool, status="all"):
 
 
 @pytest.mark.parametrize("tool", TOOLS)
-async def test_empty_quoted_search_preserves_effective_scope_and_warning(settings, tool):
+async def test_empty_quoted_search_preserves_effective_scope_and_phrase_intent(settings, tool):
     response = search_result(tool)
     arguments = {"project_id": PROJECT_ID, "q": QUERY}
     if tool == "search":
@@ -53,7 +53,8 @@ async def test_empty_quoted_search_preserves_effective_scope_and_warning(setting
         assert actual[key] == response[key]
     if tool in {"search", "search_work"}:
         assert actual["applied_filters"]["work_items"]["status"] == "all"
-    assert actual["warnings"][0]["code"] == "phrase_operators_ignored"
+    assert actual["warnings"] == []
+    assert actual["query_interpretation"]["query_mode"] == "terms"
     assert actual["query_interpretation"]["q"] == QUERY
 
 
@@ -72,7 +73,8 @@ async def test_empty_search_cannot_hide_changed_scope_or_query(settings, tool, f
                       if response["applied_filters"][key] is not None)
         del response["applied_filters"][source][next(iter(response["applied_filters"][source]))]
     else:
-        response["warnings"][0]["message"] = "private-upstream-marker"
+        response["warnings"] = [{"code": "phrase_operators_ignored",
+                                 "sources": ["work_items"], "message": "private-upstream-marker"}]
     arguments = {"project_id": PROJECT_ID, "q": QUERY}
     if tool == "search":
         arguments["facets"] = ["work_items", "artifacts", "transcripts"]

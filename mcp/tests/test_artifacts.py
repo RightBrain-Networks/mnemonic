@@ -220,6 +220,7 @@ async def test_content_search_is_opt_in_safe_project_scoped_and_bounded(settings
         assert request.headers["accept-encoding"] == "identity"
         assert json.loads(request.content) == {
             "q": "private report", "fulltext": fulltext, "detail": "full", "include_deleted": False,
+            "diagnostics": "on_empty", "query_mode": "terms",
             "artifact_id": ARTIFACT_ID, "work_item_id": WORK_ID, "limit": 10, "offset": 0,
         }
         return httpx.Response(200, json=search_page(

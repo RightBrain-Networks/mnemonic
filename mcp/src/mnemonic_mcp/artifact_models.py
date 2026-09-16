@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, model_
 
 from .search_diagnostics import TermDiagnostics
 from .search_disclosure import SearchDetail, SearchDisclosure
+from .search_ranking import SearchHitRanking, SearchRanking
 
 MCP_ARTIFACT_MAX_BYTES = 64 * 1024 * 1024
 ArtifactContent = Annotated[str, Field(max_length=4 * ((MCP_ARTIFACT_MAX_BYTES + 2) // 3))]
@@ -150,7 +151,7 @@ class ArtifactDownload(ArtifactModel):
     content_base64: ArtifactContent
 
 
-class ArtifactSearchMatch(ArtifactModel):
+class ArtifactSearchMatch(ArtifactModel, SearchHitRanking):
     artifact: ArtifactRead
     score: Annotated[float, Field(ge=0, allow_inf_nan=False, strict=True)]
     snippet: Annotated[str, Field(max_length=1000)] | None
@@ -187,7 +188,7 @@ class CompactArtifactRead(ArtifactModel):
     extraction: CompactExtractionStatus
 
 
-class CompactArtifactMatch(ArtifactModel):
+class CompactArtifactMatch(ArtifactModel, SearchHitRanking):
     artifact: CompactArtifactRead
     score: Annotated[float, Field(ge=0, allow_inf_nan=False, strict=True)]
     snippet: Annotated[str, Field(max_length=1000)] | None
@@ -200,9 +201,9 @@ class CompactArtifactMatch(ArtifactModel):
         return self
 
 
-class ArtifactContentSearch(ArtifactModel, SearchDisclosure):
+class ArtifactContentSearch(ArtifactModel, SearchDisclosure, SearchRanking):
     detail: SearchDetail
-    match_mode: Literal["all_terms"]
+    match_mode: Literal["all_terms", "phrase", "literal"]
     term_diagnostics: TermDiagnostics
     items: Annotated[list[ArtifactSearchMatch | CompactArtifactMatch], Field(max_length=100)]
     total: Annotated[StrictInt, Field(ge=0)]
@@ -251,7 +252,7 @@ class ArtifactToolDownload(ArtifactModel):
     artifact_library: ArtifactToolStatus
 
 
-class ArtifactToolSearchMatch(ArtifactModel):
+class ArtifactToolSearchMatch(ArtifactModel, SearchHitRanking):
     artifact: ArtifactSummary
     score: Annotated[float, Field(ge=0, allow_inf_nan=False, strict=True)]
     snippet: Annotated[str, Field(max_length=1000)] | None
@@ -259,10 +260,10 @@ class ArtifactToolSearchMatch(ArtifactModel):
 
 
 class ArtifactToolContentSearch(
-    ArtifactPage[ArtifactToolSearchMatch | CompactArtifactMatch], SearchDisclosure,
+    ArtifactPage[ArtifactToolSearchMatch | CompactArtifactMatch], SearchDisclosure, SearchRanking,
 ):
     detail: SearchDetail
-    match_mode: Literal["all_terms"]
+    match_mode: Literal["all_terms", "phrase", "literal"]
     term_diagnostics: TermDiagnostics
     fulltext: StrictBool
     indexing: ArtifactIndexingStatus

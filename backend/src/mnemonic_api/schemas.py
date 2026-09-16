@@ -61,9 +61,14 @@ from mnemonic_api.phase12_schemas import (
     PositiveRevision,
     RenderedAuthoringPrompt,
 )
+from mnemonic_api.search_diagnostics import TermDiagnostics
 from mnemonic_api.search_disclosure import SearchDisclosure
+from mnemonic_api.search_exploration_schemas import SearchOptions
+from mnemonic_api.search_query import QueryMode, parse_query
+from mnemonic_api.search_ranking import SearchHitRanking, SearchRanking, SemanticDisposition
 from mnemonic_api.transcript_locations import TranscriptLocation, TranscriptSources
 from mnemonic_api.validation_rules import validation_rule
+from mnemonic_api.work_search_fields import WORK_FIELDS, WorkField, WorkFields
 
 AFFECTED_PATH_MAX_COUNT = 64
 AFFECTED_PATH_MAX_BYTES = 512
@@ -2759,7 +2764,28 @@ class WorkSummary(APIModel):
     readiness: Readiness
 
 
-class WorkSearchHit(APIModel):
+class WorkMatchExcerpt(APIModel):
+    field: WorkField
+    text: str = Field(max_length=320)
+    matched_member_id: UUID
+    checkpoint_id: UUID | None = None
+    match_type: Literal["lexical", "substring", "phrase", "literal"]
+
+
+class WorkMatchEvidence(APIModel):
+    excerpts_truncated: bool
+    evidence_mode: Literal["lexical", "semantic", "browse"]
+    matched_fields: list[WorkField] = Field(max_length=6)
+    excerpts: list[WorkMatchExcerpt] = Field(max_length=3)
+
+    @model_validator(mode="after")
+    def bounded_excerpt_text(self) -> Self:
+        if sum(len(excerpt.text) for excerpt in self.excerpts) > 320:
+            raise ValueError("Work match excerpts exceed their shared text budget")
+        return self
+
+
+class WorkSearchHit(WorkMatchEvidence, SearchHitRanking):
     summary: WorkSummary
     matched_member: WorkIdentityPointer
 
@@ -2769,7 +2795,7 @@ WorkSearchStatus = Literal[
 ]
 
 
-class CompactWorkHit(APIModel):
+class CompactWorkHit(WorkMatchEvidence, SearchHitRanking):
     id: UUID
     project_id: UUID
     title: str
@@ -2869,6 +2895,7 @@ class DuplicateSuggestion(APIModel):
 
 
 class DuplicateSuggestionPage(APIModel, ExternalSuggestionFields):
+    semantic: SemanticDisposition = Field(default_factory=SemanticDisposition)
     items: list[DuplicateSuggestion] = Field(max_length=10)
     limit: Annotated[StrictInt, Field(ge=1, le=10)]
     mode: DuplicateSuggestionMode
@@ -2964,7 +2991,7 @@ class HierarchyPresentation(APIModel):
         return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
 
 
-class HierarchySummary(APIModel):
+class HierarchySummary(APIModel, SearchHitRanking):
     summary: WorkSummary
     self_matches_filter: bool
     has_matching_descendants: bool
@@ -4213,10 +4240,11 @@ class ProjectListQuery(APIModel):
     offset: int = Field(default=0, ge=0)
 
 
-class WorkSearchPage(APIModel, SearchDisclosure):
+class WorkSearchPage(APIModel, SearchDisclosure, SearchRanking):
+    term_diagnostics: TermDiagnostics = Field(default_factory=list)
     detail: Literal["compact", "full"]
     work_rank_scope: Literal["work_items"]
-    items: list[WorkSearchHit | HierarchySummary | CompactWorkHit | CompactHierarchyHit]
+    items: list[WorkSearchHit | HierarchySummary | CompactHierarchyHit | CompactWorkHit]
     total: int
     limit: int
     offset: int
@@ -4230,7 +4258,9 @@ class WorkSearchPage(APIModel, SearchDisclosure):
         return self
 
 
-class WorkItemListQuery(APIModel):
+class WorkItemListQuery(APIModel, SearchOptions):
+    query_mode: QueryMode = "terms"
+    work_fields: WorkFields = Field(default_factory=lambda: list(WORK_FIELDS))
     external_url: ExternalURL | None = None
     q: Annotated[str, StringConstraints(max_length=500), AfterValidator(no_nul)] | None = None
     semantic: bool = False
@@ -4257,6 +4287,11 @@ class WorkItemListQuery(APIModel):
     @model_validator(mode="after")
     def query_view_rules(self) -> Self:
         query = (self.q or "").strip()
+        intent = parse_query(self.q, self.query_mode)
+        if self.semantic and intent.constrained:
+            raise validation_rule("semantic_requires_unconstrained_work_query")
+        if self.semantic and self.work_fields != list(WORK_FIELDS):
+            raise validation_rule("semantic_requires_all_work_fields")
         if self.semantic and not query:
             raise validation_rule("semantic_requires_query")
         if self.view == "roots" and self.external_url is not None:

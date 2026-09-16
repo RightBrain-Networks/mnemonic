@@ -68,15 +68,11 @@ def test_work_filters_and_quoted_query_are_disclosed_on_every_page(
     interpretation = page["query_interpretation"]
     assert interpretation["q"] == '"cookie admission"'
     assert interpretation["work_items"] == {
-        "match_mode": "postgresql_plain_terms_or_substring", "fulltext": None,
+        "match_mode": "postgresql_phrase_terms", "fulltext": None,
         "fields": ["title", "summary", "tags", "checkpoint", "identifiers", "provenance"],
     }
     assert interpretation["artifacts"] is None and interpretation["transcripts"] is None
-    assert page["warnings"] == [{
-        "code": "phrase_operators_ignored", "sources": ["work_items"],
-        "message": ("Quoted phrases are not supported; "
-                    "quotation marks do not require adjacent words."),
-    }]
+    assert page["warnings"] == []
 
 
 def test_unified_empty_result_echoes_normalized_effective_filters(api, project):
@@ -96,7 +92,9 @@ def test_unified_empty_result_echoes_normalized_effective_filters(api, project):
         "work_items": {"status": "done", "tag": "discovery", "source_client": "codex",
                        "source_session_id": "prior-session", "duplicate_scope": "aliases",
                        "external_url": "https://example.com/issues/42",
-                       "canonical_work_item_id": None, "view": "full"},
+                       "canonical_work_item_id": None, "view": "full",
+                       "work_fields": ["title", "summary", "tags", "checkpoint",
+                                       "identifiers", "provenance"]},
         "artifacts": {"artifact_id": artifact_id, "work_item_id": work_id,
                       "include_deleted": True, "sensitive": True, "mime_type": "text/plain",
                       "created_by_agent_session_id": "artifact-session"},
@@ -104,9 +102,9 @@ def test_unified_empty_result_echoes_normalized_effective_filters(api, project):
     }
     assert page["query_interpretation"]["transcripts"] is None
     assert page["query_interpretation"]["artifacts"] == {
-        "match_mode": "all_terms", "fields": ["metadata", "content"], "fulltext": True,
+        "match_mode": "phrase", "fields": ["metadata", "content"], "fulltext": True,
     }
-    assert page["warnings"][0]["sources"] == ["work_items", "artifacts"]
+    assert page["warnings"] == []
     assert page["search_scope"]["transcripts"] == "omitted_by_default"
     assert all(term["matches"]["transcripts"] is None for term in page["term_diagnostics"])
 
@@ -116,7 +114,7 @@ def test_disabled_artifacts_are_unsearched_in_disclosures(api, project):
     page = search(api, project, q='"cookie admission"')
     assert page["applied_filters"]["artifacts"] is None
     assert page["query_interpretation"]["artifacts"] is None
-    assert page["warnings"][0]["sources"] == ["work_items"]
+    assert page["warnings"] == []
     assert page["coverage"]["artifacts"]["enabled"] is False
 
 
@@ -133,10 +131,10 @@ def test_dedicated_artifact_search_explains_empty_results(api, project, fulltext
         "sensitive": None, "mime_type": None, "created_by_agent_session_id": None,
     }
     assert page["query_interpretation"]["artifacts"] == {
-        "match_mode": "all_terms", "fulltext": fulltext,
+        "match_mode": "phrase", "fulltext": fulltext,
         "fields": ["metadata", "content"] if fulltext else ["metadata"],
     }
-    assert page["warnings"][0]["sources"] == ["artifacts"]
+    assert page["warnings"] == []
 
 
 @pytest.mark.parametrize("endpoint", ["list", "content", "unified"])
@@ -156,11 +154,11 @@ def test_transcript_search_and_browse_explain_their_scope(api, project, endpoint
         "kind": None, "status": None, "content_kinds": None,
     }
     assert page["query_interpretation"]["transcripts"]["match_mode"] == (
-        "all_terms" if query else "browse"
+        "phrase" if query else "browse"
     )
     assert page["query_interpretation"]["work_items"] is None
     assert page["query_interpretation"]["artifacts"] is None
-    assert bool(page["warnings"]) == bool(query)
+    assert page["warnings"] == []
 
 
 def test_semantic_discovery_reports_hybrid_interpretation(api, project, work_payload):

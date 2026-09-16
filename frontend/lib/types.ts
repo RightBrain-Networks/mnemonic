@@ -1,3 +1,5 @@
+import type { HitRanking, SemanticDisposition } from "./search-ranking.ts";
+import type { WorkEvidence } from "./search-evidence.ts";
 import type { CodeReviewContext, CodeReview, WorkFollowUp, ReviewPolicy, CodeReviewHandoff } from "./code-reviews.ts";
 export type ExternalRecordState = "open" | "closed" | "merged" | "unknown";
 export interface ExternalReference {
@@ -164,7 +166,7 @@ export interface WorkSummary {
   readiness: Readiness;
 }
 
-export interface WorkSearchHit {
+export interface WorkSearchHit extends HitRanking, WorkEvidence {
   summary: WorkSummary;
   matched_member: WorkIdentityPointer;
 }
@@ -185,7 +187,7 @@ export interface WorkItemDetailRead {
   canonical: CanonicalWorkProjection;
 }
 
-export interface HierarchySummary {
+export interface HierarchySummary extends HitRanking {
   summary: WorkSummary;
   self_matches_filter: boolean;
   has_matching_descendants: boolean;
@@ -612,6 +614,7 @@ export interface DuplicateSuggestion {
 }
 
 export interface DuplicateSuggestionPage {
+  semantic: SemanticDisposition;
   external_items?: ExternalSuggestion[];
   external_candidate_count?: number;
   external_scope?: "hybrid" | "lexical" | "unavailable";

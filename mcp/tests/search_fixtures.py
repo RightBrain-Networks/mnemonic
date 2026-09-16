@@ -4,6 +4,7 @@ import json
 from uuid import UUID
 
 import httpx
+from search_ranking_fixtures import add_ranking
 
 from mnemonic_mcp.search_disclosure import (
     ArtifactAppliedFilters,
@@ -24,11 +25,16 @@ def disclosed_response(request: httpx.Request, response: httpx.Response) -> http
     if not isinstance(value, dict) or not isinstance(value.get("items"), list):
         return response
     params = json.loads(request.content) if request.method == "POST" else dict(request.url.params)
+    if request.method == "GET" and "work_fields" in request.url.params:
+        params["work_fields"] = request.url.params.get_list("work_fields")
+    value.setdefault("diagnostics", params.get("diagnostics", "on_empty"))
+    if route[1] == "search":
+        value.setdefault("tag_counts", None)
+    if route[1] == "work-items":
+        value.setdefault("term_diagnostics", [])
     value.setdefault("detail", params.get("detail", "compact"))
     if route[1] in {"search", "work-items"}:
         value.setdefault("work_rank_scope", "work_items")
-    if any(name in value for name in ("applied_filters", "query_interpretation", "warnings")):
-        return httpx.Response(response.status_code, headers=response.headers, json=value)
     q = params.get("q", params.get("query", ""))
     fulltext = params.get("fulltext", False)
     semantic = params.get("semantic") in (True, "true")
@@ -41,8 +47,14 @@ def disclosed_response(request: httpx.Request, response: httpx.Response) -> http
         filters = {scopes[0]: params}
     work = filters.get("work_items", {})
     semantic = semantic or work.get("semantic", False)
+    source = "search" if route[1] == "search" else scopes[0]
+    add_ranking(value, source, q or "", params.get("query_mode", "terms"), semantic)
+    if any(name in value for name in ("applied_filters", "query_interpretation", "warnings")):
+        return httpx.Response(response.status_code, headers=response.headers, json=value)
     disclosure = search_disclosure(
         UUID(route[0]), q, fulltext=fulltext, semantic=semantic,
+        query_mode=params.get("query_mode", "terms"),
+        diagnostics=params.get("diagnostics", "on_empty"),
         **{source: model.model_validate({key: item for key, item in filters.get(source, {}).items()
                                         if key in model.model_fields})
            for source, model in (("work_items", WorkAppliedFilters),

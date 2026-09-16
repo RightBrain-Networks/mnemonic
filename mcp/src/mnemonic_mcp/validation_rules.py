@@ -3,6 +3,26 @@
 from typing import LiteralString
 
 VALIDATION_RULES: dict[str, tuple[str | None, LiteralString]] = {
+    'exact_query_requires_text': ('q', 'Phrase and literal search require nonblank q.'),
+    'unclosed_query_phrase': ('q', 'Close each quoted phrase, or use query_mode=literal.'),
+    'query_phrase_requires_terms': ('q', 'A phrase needs searchable words; use query_mode=literal for punctuation.'),
+    'semantic_requires_unconstrained_work_query': ('q', 'Semantic work search requires query_mode=terms without quoted phrases.'),
+    'semantic_requires_all_work_fields': ('work_fields', 'Semantic work search requires all work_fields; disable semantic to narrow fields.'),
+
+    "search_datetime_timezone_required": (
+        None, "Include a timezone offset or Z in each search date bound.",
+    ),
+    "search_created_range_invalid": (
+        "created_before",
+        "created_before must be later than created_after; the upper bound is exclusive.",
+    ),
+    "search_updated_range_invalid": (
+        "updated_before",
+        "updated_before must be later than updated_after; the upper bound is exclusive.",
+    ),
+    "tag_counts_requires_work_facet": (
+        "tag_counts", "tag_counts requires work_items in facets.",
+    ),
     "absolute_http_url_required": (None, "Include an absolute http:// or https:// URL."),
     "canonical_filter_requires_alias_scope": (
         "canonical_work_item_id",

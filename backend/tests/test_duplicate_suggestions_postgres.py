@@ -1,6 +1,7 @@
 """Adversarial Advisory selection tests against real PostgreSQL."""
 
 import asyncio
+import json
 from concurrent.futures import ThreadPoolExecutor
 from threading import Event
 from time import monotonic
@@ -372,7 +373,8 @@ def test_exact_title_lane_is_global_normalized_grouped_and_private(
         "updated_at",
         "duplicate_member_count",
     }
-    serialized = response.text
+    # Page-level partial_vectors is coverage; candidate payloads stay private.
+    serialized = json.dumps(body["items"])
     for forbidden in (
         "readiness",
         "lease",
@@ -1160,7 +1162,7 @@ def test_locked_cache_candidate_is_skipped_without_delaying_semantic_success(
         assert database.get(WorkItemEmbedding, UUID(candidate["id"])) is None
 
 
-def test_locked_embedding_cache_row_falls_back_before_transport_deadline(
+def test_locked_embedding_cache_preserves_ranking_before_transport_deadline(
     api, project, work_payload, postgres_engine
 ):
     candidate = save(
@@ -1212,7 +1214,8 @@ def test_locked_embedding_cache_row_falls_back_before_transport_deadline(
         elapsed = monotonic() - started_at
 
     assert contended.status_code == 200, contended.text
-    assert contended.json()["mode"] == "lexical"
+    assert contended.json()["mode"] == "hybrid_shortlist"
+    assert contended.json()["semantic"]["cache_refresh"]["status"] == "failed"
     assert elapsed < 1.0
 
 

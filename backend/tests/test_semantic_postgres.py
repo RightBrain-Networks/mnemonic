@@ -233,7 +233,10 @@ def test_semantic_failure_is_explicit_and_lexical_search_still_works(
     failed = api.get(path(project), params={"detail": "full", "q": "fallback", "semantic": "true"})
     assert failed.status_code == 503
     assert failed.json()["detail"]["code"] == "semantic_unavailable"
-    assert "Turn it off" in failed.json()["detail"]["message"]
+    assert "lexical search" in failed.json()["detail"]["message"]
+    assert failed.json()["detail"]["context"]["semantic"]["inference"] == {
+        "status": "unavailable", "reason": "model_failure",
+    }
     ordinary = api.get(path(project), params={"detail": "full", "q": "fallback"})
     assert ordinary.status_code == 200
     assert ordinary.json()["items"][0]["summary"]["work_item"]["id"] == saved["id"]

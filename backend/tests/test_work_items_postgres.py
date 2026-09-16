@@ -331,13 +331,15 @@ def test_minimal_view_is_removed_and_full_detail_preserves_search_hits(
 
     # Explicit full detail retains canonical-aware search summaries.
     default = api.get(collection(project), params={"detail": "full"}).json()["items"][0]
-    assert (
-        default
-        == api.get(collection(project), params={"detail": "full", "view": "full"}).json()["items"][
-            0
-        ]
-    )
-    assert set(default) == {"summary", "matched_member"}
+    assert default == api.get(collection(project),
+                              params={"detail": "full", "view": "full"}).json()["items"][0]
+    assert set(default) == {
+        "summary", "matched_member", "evidence_mode", "matched_fields", "excerpts",
+        "excerpts_truncated", "rank", "score", "score_type",
+    }
+    assert default["evidence_mode"] == "browse"
+    assert default["matched_fields"] == default["excerpts"] == []
+    assert not default["excerpts_truncated"]
     assert default["matched_member"]["id"] == work_item["id"]
     assert set(default["summary"]) == {
         "work_item",

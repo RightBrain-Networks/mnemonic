@@ -20,6 +20,7 @@ from pydantic.experimental.missing_sentinel import MISSING
 
 from .search_diagnostics import TermDiagnostics
 from .search_disclosure import SearchDetail, SearchDisclosure
+from .search_ranking import ScoreType, SearchRanking
 from .transcript_segments import (
     ContentKind,
     NormalizedRevision,
@@ -88,6 +89,10 @@ def transcript_locations_payload(locations: SubagentTranscripts) -> list[dict[st
 
 
 class TranscriptNormalization(TranscriptModel):
+    matched_fields: Annotated[list[Literal["metadata", "content"]], Field(max_length=2)] = Field(default_factory=list)
+    snippet_omission_reason: Literal["matched_span_exceeds_budget"] | None = None
+    rank: Annotated[StrictInt, Field(ge=1)] | None = None
+    score_type: ScoreType = "none"
     normalization_status: Literal["pending", "processing", "ready", "failed"] = "pending"
     normalization_error_code: Annotated[str, Field(max_length=100)] | None = None
     normalized_revision: NormalizedRevision | None = None
@@ -183,7 +188,8 @@ class CompactTranscriptRead(TranscriptNormalization):
         return self
 
 
-class TranscriptPage(TranscriptModel, SearchDisclosure):
+class TranscriptPage(TranscriptModel, SearchDisclosure, SearchRanking):
+    unsegmented_content_omitted: Annotated[StrictInt, Field(ge=0)] = 0
     detail: SearchDetail
     term_diagnostics: TermDiagnostics
     items: Annotated[list[TranscriptRead | CompactTranscriptRead], Field(max_length=100)]

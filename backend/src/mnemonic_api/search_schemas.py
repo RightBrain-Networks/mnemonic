@@ -23,9 +23,24 @@ from mnemonic_api.schemas import (
 )
 from mnemonic_api.search_diagnostics import SearchFacet, SearchScope, TermDiagnostics
 from mnemonic_api.search_disclosure import SearchDisclosure
+from mnemonic_api.search_exploration_schemas import (
+    DateBounds,
+    DiagnosticsMode,
+    TagCountPage,
+    TagCountRequest,
+)
+from mnemonic_api.search_query import QueryMode, parse_query
+from mnemonic_api.search_ranking import (
+    FacetScoreTypes,
+    FacetTotalKinds,
+    ScoreType,
+    SemanticDisposition,
+    TotalKind,
+)
 from mnemonic_api.transcript_normalization import ContentKind
 from mnemonic_api.transcript_schemas import CompactTranscriptRead, TranscriptRead, TranscriptStatus
 from mnemonic_api.validation_rules import validation_rule
+from mnemonic_api.work_search_fields import WORK_FIELDS, WorkFields
 
 
 def _default_facets(data: dict[str, Any]) -> list[SearchFacet]:
@@ -44,7 +59,8 @@ class FacetOrder(APIModel):
     sort: SearchSort | None = None
 
 
-class WorkSearchFilters(APIModel):
+class WorkSearchFilters(APIModel, DateBounds):
+    work_fields: WorkFields = Field(default_factory=lambda: list(WORK_FIELDS))
     status: Literal[
         "pending", "active", "to-review", "dropped", "deferred", "done",
         "wont-do", "promoted", "all",
@@ -69,7 +85,7 @@ class WorkSearchFilters(APIModel):
         return self
 
 
-class ArtifactSearchFilters(APIModel):
+class ArtifactSearchFilters(APIModel, DateBounds):
     artifact_id: UUID | None = None
     work_item_id: UUID | None = None
     include_deleted: bool = False
@@ -78,7 +94,7 @@ class ArtifactSearchFilters(APIModel):
     created_by_agent_session_id: SessionID | None = None
 
 
-class TranscriptSearchFilters(APIModel):
+class TranscriptSearchFilters(APIModel, DateBounds):
     content_kinds: list[ContentKind] | None = Field(default=None, min_length=1, max_length=8)
     work_item_id: UUID | None = None
     agent_session_id: SessionID | None = None
@@ -94,6 +110,9 @@ class SearchFilters(APIModel):
 
 
 class SearchRequest(APIModel):
+    query_mode: QueryMode = "terms"
+    diagnostics: DiagnosticsMode = "on_empty"
+    tag_counts: TagCountRequest | None = None
     q: str = Field(default="", max_length=1000)
     facets: list[SearchFacet] = Field(
         default_factory=_default_facets, min_length=1,
@@ -116,14 +135,20 @@ class SearchRequest(APIModel):
         return value.strip()
 
     @model_validator(mode="after")
-    def valid_facets(self) -> Self:
+    def valid_content_kind_scope(self) -> Self:
+        if self.tag_counts is not None and "work_items" not in self.facets:
+            raise validation_rule("tag_counts_requires_work_facet")
         kinds = self.filters.transcripts.content_kinds
         if kinds is not None:
             if not self.fulltext:
                 raise validation_rule("content_kinds_requires_fulltext")
             if len(set(kinds)) != len(kinds):
                 raise ValueError("content_kinds must contain unique kinds")
+        return self
 
+    @model_validator(mode="after")
+    def valid_facets(self) -> Self:
+        intent = parse_query(self.q, self.query_mode)
         if len(set(self.facets)) != len(self.facets):
             raise ValueError("facets cannot contain duplicates")
         ordered = [group.facet for group in self.facet_order]
@@ -134,12 +159,19 @@ class SearchRequest(APIModel):
         for group in self.facet_order:
             if group.sort and group.sort.by == "priority" and group.facet != "work_items":
                 raise ValueError("priority sorting requires the work_items facet")
+        if self.filters.work_items.semantic:
+            if intent.constrained:
+                raise validation_rule("semantic_requires_unconstrained_work_query")
+            if set(self.filters.work_items.work_fields) != set(WORK_FIELDS):
+                raise validation_rule("semantic_requires_all_work_fields")
         if self.filters.work_items.semantic and (not self.q or "work_items" not in self.facets):
             raise ValueError("semantic search requires q and the work_items facet")
         return self
 
 
 class SearchHitBase(APIModel):
+    rank: int = Field(ge=1)
+    score_type: ScoreType
     id: UUID
     created_at: datetime
     updated_at: datetime
@@ -180,6 +212,7 @@ class ArtifactSearchCoverage(APIModel):
 
 class TranscriptSearchCoverage(APIModel):
     indexing_incomplete: bool = False
+    unsegmented_content_omitted: int = Field(default=0, ge=0)
 
 
 class SearchCoverage(APIModel):
@@ -188,8 +221,14 @@ class SearchCoverage(APIModel):
 
 
 class SearchPage(APIModel, SearchDisclosure):
+    score_type: ScoreType
+    total_kind: TotalKind | Literal["mixed"]
+    facet_total_kinds: FacetTotalKinds
+    facet_score_types: FacetScoreTypes
+    semantic: SemanticDisposition = Field(default_factory=SemanticDisposition)
     detail: Literal["compact", "full"]
     work_rank_scope: Literal["work_items"]
+    tag_counts: TagCountPage | None = None
     search_scope: SearchScope
     term_diagnostics: TermDiagnostics
     items: list[SearchHit]

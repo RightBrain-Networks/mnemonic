@@ -129,10 +129,12 @@ export function resultCountLabel(input: {
   loading: boolean;
   pendingQuery: boolean;
   flatSearch: boolean;
+  ranked?: boolean;
   total: number | null;
 }): string {
   if (input.loading || input.pendingQuery) return "Finding work…";
   if (input.total === null) return "";
+  if (input.flatSearch && input.ranked) return `${input.total} ranked candidate${input.total === 1 ? "" : "s"}`;
   return input.flatSearch
     ? `${input.total} work record${input.total === 1 ? "" : "s"}`
     : `${input.total} root branch${input.total === 1 ? "" : "es"}`;

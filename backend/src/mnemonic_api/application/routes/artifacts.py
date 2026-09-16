@@ -19,6 +19,7 @@ from starlette.concurrency import run_in_threadpool
 
 from mnemonic_api.application.artifact_policy import artifact_status, require_artifacts_enabled
 from mnemonic_api.application.state import settings_of
+from mnemonic_api.application.validation import raise_reviewed_body_validation
 from mnemonic_api.artifact_access_schemas import ArtifactAccessRequest
 from mnemonic_api.artifact_schemas import (
     ArtifactActor,
@@ -515,7 +516,8 @@ async def _search_payload(request: Request) -> ArtifactSearchRequest:
         return ArtifactSearchRequest.model_validate(
             json.loads(body, object_pairs_hook=_unique_object)
         )
-    except ValueError, RecursionError:
+    except (ValueError, RecursionError) as exc:
+        raise_reviewed_body_validation(exc)
         raise ApplicationError(
             422, "artifact_search_invalid", "Provide valid artifact search parameters."
         ) from None

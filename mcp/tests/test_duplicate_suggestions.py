@@ -6,6 +6,7 @@ import pytest
 from conftest import API_KEY, OTHER_WORK_ID, PROJECT_ID, WORK_ID
 from mcp.server.fastmcp.exceptions import ToolError
 from pydantic import ValidationError
+from search_ranking_fixtures import semantic_disposition
 
 from mnemonic_mcp import __version__
 from mnemonic_mcp import api as api_module
@@ -79,6 +80,10 @@ def suggestion_page(
         "items": [suggestion()] if items is None else items,
         "limit": limit,
         "mode": mode,
+        "semantic": semantic_disposition(
+            "completed" if semantic_available else "unavailable",
+            scope="full_scope" if mode == "hybrid_full" else "lexical_shortlist"
+            if mode == "hybrid_shortlist" else "none"),
         "semantic_available": semantic_available,
         "semantic_scope": semantic_scope,
         "composition_version": "duplicate-suggestion-v1",
@@ -97,7 +102,7 @@ def required_arguments() -> dict[str, object]:
 
 
 def test_advisory_package_version_is_coordinated():
-    assert __version__ == "0.58.0"
+    assert __version__ == "0.59.0"
 
 
 async def test_advisory_tool_schema_is_exact_and_capability_free(settings):
@@ -149,6 +154,7 @@ async def test_advisory_tool_schema_is_exact_and_capability_free(settings):
         "mode",
         "semantic_available",
         "semantic_scope",
+        "semantic",
         "composition_version",
         "exact_title_group_total",
         "omitted_exact_title_group_count",
@@ -175,7 +181,7 @@ async def test_advisory_tool_schema_is_exact_and_capability_free(settings):
         "actor",
         "session",
         "raw_score",
-        "vector",
+        '"vectors"',
         "merge_control",
     ):
         assert forbidden not in serialized_output
@@ -188,7 +194,7 @@ async def test_advisory_tool_schema_is_exact_and_capability_free(settings):
         "never blocks create_work",
         "explicit safe read",
         "no operation uuid",
-        "retry the same comparison ordinarily",
+        "retry the same comparison once after one second",
     ):
         assert required in description
 
@@ -374,7 +380,8 @@ def test_strict_request_model_normalizes_creation_fields_and_forbids_extras():
         (lambda page: page.update(semantic_scope="unavailable"), "mode and scope"),
         (
             lambda page: page.update(
-                mode="lexical", semantic_available=False, semantic_scope="unavailable"
+                mode="lexical", semantic_available=False, semantic_scope="unavailable",
+                semantic=semantic_disposition("unavailable")
             ),
             "cannot claim semantic",
         ),
@@ -508,7 +515,7 @@ async def test_tool_rejects_unexpected_success_status_for_safe_read(settings):
 @pytest.mark.parametrize(
     ("status", "code", "expected"),
     [
-        (429, "duplicate_suggestion_busy", "Retry after one second"),
+        (429, "duplicate_suggestion_busy", "Retry once after one second"),
         (413, "request_body_too_large", "exceeded the request limit"),
         (503, "duplicate_suggestion_unavailable", "suggestions are unavailable"),
     ],
@@ -572,6 +579,9 @@ async def test_suggestion_transport_failure_has_no_structural_uncertainty_or_ret
     assert "outcome" not in message
     assert "client_operation_id" not in message
     assert "private-timeout-diagnostic" not in message
+    if failure == "timeout":
+        assert "Duplicate comparison is incomplete" in message
+        assert "Retry once after one second" in message
     assert API_KEY not in message
     assert len(calls) == 1
 

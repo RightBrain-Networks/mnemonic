@@ -309,7 +309,7 @@ test("Advisory states stay optional, accessible, stale-safe, and bidi-isolated",
     }],
     limit: 5,
     mode: "lexical",
-    semantic_available: false,
+    semantic: { inference: { status: "unavailable", reason: "model_failure" }, candidate_scope: "none", partial_vectors: false, comparison_incomplete: true, retry: { max_attempts: 1, after_seconds: 1 }, cache_refresh: { status: "not_needed", reason: null } }, semantic_available: false,
     semantic_scope: "unavailable",
     composition_version: "duplicate-suggestion-v1",
     exact_title_group_total: 0,
@@ -374,7 +374,7 @@ test("Advisory states stay optional, accessible, stale-safe, and bidi-isolated",
   await expect(create).toBeEnabled();
 
   await check.click();
-  await expect(dialog.getByRole("status")).toContainText("No possible existing work");
+  await expect(dialog.locator(".duplicate-suggestion-state").filter({ hasText: "No candidates" })).toContainText("duplicate check is incomplete");
   await expect(dialog.locator(".duplicate-suggestion-scope")).toContainText("Lexical comparison");
   await expect(create).toBeEnabled();
 

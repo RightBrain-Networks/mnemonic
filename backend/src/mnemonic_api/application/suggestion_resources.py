@@ -17,6 +17,7 @@ from mnemonic_api.errors import (
     duplicate_suggestion_unavailable,
     request_body_too_large,
 )
+from mnemonic_api.search_timing import record_timing, timed_phase
 
 SUGGESTION_WORK_KEY = "duplicate_suggestion_owned_work"
 SUGGESTION_STATE_KEY = "duplicate_suggestion_inference_acquired"
@@ -92,10 +93,18 @@ class DuplicateSuggestionResources:
         )
 
     async def acquire_request(self) -> bool:
-        return await _bounded_acquire(self.request_slots, self.request_wait_seconds)
+        started = monotonic()
+        acquired = await _bounded_acquire(self.request_slots, self.request_wait_seconds)
+        record_timing("duplicate_suggestions", "request_queue", started,
+                      outcome="completed" if acquired else "capacity_exhausted")
+        return acquired
 
     async def acquire_inference(self) -> bool:
-        return await _bounded_acquire(self.inference_slots, self.inference_wait_seconds)
+        started = monotonic()
+        acquired = await _bounded_acquire(self.inference_slots, self.inference_wait_seconds)
+        record_timing("work_semantic", "inference_queue", started,
+                      outcome="completed" if acquired else "capacity_exhausted")
+        return acquired
 
     def retain_resources_until_done(
         self,
@@ -134,6 +143,14 @@ class DuplicateSuggestionControlMiddleware:
         self.resources = resources
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        operation = _search_operation(scope)
+        if operation is None:
+            await self._serve(scope, receive, send)
+            return
+        with timed_phase(operation, "total"):
+            await self._serve(scope, receive, send)
+
+    async def _serve(self, scope: Scope, receive: Receive, send: Send) -> None:
         if _is_unified_search_request(scope):
             await _serve_unified_search(self.app, self.resources, scope, receive, send)
             return
@@ -170,6 +187,22 @@ class DuplicateSuggestionControlMiddleware:
             return
 
 
+def _search_operation(scope: Scope) -> str | None:
+    if scope.get("type") != "http":
+        return None
+    parts = str(scope.get("path", "")).strip("/").split("/")
+    if len(parts) < 5 or parts[:3] != ["api", "v1", "projects"]:
+        return None
+    methods = {"search": "POST", "duplicate-suggestions": "POST", "work-items": "GET"}
+    if len(parts) == 5 and scope.get("method") == methods.get(parts[4], ""):
+        return {"search": "unified_search", "duplicate-suggestions": "duplicate_suggestions",
+                "work-items": "work_search"}[parts[4]]
+    if (len(parts) == 6 and scope.get("method") == "POST"
+            and parts[4] in {"artifacts", "transcripts"} and parts[5] == "search-content"):
+        return parts[4] + "_search"
+    return None
+
+
 async def _serve_acquired_request(
     app: ASGIApp,
     resources: DuplicateSuggestionResources,
@@ -198,11 +231,14 @@ async def _serve_acquired_request(
             deadline,
             monotonic() + resources.inference_wait_seconds,
         )
+        inference_started = monotonic()
         inference_acquired = await _acquire_inference_before(
             resources,
             deadline,
             inference_deadline,
         )
+        record_timing("duplicate_suggestions", "inference_queue", inference_started,
+                      outcome="completed" if inference_acquired else "capacity_exhausted")
         state = scope.setdefault("state", {})
         state[SUGGESTION_WORK_KEY] = owned_work
         state[SUGGESTION_STATE_KEY] = inference_acquired

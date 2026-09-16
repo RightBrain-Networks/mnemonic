@@ -1,3 +1,6 @@
+import { validateSourceRanking, decodeSearchRanking, decodeHitRanking, SEARCH_RANKING_FIELDS, HIT_RANKING_FIELDS } from "./search-ranking.ts";
+import { decodeWorkEvidence, EVIDENCE_FIELDS, type QueryMode } from "./search-evidence.ts";
+import { decodeTermDiagnostics } from "./search-diagnostics.ts";
 import { decodeSearchDisclosure, SEARCH_DISCLOSURE_FIELDS, validateSearchDisclosure, type SearchDisclosure, type FullWorkSearchDetail } from "./search-disclosure.ts";
 import { decodeLeaseSettings } from "./work-lease-settings.ts";
 import { validSparseReferences, referenceKeys } from "./external-references.ts";
@@ -36,7 +39,7 @@ import {
 } from "./wire-guards.ts";
 
 const PAGE_FIELDS = ["items", "total", "limit", "offset"] as const;
-const SEARCH_HIT_FIELDS = ["summary", "matched_member"] as const;
+const SEARCH_HIT_FIELDS = ["summary", "matched_member", ...HIT_RANKING_FIELDS, ...EVIDENCE_FIELDS] as const;
 const PROJECTION_FIELDS = [
   "is_duplicate",
   "direct_destination",
@@ -98,7 +101,7 @@ export const DUPLICATE_HANDLING_DECODER_FIELDS = {
   decodeWorkContext: [...CONTEXT_FIELDS, "code_review_context"],
   decodeWorkItemDetail: [...DETAIL_FIELDS, "code_review_context"],
   "decodeWorkSearchPage:item": SEARCH_HIT_FIELDS,
-  decodeWorkSearchPage: [...PAGE_FIELDS, "detail", "work_rank_scope", ...SEARCH_DISCLOSURE_FIELDS]
+  decodeWorkSearchPage: [...PAGE_FIELDS, "detail", "work_rank_scope", "term_diagnostics", ...SEARCH_DISCLOSURE_FIELDS, ...SEARCH_RANKING_FIELDS]
 } as const;
 
 function pointerEqual(left: WorkIdentityPointer, right: WorkIdentityPointer): boolean {
@@ -216,13 +219,14 @@ export function decodeWorkSearchPage(
     expectedOffset?: number;
     expectedFilters?: Record<string, unknown>;
     semantic?: boolean;
+    queryMode?: QueryMode;
   } = {}
 ): Page<WorkSearchHit> & SearchDisclosure & FullWorkSearchDetail {
   const page = objectValue(value);
   const duplicateScope = options.duplicateScope ?? "canonical";
   if (
     !page
-    || !exactKeys(page, [...PAGE_FIELDS, "detail", "work_rank_scope", ...SEARCH_DISCLOSURE_FIELDS])
+    || !exactKeys(page, [...PAGE_FIELDS, "detail", "work_rank_scope", "term_diagnostics", ...SEARCH_DISCLOSURE_FIELDS, ...SEARCH_RANKING_FIELDS])
     || page.detail !== "full" || page.work_rank_scope !== "work_items"
     || !Array.isArray(page.items)
     || !finiteInteger(page.total)
@@ -239,11 +243,15 @@ export function decodeWorkSearchPage(
     )
   ) throw new Error("Mnemonic returned an invalid work search page.");
   const disclosure = decodeSearchDisclosure(page, projectId, ["work_items"]);
+  const term_diagnostics = decodeTermDiagnostics(page.term_diagnostics, page.total as number, ["work_items"], disclosure.diagnostics, disclosure.query_interpretation.q);
   validateSearchDisclosure(disclosure, "work_items", {
     ...options.expectedFilters, duplicate_scope: duplicateScope, canonical_work_item_id: options.canonicalWorkItemId ?? null, view: "full"
-  }, undefined, options.query);
-  const blankQuery = (options.query ?? "").trim().length === 0;
-  if (options.semantic !== undefined && !blankQuery && disclosure.query_interpretation.work_items?.match_mode !== (options.semantic ? "hybrid_lexical_semantic" : "postgresql_plain_terms_or_substring")) throw new Error("Mnemonic returned an unexpected work matching mode.");
+  }, undefined, options.query, options.queryMode);
+  const ranking = decodeSearchRanking(page);
+  validateSourceRanking(ranking, disclosure.query_interpretation.q, "work_items", disclosure.query_interpretation.work_items?.match_mode);
+  const blankQuery = !disclosure.query_interpretation.q;
+  if (disclosure.query_interpretation.query_mode !== (options.queryMode ?? "terms")) throw new Error("Mnemonic returned an unexpected query mode.");
+  if (options.semantic !== undefined && !blankQuery && (disclosure.query_interpretation.work_items?.match_mode === "hybrid_lexical_semantic") !== options.semantic) throw new Error("Mnemonic returned an unexpected work matching mode.");
   const items = page.items.map((valueItem) => {
     const item = objectValue(valueItem);
     if (!item || !exactKeys(item, SEARCH_HIT_FIELDS)) {
@@ -262,16 +270,17 @@ export function decodeWorkSearchPage(
         && matchedMember.status === summary.work_item.status
       )
     ) throw new Error("Mnemonic returned an incoherent work search hit.");
-    return { summary, matched_member: matchedMember };
+    return { summary, matched_member: matchedMember, ...decodeHitRanking(item, ranking.score_type, page.total as number), ...decodeWorkEvidence(item, matchedMember.id, blankQuery ? "browse" : ranking.total_kind === "ranked_candidates" ? "semantic" : "lexical", disclosure.query_interpretation.work_items!.fields) };
   });
   const itemIds = items.map((item) => item.summary.work_item.id.toLowerCase());
   if (new Set(itemIds).size !== itemIds.length) {
     throw new Error("Mnemonic returned repeated work search hits.");
   }
   return {
-    ...disclosure,
+    ...disclosure, ...ranking,
     detail: "full",
     work_rank_scope: "work_items",
+    term_diagnostics,
     items,
     total: page.total,
     limit: page.limit,

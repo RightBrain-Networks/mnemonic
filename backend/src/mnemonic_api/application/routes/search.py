@@ -94,7 +94,7 @@ def _request_schema() -> dict[str, Any]:
                 "Explicit facets including transcripts opts into agent sessions. Blank and "
                 "single-term queries default to all sources. Defaults are all work statuses, "
                 "metadata-only artifact/transcript matching, relevance order, "
-                "limit 50 and offset 0. "
+                "compact detail, limit 20 and offset 0. "
                 "Facet groups precede remaining co-mingled facets. Relevance uses tied reciprocal "
                 "ranks per source. Agent searches withhold sensitive artifact bodies; "
                 "use dedicated "
@@ -118,12 +118,14 @@ async def search_project(
         query_vector = None
         if payload.filters.work_items.semantic:
             if not semantic_search_inference_acquired(request.scope):
-                raise semantic_unavailable()
+                raise semantic_unavailable("capacity_exhausted")
             try:
                 query_vector = semantic_query_vector(embedder, payload.q)
             except Exception as exc:
                 logger.error("Unified semantic query failed (%s)", type(exc).__name__)
-                raise semantic_unavailable() from None
+                raise semantic_unavailable(
+                    "deadline_exceeded" if isinstance(exc, TimeoutError) else "model_failure"
+                ) from None
         if "artifacts" in payload.facets and artifacts_enabled:
             with storage_errors(request):
                 recover_project_artifacts(database, storage_of(request), project_id)

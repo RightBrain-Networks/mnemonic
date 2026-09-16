@@ -413,6 +413,10 @@ def test_timeout_budget_is_typed_and_releases_both_resource_slots():
         if message["type"] == "http.response.body"
     )
     assert json.loads(body)["detail"]["code"] == "duplicate_suggestion_unavailable"
+    semantic = json.loads(body)["detail"]["context"]["semantic"]
+    assert semantic["inference"]["reason"] == "deadline_exceeded"
+    assert semantic["comparison_incomplete"] is True
+    assert semantic["retry"] == {"max_attempts": 1, "after_seconds": 1}
 
 
 def test_timeout_response_cancellation_does_not_over_release_resource_slots():
@@ -510,6 +514,10 @@ def test_body_and_inference_wait_share_one_route_deadline():
         if message["type"] == "http.response.body"
     )
     assert json.loads(body)["detail"]["code"] == "duplicate_suggestion_unavailable"
+    semantic = json.loads(body)["detail"]["context"]["semantic"]
+    assert semantic["inference"]["reason"] == "deadline_exceeded"
+    assert semantic["comparison_incomplete"] is True
+    assert semantic["retry"] == {"max_attempts": 1, "after_seconds": 1}
 
 
 def test_semantic_search_and_suggestion_share_one_inference_gate():

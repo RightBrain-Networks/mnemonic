@@ -8,6 +8,7 @@ from uuid import UUID
 import pytest
 from conftest import NOW, PROJECT_ID
 from mcp.server.fastmcp.exceptions import ToolError
+from search_ranking_fixtures import add_ranking
 from test_compact_search import native_call
 from test_transcript_segments import REVISION, segment
 from test_transcripts import TRANSCRIPT_ID, transcript
@@ -28,9 +29,11 @@ def search_result(tool, detail, kinds):
                        "updated_at": NOW, "score": 0.01, "transcript": record}], limit=20)
         result["search_scope"]["searched_facets"] = ["transcripts"]
         result["work_rank_scope"] = "work_items"
+        result["tag_counts"] = None
     else:
         result = {"items": [record], "total": 1, "limit": 20, "offset": 0,
                   "term_diagnostics": [], "indexing_incomplete": False}
+    add_ranking(result, "search" if tool == "search" else "transcripts", "needle")
     return {**result, "detail": detail, **search_disclosure(UUID(PROJECT_ID), "needle",
         fulltext=True, transcripts=TranscriptAppliedFilters(content_kinds=kinds)).model_dump(
             mode="json")}

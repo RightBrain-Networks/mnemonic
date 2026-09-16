@@ -62,7 +62,10 @@ from .external_records import (
 from .lease_models import LeaseSettingsRead
 from .phase12_models import JobCompletionReportRead, reject_null_report
 from .response_validation import validate_page_bounds, validate_page_items
+from .search_diagnostics import TermDiagnostics
 from .search_disclosure import SearchDetail, SearchDisclosure
+from .search_query import WorkMatchEvidence
+from .search_ranking import SearchHitRanking, SearchRanking, SemanticDisposition
 
 Status = Literal["pending", "deferred", "done", "wont-do", "promoted"]
 EventStatus = Literal["open", "pending", "deferred", "done", "wont-do", "promoted"]
@@ -2003,6 +2006,7 @@ class DuplicateSuggestion(CanonicalResponse):
 
 
 class DuplicateSuggestionPage(CanonicalResponse):
+    semantic: SemanticDisposition = Field(default_factory=SemanticDisposition)
     items: list[DuplicateSuggestion] = Field(max_length=10)
     limit: StrictInt = Field(ge=1, le=10)
     mode: DuplicateSuggestionMode
@@ -2035,6 +2039,16 @@ class DuplicateSuggestionPage(CanonicalResponse):
     @model_validator(mode="after")
     def enforce_external_contract(self) -> Self:
         validate_external_page(self)
+        return self
+
+    @model_validator(mode="after")
+    def enforce_semantic_contract(self) -> Self:
+        if (self.semantic.inference.status == "completed") != self.semantic_available:
+            raise ValueError("Semantic execution must agree with suggestion availability")
+        if self.semantic_available and self.semantic.candidate_scope != (
+            "full_scope" if self.mode == "hybrid_full" else "lexical_shortlist"
+        ):
+            raise ValueError("Semantic execution must identify the candidate scope")
         return self
 
     @model_validator(mode="after")
@@ -2431,7 +2445,7 @@ class WorkSummaryMinimal(CanonicalResponse):
     display_state: ReadyDisplayState
 
 
-class WorkSearchHit(CanonicalResponse):
+class WorkSearchHit(CanonicalResponse, WorkMatchEvidence, SearchHitRanking):
     summary: WorkSummary
     matched_member: WorkIdentityPointer
 
@@ -2465,7 +2479,7 @@ class HierarchyPresentation(CanonicalResponse):
         return self
 
 
-class HierarchySummary(CanonicalResponse):
+class HierarchySummary(CanonicalResponse, SearchHitRanking):
     summary: WorkSummary
     self_matches_filter: StrictBool
     has_matching_descendants: StrictBool
@@ -2480,7 +2494,7 @@ class HierarchySummary(CanonicalResponse):
         return self
 
 
-class CompactWorkHit(CanonicalResponse):
+class CompactWorkHit(CanonicalResponse, WorkMatchEvidence, SearchHitRanking):
     id: UUID
     project_id: UUID
     title: str
@@ -2532,7 +2546,8 @@ class CompactHierarchyHit(CompactWorkHit):
         return self
 
 
-class WorkPage(CanonicalResponse, SearchDisclosure):
+class WorkPage(CanonicalResponse, SearchDisclosure, SearchRanking):
+    term_diagnostics: TermDiagnostics = Field(default_factory=list)
     detail: SearchDetail
     work_rank_scope: Literal["work_items"]
     items: list[WorkSearchHit | HierarchySummary | CompactWorkHit | CompactHierarchyHit]

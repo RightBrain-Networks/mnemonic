@@ -1,3 +1,4 @@
+import { ranking, hitRanking, unifiedRanking, semanticDisposition, evidence } from "./search-ranking-fixtures.mjs";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
@@ -28,7 +29,7 @@ for (const [title, candidateTitle, exact] of [
     const reference = { url: "https://example.com/1", title: candidateTitle, state: "open" };
     const request = { title, summary: "the", initial_prompt: "and", limit: 5,
       external_candidates: [{ ...reference, body: "" }] };
-    const page = { items: [], limit: 5, mode: "lexical", semantic_available: false,
+    const page = { semantic: semanticDisposition("unavailable"), items: [], limit: 5, mode: "lexical", semantic_available: false,
       semantic_scope: "unavailable", composition_version: "duplicate-suggestion-v1",
       exact_title_group_total: 0, omitted_exact_title_group_count: 0,
       external_candidate_count: 1, external_scope: "lexical",

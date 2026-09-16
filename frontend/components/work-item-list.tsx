@@ -243,6 +243,7 @@ export default function WorkItemList({
         paneRef={queuePaneRef}
         items={items}
         flatSearch={flatSearch}
+        semantic={semantic}
         total={total}
         loading={loading}
         refreshing={refreshing}
