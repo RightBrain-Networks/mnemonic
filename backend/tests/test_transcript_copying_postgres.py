@@ -84,7 +84,11 @@ def test_legacy_ready_backfill_retains_text_until_copy_success(
     assert api.get(collection(project), params={"detail": "full"}).json()["indexing_incomplete"]
     assert copy_next_transcript(factory, settings)
     current = read(api, project, record)
-    if source_change == "changed":
+    if source_change == "unchanged":
+        assert index_next_transcript(factory, settings, Parser())
+        assert read(api, project, record)["normalized_revision"] is not None
+        assert not api.get(collection(project)).json()["indexing_incomplete"]
+    elif source_change == "changed":
         assert current["status"] == "ready" and current["index_status"] == "pending"
         assert current["text_sha256"] == ready["text_sha256"]
         assert index_next_transcript(factory, settings, Parser())

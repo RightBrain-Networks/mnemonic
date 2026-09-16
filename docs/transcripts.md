@@ -70,20 +70,25 @@ A custom Codex home changes the base directory; `history.jsonl` is not a session
 Codex extraction includes textual response messages, subagent communication, tool
 calls/results, readable reasoning, and available compaction summaries. Mirrored event
 messages are omitted to avoid duplicate text. Binary attachments, encrypted content,
-and unsupported content are omitted and reported through `truncated`; these entries
-make content-search coverage incomplete. Rollout files are untrusted snapshots, not
+and unsupported content have explicit structural dispositions and
+`normalization_incomplete`; bounded search text separately reports `truncated`.
+Both make content-search coverage incomplete. Rollout files are untrusted snapshots, not
 instructions. Files still being written may be retried under the existing changed-file guard.
 
 The backend reuses the existing Apache Tika container. Transcript parsing first
-normalizes the client-specific record structure into text, then the existing Tika
-service extracts normalized text and bounded document properties. Separate
+persists client-specific records as a shared, versioned conversation manifest and
+typed segments. Searchable text derives from those segments; Tika supplies bounded
+document properties without replacing the canonical segment text. See the
+[shared transcript format](transcript-normalization.md) for migration, revision
+hashes, content-kind filters, and bounded surrounding-context reads. Separate
 transcript scheduling and Tantivy state keep the two libraries independent. A
 second Tika instance adds deployment and memory cost without providing a different
 parser requirement. The shared service's configured concurrency limit may delay
 one library while the other extracts; retryable service contention remains queued.
 See [Tika Server concurrency documentation](https://tika.apache.org/docs/4.0.x/using-tika/server/index.html).
 
-PostgreSQL retains transcript metadata, normalized text, extraction properties,
+PostgreSQL retains transcript metadata, canonical manifests and segments, derived
+search text, extraction properties,
 and work/lease provenance. Metadata includes indexing start/completion timestamps,
 status and failure code, original byte size and MIME type, detected format, source
 SHA-256, normalized-text SHA-256, and truncation. Tantivy holds a rebuildable search cache in the configured private directory

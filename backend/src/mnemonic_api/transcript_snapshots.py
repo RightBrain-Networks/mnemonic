@@ -21,6 +21,10 @@ def empty_transcript_snapshot() -> dict[str, Any]:
 def new_transcript_copy() -> dict[str, Any]:
     """Enrollment starts a fresh source capture; reindexing does not call this."""
     return {
+        "normalization_status": "pending", "normalization_error_code": None,
+        "normalized_revision": None, "normalized_sha256": None, "normalized_size_bytes": None,
+        "normalization_schema_version": None, "normalizer_version": None,
+        "segment_count": 0, "normalization_incomplete": False,
         "snapshot_id": uuid4(), "copy_status": "pending", "storage_key": None,
         "copy_sha256": None, "copy_size_bytes": None, "copied_at": None,
         "copy_error_code": None, "copy_attempts": 0,

@@ -1,3 +1,4 @@
+import { NORMALIZED_SEGMENT_OFFSET_MAX, segmentIdentity } from "./transcript-segments.ts";
 import { readBoundedBytes, readBoundedJson } from "./bounded-json.ts";
 import { configuredOrigins, forbiddenControlTransport, trustedRequest } from "./proxy-policy.ts";
 import { TRANSCRIPT_JSON_MAX_BYTES, TRANSCRIPT_MAX_BYTES, TRANSCRIPT_PROXY_REJECTION_MESSAGES, transcriptDigest, validTranscriptDirectory } from "./transcripts.ts";
@@ -24,15 +25,22 @@ export function transcriptRoute(path: string[], method: string): Action | null {
   return null;
 }
 export function validTranscriptQuery(query: URLSearchParams, action: Action): boolean {
-  const allowed = action === "list" ? ["query", "fulltext", "detail", "work_item_id", "limit", "offset"] : action === "text" ? ["limit", "offset", "expected_sha256"] : action === "content" ? ["expected_sha256"] : [];
+  const allowed = action === "list" ? ["query", "fulltext", "detail", "work_item_id", "limit", "offset"] : action === "text" ? ["limit", "offset", "expected_sha256", "segment_id", "expected_normalized_revision", "before", "after"] : action === "content" ? ["expected_sha256"] : [];
   for (const [key, value] of query) {
     if (!allowed.includes(key) || query.getAll(key).length !== 1) return false;
     if (key === "query" && (Array.from(value).length > 200 || !value.trim())) return false;
     if (key === "work_item_id" && !validUuid(value)) return false;
     if (key === "fulltext" && !["true", "false"].includes(value)) return false;
     if (key === "detail" && !["compact", "full"].includes(value)) return false;
-    if (key === "expected_sha256" && !transcriptDigest(value)) return false;
-    if (["limit", "offset"].includes(key) && (!/^\d+$/.test(value) || !finiteInteger(Number(value), key === "limit" ? 1 : 0, key === "limit" ? action === "text" ? 20000 : 100 : 10000000))) return false;
+    if (["expected_sha256", "expected_normalized_revision"].includes(key) && !transcriptDigest(value)) return false;
+    if (key === "segment_id" && !segmentIdentity(value)) return false;
+    if (["before", "after"].includes(key) && (!/^\d+$/.test(value) || !finiteInteger(Number(value), 0, 20))) return false;
+    if (["limit", "offset"].includes(key) && (!/^\d+$/.test(value) || !finiteInteger(Number(value), key === "limit" ? 1 : 0, key === "limit" ? action === "text" ? 20000 : 100 : action === "text" && query.has("segment_id") ? NORMALIZED_SEGMENT_OFFSET_MAX : 8000000))) return false;
+  }
+  if (action === "text") {
+    const before = Number(query.get("before") || 0), after = Number(query.get("after") || 0);
+    if (query.has("segment_id")) return query.has("expected_normalized_revision") && before + after <= 20 && !(before && Number(query.get("offset") || 0));
+    if (query.has("expected_normalized_revision") || before || after) return false;
   }
   return true;
 }
@@ -95,7 +103,7 @@ export async function proxyTranscript(request: Request, path: string[], environm
       const bytes = await readBoundedBytes(upstream, 32 * 1024 * 1024);
       return new Response(bytes, { headers: { ...SECURITY_HEADERS, "Content-Type": "application/octet-stream", "Content-Length": String(bytes.length), "Content-Disposition": `attachment; filename="${path[3]}.txt"` } });
     }
-    const value = await readBoundedJson(upstream, TRANSCRIPT_JSON_MAX_BYTES);
+    const value = await readBoundedJson(upstream, action === "text" ? 1024 * 1024 : TRANSCRIPT_JSON_MAX_BYTES);
     if (objectValue(objectValue(value)?.detail)?.code === "transcript_proxy_rejected") return fail(502, "Mnemonic returned an invalid rejection response.");
     return Response.json(value, { status: upstream.status, headers: SECURITY_HEADERS });
   } catch { return fail(502, "The transcript request could not be completed. For a pending import or rebuild, retry the preserved request."); }

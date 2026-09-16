@@ -6,6 +6,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 
 from mnemonic_api.search_diagnostics import SearchFacet
+from mnemonic_api.transcript_normalization import ContentKind
 
 
 class DisclosureModel(BaseModel):
@@ -36,6 +37,7 @@ class ArtifactAppliedFilters(DisclosureModel):
 
 
 class TranscriptAppliedFilters(DisclosureModel):
+    content_kinds: list[ContentKind] | None = Field(default=None, min_length=1, max_length=8)
     work_item_id: UUID | None = None
     agent_session_id: str | None = None
     client: str | None = None

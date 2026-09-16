@@ -3561,6 +3561,27 @@
             "title": "Client",
             "type": "string"
           },
+          "content_kind": {
+            "anyOf": [
+              {
+                "enum": [
+                  "human_text",
+                  "assistant_text",
+                  "tool_call",
+                  "tool_result",
+                  "system_text",
+                  "reasoning",
+                  "summary",
+                  "unsupported"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Content Kind"
+          },
           "copy_status": {
             "enum": [
               "pending",
@@ -3600,6 +3621,93 @@
             "title": "Kind",
             "type": "string"
           },
+          "normalization_error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Normalization Error Code"
+          },
+          "normalization_incomplete": {
+            "default": false,
+            "title": "Normalization Incomplete",
+            "type": "boolean"
+          },
+          "normalization_schema_version": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Normalization Schema Version"
+          },
+          "normalization_status": {
+            "default": "pending",
+            "enum": [
+              "pending",
+              "processing",
+              "ready",
+              "failed"
+            ],
+            "title": "Normalization Status",
+            "type": "string"
+          },
+          "normalized_revision": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Normalized Revision"
+          },
+          "normalized_sha256": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Normalized Sha256"
+          },
+          "normalized_size_bytes": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Normalized Size Bytes"
+          },
+          "normalizer_version": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Normalizer Version"
+          },
           "project_id": {
             "format": "uuid",
             "title": "Project Id",
@@ -3615,6 +3723,24 @@
               }
             ],
             "title": "Score"
+          },
+          "segment_count": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Segment Count",
+            "type": "integer"
+          },
+          "segment_id": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{24}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Segment Id"
           },
           "session_id": {
             "anyOf": [
@@ -10131,6 +10257,254 @@
         "title": "SearchWarning",
         "type": "object"
       },
+      "SegmentRead": {
+        "additionalProperties": false,
+        "properties": {
+          "call_id": {
+            "anyOf": [
+              {
+                "maxLength": 4096,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Call Id"
+          },
+          "channel": {
+            "anyOf": [
+              {
+                "maxLength": 4096,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Channel"
+          },
+          "content_kind": {
+            "enum": [
+              "human_text",
+              "assistant_text",
+              "tool_call",
+              "tool_result",
+              "system_text",
+              "reasoning",
+              "summary",
+              "unsupported"
+            ],
+            "title": "Content Kind",
+            "type": "string"
+          },
+          "dispositions": {
+            "items": {
+              "maxLength": 80,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 16,
+            "title": "Dispositions",
+            "type": "array"
+          },
+          "event_id": {
+            "pattern": "^[0-9a-f]{24}$",
+            "title": "Event Id",
+            "type": "string"
+          },
+          "is_error": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Error"
+          },
+          "is_sidechain": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Sidechain"
+          },
+          "native_branch_id": {
+            "anyOf": [
+              {
+                "maxLength": 4096,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Native Branch Id"
+          },
+          "native_event_id": {
+            "anyOf": [
+              {
+                "maxLength": 4096,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Native Event Id"
+          },
+          "native_parent_id": {
+            "anyOf": [
+              {
+                "maxLength": 4096,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Native Parent Id"
+          },
+          "ordinal": {
+            "minimum": 0.0,
+            "title": "Ordinal",
+            "type": "integer"
+          },
+          "payload": {
+            "$ref": "#/components/schemas/JsonValue"
+          },
+          "related_segment_id": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{24}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Related Segment Id"
+          },
+          "role": {
+            "anyOf": [
+              {
+                "maxLength": 4096,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Role"
+          },
+          "segment_id": {
+            "pattern": "^[0-9a-f]{24}$",
+            "title": "Segment Id",
+            "type": "string"
+          },
+          "source_block": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Source Block",
+            "type": "string"
+          },
+          "source_record": {
+            "minimum": 1.0,
+            "title": "Source Record",
+            "type": "integer"
+          },
+          "text": {
+            "maxLength": 200000,
+            "title": "Text",
+            "type": "string"
+          },
+          "text_offset": {
+            "minimum": 0.0,
+            "title": "Text Offset",
+            "type": "integer"
+          },
+          "text_truncated": {
+            "title": "Text Truncated",
+            "type": "boolean"
+          },
+          "timestamp": {
+            "anyOf": [
+              {
+                "maxLength": 4096,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timestamp"
+          },
+          "tool_name": {
+            "anyOf": [
+              {
+                "maxLength": 4096,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tool Name"
+          }
+        },
+        "required": [
+          "segment_id",
+          "event_id",
+          "ordinal",
+          "source_record",
+          "source_block",
+          "content_kind",
+          "text",
+          "text_offset",
+          "text_truncated"
+        ],
+        "title": "SegmentRead",
+        "type": "object"
+      },
+      "SegmentWindow": {
+        "additionalProperties": false,
+        "properties": {
+          "anchor_ordinal": {
+            "minimum": 0.0,
+            "title": "Anchor Ordinal",
+            "type": "integer"
+          },
+          "anchor_segment_id": {
+            "pattern": "^[0-9a-f]{24}$",
+            "title": "Anchor Segment Id",
+            "type": "string"
+          },
+          "first_ordinal": {
+            "minimum": 0.0,
+            "title": "First Ordinal",
+            "type": "integer"
+          },
+          "last_ordinal": {
+            "minimum": 0.0,
+            "title": "Last Ordinal",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "anchor_segment_id",
+          "anchor_ordinal",
+          "first_ordinal",
+          "last_ordinal"
+        ],
+        "title": "SegmentWindow",
+        "type": "object"
+      },
       "SourceQueryInterpretation": {
         "additionalProperties": false,
         "properties": {
@@ -10386,6 +10760,32 @@
               }
             ],
             "title": "Client"
+          },
+          "content_kinds": {
+            "anyOf": [
+              {
+                "items": {
+                  "enum": [
+                    "human_text",
+                    "assistant_text",
+                    "tool_call",
+                    "tool_result",
+                    "system_text",
+                    "reasoning",
+                    "summary",
+                    "unsupported"
+                  ],
+                  "type": "string"
+                },
+                "maxItems": 8,
+                "minItems": 1,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Content Kinds"
           },
           "kind": {
             "anyOf": [
@@ -10657,6 +11057,27 @@
             "title": "Client",
             "type": "string"
           },
+          "content_kind": {
+            "anyOf": [
+              {
+                "enum": [
+                  "human_text",
+                  "assistant_text",
+                  "tool_call",
+                  "tool_result",
+                  "system_text",
+                  "reasoning",
+                  "summary",
+                  "unsupported"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Content Kind"
+          },
           "copied_at": {
             "anyOf": [
               {
@@ -10814,6 +11235,93 @@
             ],
             "title": "Mime Type"
           },
+          "normalization_error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Normalization Error Code"
+          },
+          "normalization_incomplete": {
+            "default": false,
+            "title": "Normalization Incomplete",
+            "type": "boolean"
+          },
+          "normalization_schema_version": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Normalization Schema Version"
+          },
+          "normalization_status": {
+            "default": "pending",
+            "enum": [
+              "pending",
+              "processing",
+              "ready",
+              "failed"
+            ],
+            "title": "Normalization Status",
+            "type": "string"
+          },
+          "normalized_revision": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Normalized Revision"
+          },
+          "normalized_sha256": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Normalized Sha256"
+          },
+          "normalized_size_bytes": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Normalized Size Bytes"
+          },
+          "normalizer_version": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Normalizer Version"
+          },
           "project_id": {
             "format": "uuid",
             "title": "Project Id",
@@ -10830,6 +11338,24 @@
             ],
             "title": "Score"
           },
+          "segment_count": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Segment Count",
+            "type": "integer"
+          },
+          "segment_id": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{24}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Segment Id"
+          },
           "session_id": {
             "anyOf": [
               {
@@ -10844,6 +11370,7 @@
           "sha256": {
             "anyOf": [
               {
+                "pattern": "^[0-9a-f]{64}$",
                 "type": "string"
               },
               {
@@ -10892,6 +11419,7 @@
           "text_sha256": {
             "anyOf": [
               {
+                "pattern": "^[0-9a-f]{64}$",
                 "type": "string"
               },
               {
@@ -10991,6 +11519,32 @@
       "TranscriptSearch": {
         "additionalProperties": false,
         "properties": {
+          "content_kinds": {
+            "anyOf": [
+              {
+                "items": {
+                  "enum": [
+                    "human_text",
+                    "assistant_text",
+                    "tool_call",
+                    "tool_result",
+                    "system_text",
+                    "reasoning",
+                    "summary",
+                    "unsupported"
+                  ],
+                  "type": "string"
+                },
+                "maxItems": 8,
+                "minItems": 1,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Content Kinds"
+          },
           "detail": {
             "default": "compact",
             "enum": [
@@ -11123,14 +11677,18 @@
         "type": "object"
       },
       "TranscriptText": {
+        "additionalProperties": false,
         "properties": {
           "limit": {
+            "maximum": 200000.0,
+            "minimum": 1.0,
             "title": "Limit",
             "type": "integer"
           },
           "next_offset": {
             "anyOf": [
               {
+                "minimum": 0.0,
                 "type": "integer"
               },
               {
@@ -11139,7 +11697,57 @@
             ],
             "title": "Next Offset"
           },
+          "next_segment_after": {
+            "anyOf": [
+              {
+                "maximum": 20.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Segment After"
+          },
+          "next_segment_id": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{24}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Segment Id"
+          },
+          "next_segment_offset": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Segment Offset"
+          },
+          "normalized_revision": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Normalized Revision"
+          },
           "offset": {
+            "minimum": 0.0,
             "title": "Offset",
             "type": "integer"
           },
@@ -11147,6 +11755,32 @@
             "format": "uuid",
             "title": "Project Id",
             "type": "string"
+          },
+          "segment_window": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SegmentWindow"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "segments": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/SegmentRead"
+                },
+                "maxItems": 21,
+                "minItems": 1,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Segments"
           },
           "status": {
             "enum": [
@@ -11160,12 +11794,14 @@
             "type": "string"
           },
           "text": {
+            "maxLength": 200000,
             "title": "Text",
             "type": "string"
           },
           "text_sha256": {
             "anyOf": [
               {
+                "pattern": "^[0-9a-f]{64}$",
                 "type": "string"
               },
               {
@@ -11175,6 +11811,7 @@
             "title": "Text Sha256"
           },
           "total_chars": {
+            "minimum": 0.0,
             "title": "Total Chars",
             "type": "integer"
           },
@@ -14426,7 +15063,7 @@
   "info": {
     "description": "Durable project-scoped work with immutable agent checkpoints.",
     "title": "Mnemonic API",
-    "version": "0.57.0"
+    "version": "0.58.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -17137,6 +17774,32 @@
                             ],
                             "title": "Client"
                           },
+                          "content_kinds": {
+                            "anyOf": [
+                              {
+                                "items": {
+                                  "enum": [
+                                    "human_text",
+                                    "assistant_text",
+                                    "tool_call",
+                                    "tool_result",
+                                    "system_text",
+                                    "reasoning",
+                                    "summary",
+                                    "unsupported"
+                                  ],
+                                  "type": "string"
+                                },
+                                "maxItems": 8,
+                                "minItems": 1,
+                                "type": "array"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "title": "Content Kinds"
+                          },
                           "kind": {
                             "anyOf": [
                               {
@@ -17641,6 +18304,37 @@
           },
           {
             "in": "query",
+            "name": "content_kinds",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "enum": [
+                      "human_text",
+                      "assistant_text",
+                      "tool_call",
+                      "tool_result",
+                      "system_text",
+                      "reasoning",
+                      "summary",
+                      "unsupported"
+                    ],
+                    "type": "string"
+                  },
+                  "maxItems": 8,
+                  "minItems": 1,
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Content Kinds"
+            }
+          },
+          {
+            "in": "query",
             "name": "detail",
             "required": false,
             "schema": {
@@ -18045,7 +18739,7 @@
             "required": false,
             "schema": {
               "default": 0,
-              "maximum": 8000000,
+              "maximum": 1073741824,
               "minimum": 0,
               "title": "Offset",
               "type": "integer"
@@ -18078,6 +18772,64 @@
                 }
               ],
               "title": "Expected Sha256"
+            }
+          },
+          {
+            "in": "query",
+            "name": "segment_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "pattern": "^[0-9a-f]{24}$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Segment Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "expected_normalized_revision",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "pattern": "^[0-9a-f]{64}$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Expected Normalized Revision"
+            }
+          },
+          {
+            "in": "query",
+            "name": "before",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "maximum": 20,
+              "minimum": 0,
+              "title": "Before",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "after",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "maximum": 20,
+              "minimum": 0,
+              "title": "After",
+              "type": "integer"
             }
           }
         ],

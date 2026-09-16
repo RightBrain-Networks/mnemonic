@@ -23,7 +23,9 @@ from mnemonic_api.schemas import (
 )
 from mnemonic_api.search_diagnostics import SearchFacet, SearchScope, TermDiagnostics
 from mnemonic_api.search_disclosure import SearchDisclosure
+from mnemonic_api.transcript_normalization import ContentKind
 from mnemonic_api.transcript_schemas import CompactTranscriptRead, TranscriptRead, TranscriptStatus
+from mnemonic_api.validation_rules import validation_rule
 
 
 def _default_facets(data: dict[str, Any]) -> list[SearchFacet]:
@@ -77,6 +79,7 @@ class ArtifactSearchFilters(APIModel):
 
 
 class TranscriptSearchFilters(APIModel):
+    content_kinds: list[ContentKind] | None = Field(default=None, min_length=1, max_length=8)
     work_item_id: UUID | None = None
     agent_session_id: SessionID | None = None
     client: ClientName | None = None
@@ -114,6 +117,13 @@ class SearchRequest(APIModel):
 
     @model_validator(mode="after")
     def valid_facets(self) -> Self:
+        kinds = self.filters.transcripts.content_kinds
+        if kinds is not None:
+            if not self.fulltext:
+                raise validation_rule("content_kinds_requires_fulltext")
+            if len(set(kinds)) != len(kinds):
+                raise ValueError("content_kinds must contain unique kinds")
+
         if len(set(self.facets)) != len(self.facets):
             raise ValueError("facets cannot contain duplicates")
         ordered = [group.facet for group in self.facet_order]

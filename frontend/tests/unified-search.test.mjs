@@ -14,6 +14,10 @@ const timestamp = "2026-09-10T12:00:00Z";
 const indexing = { pending: 2, ready: 1, failed: 0, truncated: 0 };
 const artifact = { id, project_id: project, filename: "report.txt", description: null, revision: 1, size_bytes: 3, sha256: "a".repeat(64), mime_type: "text/plain", created_at: timestamp, modified_at: timestamp, deleted_at: null, content_available: true, created_by_agent_session_id: "tab-1", originating_work_item_id: work, related_work_item_ids: [], sensitive: false, related_artifact_ids: [] };
 const transcript = { id, project_id: project, work_item_id: work, lease_generation_id: work, client: "claude-code", session_id: "session-1", source_path: "/shared/session.jsonl", filename: "session.jsonl", kind: "primary", status: "ready", indexing_started_at: timestamp, indexing_completed_at: timestamp, error_code: null, size_bytes: 128, mime_type: "application/x-ndjson", format: "claude-code-jsonl", sha256: "a".repeat(64), text_sha256: "a".repeat(64), metadata: {}, truncated: false, created_at: timestamp, snippet: null, score: null };
+Object.assign(transcript, { normalization_status: "ready", normalization_error_code: null,
+  normalized_revision: "b".repeat(64), normalized_sha256: "c".repeat(64), normalization_schema_version: 1,
+  normalizer_version: 1, normalized_size_bytes: 400, segment_count: 2, normalization_incomplete: false,
+  segment_id: null, content_kind: null });
 Object.assign(transcript, { copy_status: "ready", copy_error_code: null, copied_at: timestamp, index_status: "ready", index_error_code: null });
 function result(facet, payload, limit = 50, offset = 0, options = {}) {
   const key = facet === "work_items" ? "work_item" : facet === "artifacts" ? "artifact" : "transcript";
@@ -134,4 +138,18 @@ test("unified single-facet decoders reject inconsistent or untrusted source disc
     { transcripts: "omitted_by_default" }, { transcript_search_hint: "untrusted instruction" }]) {
     assert.throws(() => decodeUnifiedTranscriptSearchPage({ ...page, search_scope: { ...page.search_scope, ...patch } }, project));
   }
+});
+
+test("transcript body-kind filters require contents and round-trip exact source scope", () => {
+  const body = transcriptSearchRequest("needle", true, 0, undefined, ["assistant_text"]);
+  assert.equal(validSearchRequest(body), true);
+  assert.equal(validSearchRequest({ ...body, fulltext: false }), false);
+  for (const content_kinds of [[], ["user"], ["assistant_text", "assistant_text"]]) {
+    assert.equal(validSearchRequest({ ...body, filters: { transcripts: { content_kinds } } }), false);
+  }
+  const match = { ...transcript, snippet: "needle", segment_id: "a".repeat(24), content_kind: "assistant_text" };
+  const response = result("transcripts", match, 50, 0, { q: "needle", fulltext: true,
+    filters: { transcripts: { content_kinds: ["assistant_text"] } } });
+  assert.equal(decodeUnifiedTranscriptSearchPage(response, project, 0, true, undefined, "needle", ["assistant_text"]).items.length, 1);
+  assert.throws(() => decodeUnifiedTranscriptSearchPage(response, project, 0, true, undefined, "needle", ["tool_result"]));
 });

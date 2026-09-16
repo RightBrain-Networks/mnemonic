@@ -20,6 +20,14 @@ from pydantic.experimental.missing_sentinel import MISSING
 
 from .search_diagnostics import TermDiagnostics
 from .search_disclosure import SearchDetail, SearchDisclosure
+from .transcript_segments import (
+    ContentKind,
+    NormalizedRevision,
+    SegmentIdentity,
+    SegmentOffset,
+    SegmentRead,
+    SegmentWindow,
+)
 
 TranscriptLimit = Annotated[StrictInt, Field(ge=1, le=100)]
 TranscriptOffset = Annotated[StrictInt, Field(ge=0, le=10_000)]
@@ -79,7 +87,29 @@ def transcript_locations_payload(locations: SubagentTranscripts) -> list[dict[st
     return None if locations is None else [item.model_dump(mode="json") for item in locations]
 
 
-class TranscriptRead(TranscriptModel):
+class TranscriptNormalization(TranscriptModel):
+    normalization_status: Literal["pending", "processing", "ready", "failed"] = "pending"
+    normalization_error_code: Annotated[str, Field(max_length=100)] | None = None
+    normalized_revision: NormalizedRevision | None = None
+    normalized_sha256: TranscriptHash | None = None
+    normalization_schema_version: Annotated[StrictInt, Field(ge=1)] | None = None
+    normalized_size_bytes: Annotated[StrictInt, Field(ge=0)] | None = None
+    normalizer_version: Annotated[StrictInt, Field(ge=1)] | None = None
+    segment_count: Annotated[StrictInt, Field(ge=0)] = 0
+    normalization_incomplete: StrictBool = False
+    segment_id: SegmentIdentity | None = None
+    content_kind: ContentKind | None = None
+
+    @model_validator(mode="after")
+    def coherent_locator(self) -> Self:
+        if (self.segment_id is None) != (self.content_kind is None):
+            raise ValueError("A transcript match requires both segment identity and content kind")
+        if self.segment_id is not None and self.normalized_revision is None:
+            raise ValueError("A transcript segment locator requires its normalized revision")
+        return self
+
+
+class TranscriptRead(TranscriptNormalization):
     id: UUID
     project_id: UUID
     work_item_id: UUID | None
@@ -129,7 +159,7 @@ class TranscriptRead(TranscriptModel):
         return value
 
 
-class CompactTranscriptRead(TranscriptModel):
+class CompactTranscriptRead(TranscriptNormalization):
     id: UUID
     project_id: UUID
     work_item_id: UUID | None
@@ -168,12 +198,18 @@ class TranscriptTextPage(TranscriptModel):
     transcript_id: UUID
     text_sha256: TranscriptHash | None
     text: Annotated[str, Field(max_length=20_000)] | None
-    total_chars: TranscriptTextOffset | None
-    offset: TranscriptTextOffset
+    total_chars: Annotated[StrictInt, Field(ge=0)] | None
+    offset: SegmentOffset
     limit: TranscriptTextLimit
     next_offset: TranscriptTextOffset | None
     status: TranscriptStatus
     truncated: StrictBool
+    normalized_revision: NormalizedRevision | None = None
+    segments: Annotated[list[SegmentRead], Field(min_length=1, max_length=21)] | None = None
+    segment_window: SegmentWindow | None = None
+    next_segment_id: SegmentIdentity | None = None
+    next_segment_offset: SegmentOffset | None = None
+    next_segment_after: Annotated[StrictInt, Field(ge=0, le=20)] | None = None
 
 
 class TranscriptDownload(TranscriptModel):

@@ -1,3 +1,4 @@
+import { validContentKinds } from "./transcript-segments.ts";
 import { exactKeys, objectValue, sameUuid, validUuid } from "./wire-guards.ts";
 
 export const SEARCH_DISCLOSURE_FIELDS = ["applied_filters", "query_interpretation", "warnings"] as const;
@@ -7,7 +8,7 @@ export const PHRASE_WARNING = "Quoted phrases are not supported; quotation marks
 export const DEFAULT_SEARCH_FILTERS = {
   work_items: { status: "all", tag: null, source_client: null, source_session_id: null, external_url: null, duplicate_scope: "canonical", canonical_work_item_id: null, view: "full" },
   artifacts: { artifact_id: null, work_item_id: null, include_deleted: false, sensitive: null, mime_type: null, created_by_agent_session_id: null },
-  transcripts: { work_item_id: null, agent_session_id: null, client: null, kind: null, status: null }
+  transcripts: { content_kinds: null, work_item_id: null, agent_session_id: null, client: null, kind: null, status: null }
 };
 export type AppliedSearchFilters = { project_id: string } & Record<Source, Record<string, unknown> | null>;
 export type QueryInterpretation = { q: string } & Record<Source, { match_mode: string; fields: string[]; fulltext: boolean | null } | null>;
@@ -22,6 +23,7 @@ function validFilter(source: Source, value: unknown): boolean {
   if (!row || !exactKeys(row, Object.keys(DEFAULT_SEARCH_FILTERS[source]))) return false;
   return Object.entries(row).every(([key, value]) => {
     if (value === null) return !["status", "view", "duplicate_scope", "include_deleted"].includes(key) || source === "transcripts" && key === "status";
+    if (key === "content_kinds") return validContentKinds(value);
     if (["work_item_id", "artifact_id", "canonical_work_item_id"].includes(key)) return validUuid(value);
     if (["include_deleted", "sensitive"].includes(key)) return typeof value === "boolean";
     if (key === "status") return (source === "work_items" ? ["all", "pending", "active", "to-review", "dropped", "deferred", "done", "wont-do", "promoted"] : ["waiting", "pending", "processing", "ready", "failed"]).includes(String(value));
@@ -67,7 +69,7 @@ export function validateSearchDisclosure(disclosure: SearchDisclosure, source: S
   const applied = disclosure.applied_filters[source];
   const interpretation = disclosure.query_interpretation[source];
   if (query !== undefined && disclosure.query_interpretation.q !== query.trim()
-    || applied && Object.entries(expected).some(([key, value]) => ["work_item_id", "artifact_id", "canonical_work_item_id"].includes(key) && value != null ? !sameUuid(applied[key], value) : applied[key] !== value)
+    || applied && Object.entries(expected).some(([key, value]) => ["work_item_id", "artifact_id", "canonical_work_item_id"].includes(key) && value != null ? !sameUuid(applied[key], value) : key === "content_kinds" ? JSON.stringify(applied[key]) !== JSON.stringify(value) : applied[key] !== value)
     || interpretation && fulltext !== undefined && interpretation.fulltext !== fulltext) throw new Error("Mnemonic returned search disclosure outside the requested scope.");
 }
 

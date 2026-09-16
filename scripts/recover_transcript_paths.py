@@ -40,7 +40,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
-HEAD = "0039_manual_review_requests"
+HEAD = "0040_normalized_transcripts"
 MAX_MANIFEST_BYTES = 8 * 1024 * 1024
 
 
@@ -173,7 +173,8 @@ def prepare(factory, settings: Settings, mappings_path: Path, output: Path) -> d
             deferred.append(DeferredRecovery(
                 transcript_id=entry.transcript_id, error_code=error.detail["code"]))
         except ExtractionError as error:
-            deferred.append(DeferredRecovery(transcript_id=entry.transcript_id, error_code=error.code))
+            deferred.append(DeferredRecovery(
+                transcript_id=entry.transcript_id, error_code=error.code))
     manifest = RecoveryManifest(version=1, requests=requests, deferred=deferred)
     write_manifest(output, manifest)
     return {"prepared": len(requests), "deferred": len(deferred),
@@ -203,9 +204,11 @@ def apply(factory, settings: Settings, request_path: Path) -> dict:
 def arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
-    prepare_parser = commands.add_parser("prepare", help="Freeze explicit mappings without DB writes")
+    prepare_parser = commands.add_parser(
+        "prepare", help="Freeze explicit mappings without DB writes")
     prepare_parser.add_argument("--mappings", type=Path, required=True)
-    prepare_parser.add_argument("--output", type=Path, required=True, help="New private intent file")
+    prepare_parser.add_argument(
+        "--output", type=Path, required=True, help="New private intent file")
     apply_parser = commands.add_parser("apply", help="Apply or replay the unchanged private intent")
     apply_parser.add_argument("--request", type=Path, required=True)
     return parser.parse_args()
@@ -230,7 +233,8 @@ def main() -> int:
                           "instructions": "Retain the prepared file unchanged. Reapply it to "
                           "recover any committed result; do not prepare a replacement intent."}))
         return 3
-    except (OSError, ValueError, ValidationError, RecursionError, ApplicationError, ExtractionError):
+    except (OSError, ValueError, ValidationError, RecursionError, ApplicationError,
+            ExtractionError):
         # Validation errors and DB exceptions can contain complete inputs/SQL parameters.
         print(json.dumps({"error_code": "transcript_recovery_input_or_environment_invalid",
                           "instructions": "Check the private files, schema and configuration. "

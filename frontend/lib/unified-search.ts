@@ -1,3 +1,4 @@
+import { type TranscriptContentKind } from "./transcript-segments.ts";
 import { decodeSearchDisclosure, validateSearchDisclosure, type SearchDisclosure, type FullWorkSearchDetail } from "./search-disclosure.ts";
 import { decodeArtifactSearchPage, type ArtifactSearchPage } from "./artifacts.ts";
 import { decodeWorkSearchPage } from "./duplicate-handling.ts";
@@ -47,8 +48,8 @@ export function artifactSearchRequest(q: string, fulltext: boolean, includeDelet
   return { q, detail: "full", facets: ["artifacts"], fulltext, filters: { artifacts: { include_deleted: includeDeleted, ...(workItemId ? { work_item_id: workItemId } : {}) } }, limit, offset };
 }
 
-export function transcriptSearchRequest(q: string, fulltext: boolean, offset: number, workItemId?: string): SearchRequest {
-  return { q, detail: "full", facets: ["transcripts"], fulltext, filters: { transcripts: { ...(workItemId ? { work_item_id: workItemId } : {}) } }, sort: { by: q ? "relevance" : "created_at", direction: "desc" }, limit: TRANSCRIPT_PAGE_SIZE, offset };
+export function transcriptSearchRequest(q: string, fulltext: boolean, offset: number, workItemId?: string, contentKinds?: TranscriptContentKind[]): SearchRequest {
+  return { q, detail: "full", facets: ["transcripts"], fulltext, filters: { transcripts: { ...(contentKinds ? { content_kinds: contentKinds } : {}), ...(workItemId ? { work_item_id: workItemId } : {}) } }, sort: { by: q ? "relevance" : "created_at", direction: "desc" }, limit: TRANSCRIPT_PAGE_SIZE, offset };
 }
 
 function facetPage(value: unknown, projectId: string, facet: SearchFacet, limit: number, offset: number) {
@@ -96,9 +97,9 @@ export function decodeUnifiedArtifactSearchPage(value: unknown, projectId: strin
   return result;
 }
 
-export function decodeUnifiedTranscriptSearchPage(value: unknown, projectId: string, offset = 0, fulltext = false, workItemId?: string, query?: string): TranscriptPage {
+export function decodeUnifiedTranscriptSearchPage(value: unknown, projectId: string, offset = 0, fulltext = false, workItemId?: string, query?: string, contentKinds?: TranscriptContentKind[]): TranscriptPage {
   const page = facetPage(value, projectId, "transcripts", TRANSCRIPT_PAGE_SIZE, offset);
   const coverage = objectValue(page.coverage.transcripts);
-  validateSearchDisclosure(page.disclosure, "transcripts", { work_item_id: workItemId ?? null }, fulltext, query);
-  return decodeTranscriptPage({ items: page.items, total: page.total, limit: page.limit, offset, detail: "full", term_diagnostics: page.term_diagnostics, indexing_incomplete: coverage?.indexing_incomplete, ...page.disclosure }, projectId, offset, fulltext, workItemId);
+  validateSearchDisclosure(page.disclosure, "transcripts", { work_item_id: workItemId ?? null, content_kinds: contentKinds ?? null }, fulltext, query);
+  return decodeTranscriptPage({ items: page.items, total: page.total, limit: page.limit, offset, detail: "full", term_diagnostics: page.term_diagnostics, indexing_incomplete: coverage?.indexing_incomplete, ...page.disclosure }, projectId, offset, fulltext, workItemId, contentKinds);
 }

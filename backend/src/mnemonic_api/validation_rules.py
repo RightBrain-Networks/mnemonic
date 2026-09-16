@@ -5,6 +5,7 @@ from typing import LiteralString
 from pydantic_core import PydanticCustomError
 
 VALIDATION_RULES: dict[str, tuple[str | None, LiteralString]] = {
+    "content_kinds_requires_fulltext": ("content_kinds", "content_kinds requires fulltext=true."),
     "absolute_http_url_required": (None, "Include an absolute http:// or https:// URL."),
     "canonical_filter_requires_alias_scope": (
         "canonical_work_item_id",

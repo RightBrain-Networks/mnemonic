@@ -1,5 +1,47 @@
 # Mnemonic validation record
 
+## Shared transcript normalization and conversation retrieval (0.58.0)
+
+Claude Code and Codex captures now normalize into one durable versioned manifest
+and ordered segment representation before indexing. Retained native copies remain
+immutable provenance. Import, lease enrollment, backfill, and rebuild share the
+same publication fences; search and context retrieval consume the canonical
+segments. Content-kind filters distinguish authored human/assistant text from tool
+calls/results, including user-role tool-result blocks.
+
+Existing text checksums and normalized-text downloads retain their meanings.
+Search locators open bounded conversation windows pinned to a normalized revision,
+with typed segment identities, Unicode character offsets, forward continuation,
+and explicit metadata/payload omissions. Dashboard context reads render untrusted
+text safely at desktop and narrow widths. Screenshots:
+[desktop](images/transcript-conversation-desktop.png) and
+[narrow](images/transcript-conversation-narrow.png).
+
+Local full backend verification against PostgreSQL/RabbitMQ passed 2,913 tests;
+seven legacy assertions needed the newly echoed content-kind filter or current
+migration head, and all 46 affected checks then passed. The earlier complete
+transcript/Codex suite passed 496 tests; combined compact/normalization checks passed
+95, including stable revisions, stale-worker fencing, native payload preservation,
+backup witnesses, budgeted metadata, and structured offsets beyond the flat-text
+cap. Catalog witnesses were captured from both fresh migration and PostgreSQL
+schema dump/restore. Backend lint/types pass.
+
+The full MCP run passed 1,761 tests; its two in-flight plugin-version failures were
+corrected and rerun successfully. Another 27 normalized/OpenAPI contract checks
+pass. Frontend verification passes 461 tests, type checking, and production build
+on Node 24. All 12 transcript browser cases pass; both narrow conversation cases
+also pass after the scoped mobile-width correction. Isolated backup-service
+acceptance passes. MCP lint/types pass. Required CI remains the merge gate.
+
+API/MCP/dashboard are 0.58.0 and plugin is 0.36.0. Quiesce old writers/workers,
+back up the database and native transcript bind, apply migration
+`0040_normalized_transcripts`, and upgrade coordinated consumers. Existing captures
+backfill through durable jobs while prior ready text remains usable; inspect
+normalization/indexing coverage until complete. See
+[normalization migration and retrieval](transcript-normalization.md).
+The 55-tool catalog and receipt/write contracts are unchanged. Repository merge
+does not deploy running services or apply production migrations.
+
 ## Compact search discovery (0.57.0)
 
 All four discovery tools default to `detail=compact` and a 20-row page. Full
