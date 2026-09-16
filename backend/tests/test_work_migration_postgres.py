@@ -307,7 +307,8 @@ def test_populated_legacy_history_backfills_exactly_and_freezes_legacy_tables():
                 assert client.get(f"{canonical_base}/{visible_id}").status_code == 200
             assert client.get(f"{canonical_base}/{handoff_id}").status_code == 404
             assert client.get(canonical_base, params={"status": "all"}).json()["total"] == 3
-            legacy_tag_match = client.get(canonical_base, params={"tag": "mixedlegacy"})
+            legacy_tag_match = client.get(canonical_base,
+                params={"detail": "full", "tag": "mixedlegacy"})
             assert legacy_tag_match.status_code == 200
             assert [
                 item["summary"]["work_item"]["id"]

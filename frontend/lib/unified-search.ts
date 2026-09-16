@@ -1,4 +1,4 @@
-import { decodeSearchDisclosure, validateSearchDisclosure, type SearchDisclosure } from "./search-disclosure.ts";
+import { decodeSearchDisclosure, validateSearchDisclosure, type SearchDisclosure, type FullWorkSearchDetail } from "./search-disclosure.ts";
 import { decodeArtifactSearchPage, type ArtifactSearchPage } from "./artifacts.ts";
 import { decodeWorkSearchPage } from "./duplicate-handling.ts";
 import { decodeTermDiagnostics, validateSingleFacetScope } from "./search-diagnostics.ts";
@@ -14,6 +14,7 @@ export type SearchRequest = {
   q?: string;
   facets?: SearchFacet[];
   fulltext?: boolean;
+  detail?: "compact" | "full";
   filters?: Partial<Record<SearchFacet, Record<string, unknown>>>;
   sort?: SearchSort;
   facet_order?: { facet: SearchFacet; sort?: SearchSort }[];
@@ -36,25 +37,25 @@ export function workSearchRequest(input: WorkSearchOptions): SearchRequest {
   }
   if (q && input.semantic) filters.semantic = true;
   return {
-    q, facets: ["work_items"], filters: { work_items: filters },
+    q, detail: "full", facets: ["work_items"], filters: { work_items: filters },
     sort: { by: q && input.semantic ? "relevance" : input.sort === "updated" ? "updated_at" : input.sort === "created" ? "created_at" : "priority", direction: "desc" },
     limit: input.limit, offset: input.offset
   };
 }
 
 export function artifactSearchRequest(q: string, fulltext: boolean, includeDeleted: boolean, limit: number, offset: number, workItemId?: string): SearchRequest {
-  return { q, facets: ["artifacts"], fulltext, filters: { artifacts: { include_deleted: includeDeleted, ...(workItemId ? { work_item_id: workItemId } : {}) } }, limit, offset };
+  return { q, detail: "full", facets: ["artifacts"], fulltext, filters: { artifacts: { include_deleted: includeDeleted, ...(workItemId ? { work_item_id: workItemId } : {}) } }, limit, offset };
 }
 
 export function transcriptSearchRequest(q: string, fulltext: boolean, offset: number, workItemId?: string): SearchRequest {
-  return { q, facets: ["transcripts"], fulltext, filters: { transcripts: { ...(workItemId ? { work_item_id: workItemId } : {}) } }, sort: { by: q ? "relevance" : "created_at", direction: "desc" }, limit: TRANSCRIPT_PAGE_SIZE, offset };
+  return { q, detail: "full", facets: ["transcripts"], fulltext, filters: { transcripts: { ...(workItemId ? { work_item_id: workItemId } : {}) } }, sort: { by: q ? "relevance" : "created_at", direction: "desc" }, limit: TRANSCRIPT_PAGE_SIZE, offset };
 }
 
 function facetPage(value: unknown, projectId: string, facet: SearchFacet, limit: number, offset: number) {
   const page = objectValue(value);
   const totals = objectValue(page?.facet_totals);
   const coverage = objectValue(page?.coverage);
-  if (!page || !Array.isArray(page.items) || !finiteInteger(page.total) || page.limit !== limit || page.offset !== offset
+  if (!page || page.detail !== "full" || page.work_rank_scope !== "work_items" || !Array.isArray(page.items) || !finiteInteger(page.total) || page.limit !== limit || page.offset !== offset
     || page.items.length !== Math.min(limit, Math.max(0, page.total - offset))
     || !totals || !SEARCH_FACETS.every((name) => finiteInteger(totals[name]))
     || totals[facet] !== page.total || SEARCH_FACETS.some((name) => name !== facet && totals[name] !== 0)
@@ -79,9 +80,9 @@ function facetPage(value: unknown, projectId: string, facet: SearchFacet, limit:
   return { items, total: page.total, limit, offset, coverage, term_diagnostics, disclosure: decodeSearchDisclosure(page, projectId, searched) };
 }
 
-export function decodeUnifiedWorkSearchPage(value: unknown, projectId: string, options: Parameters<typeof decodeWorkSearchPage>[2] = {}): Page<WorkSearchHit> & SearchDisclosure {
+export function decodeUnifiedWorkSearchPage(value: unknown, projectId: string, options: Parameters<typeof decodeWorkSearchPage>[2] = {}): Page<WorkSearchHit> & SearchDisclosure & FullWorkSearchDetail {
   const page = facetPage(value, projectId, "work_items", options.expectedLimit ?? 50, options.expectedOffset ?? 0);
-  return decodeWorkSearchPage({ items: page.items, total: page.total, limit: page.limit, offset: page.offset, ...page.disclosure }, projectId, options);
+  return decodeWorkSearchPage({ items: page.items, total: page.total, limit: page.limit, offset: page.offset, detail: "full", work_rank_scope: "work_items", ...page.disclosure }, projectId, options);
 }
 
 export function decodeUnifiedArtifactSearchPage(value: unknown, projectId: string, fulltext: boolean, limit: number, offset: number, includeDeleted = false, workItemId?: string, query?: string): ArtifactSearchPage {
@@ -89,7 +90,7 @@ export function decodeUnifiedArtifactSearchPage(value: unknown, projectId: strin
   const coverage = objectValue(page.coverage.artifacts);
   if (!coverage || typeof coverage.enabled !== "boolean") throw new Error("Mnemonic returned invalid artifact search coverage.");
   validateSearchDisclosure(page.disclosure, "artifacts", { include_deleted: includeDeleted, work_item_id: workItemId ?? null }, fulltext, query);
-  const result = decodeArtifactSearchPage({ items: page.items, total: page.total, limit, offset, fulltext, ...page.disclosure, match_mode: "all_terms", term_diagnostics: page.term_diagnostics, indexing: coverage.indexing, sensitive_content_withheld: coverage.sensitive_content_withheld }, projectId, fulltext, limit, offset, coverage.enabled);
+  const result = decodeArtifactSearchPage({ items: page.items, total: page.total, limit, offset, detail: "full", fulltext, ...page.disclosure, match_mode: "all_terms", term_diagnostics: page.term_diagnostics, indexing: coverage.indexing, sensitive_content_withheld: coverage.sensitive_content_withheld }, projectId, fulltext, limit, offset, coverage.enabled);
   if (result.items.some(({ artifact }) => !includeDeleted && artifact.deleted_at !== null
     || workItemId && !sameUuid(artifact.originating_work_item_id, workItemId) && !artifact.related_work_item_ids.some((id) => sameUuid(id, workItemId)))) throw new Error("Mnemonic returned artifacts outside the requested search scope.");
   return result;
@@ -99,5 +100,5 @@ export function decodeUnifiedTranscriptSearchPage(value: unknown, projectId: str
   const page = facetPage(value, projectId, "transcripts", TRANSCRIPT_PAGE_SIZE, offset);
   const coverage = objectValue(page.coverage.transcripts);
   validateSearchDisclosure(page.disclosure, "transcripts", { work_item_id: workItemId ?? null }, fulltext, query);
-  return decodeTranscriptPage({ items: page.items, total: page.total, limit: page.limit, offset, term_diagnostics: page.term_diagnostics, indexing_incomplete: coverage?.indexing_incomplete, ...page.disclosure }, projectId, offset, fulltext, workItemId);
+  return decodeTranscriptPage({ items: page.items, total: page.total, limit: page.limit, offset, detail: "full", term_diagnostics: page.term_diagnostics, indexing_incomplete: coverage?.indexing_incomplete, ...page.disclosure }, projectId, offset, fulltext, workItemId);
 }

@@ -20,12 +20,13 @@ from .artifact_models import (
     ArtifactSearchMatch,
     ArtifactSession,
     ArtifactToolSearchMatch,
+    CompactArtifactMatch,
 )
 from .external_records import ExternalURL
-from .models import DuplicateScope, SearchStatus, WorkSearchHit
+from .models import CompactWorkHit, DuplicateScope, SearchStatus, WorkSearchHit
 from .search_diagnostics import SearchScope, TermDiagnostics
-from .search_disclosure import SearchDisclosure
-from .transcript_models import TranscriptRead, TranscriptStatus
+from .search_disclosure import SearchDetail, SearchDisclosure
+from .transcript_models import CompactTranscriptRead, TranscriptRead, TranscriptStatus
 
 SearchFacet = Literal["work_items", "artifacts", "transcripts"]
 SearchQuery = Annotated[str, Field(max_length=1000)]
@@ -116,10 +117,11 @@ class SearchRequest(SearchModel):
     q: SearchQuery = ""
     facets: SearchFacets = Field(default_factory=_all_facets)
     fulltext: StrictBool = False
+    detail: SearchDetail = "compact"
     filters: SearchFilters = Field(default_factory=SearchFilters)
     sort: SearchSort = Field(default_factory=SearchSort)
     facet_order: SearchFacetOrder = Field(default_factory=list)
-    limit: SearchLimit = 50
+    limit: SearchLimit = 20
     offset: SearchOffset = 0
 
 
@@ -155,7 +157,7 @@ class SearchHitBase(SearchModel):
 
 class WorkFacetHit(SearchHitBase):
     facet: Literal["work_items"] = "work_items"
-    work_item: WorkSearchHit
+    work_item: WorkSearchHit | CompactWorkHit
 
 
 class SearchArtifactMatch(ArtifactSearchMatch):
@@ -170,12 +172,12 @@ class SearchArtifactToolMatch(ArtifactToolSearchMatch):
 
 class ArtifactFacetHit(SearchHitBase):
     facet: Literal["artifacts"] = "artifacts"
-    artifact: SearchArtifactMatch
+    artifact: SearchArtifactMatch | CompactArtifactMatch
 
 
 class TranscriptFacetHit(SearchHitBase):
     facet: Literal["transcripts"] = "transcripts"
-    transcript: TranscriptRead
+    transcript: TranscriptRead | CompactTranscriptRead
 
 
 SearchHit = Annotated[
@@ -184,6 +186,8 @@ SearchHit = Annotated[
 
 
 class SearchPage(SearchModel, SearchDisclosure):
+    detail: SearchDetail
+    work_rank_scope: Literal["work_items"]
     search_scope: SearchScope
     term_diagnostics: TermDiagnostics
     items: Annotated[list[SearchHit], Field(max_length=100)]
@@ -211,7 +215,7 @@ class SearchPage(SearchModel, SearchDisclosure):
 
 class ArtifactToolFacetHit(SearchHitBase):
     facet: Literal["artifacts"] = "artifacts"
-    artifact: SearchArtifactToolMatch
+    artifact: SearchArtifactToolMatch | CompactArtifactMatch
 
 
 SearchToolHit = Annotated[
@@ -220,6 +224,8 @@ SearchToolHit = Annotated[
 
 
 class SearchToolPage(SearchModel, SearchDisclosure):
+    detail: SearchDetail
+    work_rank_scope: Literal["work_items"]
     search_scope: SearchScope
     term_diagnostics: TermDiagnostics
     items: Annotated[list[SearchToolHit], Field(max_length=100)]

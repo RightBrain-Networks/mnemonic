@@ -2764,6 +2764,36 @@ class WorkSearchHit(APIModel):
     matched_member: WorkIdentityPointer
 
 
+WorkSearchStatus = Literal[
+    "pending", "active", "to-review", "dropped", "deferred", "done", "wont-do", "promoted",
+]
+
+
+class CompactWorkHit(APIModel):
+    id: UUID
+    project_id: UUID
+    title: str
+    status: Status
+    display_state: Literal[
+        "pending", "active", "to-review", "dropped", "blocked", "waiting", "duplicate",
+        "deferred", "done", "wont-do", "promoted",
+    ]
+    priority: int
+    updated_at: datetime
+    rank: int = Field(ge=1, description="One-based rank within the complete work result set.")
+    canonical_work_item_id: UUID
+    search_status: WorkSearchStatus
+    ancestor_path: list[WorkIdentityPointer] = Field(default_factory=list)
+    ancestor_path_truncated: bool = False
+    matched_member: WorkIdentityPointer | None = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
+
+    @field_serializer("updated_at")
+    def utc_time(self, value: datetime) -> str:
+        return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
+
+
 DuplicateSuggestionSignal = Literal["exact_title", "lexical", "semantic"]
 DuplicateSuggestionMode = Literal["hybrid_full", "hybrid_shortlist", "lexical"]
 DuplicateSuggestionSemanticScope = Literal["full_project", "lexical_shortlist", "unavailable"]
@@ -2936,6 +2966,12 @@ class HierarchyPresentation(APIModel):
 
 class HierarchySummary(APIModel):
     summary: WorkSummary
+    self_matches_filter: bool
+    has_matching_descendants: bool
+    presentation: HierarchyPresentation
+
+
+class CompactHierarchyHit(CompactWorkHit):
     self_matches_filter: bool
     has_matching_descendants: bool
     presentation: HierarchyPresentation
@@ -4177,14 +4213,28 @@ class ProjectListQuery(APIModel):
     offset: int = Field(default=0, ge=0)
 
 
-class WorkSearchPage(Page[WorkSearchHit | HierarchySummary], SearchDisclosure):
-    pass
+class WorkSearchPage(APIModel, SearchDisclosure):
+    detail: Literal["compact", "full"]
+    work_rank_scope: Literal["work_items"]
+    items: list[WorkSearchHit | HierarchySummary | CompactWorkHit | CompactHierarchyHit]
+    total: int
+    limit: int
+    offset: int
+
+
+    @model_validator(mode="after")
+    def projection_matches_detail(self) -> Self:
+        if any(isinstance(item, CompactWorkHit) != (self.detail == "compact")
+               for item in self.items):
+            raise ValueError("Work search projection must match detail")
+        return self
 
 
 class WorkItemListQuery(APIModel):
     external_url: ExternalURL | None = None
     q: Annotated[str, StringConstraints(max_length=500), AfterValidator(no_nul)] | None = None
     semantic: bool = False
+    detail: Literal["compact", "full"] = "compact"
     status: Literal[
         "pending", "active", "to-review", "dropped", "deferred", "done",
         "wont-do", "promoted", "all"
@@ -4196,7 +4246,7 @@ class WorkItemListQuery(APIModel):
     view: Literal["full", "roots"] = "full"
     duplicate_scope: Literal["canonical", "aliases", "all"] = "canonical"
     canonical_work_item_id: UUID | None = None
-    limit: int = Field(default=30, ge=1, le=100)
+    limit: int = Field(default=20, ge=1, le=100)
     offset: int = Field(default=0, ge=0)
 
     @field_validator("tag")

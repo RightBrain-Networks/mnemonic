@@ -33,6 +33,7 @@
     "decisions",
     "description",
     "destination_work_item_id",
+    "detail",
     "direction",
     "duplicate_scope",
     "end_line",

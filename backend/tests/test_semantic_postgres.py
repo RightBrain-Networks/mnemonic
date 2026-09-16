@@ -73,11 +73,11 @@ def test_semantic_search_finds_dense_only_matches_and_reuses_digest_cache(
         prompt="Adjust card layout and colors.",
     )
     query = "protect facts after reboot"
-    assert api.get(path(project), params={"q": query}).json()["total"] == 0
+    assert api.get(path(project), params={"detail": "full", "q": query}).json()["total"] == 0
 
     embedder = DeterministicEmbedder()
     api.app.state.semantic_embedder = embedder
-    result = api.get(path(project), params={"q": query, "semantic": "true"})
+    result = api.get(path(project), params={"detail": "full", "q": query, "semantic": "true"})
     assert result.status_code == 200, result.text
     body = result.json()
     assert body["total"] == 2
@@ -85,7 +85,7 @@ def test_semantic_search_finds_dense_only_matches_and_reuses_digest_cache(
     assert "prompt" not in body["items"][0]["summary"]["current_context"]
     assert [len(batch) for batch in embedder.document_batches] == [2]
 
-    api.get(path(project), params={"q": query, "semantic": "true"})
+    api.get(path(project), params={"detail": "full", "q": query, "semantic": "true"})
     assert [len(batch) for batch in embedder.document_batches] == [2]
 
     updated = api.post(
@@ -98,7 +98,7 @@ def test_semantic_search_finds_dense_only_matches_and_reuses_digest_cache(
         },
     )
     assert updated.status_code == 201
-    api.get(path(project), params={"q": query, "semantic": "true"})
+    api.get(path(project), params={"detail": "full", "q": query, "semantic": "true"})
     assert [len(batch) for batch in embedder.document_batches] == [2, 1]
     checkpoint = api.post(
         f"{path(project)}/{target['id']}/checkpoints",
@@ -110,7 +110,7 @@ def test_semantic_search_finds_dense_only_matches_and_reuses_digest_cache(
         },
     )
     assert checkpoint.status_code == 201
-    api.get(path(project), params={"q": query, "semantic": "true"})
+    api.get(path(project), params={"detail": "full", "q": query, "semantic": "true"})
     assert [len(batch) for batch in embedder.document_batches] == [2, 1, 1]
     assert (
         "[dense-target] Verified the durable progress path."
@@ -146,7 +146,7 @@ def test_semantic_checkpoint_tail_keeps_exact_bounded_recent_text(
     api.app.state.semantic_embedder = embedder
     result = api.get(
         path(project),
-        params={"q": "bounded composition", "semantic": "true"},
+        params={"detail": "full", "q": "bounded composition", "semantic": "true"},
     )
 
     assert result.status_code == 200, result.text
@@ -169,7 +169,7 @@ def test_semantic_cache_lock_wait_is_bounded_and_does_not_discard_ranking(
     embedder = DeterministicEmbedder()
     api.app.state.semantic_embedder = embedder
     query = "semantic cache contention"
-    initial = api.get(path(project), params={"q": query, "semantic": "true"})
+    initial = api.get(path(project), params={"detail": "full", "q": query, "semantic": "true"})
     assert initial.status_code == 200, initial.text
 
     changed = api.post(
@@ -192,7 +192,7 @@ def test_semantic_cache_lock_wait_is_bounded_and_does_not_discard_ranking(
         assert cache_row is not None
         started_at = monotonic()
         contended = api.get(
-            path(project), params={"q": query, "semantic": "true"}
+            path(project), params={"detail": "full", "q": query, "semantic": "true"}
         )
         elapsed = monotonic() - started_at
 
@@ -220,7 +220,7 @@ def test_semantic_search_preserves_strong_lexical_results(api, project, work_pay
         prompt="Ordinary lexical record.",
     )
     api.app.state.semantic_embedder = DeterministicEmbedder()
-    result = api.get(path(project), params={"q": "needle", "semantic": "true"})
+    result = api.get(path(project), params={"detail": "full", "q": "needle", "semantic": "true"})
     assert result.status_code == 200
     assert result.json()["items"][0]["summary"]["work_item"]["id"] == lexical["id"]
 
@@ -230,10 +230,10 @@ def test_semantic_failure_is_explicit_and_lexical_search_still_works(
 ):
     saved = save(api, project, work_payload, title="Lexical fallback")
     api.app.state.semantic_embedder = FailingEmbedder()
-    failed = api.get(path(project), params={"q": "fallback", "semantic": "true"})
+    failed = api.get(path(project), params={"detail": "full", "q": "fallback", "semantic": "true"})
     assert failed.status_code == 503
     assert failed.json()["detail"]["code"] == "semantic_unavailable"
     assert "Turn it off" in failed.json()["detail"]["message"]
-    ordinary = api.get(path(project), params={"q": "fallback"})
+    ordinary = api.get(path(project), params={"detail": "full", "q": "fallback"})
     assert ordinary.status_code == 200
     assert ordinary.json()["items"][0]["summary"]["work_item"]["id"] == saved["id"]

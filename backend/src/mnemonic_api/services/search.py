@@ -107,6 +107,10 @@ def _page(
         for source in sources.values():
             normalize_relevance(source.candidates)
     ordered = order_candidates(sources, request)
+    ranks: dict[SearchFacet, int] = {}
+    for candidate in ordered:
+        ranks[candidate.facet] = ranks.get(candidate.facet, 0) + 1
+        candidate.source_rank = ranks[candidate.facet]
     selected = ordered[request.offset:request.offset + request.limit]
     results = {}
     for facet, source in sources.items():
@@ -122,7 +126,9 @@ def _page(
         or coverage.transcripts.indexing_incomplete
     )
     return SearchPage(
+        work_rank_scope="work_items",
         **_disclosure(project_id, sources, request).model_dump(),
+        detail=request.detail,
         search_scope=_scope(sources, request),
         term_diagnostics=_term_diagnostics(sources, request.q),
         items=[results[(item.facet, item.id)] for item in selected], total=len(ordered),

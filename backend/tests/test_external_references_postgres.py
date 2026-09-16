@@ -88,12 +88,15 @@ def test_create_replace_clear_preserve_replay_and_discovery(api, project, work_p
         result = api.get(url)
         assert result.status_code == 200, result.text
         assert result.json()["work_item"]["external_references"] == expected
-    found = api.get(collection(project), params={"external_url": REFERENCE["url"]}).json()
+    found = api.get(
+        collection(project), params={"detail": "full", "external_url": REFERENCE["url"]}
+    ).json()
     assert found["total"] == 1
     assert (
         api.get(
             collection(project),
             params={
+                "detail": "full",
                 "external_url": REFERENCE["url"],
                 "q": "no matching prose",
             },
@@ -104,6 +107,7 @@ def test_create_replace_clear_preserve_replay_and_discovery(api, project, work_p
         api.get(
             collection(project),
             params={
+                "detail": "full",
                 "external_url": REFERENCE["url"],
                 "view": "roots",
             },
@@ -296,7 +300,7 @@ def test_alias_ownership_filters_and_counterpart_hierarchy_projection(
     assert relationship.status_code == 200, relationship.text
     context = api.get(item_path(project, destination) + "/context").json()
     assert REFERENCE["url"] in json.dumps(context["outgoing_relationships"])
-    roots = api.get(prefix, params={"view": "roots"}).json()
+    roots = api.get(prefix, params={"detail": "full", "view": "roots"}).json()
     assert roots["total"] == 1
     children = api.get(item_path(project, destination) + "/children").json()
     assert children["items"][0]["summary"]["work_item"]["external_references"] == [REFERENCE]
@@ -310,7 +314,8 @@ def test_alias_ownership_filters_and_counterpart_hierarchy_projection(
     for scope, expected_count in (("canonical", 0), ("aliases", 1), ("all", 1)):
         response = api.get(
             prefix,
-            params={"external_url": REFERENCE["url"], "duplicate_scope": scope, "status": "all"},
+            params={"detail": "full", "external_url": REFERENCE["url"],
+                    "duplicate_scope": scope, "status": "all"},
         )
         assert response.status_code == 200, response.text
         assert response.json()["total"] == expected_count

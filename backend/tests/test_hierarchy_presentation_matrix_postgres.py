@@ -160,6 +160,8 @@ def resolve_gate(api, project: dict, created: dict, gate: dict) -> None:
 
 
 def hierarchy_items(api, path: str, **params) -> dict:
+    if path.endswith("/work-items"):
+        params = {"detail": "full", **params}
     response = api.get(path, params=params)
     assert response.status_code == 200, response.text
     return response.json()
@@ -300,7 +302,7 @@ def test_hierarchy_query_cancellation_returns_typed_timeout_and_recovers(
     try:
         timed_out = api.get(
             work_collection(project),
-            params={"view": "roots", "status": "all"},
+            params={"detail": "full", "view": "roots", "status": "all"},
         )
     finally:
         event.remove(
@@ -322,7 +324,7 @@ def test_hierarchy_query_cancellation_returns_typed_timeout_and_recovers(
     }
     recovered = api.get(
         work_collection(project),
-        params={"view": "roots", "status": "all"},
+        params={"detail": "full", "view": "roots", "status": "all"},
     )
     assert recovered.status_code == 200, recovered.text
 

@@ -278,7 +278,7 @@ export function allowedQueryKeys(path: string, method: string): string[] | null 
     if (method === "GET") {
       return [
         "q", "semantic", "status", "sort", "tag", "source_client",
-        "external_url", "source_session_id", "view", "duplicate_scope", "canonical_work_item_id",
+        "external_url", "source_session_id", "view", "detail", "duplicate_scope", "canonical_work_item_id",
         "limit", "offset"
       ];
     }

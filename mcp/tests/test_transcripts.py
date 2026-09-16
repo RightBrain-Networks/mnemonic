@@ -159,7 +159,7 @@ async def test_search_is_metadata_by_default_and_fulltext_is_explicit(settings):
     await call(settings, "search_transcript_contents", args, handler)
     await call(settings, "search_transcript_contents", {**args, "fulltext": True}, handler)
     assert requests == [{"query": "objective", "fulltext": fulltext, "limit": 50,
-                         "offset": 0, "work_item_id": WORK_ID} for fulltext in (False, True)]
+                         "offset": 0, "detail": "full", "work_item_id": WORK_ID} for fulltext in (False, True)]
 
 
 @pytest.mark.parametrize("failure", ["project", "work", "duplicate", "page", "snippet", "oversize", "coverage"])

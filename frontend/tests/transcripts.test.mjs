@@ -10,7 +10,7 @@ const digest = "a".repeat(64);
 const root = `projects/${project}/transcripts`;
 const row = { id, project_id: project, work_item_id: operation, lease_generation_id: operation, client: "claude-code", session_id: "session-1", source_path: "/shared/session.jsonl", filename: "session.jsonl", kind: "primary", status: "ready", indexing_started_at: "2026-09-10T12:00:00Z", indexing_completed_at: "2026-09-10T12:00:01Z", error_code: null, size_bytes: 128, mime_type: "application/x-ndjson", format: "claude-code-jsonl", sha256: digest, text_sha256: digest, metadata: { title: ["<script>untrusted</script>"] }, truncated: false, created_at: "2026-09-10T12:00:00Z", snippet: null, score: null };
 Object.assign(row, { copy_status: "ready", copy_error_code: null, copied_at: "2026-09-10T12:00:00Z", index_status: "ready", index_error_code: null });
-const listing = { ...disclosure(project, ["transcripts"]), term_diagnostics: [], items: [row], total: 1, limit: 50, offset: 0, indexing_incomplete: false };
+const listing = { detail: "full", ...disclosure(project, ["transcripts"]), term_diagnostics: [], items: [row], total: 1, limit: 50, offset: 0, indexing_incomplete: false };
 const environment = { MNEMONIC_API_KEY: "k".repeat(64), MNEMONIC_API_URL: "http://api:8000" };
 const request = (path, method = "GET", value, headers = {}) => new Request(`http://localhost:3000/api/transcripts/${path}`, { method, headers: { host: "localhost:3000", ...(method !== "GET" ? { origin: "http://localhost:3000", "content-type": "application/json" } : {}), ...headers }, ...(value === undefined ? {} : { body: typeof value === "string" ? value : JSON.stringify(value) }) });
 

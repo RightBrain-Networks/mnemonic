@@ -530,12 +530,12 @@ def test_readiness_lifecycle_matrix_agrees_across_every_public_projection(
 
     full = api.get(
         collection(project),
-        params={"status": "all", "tag": tag, "view": "full"},
+        params={"detail": "full", "status": "all", "tag": tag, "view": "full"},
     )
     assert full.status_code == 200, full.text
     full_page = full.json()
     assert full_page["total"] == 1
-    assert full_page["limit"] == 30
+    assert full_page["limit"] == 20
     assert full_page["offset"] == 0
     assert len(full_page["items"]) == 1
     full_hit = full_page["items"][0]
@@ -555,7 +555,7 @@ def test_readiness_lifecycle_matrix_agrees_across_every_public_projection(
 
     hierarchy = api.get(
         collection(project),
-        params={"status": "all", "tag": tag, "view": "roots"},
+        params={"detail": "full", "status": "all", "tag": tag, "view": "roots"},
     )
     assert hierarchy.status_code == 200, hierarchy.text
     hierarchy_page = hierarchy.json()

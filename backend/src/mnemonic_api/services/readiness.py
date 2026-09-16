@@ -26,9 +26,11 @@ from mnemonic_api.schemas import (
     Readiness,
     ReadyWorkListQuery,
     ReadyWorkPage,
+    Status,
     WorkIdentityPointer,
     WorkItemPointer,
     WorkItemRead,
+    WorkSearchStatus,
     WorkSummaryMinimal,
 )
 
@@ -89,6 +91,20 @@ def readiness(
         ),
         display_state=display_state,
     )
+
+
+
+def work_search_status(
+    status: Status, has_active_lease: bool, has_dropped_lease: bool,
+    review_status: ReviewDisposition | None,
+) -> WorkSearchStatus:
+    """Expose status-filter membership separately from blocked/waiting presentation."""
+    if status == "pending":
+        if has_active_lease:
+            return "active"
+        if has_dropped_lease:
+            return "dropped"
+    return review_status or status
 
 
 def review_status_clause(

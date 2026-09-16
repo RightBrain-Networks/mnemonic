@@ -115,6 +115,7 @@ export interface ArtifactSearchMatch {
 }
 
 export interface ArtifactSearchPage extends SearchDisclosure {
+  detail: "full";
   match_mode: "all_terms";
   term_diagnostics: TermDiagnostic[];
   items: ArtifactSearchMatch[];
@@ -129,11 +130,11 @@ export interface ArtifactSearchPage extends SearchDisclosure {
 export function decodeArtifactSearchPage(value: unknown, projectId: string, fulltext: boolean, limit = 50, offset = 0, sourceSearched = true): ArtifactSearchPage {
   const page = objectValue(value);
   const indexing = objectValue(page?.indexing);
-  if (!page || !exactKeys(page, ["items", "total", "limit", "offset", "fulltext", "indexing", "sensitive_content_withheld", "match_mode", "term_diagnostics", ...SEARCH_DISCLOSURE_FIELDS])
+  if (!page || !exactKeys(page, ["items", "total", "limit", "offset", "fulltext", "indexing", "sensitive_content_withheld", "match_mode", "detail", "term_diagnostics", ...SEARCH_DISCLOSURE_FIELDS])
     || page.match_mode !== "all_terms" || !sourceSearched && page.total !== 0
     || !finiteInteger(page.sensitive_content_withheld)
     || !Array.isArray(page.items) || !finiteInteger(page.total) || page.limit !== limit || page.offset !== offset
-    || page.items.length !== Math.min(limit, Math.max(0, page.total - offset)) || page.fulltext !== fulltext
+    || page.items.length !== Math.min(limit, Math.max(0, page.total - offset)) || page.detail !== "full" || page.fulltext !== fulltext
     || !indexing || !exactKeys(indexing, ["pending", "failed", "ready", "truncated"])
     || !Object.values(indexing).every((count) => finiteInteger(count))) {
     throw new Error("Mnemonic returned invalid artifact search results.");
@@ -158,14 +159,15 @@ export function decodeArtifactSearchPage(value: unknown, projectId: string, full
     return { artifact, score: match.score, snippet: match.snippet, matched_fields: match.matched_fields as ("metadata" | "content")[] };
   });
   if (new Set(items.map((item) => item.artifact.id.toLowerCase())).size !== items.length) throw new Error("Mnemonic returned duplicate artifact search matches.");
-  return { ...disclosure, match_mode: "all_terms", term_diagnostics, items, total: page.total, limit, offset, fulltext, indexing: indexing as unknown as ArtifactIndexingStatus, sensitive_content_withheld: page.sensitive_content_withheld };
+  return { ...disclosure, detail: "full", match_mode: "all_terms", term_diagnostics, items, total: page.total, limit, offset, fulltext, indexing: indexing as unknown as ArtifactIndexingStatus, sensitive_content_withheld: page.sensitive_content_withheld };
 }
 
 export function validArtifactSearchRequest(value: unknown): boolean {
   const request = objectValue(value);
-  return Boolean(request && Object.keys(request).every((key) => ["q", "fulltext", "work_item_id", "artifact_id", "include_deleted", "limit", "offset"].includes(key))
+  return Boolean(request && Object.keys(request).every((key) => ["q", "fulltext", "detail", "work_item_id", "artifact_id", "include_deleted", "limit", "offset"].includes(key))
     && boundedText(request.q, 200) && (request.q as string).trim().length > 0
     && (request.fulltext === undefined || typeof request.fulltext === "boolean")
+    && (request.detail === undefined || request.detail === "compact" || request.detail === "full")
     && (request.include_deleted === undefined || typeof request.include_deleted === "boolean")
     && (request.work_item_id === undefined || validUuid(request.work_item_id))
     && (request.artifact_id === undefined || validUuid(request.artifact_id))

@@ -3,7 +3,7 @@
 Use [unified search](search.md) to retrieve work, artifacts, and transcripts in one
 ranked, filtered, paginated read through REST or MCP.
 
-This architecture describes application/API/MCP `0.56.0`, Claude plugin `0.34.0`,
+This architecture describes application/API/MCP `0.57.0`, Claude plugin `0.35.0`,
 and Alembic head `0039_manual_review_requests`.
 
 Transcript copying, indexing, and project backups run in a shared RabbitMQ worker.

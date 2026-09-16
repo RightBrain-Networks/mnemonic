@@ -1,5 +1,40 @@
 # Mnemonic validation record
 
+## Compact search discovery (0.57.0)
+
+All four discovery tools default to `detail=compact` and a 20-row page. Full
+summaries remain available with `detail=full`; hierarchy `view` is independent.
+Work summaries hydrate only after pagination, including semantic search, and
+semantic inference keeps its read snapshot without blocking concurrent writers.
+Strict MCP and dashboard decoders validate the requested shape and effective
+scope. Artifact reads no longer repeat upload guidance.
+
+A measured 20-work-item page uses 8,135 UTF-8 bytes and 3,018 tokens in compact
+form versus 50,511 bytes and 12,799 tokens in full form: 84% fewer bytes and 76%
+fewer tokens (`tiktoken` 0.14.0, `o200k_base`). The regression fixture also checks
+page-only hydration and a bounded response size.
+
+Local verification ran the full PostgreSQL/RabbitMQ backend suite: 2,840 tests
+passed, and eight old full-shape assertions were corrected to request full detail;
+all 64 affected checks then passed. The full MCP run passed 1,717 tests; six
+fixture/schema/default-limit failures were corrected and their affected suites
+passed. Frontend verification passes all 451 tests, type checking and the
+production build on Node 24. Backend/MCP Ruff and ty pass. Plugin tests pass
+71 cases, with the macOS-only case reserved for CI.
+
+Desktop and narrow-browser acceptance passed the artifact and transcript search
+cases. Four work-library cases exposed stale menu/copy assertions and an existing
+URL reconciliation defect after moving deferred work; the assertions and the
+one-effect dependency were corrected, and all eight affected browser cases passed.
+The isolated stack also passed every backup-service acceptance group. Required CI
+remains the merge gate.
+
+API/MCP/dashboard are 0.57.0 and the Claude plugin is 0.35.0. Upgrade consumers
+together for compact defaults and required response detail/rank-scope fields.
+No migration or configuration change is needed; Alembic remains
+`0039_manual_review_requests`, and the 55-tool and receipt/write catalogs are
+unchanged. Repository merge does not deploy running services.
+
 ## Effective search scope and actionable validation (0.56.0)
 
 All four search surfaces now disclose effective filters and source-specific query

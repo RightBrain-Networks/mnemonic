@@ -1,4 +1,4 @@
-import { decodeSearchDisclosure, SEARCH_DISCLOSURE_FIELDS, validateSearchDisclosure, type SearchDisclosure } from "./search-disclosure.ts";
+import { decodeSearchDisclosure, SEARCH_DISCLOSURE_FIELDS, validateSearchDisclosure, type SearchDisclosure, type FullWorkSearchDetail } from "./search-disclosure.ts";
 import { decodeLeaseSettings } from "./work-lease-settings.ts";
 import { validSparseReferences, referenceKeys } from "./external-references.ts";
 import { decodeArtifact } from "./artifacts.ts";
@@ -98,7 +98,7 @@ export const DUPLICATE_HANDLING_DECODER_FIELDS = {
   decodeWorkContext: [...CONTEXT_FIELDS, "code_review_context"],
   decodeWorkItemDetail: [...DETAIL_FIELDS, "code_review_context"],
   "decodeWorkSearchPage:item": SEARCH_HIT_FIELDS,
-  decodeWorkSearchPage: [...PAGE_FIELDS, ...SEARCH_DISCLOSURE_FIELDS]
+  decodeWorkSearchPage: [...PAGE_FIELDS, "detail", "work_rank_scope", ...SEARCH_DISCLOSURE_FIELDS]
 } as const;
 
 function pointerEqual(left: WorkIdentityPointer, right: WorkIdentityPointer): boolean {
@@ -217,12 +217,13 @@ export function decodeWorkSearchPage(
     expectedFilters?: Record<string, unknown>;
     semantic?: boolean;
   } = {}
-): Page<WorkSearchHit> & SearchDisclosure {
+): Page<WorkSearchHit> & SearchDisclosure & FullWorkSearchDetail {
   const page = objectValue(value);
   const duplicateScope = options.duplicateScope ?? "canonical";
   if (
     !page
-    || !exactKeys(page, [...PAGE_FIELDS, ...SEARCH_DISCLOSURE_FIELDS])
+    || !exactKeys(page, [...PAGE_FIELDS, "detail", "work_rank_scope", ...SEARCH_DISCLOSURE_FIELDS])
+    || page.detail !== "full" || page.work_rank_scope !== "work_items"
     || !Array.isArray(page.items)
     || !finiteInteger(page.total)
     || !finiteInteger(page.limit, 1, 100)
@@ -269,6 +270,8 @@ export function decodeWorkSearchPage(
   }
   return {
     ...disclosure,
+    detail: "full",
+    work_rank_scope: "work_items",
     items,
     total: page.total,
     limit: page.limit,

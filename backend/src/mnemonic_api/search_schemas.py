@@ -7,10 +7,15 @@ from uuid import UUID
 from pydantic import Field, field_validator, model_validator
 
 from mnemonic_api.artifact_index import literal_terms
-from mnemonic_api.artifact_search_schemas import ArtifactIndexingStatus, ArtifactSearchMatch
+from mnemonic_api.artifact_search_schemas import (
+    ArtifactIndexingStatus,
+    ArtifactSearchMatch,
+    CompactArtifactMatch,
+)
 from mnemonic_api.schemas import (
     APIModel,
     ClientName,
+    CompactWorkHit,
     ExternalURL,
     SessionID,
     Tag,
@@ -18,7 +23,7 @@ from mnemonic_api.schemas import (
 )
 from mnemonic_api.search_diagnostics import SearchFacet, SearchScope, TermDiagnostics
 from mnemonic_api.search_disclosure import SearchDisclosure
-from mnemonic_api.transcript_schemas import TranscriptRead, TranscriptStatus
+from mnemonic_api.transcript_schemas import CompactTranscriptRead, TranscriptRead, TranscriptStatus
 
 
 def _default_facets(data: dict[str, Any]) -> list[SearchFacet]:
@@ -92,10 +97,11 @@ class SearchRequest(APIModel):
         max_length=3,
     )
     fulltext: bool = False
+    detail: Literal["compact", "full"] = "compact"
     filters: SearchFilters = Field(default_factory=SearchFilters)
     sort: SearchSort = Field(default_factory=SearchSort)
     facet_order: list[FacetOrder] = Field(default_factory=list, max_length=3)
-    limit: int = Field(default=50, ge=1, le=100)
+    limit: int = Field(default=20, ge=1, le=100)
     offset: int = Field(default=0, ge=0, le=1_000_000)
 
     @field_validator("q")
@@ -132,17 +138,17 @@ class SearchHitBase(APIModel):
 
 class WorkFacetHit(SearchHitBase):
     facet: Literal["work_items"] = "work_items"
-    work_item: WorkSearchHit
+    work_item: WorkSearchHit | CompactWorkHit
 
 
 class ArtifactFacetHit(SearchHitBase):
     facet: Literal["artifacts"] = "artifacts"
-    artifact: ArtifactSearchMatch
+    artifact: ArtifactSearchMatch | CompactArtifactMatch
 
 
 class TranscriptFacetHit(SearchHitBase):
     facet: Literal["transcripts"] = "transcripts"
-    transcript: TranscriptRead
+    transcript: TranscriptRead | CompactTranscriptRead
 
 
 SearchHit = Annotated[
@@ -172,6 +178,8 @@ class SearchCoverage(APIModel):
 
 
 class SearchPage(APIModel, SearchDisclosure):
+    detail: Literal["compact", "full"]
+    work_rank_scope: Literal["work_items"]
     search_scope: SearchScope
     term_diagnostics: TermDiagnostics
     items: list[SearchHit]
@@ -181,3 +189,13 @@ class SearchPage(APIModel, SearchDisclosure):
     facet_totals: FacetTotals
     coverage: SearchCoverage
     indexing_incomplete: bool
+
+
+    @model_validator(mode="after")
+    def projection_matches_detail(self) -> Self:
+        fields = {"work_items": "work_item", "artifacts": "artifact", "transcripts": "transcript"}
+        compact_types = (CompactWorkHit, CompactArtifactMatch, CompactTranscriptRead)
+        if any(isinstance(getattr(hit, fields[hit.facet]), compact_types)
+               != (self.detail == "compact") for hit in self.items):
+            raise ValueError("Unified search projection must match detail")
+        return self

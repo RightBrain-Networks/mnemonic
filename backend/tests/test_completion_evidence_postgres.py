@@ -931,7 +931,7 @@ def test_atomic_completion_response_storage_and_history_projection(
     assert (
         api.get(
             _collection(project),
-            params={"q": "durable-evidence-only-token", "status": "all"},
+            params={"detail": "full", "q": "durable-evidence-only-token", "status": "all"},
         ).json()["total"]
         == 0
     )

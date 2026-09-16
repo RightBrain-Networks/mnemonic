@@ -319,7 +319,7 @@ test("search guards enforce canonical, alias, group, and matched-member modes", 
     summary: summary(),
     matched_member: pointer(destination, "Matching immutable member")
   };
-  const page = { ...disclosure(project, ["work_items"], { q: "member" }), items: [canonicalHit], total: 1, limit: 20, offset: 0 };
+  const page = { detail: "full", work_rank_scope: "work_items", ...disclosure(project, ["work_items"], { q: "member" }), items: [canonicalHit], total: 1, limit: 20, offset: 0 };
   assert.equal(decodeWorkSearchPage(page, project, {
     duplicateScope: "canonical",
     query: "member",
@@ -336,6 +336,7 @@ test("search guards enforce canonical, alias, group, and matched-member modes", 
     readiness: alias.readiness
   });
   const aliasPage = {
+    detail: "full", work_rank_scope: "work_items",
     ...disclosure(project, ["work_items"], { filters: { work_items: { duplicate_scope: "aliases", canonical_work_item_id: root } } }),
     items: [{ summary: aliasSummary, matched_member: pointer(work) }],
     total: 1,

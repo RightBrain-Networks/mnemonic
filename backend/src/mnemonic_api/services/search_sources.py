@@ -16,6 +16,7 @@ class SearchCandidate:
     updated_at: datetime
     score: float = 0.0
     priority: int = 0
+    source_rank: int = 0
 
     def fields(self) -> dict:
         return {

@@ -19,7 +19,7 @@ from pydantic import (
 from pydantic.experimental.missing_sentinel import MISSING
 
 from .search_diagnostics import TermDiagnostics
-from .search_disclosure import SearchDisclosure
+from .search_disclosure import SearchDetail, SearchDisclosure
 
 TranscriptLimit = Annotated[StrictInt, Field(ge=1, le=100)]
 TranscriptOffset = Annotated[StrictInt, Field(ge=0, le=10_000)]
@@ -129,9 +129,34 @@ class TranscriptRead(TranscriptModel):
         return value
 
 
+class CompactTranscriptRead(TranscriptModel):
+    id: UUID
+    project_id: UUID
+    work_item_id: UUID | None
+    client: Annotated[str, Field(min_length=1, max_length=80)]
+    session_id: Annotated[str, Field(min_length=1, max_length=200)] | None
+    filename: Annotated[str, Field(max_length=4096)]
+    kind: Literal["primary", "subagent", "imported"]
+    status: TranscriptStatus
+    index_status: TranscriptStatus
+    copy_status: Literal["pending", "processing", "ready", "failed"]
+    truncated: StrictBool
+    snippet: Annotated[str, Field(max_length=1000)] | None = None
+    score: Annotated[float, Field(ge=0, allow_inf_nan=False, strict=True)] | None = None
+
+    @model_validator(mode="after")
+    def coherent_provenance(self) -> Self:
+        absent = self.work_item_id is None and self.session_id is None
+        present = self.work_item_id is not None and self.session_id is not None
+        if not (absent if self.kind == "imported" else present):
+            raise ValueError("Compact transcript provenance does not match source kind")
+        return self
+
+
 class TranscriptPage(TranscriptModel, SearchDisclosure):
+    detail: SearchDetail
     term_diagnostics: TermDiagnostics
-    items: Annotated[list[TranscriptRead], Field(max_length=100)]
+    items: Annotated[list[TranscriptRead | CompactTranscriptRead], Field(max_length=100)]
     total: Annotated[StrictInt, Field(ge=0)]
     limit: TranscriptLimit
     offset: TranscriptOffset

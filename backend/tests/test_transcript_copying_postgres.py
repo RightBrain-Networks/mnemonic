@@ -81,7 +81,7 @@ def test_legacy_ready_backfill_retains_text_until_copy_success(
         source_path.write_text('{"role":"user","content":"newer copied transcript"}\n')
     elif source_change == "missing":
         source_path.unlink()
-    assert api.get(collection(project)).json()["indexing_incomplete"]
+    assert api.get(collection(project), params={"detail": "full"}).json()["indexing_incomplete"]
     assert copy_next_transcript(factory, settings)
     current = read(api, project, record)
     if source_change == "changed":
@@ -95,8 +95,9 @@ def test_legacy_ready_backfill_retains_text_until_copy_success(
         assert current["text_sha256"] == ready["text_sha256"]
         assert current["copy_status"] == ("failed" if source_change == "missing" else "ready")
         assert not index_next_transcript(factory, settings, Parser())
-        assert api.get(collection(project)).json()["indexing_incomplete"] \
-            == (source_change == "missing")
+        assert api.get(collection(project), params={"detail": "full"}).json()[
+            "indexing_incomplete"
+        ] == (source_change == "missing")
 
 
 def test_rebuild_fences_copy_claim_and_recovers_published_snapshot(
@@ -268,7 +269,9 @@ def test_changed_legacy_copy_failure_retains_complete_readable_extraction(
                   "mime_type", "indexing_started_at", "indexing_completed_at"):
         assert after[field] == before[field]
     assert api.get(endpoint).content == body
-    page = api.get(collection(project), params={"query": "needle", "fulltext": True}).json()
+    page = api.get(
+        collection(project), params={"detail": "full", "query": "needle", "fulltext": True}
+    ).json()
     assert page["total"] == 1 and page["indexing_incomplete"]
     assert api.post(collection(project) + "/rebuild",
                     json={"client_operation_id": str(uuid4())}).status_code == 200

@@ -39,6 +39,7 @@ export interface Transcript {
   score?: number | null;
 }
 export interface TranscriptPage extends SearchDisclosure {
+  detail: "full";
   term_diagnostics: TermDiagnostic[];
   items: Transcript[];
   total: number;
@@ -103,7 +104,7 @@ export function decodeTranscript(value: unknown, projectId: string, transcriptId
 
 export function decodeTranscriptPage(value: unknown, projectId: string, offset = 0, fulltext = false, workItemId?: string): TranscriptPage {
   const page = objectValue(value);
-  if (!page || !Array.isArray(page.items) || !finiteInteger(page.total) || page.limit !== TRANSCRIPT_PAGE_SIZE
+  if (!page || page.detail !== "full" || !Array.isArray(page.items) || !finiteInteger(page.total) || page.limit !== TRANSCRIPT_PAGE_SIZE
     || page.offset !== offset || page.items.length !== Math.min(page.limit, Math.max(0, page.total - offset))
     || typeof page.indexing_incomplete !== "boolean") throw new Error("Mnemonic returned an invalid transcript listing.");
   decodeTermDiagnostics(page.term_diagnostics, page.total as number, ["transcripts"]);

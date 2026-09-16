@@ -21,11 +21,14 @@ def disclosed_response(request: httpx.Request, response: httpx.Response) -> http
     } or response.status_code != 200:
         return response
     value = response.json()
-    if not isinstance(value, dict) or not isinstance(value.get("items"), list) or any(
-        name in value for name in ("applied_filters", "query_interpretation", "warnings")
-    ):
+    if not isinstance(value, dict) or not isinstance(value.get("items"), list):
         return response
     params = json.loads(request.content) if request.method == "POST" else dict(request.url.params)
+    value.setdefault("detail", params.get("detail", "compact"))
+    if route[1] in {"search", "work-items"}:
+        value.setdefault("work_rank_scope", "work_items")
+    if any(name in value for name in ("applied_filters", "query_interpretation", "warnings")):
+        return httpx.Response(response.status_code, headers=response.headers, json=value)
     q = params.get("q", params.get("query", ""))
     fulltext = params.get("fulltext", False)
     semantic = params.get("semantic") in (True, "true")

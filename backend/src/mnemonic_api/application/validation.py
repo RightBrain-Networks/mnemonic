@@ -17,7 +17,7 @@ PUBLIC_LOCATION_SEGMENTS = frozenset(
     """
     body query path header cookie project_id work_item_id relationship_id
     name description slug q semantic status tag source_client source_session_id
-    view sort limit offset min_priority parent_work_item_id direction type order
+    view detail sort limit offset min_priority parent_work_item_id direction type order
     event_type recent_limit recent_event_limit title summary priority expected_version
     initial_checkpoint initial_relationships checkpoint kind prompt source_model
     source_session_url repository_branch verified_against affected_paths tags source_metadata

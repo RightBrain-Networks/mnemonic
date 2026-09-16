@@ -7,6 +7,8 @@ from pydantic import BaseModel, ConfigDict, Field, StrictBool
 
 from .search_diagnostics import SearchFacet
 
+SearchDetail = Literal["compact", "full"]
+
 
 class DisclosureModel(BaseModel):
     model_config = ConfigDict(extra="forbid")

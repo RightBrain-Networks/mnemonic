@@ -6,6 +6,7 @@ import threading
 from collections.abc import Iterator
 from datetime import UTC, datetime
 from pathlib import PurePosixPath
+from typing import Literal
 from uuid import UUID, uuid4
 
 import tantivy
@@ -27,6 +28,7 @@ from mnemonic_api.search_diagnostics import TermDiagnostic, TermMatchCounts
 from mnemonic_api.search_disclosure import TranscriptAppliedFilters, search_disclosure
 from mnemonic_api.services.work_items import require_project
 from mnemonic_api.transcript_schemas import (
+    CompactTranscriptRead,
     TranscriptPage,
     TranscriptRead,
     TranscriptSearch,
@@ -78,6 +80,21 @@ def transcript_read(record: Transcript, project_id: UUID) -> TranscriptRead:
                           index_error_code=record.reindex_error_code or record.error_code,
                           filename=PurePosixPath(record.source_path).name,
                           metadata=record.extracted_metadata)
+
+
+
+def transcript_search_read(
+    record: Transcript, project_id: UUID, detail: Literal["compact", "full"],
+) -> TranscriptRead | CompactTranscriptRead:
+    if detail == "full":
+        return transcript_read(record, project_id)
+    return CompactTranscriptRead.model_validate({
+        "id": record.id, "project_id": project_id, "work_item_id": record.work_item_id,
+        "client": record.client, "session_id": record.session_id,
+        "filename": PurePosixPath(record.source_path).name, "kind": record.kind,
+        "status": record.status, "index_status": record.reindex_status or record.status,
+        "copy_status": record.copy_status, "truncated": record.truncated,
+    })
 
 
 def transcript_project_id():
@@ -154,8 +171,9 @@ def _search_records(database: Session, records: list[Transcript], query: str, fu
 def _search_read(
     database: Session, project_id: UUID, record: Transcript, hit: SearchHit, query: str,
     index: ArtifactSearchIndex, searcher: tantivy.Searcher | None,
-) -> TranscriptRead:
-    rendered = transcript_read(record, project_id)
+    *, detail: Literal["compact", "full"] = "full",
+) -> TranscriptRead | CompactTranscriptRead:
+    rendered = transcript_search_read(record, project_id, detail)
     rendered.score = hit.score
     if hit.content and searcher is not None:
         # Hydrate only the returned page, one body at a time, using the same
@@ -184,13 +202,12 @@ def list_transcripts(database: Session, project_id: UUID, filters: TranscriptSea
     records = database.scalars(statement.options(defer(Transcript.normalized_text))
         .order_by(Transcript.created_at.desc(), Transcript.id).offset(filters.offset)
         .limit(filters.limit))
-    return TranscriptPage(items=[transcript_read(row, project_id) for row in records],
-                          **search_disclosure(
+    return TranscriptPage(**search_disclosure(
                               project_id, filters.query, fulltext=filters.fulltext,
-                              transcripts=TranscriptAppliedFilters(
-                                  work_item_id=filters.work_item_id,
-                              ),
-                          ).model_dump(),
+                              transcripts=TranscriptAppliedFilters(work_item_id=filters.work_item_id),
+                          ).model_dump(), detail=filters.detail,
+                          items=[transcript_search_read(row, project_id, filters.detail)
+                                 for row in records],
                           total=total, limit=filters.limit, offset=filters.offset,
                           indexing_incomplete=incomplete)
 
@@ -214,15 +231,14 @@ def _searched_page_locked(database, project_id, filters, index, statement, incom
                              maximum_content_bytes)
     by_id = {str(record.id): record for record in records}
     items = [_search_read(database, project_id, by_id[hit.identity], hit, filters.query,
-                          index, result.searcher)
+                          index, result.searcher, detail=filters.detail)
              for hit in result.hits[filters.offset:filters.offset + filters.limit]]
-    return TranscriptPage(items=items, total=len(result.hits), limit=filters.limit,
-                          **search_disclosure(
+    return TranscriptPage(**search_disclosure(
                               project_id, filters.query, fulltext=filters.fulltext,
-                              transcripts=TranscriptAppliedFilters(
-                                  work_item_id=filters.work_item_id,
-                              ),
-                          ).model_dump(),
+                              transcripts=TranscriptAppliedFilters(work_item_id=filters.work_item_id),
+                          ).model_dump(), detail=filters.detail, items=items,
+                          total=len(result.hits),
+                          limit=filters.limit,
                           offset=filters.offset, indexing_incomplete=incomplete,
                           term_diagnostics=[TermDiagnostic(
                               term=term, matches=TermMatchCounts(transcripts=count),

@@ -1,10 +1,10 @@
 """Public transcript records never include source bytes or text implicitly."""
 
 from datetime import datetime
-from typing import Literal
+from typing import Literal, Self
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from mnemonic_api.search_diagnostics import TermDiagnostics
 from mnemonic_api.search_disclosure import SearchDisclosure
@@ -44,22 +44,49 @@ class TranscriptRead(BaseModel):
     score: float | None = None
 
 
+class CompactTranscriptRead(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    id: UUID
+    project_id: UUID
+    work_item_id: UUID | None
+    client: str
+    session_id: str | None
+    filename: str
+    kind: Literal["primary", "subagent", "imported"]
+    status: TranscriptStatus
+    index_status: TranscriptStatus
+    copy_status: Literal["pending", "processing", "ready", "failed"]
+    truncated: bool
+    snippet: str | None = None
+    score: float | None = None
+
+
 class TranscriptSearch(BaseModel):
     model_config = ConfigDict(extra="forbid")
     query: str | None = Field(default=None, max_length=1000)
     fulltext: bool = False
+    detail: Literal["compact", "full"] = "compact"
     work_item_id: UUID | None = None
-    limit: int = Field(default=50, ge=1, le=100)
+    limit: int = Field(default=20, ge=1, le=100)
     offset: int = Field(default=0, ge=0, le=10000)
 
 
 class TranscriptPage(SearchDisclosure):
+    detail: Literal["compact", "full"]
     term_diagnostics: TermDiagnostics = Field(default_factory=list)
-    items: list[TranscriptRead]
+    items: list[TranscriptRead | CompactTranscriptRead]
     total: int
     limit: int
     offset: int
     indexing_incomplete: bool
+
+
+    @model_validator(mode="after")
+    def projection_matches_detail(self) -> Self:
+        if any(isinstance(item, CompactTranscriptRead) != (self.detail == "compact")
+               for item in self.items):
+            raise ValueError("Transcript search projection must match detail")
+        return self
 
 
 class TranscriptText(BaseModel):

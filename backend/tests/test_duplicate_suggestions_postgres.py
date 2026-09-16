@@ -1104,12 +1104,12 @@ def test_resource_saturation_falls_back_or_returns_bounded_retry(
 
     invalid_search = api.get(
         f"/api/v1/projects/{project['id']}/work-items",
-        params={"q": "cache", "semantic": "t", "limit": "invalid"},
+        params={"detail": "full", "q": "cache", "semantic": "t", "limit": "invalid"},
     )
     assert invalid_search.status_code == 422
     unavailable_search = api.get(
         f"/api/v1/projects/{project['id']}/work-items",
-        params={"q": "cache", "semantic": "y"},
+        params={"detail": "full", "q": "cache", "semantic": "y"},
     )
     assert unavailable_search.status_code == 503
     assert unavailable_search.json()["detail"]["code"] == "semantic_unavailable"

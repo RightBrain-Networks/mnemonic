@@ -2,7 +2,7 @@
 
 Application/API/MCP/dashboard `0.43.0` and plugin `0.26.0` add one project search
 surface across work items, artifacts, and transcripts. No migration or new
-configuration was required for that release. Current release 0.56.0 uses migration
+configuration was required for that release. Current release 0.57.0 uses migration
 `0039_manual_review_requests` and also searches [imported transcripts](transcripts.md#import-existing-transcripts).
 The dashboard retains its separate work, artifact, and transcript interfaces.
 Their searches use the shared API, including the work semantic toggle. Hierarchy
@@ -23,7 +23,7 @@ retain the default of all three facets. Transcript filters and facet ordering do
 not implicitly opt in: include transcripts in `facets`. Other defaults are all
 work statuses, canonical work identities,
 metadata-only artifact/transcript matching, relevance descending, offset 0 and
-limit 50. An empty query browses all selected sources. Work matching includes
+limit 20 and `detail="compact"`. An empty query browses all selected sources. Work matching includes
 checkpoint prose and provenance as before. To match text inside artifact or
 transcript bodies, explicitly add `"fulltext": true`.
 
@@ -177,12 +177,25 @@ concurrent edits or indexing.
 
 ## Results and coverage
 
-Each result has `facet`, `id`, `created_at`, `updated_at`, and common `score`, plus
-exactly one typed payload: `work_item`, `artifact`, or `transcript`. Work payloads
-contain the compact summary and exact matched member. REST artifact payloads
-retain current metadata, raw source score, matched fields, and optional snippet;
-MCP compacts artifact metadata while retaining filename, identity, revision and
-hashes. Transcript payloads retain indexing state and optional snippet.
+Each unified result has `facet`, `id`, `created_at`, `updated_at`, and common `score`,
+plus exactly one typed payload: `work_item`, `artifact`, or `transcript`.
+`detail="compact"` is the default on all four discovery tools; `detail="full"`
+retains complete summaries and metadata. The default page limit is 20.
+
+Compact work rows retain identity, title, lifecycle and display state, priority,
+updated time, canonical identity, ancestry and one-based rank within the work source.
+A different `matched_member` is included only when alias text supplies the match.
+`view="full"|"roots"` controls flat/hierarchy presentation independently of detail.
+Artifact pointers retain identity, filename, revision, content availability and
+relevant extraction/coverage flags with matching evidence. Transcript pointers
+retain identity, client/session/work pointers, indexing flags and snippets.
+Integrity hashes and full provenance remain in detail reads. Artifact search no
+longer repeats upload-limit guidance.
+
+Compact and full requests preserve identities, order, totals and coverage. Backend
+hydration constructs only the returned page; semantic work ranking also avoids
+building full summaries for every candidate. Source rank is an ordering signal,
+not a relevance probability. Dashboard callers request full detail explicitly.
 
 `coverage.artifacts` reports whether the library is enabled, pending/failed/ready/
 truncated extraction counts, and `sensitive_content_withheld`.
@@ -231,5 +244,5 @@ checkpoint/provenance fields are always searched. Literal quote characters
 produce the static `phrase_operators_ignored` warning until phrase support ships.
 These disclosures apply before pagination, including empty offset pages.
 
-The current work payload remains a summary with readiness and context metadata.
-Compact discovery is a subsequent slice; use explicit small limits when needed.
+Compact discovery ships in 0.57.0. See the result contract above; full detail remains
+an explicit option for selected records.
