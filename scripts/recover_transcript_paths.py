@@ -17,6 +17,16 @@ from pathlib import Path
 from typing import Annotated, Literal
 from uuid import UUID, uuid4
 
+from mnemonic_api.artifact_tika import ExtractionError
+from mnemonic_api.config import Settings
+from mnemonic_api.database import build_engine
+from mnemonic_api.errors import ApplicationError
+from mnemonic_api.services.transcript_recoveries import (
+    TranscriptRecoveryRequest,
+    apply_transcript_recovery,
+    describe_recovery_source,
+    inspect_recovery_target,
+)
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -29,17 +39,6 @@ from pydantic import (
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
-
-from mnemonic_api.artifact_tika import ExtractionError
-from mnemonic_api.config import Settings
-from mnemonic_api.database import build_engine
-from mnemonic_api.errors import ApplicationError
-from mnemonic_api.services.transcript_recoveries import (
-    TranscriptRecoveryRequest,
-    apply_transcript_recovery,
-    describe_recovery_source,
-    inspect_recovery_target,
-)
 
 HEAD = "0040_normalized_transcripts"
 MAX_MANIFEST_BYTES = 8 * 1024 * 1024

@@ -17,10 +17,9 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
+from mnemonic_api.transcript_recovery_db import RECOVERY_FINDINGS
 from sqlalchemy import Connection, create_engine, text
 from sqlalchemy.exc import SQLAlchemyError
-
-from mnemonic_api.transcript_recovery_db import RECOVERY_FINDINGS
 
 HEAD = "0040_normalized_transcripts"
 PROMPT_LIBRARY_HEADS = (
