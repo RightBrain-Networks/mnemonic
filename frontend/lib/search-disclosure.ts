@@ -70,3 +70,5 @@ export function validateSearchDisclosure(disclosure: SearchDisclosure, source: S
     || applied && Object.entries(expected).some(([key, value]) => ["work_item_id", "artifact_id", "canonical_work_item_id"].includes(key) && value != null ? !sameUuid(applied[key], value) : applied[key] !== value)
     || interpretation && fulltext !== undefined && interpretation.fulltext !== fulltext) throw new Error("Mnemonic returned search disclosure outside the requested scope.");
 }
+
+export type FullWorkSearchDetail = { detail: "full"; work_rank_scope: "work_items" };

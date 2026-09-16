@@ -61,6 +61,11 @@ def download_arguments(**overrides):
 
 
 async def call(settings, name, arguments, handler, *, maximum=67108864, status_response=None):
+    # Existing fixtures exercise the explicit full-detail response contract. Compact
+    # default tests call the server directly or select detail=compact explicitly.
+    if name in {"search", "search_work", "search_artifact_contents",
+                "search_transcript_contents", "list_transcripts"}:
+        arguments = {"detail": "full", "limit": 30 if name == "search_work" else 50, **arguments}
     def streamed(request):
         if request.url.path == "/api/v1/artifacts/status":
             response = status_response if status_response is not None else httpx.Response(
@@ -214,7 +219,7 @@ async def test_content_search_is_opt_in_safe_project_scoped_and_bounded(settings
         assert "x-client-operation-id" not in request.headers
         assert request.headers["accept-encoding"] == "identity"
         assert json.loads(request.content) == {
-            "q": "private report", "fulltext": fulltext, "include_deleted": False,
+            "q": "private report", "fulltext": fulltext, "detail": "full", "include_deleted": False,
             "artifact_id": ARTIFACT_ID, "work_item_id": WORK_ID, "limit": 10, "offset": 0,
         }
         return httpx.Response(200, json=search_page(
@@ -271,7 +276,7 @@ async def test_disabled_status_stops_every_artifact_tool_before_data_access(sett
 
 
 @pytest.mark.parametrize(("name", "arguments"), artifact_calls())
-async def test_every_tool_reports_actual_configured_limit(settings, name, arguments):
+async def test_transfer_tools_report_limits_while_search_omits_upload_guidance(settings, name, arguments):
     page = {"items": [], "total": 0, "limit": 50, "offset": 0}
 
     def handler(request):
@@ -292,6 +297,9 @@ async def test_every_tool_reports_actual_configured_limit(settings, name, argume
         return httpx.Response(200, json=artifact())
 
     result = await call(settings, name, arguments, handler, maximum=1048576)
+    if name == "search_artifact_contents":
+        assert "artifact_library" not in result
+        return
     status = result["artifact_library"]
     assert status["enabled"] is True
     assert status["max_bytes"] == status["effective_upload_max_bytes"] == 1048576
@@ -358,9 +366,9 @@ async def test_lowered_positive_limit_does_not_prevent_exact_receipt_replay(sett
 
 
 async def test_large_config_explicitly_reports_distinct_mcp_cap(settings):
-    result = await call(settings, "search_artifact_contents", {
-        "project_id": PROJECT_ID, "query": "report",
-    }, lambda request: httpx.Response(200, json=search_page()), maximum=1073741824)
+    result = await call(settings, "get_artifact", {
+        "project_id": PROJECT_ID, "artifact_id": ARTIFACT_ID,
+    }, lambda request: httpx.Response(200, json=artifact()), maximum=1073741824)
     assert result["artifact_library"]["max_bytes"] == 1073741824
     assert result["artifact_library"]["effective_upload_max_bytes"] == 67108864
 

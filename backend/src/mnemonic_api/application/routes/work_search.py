@@ -39,7 +39,6 @@ from mnemonic_api.services.work_search import (
     _lexical_selections,
     _page,
     _scope_rows,
-    _summaries_with_ancestry,
     _validate_root_filter,
     provenance_conditions,
     status_conditions,
@@ -63,8 +62,10 @@ def search_work(
     if filters.view == "roots":
         roots, total = hierarchy_page(database, project_id, filters)
         return WorkSearchPage(
-            items=roots, total=total, limit=filters.limit, offset=filters.offset,
+            work_rank_scope="work_items",
             **work_search_disclosure(project_id, filters).model_dump(),
+            detail=filters.detail, items=roots, total=total,
+            limit=filters.limit, offset=filters.offset,
         )
 
     query = (filters.q or "").strip()
@@ -135,17 +136,11 @@ def search_work(
     selections = _lexical_selections(scoped, filters, projections, lexical_rows, query)
     total = len(selections)
     page = selections[filters.offset : filters.offset + filters.limit]
-    summaries = _summaries_with_ancestry(
-        database,
-        project_id,
-        [selection.work_item for selection in page],
-        as_of=as_of,
-    )
     pointers = {
         item.id: WorkIdentityPointer.model_validate(item)
         for item in all_visible
     }
-    return _page(project_id, filters, page, summaries, pointers, total)
+    return _page(database, project_id, filters, page, pointers, total, as_of=as_of)
 
 
 def _semantic_response(
@@ -167,13 +162,6 @@ def _semantic_response(
         semantic_pool,
         dimensions=len(query_vector),
     )
-    summaries = _summaries_with_ancestry(
-        database,
-        project_id,
-        scoped,
-        as_of=as_of,
-    )
-    database.commit()
     try:
         ranked_ids, updates = rank_embedding_candidates(
             captured,
@@ -181,7 +169,6 @@ def _semantic_response(
             query_vector,
             embedder,
         )
-        persist_embedding_updates(database, updates)
     except Exception as exc:
         database.rollback()
         raise _semantic_unavailable(exc) from None
@@ -200,13 +187,19 @@ def _semantic_response(
             selections.append(SearchSelection(by_id[member_id], member_id))
     total = len(selections)
     page = selections[filters.offset : filters.offset + filters.limit]
-    summaries_by_id = {summary.work_item.id: summary for summary in summaries}
-    page_summaries = [summaries_by_id[selection.work_item.id] for selection in page]
     pointers = {
         item.id: WorkIdentityPointer.model_validate(item)
         for item in all_visible
     }
-    return _page(project_id, filters, page, page_summaries, pointers, total)
+    result = _page(database, project_id, filters, page, pointers, total, as_of=as_of)
+    # Keep page evidence on the original read-only snapshot while ranking. No row
+    # or advisory locks are held; shared inference admission bounds this work.
+    database.commit()
+    try:
+        persist_embedding_updates(database, updates)
+    except Exception as exc:
+        raise _semantic_unavailable(exc) from None
+    return result
 
 
 def _semantic_unavailable(exc: Exception) -> ApplicationError:

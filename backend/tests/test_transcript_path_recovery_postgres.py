@@ -32,7 +32,7 @@ def test_restored_roots_recover_primary_and_nested_subagents_without_duplicates(
     assert released.status_code == 200, released.text
     assert run(api) and run(api)
     assert not run(api)
-    failed = api.get(collection(project)).json()["items"]
+    failed = api.get(collection(project), params={"detail": "full"}).json()["items"]
     assert len(failed) == 2
     assert {row["kind"] for row in failed} == {"primary", "subagent"}
     assert all(row["error_code"] == "transcript_path_not_allowed" for row in failed)
@@ -40,12 +40,14 @@ def test_restored_roots_recover_primary_and_nested_subagents_without_duplicates(
     api.app.state.settings.transcript_allowed_roots = [tmp_path]
     assert run(api) and run(api)
     assert not run(api)
-    ready = api.get(collection(project)).json()["items"]
+    ready = api.get(collection(project), params={"detail": "full"}).json()["items"]
     assert {row["id"] for row in ready} == ids
     assert all(row["status"] == "ready" and row["error_code"] is None for row in ready)
     assert {row["source_path"] for row in ready} == {str(primary), str(child)}
     assert api.post(release_path, json=payload).status_code == 200
-    assert {row["id"] for row in api.get(collection(project)).json()["items"]} == ids
+    assert {
+        row["id"] for row in api.get(collection(project), params={"detail": "full"}).json()["items"]
+    } == ids
 
 
 def test_recovery_waits_for_active_generation_and_enabled_settings(

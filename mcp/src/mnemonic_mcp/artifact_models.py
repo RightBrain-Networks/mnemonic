@@ -8,7 +8,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, model_validator
 
 from .search_diagnostics import TermDiagnostics
-from .search_disclosure import SearchDisclosure
+from .search_disclosure import SearchDetail, SearchDisclosure
 
 MCP_ARTIFACT_MAX_BYTES = 64 * 1024 * 1024
 ArtifactContent = Annotated[str, Field(max_length=4 * ((MCP_ARTIFACT_MAX_BYTES + 2) // 3))]
@@ -170,10 +170,41 @@ class ArtifactIndexingStatus(ArtifactModel):
     truncated: Annotated[StrictInt, Field(ge=0)]
 
 
+class CompactExtractionStatus(ArtifactModel):
+    status: Literal["pending", "processing", "ready", "failed", "superseded", "deleted"]
+    truncated: StrictBool
+    error_code: Annotated[str, Field(max_length=100)] | None
+
+
+class CompactArtifactRead(ArtifactModel):
+    id: UUID
+    project_id: UUID
+    filename: ArtifactFilename
+    revision: ArtifactRevision
+    sensitive: StrictBool
+    deleted_at: datetime | None
+    content_available: StrictBool
+    extraction: CompactExtractionStatus
+
+
+class CompactArtifactMatch(ArtifactModel):
+    artifact: CompactArtifactRead
+    score: Annotated[float, Field(ge=0, allow_inf_nan=False, strict=True)]
+    snippet: Annotated[str, Field(max_length=1000)] | None
+    matched_fields: Annotated[list[Literal["metadata", "content"]], Field(max_length=2)]
+
+    @model_validator(mode="after")
+    def unique_fields(self) -> CompactArtifactMatch:
+        if len(set(self.matched_fields)) != len(self.matched_fields):
+            raise ValueError("Duplicate artifact match fields")
+        return self
+
+
 class ArtifactContentSearch(ArtifactModel, SearchDisclosure):
+    detail: SearchDetail
     match_mode: Literal["all_terms"]
     term_diagnostics: TermDiagnostics
-    items: Annotated[list[ArtifactSearchMatch], Field(max_length=100)]
+    items: Annotated[list[ArtifactSearchMatch | CompactArtifactMatch], Field(max_length=100)]
     total: Annotated[StrictInt, Field(ge=0)]
     limit: ArtifactLimit
     offset: ArtifactOffset
@@ -227,10 +258,12 @@ class ArtifactToolSearchMatch(ArtifactModel):
     matched_fields: Annotated[list[Literal["metadata", "content"]], Field(min_length=1, max_length=2)]
 
 
-class ArtifactToolContentSearch(ArtifactPage[ArtifactToolSearchMatch], SearchDisclosure):
+class ArtifactToolContentSearch(
+    ArtifactPage[ArtifactToolSearchMatch | CompactArtifactMatch], SearchDisclosure,
+):
+    detail: SearchDetail
     match_mode: Literal["all_terms"]
     term_diagnostics: TermDiagnostics
     fulltext: StrictBool
     indexing: ArtifactIndexingStatus
     sensitive_content_withheld: Annotated[StrictInt, Field(ge=0)]
-    artifact_library: ArtifactToolStatus

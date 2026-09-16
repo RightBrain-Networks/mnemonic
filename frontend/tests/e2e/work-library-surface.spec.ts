@@ -860,6 +860,7 @@ test("the Defer menu moves linked deferred work without severing its relationshi
     const parentItems = statusMenu.locator('[data-status-menu-item="true"]');
     await expect(parentItems).toHaveText([
       "Pending",
+      "Review",
       "Done",
       "Won’t Do",
       "Promote",
@@ -1547,10 +1548,12 @@ test("the work item ID copies from the pane header", async ({ page }, testInfo) 
 
     // The pane's primary pointer copy still produces a recall pointer.
     await pane.getByRole("button", { name: "Copy recall pointer", exact: true }).click();
-    await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toContain("recall_work");
+    await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toContain("claim_and_recall");
     const pointer = await page.evaluate(() => navigator.clipboard.readText());
     expect(pointer).toContain(work.id);
-    expect(pointer).toContain("recall_work");
+    expect(pointer).toContain("get_work");
+    expect(pointer).toContain("status_only=true");
+    expect(pointer).toContain("claim_and_recall");
     await expect(pane.getByRole("button", { name: "Copied", exact: true })).toBeVisible();
     await expect(copyId).not.toHaveClass(/is-copied/);
   } finally {
@@ -1784,7 +1787,9 @@ test("c copies the open record's recall pointer, but not from inside the pane", 
     await expect(page.locator(".toast")).toContainText("Recall pointer copied");
     const pointer = await clipboard();
     expect(pointer).toContain(work.id);
-    expect(pointer).toContain("recall_work");
+    expect(pointer).toContain("get_work");
+    expect(pointer).toContain("status_only=true");
+    expect(pointer).toContain("claim_and_recall");
     await expect(cardCopy).toHaveClass(/is-copied/);
 
     // Caps Lock reports an uppercase letter with no Shift held, so it copies too. The

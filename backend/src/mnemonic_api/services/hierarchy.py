@@ -11,11 +11,11 @@ from mnemonic_api.database import begin_coherent_read, database_sqlstate
 from mnemonic_api.errors import ApplicationError, not_found
 from mnemonic_api.schemas import (
     ChildrenListQuery,
+    CompactHierarchyHit,
     HierarchySummary,
     LeasePublic,
     WorkIdentityPointer,
     WorkItemListQuery,
-    WorkItemRead,
 )
 from mnemonic_api.services.duplicates import (
     require_canonical_work_item,
@@ -26,6 +26,7 @@ from mnemonic_api.services.readiness import (
     review_status_clause,
     unresolved_blocker_count_clause,
     unresolved_gate_count_clause,
+    work_search_status,
 )
 
 HIERARCHY_STATEMENT_TIMEOUT_MS = 5_000
@@ -98,7 +99,7 @@ def hierarchy_page(
     filters: WorkItemListQuery | ChildrenListQuery,
     *,
     parent_work_item_id: UUID | None = None,
-) -> tuple[list[HierarchySummary], int]:
+) -> tuple[list[HierarchySummary | CompactHierarchyHit], int]:
     """Return one coherent hierarchy page and full-branch presentation snapshot."""
     from mnemonic_api.services.work_items import require_project, require_work_item
 
@@ -165,6 +166,7 @@ def hierarchy_page(
         "created": "page_rows.created_at DESC, page_rows.id DESC",
         "priority": ("page_rows.priority DESC, page_rows.updated_at DESC, page_rows.id DESC"),
     }[filters.sort]
+    compact = isinstance(filters, WorkItemListQuery) and filters.detail == "compact"
     match_sql, match_parameters = _hierarchy_match_sql(filters)
     dialect = database.get_bind().dialect
 
@@ -484,6 +486,65 @@ def hierarchy_page(
                 (SELECT parent_exists FROM scope) AS parent_exists,
                 COALESCE(
                     jsonb_agg(
+                        CASE WHEN :compact THEN jsonb_build_object(
+                            'id', page_rows.id, 'project_id', page_rows.project_id,
+                            'title', page_rows.title, 'status', page_rows.status,
+                            'priority', page_rows.priority, 'updated_at', page_rows.updated_at,
+                            '_readiness', jsonb_build_object(
+                                    'review_status', page_rows.review_status,
+                                    'has_dropped_lease',
+                                        page_rows.has_dropped_lease,
+                                    'active_lease', CASE
+                                        WHEN page_rows.active_expires_at IS NULL THEN NULL
+                                        ELSE jsonb_build_object(
+                                            'purpose', page_rows.active_purpose,
+                                            'code_review_id', page_rows.active_code_review_id,
+                                            'mode', page_rows.active_mode,
+                                            'holder_client',
+                                                page_rows.active_holder_client,
+                                            'holder_session_id',
+                                                page_rows.active_holder_session_id,
+                                            'acquired_at',
+                                                page_rows.active_acquired_at,
+                                            'renewed_at',
+                                                page_rows.active_renewed_at,
+                                            'expires_at',
+                                                page_rows.active_expires_at
+                                        )
+                                    END,
+                                    'unresolved_blocker_count',
+                                        page_rows.unresolved_blocker_count,
+                                    'unresolved_gate_count',
+                                        page_rows.unresolved_gate_count
+                                ),
+                            'self_matches_filter', page_rows.self_matches_filter,
+                            'has_matching_descendants', page_rows.has_matching_descendants,
+                            'presentation', jsonb_build_object(
+                                'direct_child_count',
+                                    page_rows.direct_child_count,
+                                'descendant_count',
+                                    page_rows.descendant_count,
+                                'blocked_descendant_count',
+                                    page_rows.blocked_descendant_count,
+                                'active_descendant_count',
+                                    page_rows.active_descendant_count,
+                                'completed_descendant_count',
+                                    page_rows.completed_descendant_count,
+                                'discovered_descendant_count',
+                                    page_rows.discovered_descendant_count,
+                                'branch_unresolved_human_gate_count',
+                                    page_rows.branch_unresolved_human_gate_count,
+                                'branch_merged_duplicate_count',
+                                    page_rows.branch_merged_duplicate_count,
+                                'is_discovered_work',
+                                    page_rows.is_discovered_work,
+                                'discovered_from_parent',
+                                    page_rows.discovered_from_parent,
+                                'next_active_descendant_lease_expires_at',
+                                    page_rows.next_active_descendant_lease_expires_at
+                            )
+                        )
+                        ELSE
                         jsonb_build_object(
                             'summary', jsonb_build_object(
                                 'work_item', jsonb_build_object(
@@ -581,6 +642,7 @@ def hierarchy_page(
                                     page_rows.next_active_descendant_lease_expires_at
                             )
                         )
+                        END
                         ORDER BY {page_ordering}
                     ) FILTER (WHERE page_rows.id IS NOT NULL),
                     '[]'::jsonb
@@ -592,6 +654,7 @@ def hierarchy_page(
                 {
                     "project_id": project_id,
                     "parent_work_item_id": parent_work_item_id,
+                    "compact": compact,
                     "limit": filters.limit,
                     "offset": filters.offset,
                     **match_parameters,
@@ -614,22 +677,38 @@ def hierarchy_page(
         raise not_found("project_not_found", "Project not found.")
     if not row["parent_exists"]:
         raise not_found("work_item_not_found", "Work item not found in this project.")
-    items: list[HierarchySummary] = []
-    for item in row["items"]:
-        summary = item["summary"]
-        readiness_inputs = summary["readiness"]
-        active_lease = readiness_inputs["active_lease"]
-        summary["readiness"] = readiness(
-            WorkItemRead.model_validate(summary["work_item"]),
-            LeasePublic.model_validate(active_lease) if active_lease is not None else None,
-            int(readiness_inputs["unresolved_blocker_count"]),
-            bool(readiness_inputs["has_dropped_lease"]),
-            int(readiness_inputs["unresolved_gate_count"]),
-            canonical_work_item_id=UUID(str(summary["work_item"]["id"])),
-            review_status=readiness_inputs["review_status"],
-        )
-        items.append(HierarchySummary.model_validate(item))
+    items = [_hierarchy_result(item, filters.offset + rank, compact)
+             for rank, item in enumerate(row["items"], 1)]
     return items, int(row["total"])
+
+
+def _hierarchy_result(
+    item: dict, rank: int, compact: bool,
+) -> HierarchySummary | CompactHierarchyHit:
+    summary = item if compact else item["summary"]
+    facts = summary.pop("_readiness") if compact else summary["readiness"]
+    identity = summary if compact else summary["work_item"]
+    work = WorkIdentityPointer.model_validate(
+        {key: identity[key] for key in ("id", "title", "status")},
+    )
+    active_lease = facts["active_lease"]
+    state = readiness(
+        work, LeasePublic.model_validate(active_lease) if active_lease is not None else None,
+        int(facts["unresolved_blocker_count"]), bool(facts["has_dropped_lease"]),
+        int(facts["unresolved_gate_count"]), canonical_work_item_id=work.id,
+        review_status=facts["review_status"],
+    )
+    if compact:
+        return CompactHierarchyHit(
+            **item, rank=rank, display_state=state.display_state,
+            canonical_work_item_id=work.id,
+            search_status=work_search_status(
+                work.status, active_lease is not None, bool(facts["has_dropped_lease"]),
+                facts["review_status"],
+            ),
+        )
+    summary["readiness"] = state
+    return HierarchySummary.model_validate(item)
 
 
 def ancestor_paths(

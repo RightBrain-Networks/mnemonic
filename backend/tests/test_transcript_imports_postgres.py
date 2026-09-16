@@ -68,7 +68,10 @@ def test_mixed_import_selects_codex_parent_and_subagent_and_searches_their_text(
     response = import_folder(api, project, tmp_path)
     assert response.status_code == 200, response.text
     assert response.json()["imported"] == 3
-    rows = {row["source_path"]: row for row in api.get(collection(project)).json()["items"]}
+    rows = {
+        row["source_path"]: row
+        for row in api.get(collection(project), params={"detail": "full"}).json()["items"]
+    }
     assert {path: row["client"] for path, row in rows.items()} == {
         str(claude): "claude_code", str(parent): "codex", str(child): "codex",
     }
@@ -104,14 +107,17 @@ def test_codex_import_failures_remain_visible_and_replayable(api, project, tmp_p
     imported = import_folder(api, project, tmp_path, operation).json()
     assert imported["imported"] == 2
     assert run(api) and run(api)
-    rows = {row["source_path"]: row for row in api.get(collection(project)).json()["items"]}
+    rows = {
+        row["source_path"]: row
+        for row in api.get(collection(project), params={"detail": "full"}).json()["items"]
+    }
     assert all(row["client"] == "codex" and row["status"] == "failed" for row in rows.values())
     assert rows[str(malformed)]["error_code"] == "transcript_invalid_format"
     assert rows[str(oversized)]["error_code"] == "transcript_too_large"
     malformed.unlink()
     oversized.unlink()
     assert import_folder(api, project, tmp_path, operation).json() == imported
-    assert api.get(collection(project)).json()["total"] == 2
+    assert api.get(collection(project), params={"detail": "full"}).json()["total"] == 2
 
 
 def test_imports_nested_sources_skip_enrollment_and_replay_without_rescanning(
@@ -127,7 +133,7 @@ def test_imports_nested_sources_skip_enrollment_and_replay_without_rescanning(
         "directory": str(tmp_path), "imported": 1, "existing": 1, "skipped": 0}
     assert run(api)
     assert not run(api)  # The agent's active source was not reset or queued by import.
-    page = api.get(collection(project)).json()
+    page = api.get(collection(project), params={"detail": "full"}).json()
     assert page["total"] == 2
     rows = {row["id"]: row for row in page["items"]}
     assert rows[enrolled["id"]] == enrolled
@@ -163,7 +169,7 @@ def test_path_aliases_and_client_aliases_do_not_duplicate_sources(
     assert initial.json()["imported"] == (0 if enroll_first else 1)
     if not enroll_first:
         claim(api, item_path(project, work), source=assertion)
-    page = api.get(collection(project)).json()
+    page = api.get(collection(project), params={"detail": "full"}).json()
     assert page["total"] == 1
     assert page["items"][0]["kind"] == "primary"
     assert page["items"][0]["source_path"] == assertion["path"]
@@ -180,7 +186,7 @@ def test_later_enrollment_reuses_import_and_invalidates_stale_extraction(
     path = source(tmp_path)
     api.app.state.settings.transcript_allowed_roots = [tmp_path]
     assert import_folder(api, project, tmp_path).status_code == 200
-    original = api.get(collection(project)).json()["items"][0]
+    original = api.get(collection(project), params={"detail": "full"}).json()["items"][0]
     if indexed:
         assert run(api)
         old = None
@@ -202,7 +208,7 @@ def test_later_enrollment_reuses_import_and_invalidates_stale_extraction(
     expire_lease(postgres_engine, work["id"])
     assert run(api)
     assert read(api, project, original)["status"] == "ready"
-    assert api.get(collection(project)).json()["total"] == 1
+    assert api.get(collection(project), params={"detail": "full"}).json()["total"] == 1
 
 
 def test_concurrent_imports_and_enrollment_share_project_serialization(
@@ -218,7 +224,7 @@ def test_concurrent_imports_and_enrollment_share_project_serialization(
         responses = [future.result(timeout=15) for future in imports]
         enrollment.result(timeout=15)
     assert all(response.status_code == 200 for response in responses)
-    page = api.get(collection(project)).json()
+    page = api.get(collection(project), params={"detail": "full"}).json()
     assert page["total"] == 1 and page["items"][0]["kind"] == "primary"
 
 
@@ -236,13 +242,13 @@ def test_imports_obey_pause_limits_scope_search_rebuild_and_backup(
     assert api.patch(settings, json={"enabled": True, "max_file_size_bytes": 1024,
                                     "expected_revision": 2}).status_code == 200
     assert run(api)
-    row = api.get(collection(project)).json()["items"][0]
+    row = api.get(collection(project), params={"detail": "full"}).json()["items"][0]
     search = f"/api/v1/projects/{project['id']}/search"
     query = {"q": "lavender", "facets": ["transcripts"]}
     assert api.post(search, json=query).json()["total"] == 0
     result = api.post(search, json={**query, "fulltext": True}).json()
     assert result["total"] == 1 and result["items"][0]["transcript"]["id"] == row["id"]
-    assert api.get(collection(project), params={"work_item_id": str(uuid4())})\
+    assert api.get(collection(project), params={"detail": "full", "work_item_id": str(uuid4())})\
         .json()["total"] == 0
     other = api.post("/api/v1/projects", json={"name": "Separate imports"}).json()
     assert api.get(collection(other) + "/" + row["id"] + "/text").status_code == 404
@@ -262,7 +268,7 @@ def test_imports_obey_pause_limits_scope_search_rebuild_and_backup(
     for table in ("transcripts", "transcript_imports"):
         assert restored[table] == original[table]
     assert import_folder(api, project, tmp_path, operation).json() == imported
-    assert api.get(collection(other)).json()["total"] == 1
+    assert api.get(collection(other), params={"detail": "full"}).json()["total"] == 1
     assert "lavender" in api.get(collection(project) + "/" + row["id"] + "/text").json()["text"]
 
 
@@ -271,11 +277,11 @@ def test_unreadable_import_is_atomic_and_invalid_formats_retain_failure(api, pro
     response = import_folder(api, project, tmp_path / "missing")
     assert response.status_code == 422
     assert response.json()["detail"]["code"] == "transcript_import_scan_failed"
-    assert api.get(collection(project)).json()["total"] == 0
+    assert api.get(collection(project), params={"detail": "full"}).json()["total"] == 0
     source(tmp_path).write_text("not json")
     assert import_folder(api, project, tmp_path).json()["imported"] == 1
     assert run(api)
-    row = api.get(collection(project)).json()["items"][0]
+    row = api.get(collection(project), params={"detail": "full"}).json()["items"][0]
     assert row["status"] == "failed" and row["error_code"] == "transcript_invalid_format"
     assert import_folder(api, project, tmp_path).json()["existing"] == 1
     with api.app.state.session_factory() as database:
@@ -296,13 +302,16 @@ def test_move_removes_only_redundant_imports_and_preserves_enrolled_history(
           source={"client": "claude_code", "path": str(path) + suffix})
     expire_lease(postgres_engine, work["id"])
     assert run(api)
-    original = api.get(collection(project)).json()["items"][0]
+    original = api.get(collection(project), params={"detail": "full"}).json()["items"][0]
     source(tmp_path, "unrelated.jsonl")
     target = api.post("/api/v1/projects", json={"name": "Imported destination"}).json()
     operation = str(uuid4())
     receipt = import_folder(api, target, tmp_path, operation).json()
-    imported = next(row for row in api.get(collection(target)).json()["items"]
-                    if row["source_path"] == str(path))
+    imported = next(
+        row
+        for row in api.get(collection(target), params={"detail": "full"}).json()["items"]
+        if row["source_path"] == str(path)
+    )
     old_jobs = []
     if phase == "processing":
         for _ in range(2):
@@ -317,12 +326,12 @@ def test_move_removes_only_redundant_imports_and_preserves_enrolled_history(
         assert job is not None
         complete_transcript_job(api.app.state.session_factory, job, None,
                                 ExtractionError("stale_import"))
-    rows = api.get(collection(target)).json()["items"]
+    rows = api.get(collection(target), params={"detail": "full"}).json()["items"]
     assert len(rows) == 2
     assert {row["source_path"] for row in rows} == {str(path) + suffix,
                                                  str(tmp_path / "unrelated.jsonl")}
     assert read(api, target, original) == {**original, "project_id": target["id"]}
-    assert api.get(collection(project)).json()["total"] == 0
+    assert api.get(collection(project), params={"detail": "full"}).json()["total"] == 0
     assert api.get(collection(target) + "/" + imported["id"]).status_code == 404
     assert import_folder(api, target, tmp_path, operation).json() == receipt
     again = import_folder(api, target, tmp_path).json()
@@ -341,7 +350,7 @@ def test_move_failure_rolls_back_redundant_import_removal(
     expire_lease(postgres_engine, work["id"])
     target = api.post("/api/v1/projects", json={"name": "Rollback imports"}).json()
     assert import_folder(api, target, tmp_path).json()["imported"] == 1
-    original = api.get(collection(target)).json()
+    original = api.get(collection(target), params={"detail": "full"}).json()
 
     def reject_event(*args, **kwargs):
         raise conflict("synthetic_move_failure", "Synthetic rollback check.")
@@ -350,8 +359,8 @@ def test_move_failure_rolls_back_redundant_import_removal(
     moved = api.post(item_path(project, work) + "/move",
                      json=_move_payload(target, work["version"]))
     assert moved.status_code == 409
-    assert api.get(collection(target)).json() == original
-    assert api.get(collection(project)).json()["total"] == 1
+    assert api.get(collection(target), params={"detail": "full"}).json() == original
+    assert api.get(collection(project), params={"detail": "full"}).json()["total"] == 1
 
 
 @pytest.mark.parametrize("old_failure", ["unreadable", "misidentified"])
@@ -373,7 +382,7 @@ def test_rebuild_redetects_import_client_after_source_access_is_repaired(
         receipt = import_folder(api, project, tmp_path, operation).json()
         assert receipt["imported"] == 1
         assert run(api)
-    original = api.get(collection(project)).json()["items"][0]
+    original = api.get(collection(project), params={"detail": "full"}).json()["items"][0]
     assert original["client"] == "claude_code"
     assert original["status"] == "failed" and original["error_code"] == "transcript_io_error"
     if old_failure == "misidentified":
@@ -410,7 +419,7 @@ def test_import_client_redetection_is_published_with_parser_failure(
         unidentified.setattr("mnemonic_api.transcript_discovery._source_client",
                               lambda *args: "claude_code")
         assert import_folder(api, project, tmp_path).json()["imported"] == 1
-    original = api.get(collection(project)).json()["items"][0]
+    original = api.get(collection(project), params={"detail": "full"}).json()["items"][0]
     assert original["client"] == "claude_code"
     assert run(api)
     failed = read(api, project, original)
@@ -427,7 +436,7 @@ def test_stale_import_result_does_not_publish_its_detected_client(
         unidentified.setattr("mnemonic_api.transcript_discovery._source_client",
                               lambda *args: "claude_code")
         assert import_folder(api, project, tmp_path).json()["imported"] == 1
-    original = api.get(collection(project)).json()["items"][0]
+    original = api.get(collection(project), params={"detail": "full"}).json()["items"][0]
 
     def rebuild():
         assert api.post(collection(project) + "/rebuild",

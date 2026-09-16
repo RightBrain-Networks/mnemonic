@@ -19,6 +19,7 @@ from mnemonic_api.schemas import (
     WorkSummary,
 )
 from mnemonic_api.search_disclosure import SearchDisclosure, WorkAppliedFilters, search_disclosure
+from mnemonic_api.services.compact_work import compact_work_hits
 from mnemonic_api.services.hierarchy import ancestor_paths
 from mnemonic_api.services.readiness import review_status_clause
 from mnemonic_api.services.work_context import work_summaries
@@ -248,25 +249,31 @@ def _summaries_with_ancestry(
 
 
 def _page(
-    project_id: UUID,
-    filters: WorkItemListQuery,
-    selections: Sequence[SearchSelection],
-    summaries: Sequence[WorkSummary],
-    pointers: dict[UUID, WorkIdentityPointer],
-    total: int,
+    database: Session, project_id: UUID, filters: WorkItemListQuery,
+    selections: Sequence[SearchSelection], pointers: dict[UUID, WorkIdentityPointer],
+    total: int, *, as_of: datetime,
 ) -> WorkSearchPage:
-    summary_by_id = {summary.work_item.id: summary for summary in summaries}
-    items = [
-        WorkSearchHit(
+    work_items = [selection.work_item for selection in selections]
+    if filters.detail == "compact":
+        items = compact_work_hits(
+            database, project_id, work_items, as_of=as_of,
+            ranks={item.id: filters.offset + index for index, item in enumerate(work_items, 1)},
+            matched_members={selection.work_item.id: pointers[selection.matched_member_id]
+                             for selection in selections},
+        )
+    else:
+        summaries = _summaries_with_ancestry(database, project_id, work_items, as_of=as_of)
+        summary_by_id = {summary.work_item.id: summary for summary in summaries}
+        items = [WorkSearchHit(
             summary=summary_by_id[selection.work_item.id],
             matched_member=pointers[selection.matched_member_id],
-        )
-        for selection in selections
-    ]
+        ) for selection in selections]
     return WorkSearchPage(
-        items=items, total=total, limit=filters.limit, offset=filters.offset,
+        work_rank_scope="work_items",
         **work_search_disclosure(project_id, filters).model_dump(),
+        detail=filters.detail, items=items, total=total, limit=filters.limit, offset=filters.offset,
     )
+
 
 
 def work_search_disclosure(project_id: UUID, filters: WorkItemListQuery) -> SearchDisclosure:

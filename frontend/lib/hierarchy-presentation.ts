@@ -1,4 +1,4 @@
-import { decodeSearchDisclosure, SEARCH_DISCLOSURE_FIELDS, validateSearchDisclosure, type SearchDisclosure } from "./search-disclosure.ts";
+import { decodeSearchDisclosure, SEARCH_DISCLOSURE_FIELDS, validateSearchDisclosure, type SearchDisclosure, type FullWorkSearchDetail } from "./search-disclosure.ts";
 import type { HierarchyPresentation, HierarchySummary, Page } from "@/lib/types";
 import { decodeWorkSummary } from "./work-codecs.ts";
 import {
@@ -37,7 +37,7 @@ const PAGE_FIELDS = ["items", "total", "limit", "offset"] as const;
 
 export const HIERARCHY_DECODER_FIELDS = {
   decodeHierarchyPage: PAGE_FIELDS,
-  decodeHierarchySearchPage: [...PAGE_FIELDS, ...SEARCH_DISCLOSURE_FIELDS],
+  decodeHierarchySearchPage: [...PAGE_FIELDS, "detail", "work_rank_scope", ...SEARCH_DISCLOSURE_FIELDS],
   "decodeHierarchyPage:item": HIERARCHY_FIELDS,
   decodeHierarchyPresentation: PRESENTATION_FIELDS
 } as const;
@@ -109,12 +109,12 @@ export function decodeHierarchyPage(
   return { items, total: page.total, limit: page.limit, offset: page.offset };
 }
 
-export function decodeHierarchySearchPage(value: unknown, projectId: string, expectedLimit?: number, expectedOffset?: number, expectedFilters: Record<string, unknown> = {}): Page<HierarchySummary> & SearchDisclosure {
+export function decodeHierarchySearchPage(value: unknown, projectId: string, expectedLimit?: number, expectedOffset?: number, expectedFilters: Record<string, unknown> = {}): Page<HierarchySummary> & SearchDisclosure & FullWorkSearchDetail {
   const page = objectValue(value);
-  if (!page || !exactKeys(page, [...PAGE_FIELDS, ...SEARCH_DISCLOSURE_FIELDS])) throw new Error("Mnemonic returned an invalid hierarchy search page.");
+  if (!page || !exactKeys(page, [...PAGE_FIELDS, "detail", "work_rank_scope", ...SEARCH_DISCLOSURE_FIELDS]) || page.detail !== "full" || page.work_rank_scope !== "work_items") throw new Error("Mnemonic returned an invalid hierarchy search page.");
   const disclosure = decodeSearchDisclosure(page, projectId, ["work_items"]);
   validateSearchDisclosure(disclosure, "work_items", { ...expectedFilters, view: "roots", duplicate_scope: "canonical", canonical_work_item_id: null }, undefined, "");
-  return { ...decodeHierarchyPage({ items: page.items, total: page.total, limit: page.limit, offset: page.offset }, projectId, expectedLimit, expectedOffset), ...disclosure };
+  return { ...decodeHierarchyPage({ items: page.items, total: page.total, limit: page.limit, offset: page.offset }, projectId, expectedLimit, expectedOffset), ...disclosure, detail: "full", work_rank_scope: "work_items" };
 }
 
 function plural(count: number, singular: string, pluralForm = `${singular}s`): string {

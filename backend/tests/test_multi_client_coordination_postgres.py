@@ -59,7 +59,10 @@ def test_mixed_clients_claim_independent_work_and_identify_exact_contenders(
             }
             assert receipt["lease_token"] not in rejected.text
             assert receipt["claim_request_id"] not in rejected.text
-    page = api.get(f"/api/v1/projects/{project['id']}/work-items", params={"status": "active"})
+    page = api.get(
+        f"/api/v1/projects/{project['id']}/work-items",
+        params={"detail": "full", "status": "active"},
+    )
     holders = {entry["summary"]["readiness"]["active_lease"]["holder_client"]
                for entry in page.json()["items"]}
     assert holders == set(clients)

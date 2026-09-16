@@ -322,7 +322,7 @@ def test_fresh_enrollment_clears_recovery_pointer_but_preserves_journal(
     original = source(tmp_path)
     api.app.state.settings.transcript_allowed_roots = [tmp_path]
     assert import_folder(api, project, tmp_path).json()["imported"] == 1
-    record = api.get(collection(project)).json()["items"][0]
+    record = api.get(collection(project), params={"detail": "full"}).json()["items"][0]
     replacement = source(tmp_path / "recovered")
     request = recovery_request(api, project, record, replacement)
     _apply(api, request)
@@ -488,7 +488,7 @@ def test_work_move_preserves_redundant_import_with_immutable_recovery_history(
     expire_lease(postgres_engine, work["id"])
     target = _project(api, "Recovered import destination")
     assert import_folder(api, target, tmp_path).json()["imported"] == 1
-    imported = api.get(collection(target)).json()["items"][0]
+    imported = api.get(collection(target), params={"detail": "full"}).json()["items"][0]
     replacement = source(tmp_path / "recovery-copy")
     request = recovery_request(api, target, imported, replacement)
     _apply(api, request)
@@ -499,6 +499,6 @@ def test_work_move_preserves_redundant_import_with_immutable_recovery_history(
         assert database.get(TranscriptRecovery, request.operation_id) is not None
         retained = database.get(Transcript, request.transcript_id)
         assert retained.import_project_id == UUID(target["id"])
-    page = api.get(collection(target)).json()
+    page = api.get(collection(target), params={"detail": "full"}).json()
     assert {item["id"] for item in page["items"]} == {enrolled["id"], imported["id"]}
     assert all(item["source_path"] == str(original) for item in page["items"])

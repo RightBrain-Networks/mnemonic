@@ -99,6 +99,7 @@ export const SAFE_VALIDATION_LOCATION_PARTS: ReadonlySet<string> = new Set([
   "cursor",
   "description",
   "direction",
+  "detail",
   "destination_work_item_id",
   "duplicate_scope",
   "event_type",

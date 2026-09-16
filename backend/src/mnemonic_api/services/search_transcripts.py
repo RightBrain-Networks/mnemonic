@@ -23,7 +23,7 @@ from mnemonic_api.services.transcripts import (
     _search_read,
     _search_records,
     transcript_query,
-    transcript_read,
+    transcript_search_read,
 )
 
 
@@ -71,8 +71,9 @@ def _source(
         for item in page:
             record = records[str(item.id)]
             transcript = (_search_read(database, project_id, record, hits[str(item.id)],
-                                       request.q, index, searcher) if request.q else
-                          transcript_read(record, project_id))
+                                       request.q, index, searcher, detail=request.detail)
+                          if request.q else
+                          transcript_search_read(record, project_id, request.detail))
             rendered[item.id] = TranscriptFacetHit(**item.fields(), transcript=transcript)
         return rendered
 

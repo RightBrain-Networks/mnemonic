@@ -1125,7 +1125,7 @@ async def phase12_human_report_flow(
 def validate_rest_contract(document: Any) -> None:
     """Reject a healthy but contract-incompatible pre-Phase-12 API."""
     try:
-        require(document["info"]["version"] == "0.56.0", "Unexpected REST API version.")
+        require(document["info"]["version"] == "0.57.0", "Unexpected REST API version.")
         schemas = document["components"]["schemas"]
         unified_search = document["paths"]["/api/v1/projects/{project_id}/search"]["post"]
         require(
@@ -1402,10 +1402,11 @@ def validate_mcp_catalog(catalog: Any) -> None:
             )
     search_properties = tools_by_name["search"].inputSchema["properties"]
     require(
-        {"project_id", "q", "facets", "fulltext", "filters", "sort", "facet_order",
+        {"project_id", "q", "facets", "fulltext", "detail", "filters", "sort", "facet_order",
          "limit", "offset"}.issubset(search_properties)
         and search_properties["fulltext"].get("default") is False
-        and search_properties["limit"].get("default") == 50
+        and search_properties["limit"].get("default") == 20
+        and search_properties["detail"].get("default") == "compact"
         and search_properties["offset"].get("default") == 0,
         "MCP unified search lacks its default, facet, ordering or pagination contract.",
     )
@@ -1632,14 +1633,14 @@ async def check(args: argparse.Namespace, key: str) -> None:
                 initialized = await session.initialize()
                 require(
                     initialized.serverInfo.name == "Mnemonic"
-                    and initialized.serverInfo.version == "0.56.0",
+                    and initialized.serverInfo.version == "0.57.0",
                     "Unexpected MCP server identity or version.",
                 )
                 catalog = await session.list_tools()
                 validate_mcp_catalog(catalog)
                 await tool(session, "list_projects", {})
                 print(
-                    "PASS: REST 0.56.0 cross-project relationship contract shape, work-move, "
+                    "PASS: REST 0.57.0 cross-project relationship contract shape, work-move, "
                     "code-review contract, real MCP initialization, 55-tool catalog, "
                     "exact seventeen protected mutation "
                     "schemas/annotations, and REST-backed project listing"

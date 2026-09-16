@@ -22,7 +22,7 @@ transcripts together. Multi-term queries default to work and artifacts; sessions
 require explicit `facets=["work_items", "artifacts", "transcripts"]` (or just
 `["transcripts"]`). Blank/single-term queries retain all three sources. Other defaults
 include all work statuses, canonical work identities,
-metadata-only artifact/transcript matching, relevance order, offset 0 and limit 50.
+metadata-only artifact/transcript matching, relevance order, compact detail, offset 0 and limit 20.
 Use `fulltext=true` for text inside files or transcripts. Omit `q` to browse.
 Artifact/transcript searches require all terms in one record. A zero-hit conjunction
 does not establish subject absence: read `term_diagnostics` for per-term, per-source
@@ -112,11 +112,14 @@ evidence that the project has no saved work.
    Every search echoes `applied_filters`, source-specific `query_interpretation`,
    and warnings. Quoted phrases currently produce `phrase_operators_ignored`;
    word adjacency is not enforced. A filtered zero does not prove absence.
-4. `view` defaults to `full`. Every result is a `WorkSearchHit`: `summary` is the returned root or
-   audit row, while `matched_member` names the exact group member whose text won the match. This is
-   search evidence only, not permission to merge or substitute IDs. Use `view="roots"` only for a
-   blank/filter-only canonical hierarchy browse. Every full summary carries `ancestor_path`, which
-   follows `parent-child` edges only, root to parent; discovery edges never appear in it.
+4. `detail="compact"` is the discovery default; use `detail="full"` for the complete
+   summary and readiness metadata. `view` independently defaults to `full` (flat results).
+   Use `view="roots"` only for blank/filter-only canonical hierarchy browsing.
+   Compact work rows include identity, title, status, display state, priority, update time,
+   canonical identity and one-based source rank. A different `matched_member` appears only
+   when an alias supplies the match. Full rows retain `summary` and `matched_member`.
+   Match evidence never grants permission to merge or substitute IDs. `ancestor_path`
+   follows `parent-child` edges only, root to parent.
 5. Use `duplicate_scope="aliases"` or `"all"` only when the user explicitly wants duplicate audit
    records. `canonical_work_item_id` is valid only with one of those scopes and must name a visible
    current root. Keep the returned audit ID distinct from its canonical ID; never redirect or copy
@@ -124,8 +127,8 @@ evidence that the project has no saved work.
    checkpoint count, and relevant age. Do not fetch every checkpoint, event, or
    question body into unrelated work.
 
-Search currently returns work summaries and readiness; use a small `limit`
-until selecting an exact record. Ready results are compact pointers. Neither
+Search returns compact pointers by default, with 20 rows per page. Use
+`detail="full"` or an exact detail read once a row is selected. Neither
 search nor ready results carry declared `affected_paths`. They cannot support a repository freshness assessment. When
 the user will rely on a result for repository work, recall that exact ID's full
 governing checkpoint and follow

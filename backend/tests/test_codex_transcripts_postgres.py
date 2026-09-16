@@ -49,7 +49,7 @@ def test_codex_primary_and_subagent_closeout_search_and_rebuild(
     assert api.post(path + "/complete", json=payload).json() == completed.json()
     assert run(api) and run(api)
     assert not run(api)
-    entries = api.get(collection(project)).json()["items"]
+    entries = api.get(collection(project), params={"detail": "full"}).json()["items"]
     assert {entry["kind"] for entry in entries} == {"primary", "subagent"}
     for entry in entries:
         assert entry["client"] == "codex"
@@ -73,6 +73,6 @@ def test_codex_primary_and_subagent_closeout_search_and_rebuild(
         "client_operation_id": payload["client_operation_id"]})
     assert rebuilt.status_code == 200, rebuilt.text
     assert run(api) and run(api)
-    after = api.get(collection(project)).json()["items"]
+    after = api.get(collection(project), params={"detail": "full"}).json()["items"]
     assert {row["id"]: row["text_sha256"] for row in after} == {
         row["id"]: row["text_sha256"] for row in entries}

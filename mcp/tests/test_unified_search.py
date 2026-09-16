@@ -257,7 +257,8 @@ async def test_search_tool_schema_and_cold_review_guidance(settings):
     assert tool.inputSchema["required"] == ["project_id"]
     assert "default" not in properties["facets"]
     assert properties["q"]["default"] == "" and properties["fulltext"]["default"] is False
-    assert properties["offset"]["default"] == 0 and properties["limit"]["default"] == 50
+    assert properties["detail"]["default"] == "compact"
+    assert properties["offset"]["default"] == 0 and properties["limit"]["default"] == 20
     assert tool.annotations.readOnlyHint is True and tool.annotations.idempotentHint is True
     assert "cold review before findings freeze" in tool.description
     assert "sensitive artifact bodies and properties" in tool.description

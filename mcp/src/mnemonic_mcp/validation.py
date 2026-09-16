@@ -27,6 +27,7 @@ VALIDATION_FIELDS = frozenset(
         "sort",
         "by",
         "fulltext",
+        "detail",
         "artifact_id",
         "include_deleted",
         "sensitive",

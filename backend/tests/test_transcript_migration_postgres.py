@@ -152,7 +152,7 @@ def test_populated_0035_upgrade_queues_every_source_and_preserves_ready_evidence
     assert len({row["snapshot_id"] for row in after.values()}) == 3
     response = api.get(collection(project) + f"/{identities['ready']}/content")
     assert response.status_code == 200 and response.text == retained_text
-    assert api.get(collection(project)).json()["indexing_incomplete"]
+    assert api.get(collection(project), params={"detail": "full"}).json()["indexing_incomplete"]
     with api.app.state.session_factory.begin() as database:
         assert enqueue_transcript_jobs(database, api.app.state.settings) == 3
         jobs = database.execute(text("SELECT kind, payload FROM background_jobs")).all()

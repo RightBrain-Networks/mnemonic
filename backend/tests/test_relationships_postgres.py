@@ -760,7 +760,7 @@ def test_hierarchy_active_filter_matches_root_and_descendant_leases(
         assert claimed.status_code == 200, claimed.text
 
     roots = api.get(
-        work_collection(project), params={"view": "roots", "status": "active"}
+        work_collection(project), params={"detail": "full", "view": "roots", "status": "active"}
     )
     assert roots.status_code == 200, roots.text
     root_page = roots.json()
@@ -841,7 +841,7 @@ def test_atomic_linked_creation_hierarchy_filters_and_search_ancestry(
     grandchild = grandchild_created["work_item"]
 
     roots = api.get(
-        work_collection(project), params={"view": "roots", "status": "pending"}
+        work_collection(project), params={"detail": "full", "view": "roots", "status": "pending"}
     )
     assert roots.status_code == 200, roots.text
     root_page = roots.json()
@@ -861,7 +861,12 @@ def test_atomic_linked_creation_hierarchy_filters_and_search_ancestry(
 
     search = api.get(
         work_collection(project),
-        params={"q": "Deep searchable descendant", "status": "all", "view": "full"},
+        params={
+            "detail": "full",
+            "q": "Deep searchable descendant",
+            "status": "all",
+            "view": "full",
+        },
     )
     assert search.status_code == 200, search.text
     hit = next(
@@ -872,12 +877,13 @@ def test_atomic_linked_creation_hierarchy_filters_and_search_ancestry(
     assert [item["id"] for item in hit["ancestor_path"]] == [root["id"], child["id"]]
     assert hit["ancestor_path_truncated"] is False
     rejected = api.get(
-        work_collection(project), params={"q": "descendant", "view": "roots"}
+        work_collection(project), params={"detail": "full", "q": "descendant", "view": "roots"}
     )
     assert rejected.status_code == 422
 
     before_total = api.get(
-        work_collection(project), params={"status": "all", "q": "Atomic rollback marker"}
+        work_collection(project),
+        params={"detail": "full", "status": "all", "q": "Atomic rollback marker"},
     ).json()["total"]
     failed_payload = {
         **work_payload,
@@ -903,7 +909,8 @@ def test_atomic_linked_creation_hierarchy_filters_and_search_ancestry(
     assert failed.status_code == 409
     assert failed.json()["detail"]["code"] == "parent_already_set"
     after_total = api.get(
-        work_collection(project), params={"status": "all", "q": "Atomic rollback marker"}
+        work_collection(project),
+        params={"detail": "full", "status": "all", "q": "Atomic rollback marker"},
     ).json()["total"]
     assert before_total == after_total == 0
 
@@ -956,7 +963,7 @@ def test_cross_project_parent_remains_adjacency_but_not_local_hierarchy(
     assert moved.status_code == 200, moved.text
 
     source_roots = api.get(
-        work_collection(project), params={"view": "roots", "status": "all"}
+        work_collection(project), params={"detail": "full", "view": "roots", "status": "all"}
     ).json()
     assert source_roots["total"] == 1
     child_root = source_roots["items"][0]

@@ -17,6 +17,7 @@ from mnemonic_api.semantic import (
     capture_embedding_candidates,
     rank_embedding_candidates,
 )
+from mnemonic_api.services.compact_work import compact_work_hits
 from mnemonic_api.services.duplicates import canonical_projections
 from mnemonic_api.services.search_sources import SearchCandidate, SearchSource
 from mnemonic_api.services.work_search import (
@@ -104,9 +105,18 @@ def work_source(
     ) for selection in selections]
 
     def hydrate(page: list[SearchCandidate]) -> dict[UUID, SearchHit]:
-        summaries = _summaries_with_ancestry(
-            database, project_id, [by_id[item.id].work_item for item in page], as_of=as_of,
-        )
+        selected_work = [by_id[item.id].work_item for item in page]
+        if request.detail == "compact":
+            compact = compact_work_hits(
+                database, project_id, selected_work, as_of=as_of,
+                ranks={item.id: item.source_rank for item in page},
+                matched_members={item.id: pointers[by_id[item.id].matched_member_id]
+                                 for item in page},
+            )
+            compact_by_id = {item.id: item for item in compact}
+            return {item.id: WorkFacetHit(**item.fields(), work_item=compact_by_id[item.id])
+                    for item in page}
+        summaries = _summaries_with_ancestry(database, project_id, selected_work, as_of=as_of)
         summary_by_id = {summary.work_item.id: summary for summary in summaries}
         return {item.id: WorkFacetHit(**item.fields(), work_item=WorkSearchHit(
             summary=summary_by_id[item.id],

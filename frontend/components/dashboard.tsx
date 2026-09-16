@@ -873,7 +873,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
     if (openedId) url.searchParams.set("work", openedId);
     else url.searchParams.delete("work");
     window.history.replaceState(null, "", url);
-  }, [openedId, view, route.query]);
+  }, [contextReconciliationRequired, openedId, view, route.query]);
 
   function applyProjectSelection(id: string) {
     setActiveId(id);

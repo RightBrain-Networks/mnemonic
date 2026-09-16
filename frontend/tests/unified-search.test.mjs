@@ -17,17 +17,17 @@ const transcript = { id, project_id: project, work_item_id: work, lease_generati
 Object.assign(transcript, { copy_status: "ready", copy_error_code: null, copied_at: timestamp, index_status: "ready", index_error_code: null });
 function result(facet, payload, limit = 50, offset = 0, options = {}) {
   const key = facet === "work_items" ? "work_item" : facet === "artifacts" ? "artifact" : "transcript";
-  return { ...disclosure(project, [facet], options), search_scope: { searched_facets: [facet], transcripts: facet === "transcripts" ? "searched" : "not_selected", transcript_search_hint: TRANSCRIPT_SEARCH_HINT }, term_diagnostics: [], items: [{ facet, id, created_at: timestamp, updated_at: timestamp, score: 0.5, [key]: payload }], total: offset + 1, limit, offset, facet_totals: { work_items: 0, artifacts: 0, transcripts: 0, [facet]: offset + 1 }, coverage: { artifacts: { enabled: true, indexing, sensitive_content_withheld: 3 }, transcripts: { indexing_incomplete: true } }, indexing_incomplete: true };
+  return { detail: "full", work_rank_scope: "work_items", ...disclosure(project, [facet], options), search_scope: { searched_facets: [facet], transcripts: facet === "transcripts" ? "searched" : "not_selected", transcript_search_hint: TRANSCRIPT_SEARCH_HINT }, term_diagnostics: [], items: [{ facet, id, created_at: timestamp, updated_at: timestamp, score: 0.5, [key]: payload }], total: offset + 1, limit, offset, facet_totals: { work_items: 0, artifacts: 0, transcripts: 0, [facet]: offset + 1 }, coverage: { artifacts: { enabled: true, indexing, sensitive_content_withheld: 3 }, transcripts: { indexing_incomplete: true } }, indexing_incomplete: true };
 }
 
 test("the separate dashboard searches encode their facet, filters and pagination", () => {
   const options = { status: "done", sort: "created", limit: 20, offset: 40, query: "  database  ", tag: " release ", sourceClient: "claude-code", sourceSessionId: "session-1", duplicateScope: "all", canonicalWorkItemId: work };
-  assert.deepEqual(workSearchRequest(options), { q: "database", facets: ["work_items"], filters: { work_items: { status: "done", duplicate_scope: "all", tag: "release", source_client: "claude-code", source_session_id: "session-1", canonical_work_item_id: work } }, sort: { by: "created_at", direction: "desc" }, limit: 20, offset: 40 });
+  assert.deepEqual(workSearchRequest(options), { q: "database", detail: "full", facets: ["work_items"], filters: { work_items: { status: "done", duplicate_scope: "all", tag: "release", source_client: "claude-code", source_session_id: "session-1", canonical_work_item_id: work } }, sort: { by: "created_at", direction: "desc" }, limit: 20, offset: 40 });
   assert.equal(workSearchRequest({ ...options, semantic: true }).sort.by, "relevance");
   assert.equal(workSearchRequest({ ...options, semantic: true }).filters.work_items.semantic, true);
   assert.throws(() => workSearchRequest({ ...options, duplicateScope: "canonical" }));
   const files = artifactSearchRequest("report", true, true, 50, 50, work);
-  assert.deepEqual(files, { q: "report", facets: ["artifacts"], fulltext: true, filters: { artifacts: { include_deleted: true, work_item_id: work } }, limit: 50, offset: 50 });
+  assert.deepEqual(files, { q: "report", detail: "full", facets: ["artifacts"], fulltext: true, filters: { artifacts: { include_deleted: true, work_item_id: work } }, limit: 50, offset: 50 });
   const sessions = transcriptSearchRequest("", false, 50, work);
   assert.equal(sessions.sort.by, "created_at");
   assert.deepEqual(sessions.filters, { transcripts: { work_item_id: work } });
@@ -93,7 +93,7 @@ test("single-facet views reject mixed, duplicate, mismatched, and truncated enve
   for (const invalid of mutations) assert.throws(() => decodeUnifiedTranscriptSearchPage(invalid, project));
   assert.throws(() => decodeUnifiedWorkSearchPage(page, project));
   const empty = { ...page, ...disclosure(project, ["work_items"]), search_scope: { ...page.search_scope, searched_facets: ["work_items"], transcripts: "not_selected" }, items: [], total: 0, facet_totals: { work_items: 0, artifacts: 0, transcripts: 0 } };
-  assert.deepEqual(decodeUnifiedWorkSearchPage(empty, project), { ...disclosure(project, ["work_items"]), items: [], total: 0, limit: 50, offset: 0 });
+  assert.deepEqual(decodeUnifiedWorkSearchPage(empty, project), { ...disclosure(project, ["work_items"]), detail: "full", work_rank_scope: "work_items", items: [], total: 0, limit: 50, offset: 0 });
 });
 
 

@@ -404,9 +404,20 @@ def protected_success_responses(
 def adapter(settings, handler):
     from search_fixtures import disclosed_response
 
-    return build_server(settings, MnemonicAPI(settings, httpx.MockTransport(
+    server = build_server(settings, MnemonicAPI(settings, httpx.MockTransport(
         lambda request: disclosed_response(request, handler(request)),
     )))
+    # Legacy boundary fixtures explicitly request full summaries; native compact defaults
+    # are exercised without this adapter in test_compact_search.py.
+    original_call = server.call_tool
+
+    async def full_detail_call(name, arguments=None):
+        if name == "search_work":
+            arguments = {"detail": "full", "limit": 30, **(arguments or {})}
+        return await original_call(name, arguments)
+
+    server.call_tool = full_detail_call
+    return server
 
 
 def structured(result):
@@ -444,7 +455,8 @@ def test_work_pages_reject_repeated_work_items(work_summary):
         WorkPage.model_validate(
             {**search_disclosure(
                 UUID(PROJECT_ID), "", work_items=WorkAppliedFilters(),
-            ).model_dump(mode="json"), "items": [hit, hit], "total": 2, "limit": 20, "offset": 0}
+            ).model_dump(mode="json"), "detail": "full", "work_rank_scope": "work_items",
+                "items": [hit, hit], "total": 2, "limit": 20, "offset": 0}
         )
 
 
@@ -1714,6 +1726,7 @@ async def test_search_work_defaults_to_all_statuses_and_omits_checkpoint_bodies(
         assert request.url.path == f"/api/v1/projects/{PROJECT_ID}/work-items"
         assert dict(request.url.params) == {
             "q": "src/search.py",
+            "detail": "full",
             "status": "all",
             "view": "full",
             "duplicate_scope": "canonical",
@@ -3487,7 +3500,7 @@ async def test_search_passes_explicit_filters_and_pagination(settings, status):
         assert request.url.path == f"/api/v1/projects/{PROJECT_ID}/work-items"
         assert dict(request.url.params) == {
             "status": status, "tag": "search", "source_client": "opencode",
-            "source_session_id": "ses_123/opaque", "view": "full", "limit": "5",
+            "source_session_id": "ses_123/opaque", "view": "full", "detail": "full", "limit": "5",
             "duplicate_scope": "canonical", "offset": "10", "semantic": "true",
         }
         assert request.extensions["timeout"]["read"] == 60.0
@@ -3501,7 +3514,7 @@ async def test_search_passes_explicit_filters_and_pagination(settings, status):
     })
 
 
-async def test_search_defaults_to_full_canonical_hits(settings, work_summary):
+async def test_full_detail_defaults_to_canonical_hits(settings, work_summary):
     seen: list[dict[str, str]] = []
 
     def handler(request):
@@ -3529,6 +3542,7 @@ async def test_search_defaults_to_full_canonical_hits(settings, work_summary):
     assert hit["summary"]["current_context"]["id"] == work_summary["current_context"]["id"]
     assert hit["matched_member"]["id"] == WORK_ID
     assert seen == [{
+        "detail": "full",
         "status": "all",
         "view": "full",
         "duplicate_scope": "canonical",
@@ -5095,6 +5109,7 @@ async def test_alias_audit_search_and_canonical_root_hierarchy_shapes(
     assert seen == [
         {
             "q": "retained symptom",
+            "detail": "full",
             "status": "all",
             "view": "full",
             "duplicate_scope": "aliases",
@@ -5104,6 +5119,7 @@ async def test_alias_audit_search_and_canonical_root_hierarchy_shapes(
         },
         {
             "status": "all",
+            "detail": "full",
             "view": "roots",
             "duplicate_scope": "canonical",
             "limit": "30",

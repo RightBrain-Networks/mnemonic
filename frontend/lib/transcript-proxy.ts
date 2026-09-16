@@ -24,12 +24,13 @@ export function transcriptRoute(path: string[], method: string): Action | null {
   return null;
 }
 export function validTranscriptQuery(query: URLSearchParams, action: Action): boolean {
-  const allowed = action === "list" ? ["query", "fulltext", "work_item_id", "limit", "offset"] : action === "text" ? ["limit", "offset", "expected_sha256"] : action === "content" ? ["expected_sha256"] : [];
+  const allowed = action === "list" ? ["query", "fulltext", "detail", "work_item_id", "limit", "offset"] : action === "text" ? ["limit", "offset", "expected_sha256"] : action === "content" ? ["expected_sha256"] : [];
   for (const [key, value] of query) {
     if (!allowed.includes(key) || query.getAll(key).length !== 1) return false;
     if (key === "query" && (Array.from(value).length > 200 || !value.trim())) return false;
     if (key === "work_item_id" && !validUuid(value)) return false;
     if (key === "fulltext" && !["true", "false"].includes(value)) return false;
+    if (key === "detail" && !["compact", "full"].includes(value)) return false;
     if (key === "expected_sha256" && !transcriptDigest(value)) return false;
     if (["limit", "offset"].includes(key) && (!/^\d+$/.test(value) || !finiteInteger(Number(value), key === "limit" ? 1 : 0, key === "limit" ? action === "text" ? 20000 : 100 : 10000000))) return false;
   }

@@ -192,7 +192,9 @@ def test_earmark_preserves_existing_lifecycle_and_lease(
     assert marked["status"] == work["status"]
     current = api.get(base + "/context").json()
     assert current["work_item"]["manual_review_request"] == marked["manual_review_request"]
-    flat = api.get(base.rsplit("/", 1)[0], params={"view": "full", "status": "all"}).json()
+    flat = api.get(
+        base.rsplit("/", 1)[0], params={"detail": "full", "view": "full", "status": "all"}
+    ).json()
     flat_work = next(
         row["summary"]["work_item"]
         for row in flat["items"]

@@ -24,7 +24,7 @@ def path(project):
 
 
 def search(api, project, **payload):
-    response = api.post(path(project), json=payload)
+    response = api.post(path(project), json={"detail": "full", **payload})
     assert response.status_code == 200, response.text
     assert response.headers["cache-control"] == "no-store"
     result = response.json()
@@ -50,7 +50,7 @@ def mixed(api, project, work_payload, tmp_path, postgres_engine, artifact_storag
 
 def test_defaults_include_all_facets_and_work_statuses(api, project, mixed):
     result = search(api, project)
-    assert result["limit"] == 50 and result["offset"] == 0
+    assert result["limit"] == 20 and result["offset"] == 0
     assert result["facet_totals"] == {"work_items": 2, "artifacts": 1, "transcripts": 1}
     assert set(identities(result)) == {row["id"] for row in mixed}
     assert all(hit["score"] == 0 for hit in result["items"])
@@ -216,7 +216,7 @@ def test_semantic_uses_shared_admission_and_reports_failure(api, project, work_p
     assert result["facet_totals"]["work_items"] == 1
     api.app.state.semantic_embedder = FailingEmbedder()
     payload = {"q": "cache", "filters": {"work_items": {"semantic": True}}}
-    response = api.post(path(project), json=payload)
+    response = api.post(path(project), json={"detail": "full", **payload})
     assert response.status_code == 503
     assert response.json()["detail"]["code"] == "semantic_unavailable"
     resources = api.app.state.duplicate_suggestion_resources
