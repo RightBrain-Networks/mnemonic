@@ -4,13 +4,13 @@
 
 **`mnemonic`** is a single-user, self-hosted coordination plane for LLM coding agents. Its core thesis: agent sessions are temporary and failure-prone, so durable work should live in a *work graph* that survives sessions, rather than in Markdown scratch files, suggested task chips, or an issue tracker flooded with AI-generated tickets.
 
-The project is a Docker Compose stack that combines a durable backend (*PostgreSQL*) and a RESTful API (*FastAPI*). The API has two consumers: a human-facing, web browser-based dashboard (*Next.js*) and a LLM-facing MCP server. The MCP server ships with preconfigured agent skills so your agent can automatically discover how to interact with `mnemonic`. It is designed for a single, local (human) user and supports multiple, concurrent development projects.
+The project is a Docker Compose stack that combines a durable backend (*PostgreSQL*) and a RESTful API (*FastAPI*). The API has two consumers: a human-facing, web browser-based dashboard (*Next.js*) and a LLM-facing MCP server. The MCP server ships with preconfigured agent skills so your agent can automatically discover how to interact with `mnemonic`. 
 
-Tested with Claude Code, OpenAI Codex, and OpenCode. Probably works with any similar platform with a MCP client (Cursor, etc).
+Tested with Claude Code, OpenAI Codex, and OpenCode. Probably works with any similar platform with a MCP client (Cursor, etc). It is designed for a single, local (human) user and supports multiple, concurrent development projects.
 
 ## Is `mnemonic` right for your project?
 
-- You build with Claude Code, OpenAI Codex, OpenCode and/or similar MCP client.
+- You build with Claude Code, OpenAI Codex, OpenCode and/or similar MCP client and, optionally, would like for them to coordinate work across platforms.
 
 - Important FYIs and follow-up tasks are getting overlooked because they're buried under verbose LLM output.
 
@@ -22,11 +22,9 @@ Tested with Claude Code, OpenAI Codex, and OpenCode. Probably works with any sim
 
 ## Basic concepts
 
-The included agent skills encourage the LLM to default to using `mnemonic` to save hand-off prompts and self-discovered follow-up tasks. Markdown docs and your bug/issue tracker (if specified) are reserved for durable human-facing information. "Suggested task chips" are explicitly discouraged here since they live only in the ephemeral client and are easily lost.
+The included agent skills encourage the LLM to default to using `mnemonic` to save hand-off prompts and self-discovered follow-up tasks, rather than your bug/issue tracker, Markdown docs, or ephemeral "Suggested task chips". Upon discovering something worth doing, but is out-of-scope of the current task, the agent will first search `mnemonic` for related work items using sophisticated full-text matching. If no matches are found, the agent opens a new work item in the mnemonic dashboard, in the *Pending* queue.
 
-Upon discovering something worth doing, but is out-of-scope of the current task, the agent will first search `mnemonic` for related work items using PostgreSQL keyword matching or semantic search (embeddings). If no matches are found, the agent opens a new work item in a *Pending* state.
-
-**The human (you, presumably) then click the "Copy recall pointer" button of the task card and paste the copied prompt into a fresh session.** The LLM will then start a new session, retrieve the work item, and validate the stated premises. If the facts check-out, it requests a "work lease" of 15 minutes and then begins working. The lease is periodically renewed until the task is complete and then work item is marked as *Done*.
+When you decide **The human (you, presumably) then click the "Copy recall pointer" button of the task card and paste the copied prompt into a fresh session.** The LLM will then start a new session, retrieve the work item, and validate the stated premises. If the facts check-out, it requests a "work lease" of 15 minutes and then begins working. The lease is periodically renewed until the task is complete and then work item is marked as *Done*.
 
 **The "human-required" copy-and-paste step is deliberate.** It allows you to balance your weekly usage quota or API costs between your normal development work and working through the `mnemonic` backlog. If an agent hits a human-needed decision, the work is parked in *Needs Attention* and returns only after a person records an answer in the dashboard.
 
