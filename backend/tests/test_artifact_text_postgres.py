@@ -48,7 +48,7 @@ def test_unicode_pages_reassemble_all_text_without_metadata_or_audit(
         page = response.json()
         assert set(page) == {
             "project_id", "artifact_id", "revision", "sha256", "extraction", "text",
-            "offset", "limit", "total_chars", "next_offset",
+            "offset", "limit", "total_chars", "next_offset", "text_sha256",
         }
         assert page["project_id"] == project["id"]
         assert page["artifact_id"] == artifact["id"]

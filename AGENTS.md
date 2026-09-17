@@ -83,8 +83,8 @@ git pull --ff-only origin main
 
 Use Semantic Versioning (`MAJOR.MINOR.PATCH`) for application releases. `MAJOR` version bumps are reserved and require explicit human approval. Increment `MINOR` for user-facing changes and `PATCH` for all other changes.
 
-The current application/API/MCP/dashboard release is `0.59.0`, Claude plugin
-`0.37.0`, and Alembic head `0040_normalized_transcripts`. The catalog is exactly
+The current application/API/MCP/dashboard release is `0.60.0`, Claude plugin
+`0.38.0`, and Alembic head `0041_artifact_passages`. The catalog is exactly
 55 MCP tools, 17 receipt-protected MCP writes, 24 REST receipt kinds, 21 protected
 browser mutations, 24 work-event types, and three plugin skills. The suggestion
 POST is a safe read. Completion evidence and job completion reports are nested
@@ -136,6 +136,19 @@ Artifacts also have symmetric additive artifact links and revision-checked metad
 Sensitive artifact agent reads require a fresh explicit human approval and five-minute
 single-use request-bound token; never infer consent, reuse it, or clear sensitivity to bypass.
 Broad content searches withhold sensitive bodies and report incomplete coverage.
+
+Semantic artifact retrieval requires a nonblank unconstrained terms query and
+`fulltext=true`; it ranks token-bounded current passages and returns revision/text-hash
+locators. Background `artifact_embed` jobs use the existing ledger and worker.
+Report embedding coverage, and pin both revision and extracted-text SHA-256 when
+opening passage evidence. Sensitive bodies retain explicit approval requirements.
+See `docs/artifact-semantic-search.md`.
+
+MCP `search` accepts exactly one of `project_id` or 1–10 unique `project_ids`.
+Explicit multi-project REST uses safe-read `POST /search`; all selected projects
+share ranking and pagination. Every hit carries project identity and each page
+reports per-project coverage. Missing projects fail the whole request. See
+`docs/multi-project-search.md`.
 
 Unified REST `POST /projects/{project_id}/search` and MCP `search` default multi-term queries to work
 and artifacts; transcripts require explicit inclusion in facets. Blank/single-term

@@ -41,7 +41,7 @@ def page(items=(), **changes):
                                  'in facets or calling search_transcript_contents.')},
             "term_diagnostics": [], "items": list(items), "total": len(items), "limit": 50, "offset": 0,
             "facet_totals": {facet: sum(item["facet"] == facet for item in items) for facet in FACETS},
-            "coverage": {"artifacts": {"enabled": True, "indexing": {
+            "coverage": {"artifacts": {"enabled": True, "embedding": None, "indexing": {
                 "pending": 0, "ready": sum(item["facet"] == "artifacts" for item in items),
                 "failed": 0, "truncated": 0,
             }, "sensitive_content_withheld": 0}, "transcripts": {"indexing_incomplete": False, "unsegmented_content_omitted": 0}},
@@ -254,7 +254,9 @@ async def test_search_tool_schema_and_cold_review_guidance(settings):
     tools = {tool.name: tool for tool in await build_server(settings).list_tools()}
     tool = tools["search"]
     properties = tool.inputSchema["properties"]
-    assert tool.inputSchema["required"] == ["project_id"]
+    assert not tool.inputSchema.get("required")
+    assert properties["project_id"]["default"] is None
+    assert properties["project_ids"]["default"] is None
     assert "default" not in properties["facets"]
     assert properties["q"]["default"] == "" and properties["fulltext"]["default"] is False
     assert properties["detail"]["default"] == "compact"

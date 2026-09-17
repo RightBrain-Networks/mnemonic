@@ -64,12 +64,22 @@ Tika document properties, not file contents or historical audit text. Pass
 then both current metadata and current extracted body can match. Optional
 `artifact_id` or `work_item_id` narrows scope; `include_deleted=true` exposes only
 retained metadata for deleted files, never their old body. `limit` and `offset`
-page the ranked artifacts, not occurrences. Snippets have no character seek
-offset and cannot be used as offsets into `get_artifact_text`. Search is a safe
+page the ranked artifacts, not occurrences. Lexical snippets have no character seek
+offset and cannot be used as offsets into `get_artifact_text`.
+
+For paraphrases, set `semantic=true` with `fulltext=true` and a nonblank,
+unquoted terms query. Semantic hits carry `evidence="semantic"` and a bounded
+`passage` with current artifact revision, extracted-text SHA-256, Unicode
+character offsets, model and chunk configuration. They do not imply literal
+word matches. `embedding` reports ready, pending, failed, unavailable, withheld
+and truncated coverage; disclose incomplete comparisons. Similarity and rank
+are ordering signals, not probabilities. Search is a safe
 read and takes no operation UUID.
 
-Queries contain literal words: all terms must match, ignoring case and accents.
-The response declares `match_mode="all_terms"`. On zero matches, `term_diagnostics`
+Default lexical queries require all analyzed terms, ignoring case and accents.
+`query_mode=terms` honors quoted phrases; `phrase` requires adjacent analyzed
+words, and `literal` preserves case, punctuation and spacing. `match_mode`
+declares `all_terms`, `phrase`, `literal` or `semantic_passages`. On zero matches, `term_diagnostics`
 reports each normalized term with `matches.artifacts` counting matching artifacts
 under the same scope and fulltext setting. Other source counts are null (unsearched).
 One absent term can eliminate otherwise relevant documents; all terms can also
@@ -103,6 +113,10 @@ is ready. Ready means extraction completed, not that every file has readable tex
 To read a document's normalized text, obtain its current revision from
 `get_artifact`, then call
 `get_artifact_text(project_id, artifact_id, expected_revision, offset=0, limit=20000)`.
+For semantic passage retrieval, also pass `expected_text_sha256=passage.text_sha256`
+and `offset=passage.start_offset`, with a limit covering the passage. This pin
+identifies extracted text; the existing `sha256` still identifies original bytes.
+A changed extracted generation rejects the old pin, so repeat discovery first.
 This safe read returns `text`, `total_chars`, and `next_offset` with the exact
 project/artifact/revision/checksum and compact `extraction` state. Follow
 `next_offset` with the same `expected_revision` until it is null; page limits

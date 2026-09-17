@@ -848,8 +848,14 @@ async def test_tool_catalog_operation_and_claim_schemas(settings):
     assert project_page_schema["additionalProperties"] is False
     assert project_page_schema["$defs"]["Project"]["additionalProperties"] is False
 
-    for name in tools.keys() - {"list_projects", "create_project", "authorize_artifact_upload"}:
+    for name in tools.keys() - {"list_projects", "create_project", "authorize_artifact_upload", "search"}:
         assert "project_id" in tools[name].inputSchema["required"]
+    search_properties = tools["search"].inputSchema["properties"]
+    assert search_properties["project_id"]["default"] is None
+    assert search_properties["project_ids"]["default"] is None
+    selected_projects = search_properties["project_ids"]["anyOf"][0]
+    assert selected_projects["minItems"] == 1 and selected_projects["maxItems"] == 10
+    assert selected_projects["items"]["format"] == "uuid"
     grant_schema = tools["authorize_artifact_upload"].inputSchema
     assert grant_schema["required"] == ["intent"]
     assert "project_id" in grant_schema["$defs"]["UploadIntent"]["required"]

@@ -1,5 +1,5 @@
 import { ranking, hitRanking, unifiedRanking, semanticDisposition, evidence } from "./search-ranking-fixtures.mjs";
-import { disclosure } from "./search-disclosure-fixtures.mjs";
+import { disclosure, projectCoverage } from "./search-disclosure-fixtures.mjs";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { artifactSearchRequest, decodeUnifiedArtifactSearchPage, decodeUnifiedTranscriptSearchPage, decodeUnifiedWorkSearchPage, transcriptSearchRequest, unifiedSearchPath, workSearchRequest } from "../lib/unified-search.ts";
@@ -22,7 +22,7 @@ Object.assign(transcript, { normalization_status: "ready", normalization_error_c
 Object.assign(transcript, { copy_status: "ready", copy_error_code: null, copied_at: timestamp, index_status: "ready", index_error_code: null });
 function result(facet, payload, limit = 50, offset = 0, options = {}) {
   const key = facet === "work_items" ? "work_item" : facet === "artifacts" ? "artifact" : "transcript";
-  return { ...unifiedRanking([facet], options), detail: "full", work_rank_scope: "work_items", ...disclosure(project, [facet], options), tag_counts: null, search_scope: { searched_facets: [facet], transcripts: facet === "transcripts" ? "searched" : "not_selected", transcript_search_hint: TRANSCRIPT_SEARCH_HINT }, term_diagnostics: [], items: [{ rank: offset + 1, score_type: options.q ? "unified_reciprocal_rank" : "none", facet, id, created_at: timestamp, updated_at: timestamp, score: options.q ? 0.5 : 0, [key]: { ...payload, ...hitRanking(options.q, facet, offset + 1), ...(facet === "work_items" ? evidence(payload.matched_member.id, options.q ? "lexical" : "browse") : {}) } }], total: offset + 1, limit, offset, facet_totals: { work_items: 0, artifacts: 0, transcripts: 0, [facet]: offset + 1 }, coverage: { artifacts: { enabled: true, indexing, sensitive_content_withheld: 3 }, transcripts: { indexing_incomplete: true, unsegmented_content_omitted: 0 } }, indexing_incomplete: true };
+  return projectCoverage({ ...unifiedRanking([facet], options), detail: "full", work_rank_scope: "work_items", ...disclosure(project, [facet], options), tag_counts: null, search_scope: { searched_facets: [facet], transcripts: facet === "transcripts" ? "searched" : "not_selected", transcript_search_hint: TRANSCRIPT_SEARCH_HINT }, term_diagnostics: [], items: [{ rank: offset + 1, score_type: options.q ? "unified_reciprocal_rank" : "none", facet, id, project_id: project, created_at: timestamp, updated_at: timestamp, score: options.q ? 0.5 : 0, [key]: { ...payload, ...hitRanking(options.q, facet, offset + 1), ...(facet === "work_items" ? evidence(payload.matched_member.id, options.q ? "lexical" : "browse") : {}) } }], total: offset + 1, limit, offset, facet_totals: { work_items: 0, artifacts: 0, transcripts: 0, [facet]: offset + 1 }, coverage: { artifacts: { enabled: true, indexing, sensitive_content_withheld: 3 }, transcripts: { indexing_incomplete: true, unsegmented_content_omitted: 0 } }, indexing_incomplete: true  }, project);
 }
 
 test("the separate dashboard searches encode their facet, filters and pagination", () => {
@@ -59,7 +59,7 @@ test("the project search POST is a bounded safe read without mutation credential
 });
 
 test("artifact results retain snippets and incomplete coverage while rejecting scope leaks", () => {
-  const payload = { artifact, score: 0.5, snippet: "<script>untrusted text</script>", matched_fields: ["content"] };
+  const payload = { evidence: "lexical", passage: null, artifact, score: 0.5, snippet: "<script>untrusted text</script>", matched_fields: ["content"] };
   const page = result("artifacts", payload, 50, 50, { fulltext: true, filters: { artifacts: { work_item_id: work } } });
   const decoded = decodeUnifiedArtifactSearchPage(page, project, true, 50, 50, false, work);
   assert.equal(decoded.items[0].snippet, payload.snippet);
@@ -98,6 +98,7 @@ test("single-facet views reject mixed, duplicate, mismatched, and truncated enve
   for (const invalid of mutations) assert.throws(() => decodeUnifiedTranscriptSearchPage(invalid, project));
   assert.throws(() => decodeUnifiedWorkSearchPage(page, project));
   const empty = { ...page, ...unifiedRanking(["work_items"]), ...disclosure(project, ["work_items"]), tag_counts: null, search_scope: { ...page.search_scope, searched_facets: ["work_items"], transcripts: "not_selected" }, items: [], total: 0, facet_totals: { work_items: 0, artifacts: 0, transcripts: 0 } };
+  projectCoverage(empty, project);
   assert.deepEqual(decodeUnifiedWorkSearchPage(empty, project), { ...ranking(), ...disclosure(project, ["work_items"]), detail: "full", work_rank_scope: "work_items", term_diagnostics: [], items: [], total: 0, limit: 50, offset: 0 });
 });
 
@@ -153,4 +154,21 @@ test("transcript body-kind filters require contents and round-trip exact source 
     filters: { transcripts: { content_kinds: ["assistant_text"] } } });
   assert.equal(decodeUnifiedTranscriptSearchPage(response, project, 0, true, undefined, "needle", ["assistant_text"]).items.length, 1);
   assert.throws(() => decodeUnifiedTranscriptSearchPage(response, project, 0, true, undefined, "needle", ["tool_result"]));
+});
+
+test("single-project dashboard rejects mixed project ownership and coverage", () => {
+  const original = result("transcripts", transcript);
+  for (const mutate of [
+    (page) => { page.items[0].project_id = work; },
+    (page) => { page.project_coverage = []; },
+    (page) => { page.project_coverage.push(structuredClone(page.project_coverage[0])); },
+    (page) => { page.project_coverage[0].project_id = work; },
+    (page) => { page.project_coverage[0].facet_totals = { work_items: 0, artifacts: 0, transcripts: 2 }; },
+    (page) => { page.project_coverage[0].indexing_incomplete = false; },
+    (page) => { page.project_coverage[0].coverage = { ...page.coverage, transcripts: { indexing_incomplete: false } }; },
+    (page) => { page.applied_filters.project_ids = [project]; },
+  ]) {
+    const page = structuredClone(original); mutate(page);
+    assert.throws(() => decodeUnifiedTranscriptSearchPage(page, project));
+  }
 });

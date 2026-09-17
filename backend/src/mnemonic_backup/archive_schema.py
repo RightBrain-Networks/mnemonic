@@ -15,10 +15,12 @@ from sqlalchemy import Connection, text
 
 from mnemonic_api.models import Base
 
-HEAD = "0040_normalized_transcripts"
+HEAD = "0041_artifact_passages"
 # Infrastructure delivery state is neither project data nor a restore target.
 # The reconciler derives transcript jobs anew from the restored domain rows.
-INFRASTRUCTURE_TABLES = frozenset({"background_jobs"})
+INFRASTRUCTURE_TABLES = frozenset({
+    "background_jobs", "artifact_passage_indexes", "artifact_passages",
+})
 TABLES = tuple(sorted(set(Base.metadata.tables) - INFRASTRUCTURE_TABLES))
 MAX_ARCHIVE_IDENTITY = 2**53 - 1
 IDENTITY_COLUMNS = tuple(
@@ -187,6 +189,13 @@ def validate_identities(rows: dict[str, list[dict[str, Any]]], *, source: bool =
 def replace_rows(connection: Connection, current: dict, restored: dict) -> None:
     # Restore is privileged data loading. CHECK/NOT NULL/UNIQUE constraints still run;
     # FKs and durable semantic witnesses are explicitly checked before commit.
+    # Drop excluded derived caches while FK cascades are still active. Fresh
+    # manifest UUIDs prevent completed source jobs from suppressing restore work.
+    artifact_ids = {row["id"] for source in (current, restored) for row in source["artifacts"]}
+    if artifact_ids:
+        connection.execute(text("DELETE FROM artifact_passage_indexes "
+                                "WHERE artifact_id = ANY(CAST(:ids AS uuid[]))"),
+                           {"ids": list(artifact_ids)})
     connection.execute(text("SET LOCAL session_replication_role = 'replica'"))
     for name in TABLES:
         keys = primary_key(name)

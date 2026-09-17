@@ -19,7 +19,7 @@ function validFilters(value: unknown): boolean {
     const filter = objectValue(value);
     if (!filter) return false;
     const keys = facet === "work_items" ? ["work_fields", "status", "tag", "source_client", "source_session_id", "duplicate_scope", "canonical_work_item_id", "external_url", "semantic"]
-      : facet === "artifacts" ? ["work_item_id", "artifact_id", "include_deleted", "sensitive", "mime_type", "created_by_agent_session_id"]
+      : facet === "artifacts" ? ["semantic", "work_item_id", "artifact_id", "include_deleted", "sensitive", "mime_type", "created_by_agent_session_id"]
         : ["work_item_id", "agent_session_id", "client", "kind", "status", "content_kinds"];
     if (!allowed(filter, [...keys, ...SEARCH_DATE_FIELDS]) || !validDateBounds(filter)) return false;
     return Object.entries(filter).every(([key, value]) => {
@@ -45,6 +45,7 @@ export function validSearchRequest(value: unknown): boolean {
     || !optional(body.detail, (value) => value === "compact" || value === "full") || !optional(body.filters, validFilters)
     || !optional(body.sort, validSort) || !optional(body.limit, (value) => finiteInteger(value, 1, 100))
     || !optional(body.offset, (value) => finiteInteger(value, 0, 1_000_000))) return false;
+  if (objectValue(objectValue(body.filters)?.artifacts)?.semantic === true && (body.fulltext !== true || typeof body.q !== "string" || !body.q.trim() || body.q.includes('"') || body.query_mode !== undefined && body.query_mode !== "terms" || Array.isArray(body.facets) && !body.facets.includes("artifacts"))) return false;
   if (objectValue(objectValue(body.filters)?.transcripts)?.content_kinds != null && body.fulltext !== true) return false;
   if (!optional(body.diagnostics, validDiagnosticsMode) || !(body.tag_counts == null || validTagCountRequest(body.tag_counts))
     || body.tag_counts != null && Array.isArray(body.facets) && !body.facets.includes("work_items")) return false;

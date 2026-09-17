@@ -2,8 +2,8 @@
 
 Application/API/MCP/dashboard `0.43.0` and plugin `0.26.0` add one project search
 surface across work items, artifacts, and transcripts. No migration or new
-configuration was required for that release. Current release 0.59.0 uses migration
-`0040_normalized_transcripts` and also searches [imported transcripts](transcripts.md#import-existing-transcripts).
+configuration was required for that release. Current release 0.60.0 uses migration
+`0041_artifact_passages` and also searches [imported transcripts](transcripts.md#import-existing-transcripts).
 The dashboard retains its separate work, artifact, and transcript interfaces.
 Their searches use the shared API, including the work semantic toggle. Hierarchy
 and file-directory browsing retain their existing endpoints and sort controls.
@@ -102,7 +102,7 @@ source; omitting a source from `facets` excludes it regardless of its filters.
 | Facet | Filter fields |
 | --- | --- |
 | `work_items` | `status`, `tag`, `source_client`, `source_session_id`, `external_url`, `duplicate_scope`, `canonical_work_item_id`, `semantic`, `work_fields` |
-| `artifacts` | `artifact_id`, `work_item_id`, `include_deleted`, `sensitive`, `mime_type`, `created_by_agent_session_id` |
+| `artifacts` | `semantic`, `artifact_id`, `work_item_id`, `include_deleted`, `sensitive`, `mime_type`, `created_by_agent_session_id` |
 | `transcripts` | `work_item_id`, `agent_session_id`, `client`, `kind`, `status`, `content_kinds` |
 
 Each source also accepts inclusive `created_after` / `updated_after` and exclusive
@@ -341,3 +341,12 @@ counts distinguish cold and warm work. Logs contain no query, transcript,
 artifact body, provider exception text, or candidate identity. Existing admission
 limits and deadlines remain unchanged; these timings diagnose contention before
 changing capacity or ranking.
+
+## Expanded retrieval (0.60.0)
+
+Use [explicit project selection](multi-project-search.md) to search 1–10 projects
+with one global page and per-project coverage. The existing single-project route
+remains available. Artifact `semantic=true` searches current token-bounded body
+passages, requires `fulltext=true`, and returns pinned evidence with embedding
+coverage; see [semantic artifact search](artifact-semantic-search.md). This release
+requires migration `0041_artifact_passages` and coordinated consumer upgrades.

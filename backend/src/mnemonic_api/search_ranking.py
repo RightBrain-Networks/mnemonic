@@ -111,7 +111,8 @@ def search_ranking(query: str | None, query_mode: str, *, work: bool = False,
     if not query or not query.strip():
         return SearchRanking(score_type="none", total_kind="browsed_records")
     if semantic:
-        return SearchRanking(score_type="hybrid_reciprocal_rank", total_kind="ranked_candidates",
+        return SearchRanking(score_type="hybrid_reciprocal_rank" if work
+                             else "semantic_reciprocal_rank", total_kind="ranked_candidates",
                              semantic=completed_semantic())
     return SearchRanking(score_type="postgresql_lexical" if work else
                          "literal_presence" if query_mode == "literal" else "tantivy_relevance",

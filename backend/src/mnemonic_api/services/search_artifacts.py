@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from mnemonic_api.artifact_access_schemas import ArtifactAccessRequest
 from mnemonic_api.artifact_index import ArtifactSearchIndex
 from mnemonic_api.artifact_search_schemas import ArtifactSearchMatch, CompactArtifactMatch
+from mnemonic_api.search_projects import ProjectSelection, selected_project_ids
 from mnemonic_api.search_schemas import (
     ArtifactFacetHit,
     ArtifactSearchCoverage,
@@ -26,6 +27,7 @@ from mnemonic_api.services.artifact_search import (
     compact_artifact_read,
 )
 from mnemonic_api.services.artifacts import artifact_read
+from mnemonic_api.services.multi_search_limits import check_artifact_content
 from mnemonic_api.services.search_sources import SearchCandidate, SearchSource
 
 
@@ -48,11 +50,21 @@ def _approved_contents(
 
 
 def artifact_source(
-    database: Session, project_id: UUID, request: SearchRequest, index: ArtifactSearchIndex,
-    *, human_dashboard: bool = False,
+    database: Session, project_id: ProjectSelection, request: SearchRequest,
+    index: ArtifactSearchIndex,
+    *, human_dashboard: bool = False, query_vector: tuple[float, ...] | None = None,
+    artifact_chunk_config: str | None = None,
 ) -> tuple[SearchSource, ArtifactSearchCoverage]:
     corpus = _corpus(database, project_id, request.filters.artifacts)
     approved = _approved_contents(database, corpus, request, human_dashboard)
+    if not isinstance(project_id, UUID) and request.q and request.fulltext:
+        check_artifact_content(database, corpus, approved)
+    if request.filters.artifacts.semantic:
+        from mnemonic_api.services.artifact_semantic_search import semantic_artifact_source
+
+        return semantic_artifact_source(
+            database, project_id, request, corpus, approved, query_vector, index,
+            artifact_chunk_config)
     records = {str(artifact.id): artifact for artifact, _ in corpus}
     hits = {}
     searcher = None
@@ -69,7 +81,7 @@ def artifact_source(
         hits = {hit.identity: hit for hit in result.hits}
         searcher = result.searcher
     candidates = [SearchCandidate(
-        facet="artifacts", id=record.id, created_at=record.created_at,
+        facet="artifacts", id=record.id, project_id=record.project_id, created_at=record.created_at,
         updated_at=record.modified_at,
         score=hits[identity].score if request.q else 0.0,
     ) for identity, record in records.items() if not request.q or identity in hits]
@@ -80,6 +92,18 @@ def artifact_source(
             and artifact.deleted_at is None and artifact.id not in approved
         ),
     )
+
+    project_coverage = {
+        identity: ArtifactSearchCoverage(
+            indexing=_indexing([(artifact, extraction) for artifact, extraction in corpus
+                                if artifact.project_id == identity]),
+            sensitive_content_withheld=sum(
+                1 for artifact, _ in corpus if artifact.project_id == identity
+                and request.fulltext and artifact.sensitive and artifact.deleted_at is None
+                and artifact.id not in approved
+            ),
+        ) for identity in selected_project_ids(project_id)
+    }
 
     def hydrate(page: list[SearchCandidate]) -> dict[UUID, SearchHit]:
         rendered: dict[UUID, SearchHit] = {}
@@ -103,4 +127,5 @@ def artifact_source(
 
     return SearchSource(
         candidates, hydrate, lambda terms: index.term_counts(terms, request.fulltext, searcher),
+        coverage_by_project=project_coverage,
     ), coverage

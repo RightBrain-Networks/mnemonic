@@ -54,7 +54,10 @@ async def test_exact_intent_reaches_every_search_door_and_survives_empty_pages(s
     assert payload["query_mode"] == mode
     empty = copy.deepcopy(page)
     empty.update(items=[], total=0)
-    if tool == "search": empty["facet_totals"] = dict.fromkeys(MODELS, 0)
+    if tool == "search":
+        empty["facet_totals"] = dict.fromkeys(MODELS, 0)
+        for owner in empty["project_coverage"]:
+            owner["facet_totals"] = dict.fromkeys(MODELS, 0)
     assert (await native_call(settings, tool, {"q": "lease_token_mismatch", "query_mode": mode}, empty))[0] == empty
     empty["query_interpretation"]["query_mode"] = "terms"
     with pytest.raises(ToolError, match="unexpected response"):

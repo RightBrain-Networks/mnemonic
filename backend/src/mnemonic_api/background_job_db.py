@@ -4,7 +4,10 @@ import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 
 
-def job_elements() -> list:
+def job_elements(*, artifact_embeddings: bool = False) -> list:
+    kinds = "'transcript_copy','transcript_index','backup_create'"
+    if artifact_embeddings:
+        kinds += ",'artifact_embed'"
     return [
         sa.Column("id", UUID(as_uuid=True), primary_key=True),
         sa.Column("kind", sa.String(40), nullable=False),
@@ -26,7 +29,7 @@ def job_elements() -> list:
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False,
                   server_default=sa.func.clock_timestamp()),
         sa.Column("completed_at", sa.DateTime(timezone=True)),
-        sa.CheckConstraint("kind IN ('transcript_copy','transcript_index','backup_create')",
+        sa.CheckConstraint(f"kind IN ({kinds})",
                            name="kind_valid"),
         sa.CheckConstraint("status IN ('pending','running','succeeded','failed')",
                            name="status_valid"),

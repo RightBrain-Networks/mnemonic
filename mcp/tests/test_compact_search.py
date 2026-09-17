@@ -63,13 +63,21 @@ def response_page(tool, summary, *, q="needle", detail="compact"):
     file = artifact_pointer()
     session = transcript_pointer()
     if tool == "search":
-        items = [{"facet": facet, "id": value["artifact"]["id"] if facet == "artifacts"
+        items = [{"facet": facet, "project_id": PROJECT_ID,
+                  "id": value["artifact"]["id"] if facet == "artifacts"
                   else value["id"], "created_at": NOW, "updated_at": NOW, "score": 1 / 61,
                   key: value} for facet, key, value in (
                       ("work_items", "work_item", work), ("artifacts", "artifact", file),
                       ("transcripts", "transcript", session),
                   )]
         result = unified_page(items, limit=20)
+        result["coverage"]["artifacts"]["indexing"].update(pending=1, ready=0)
+        result["indexing_incomplete"] = True
+        result["project_coverage"] = [{
+            "project_id": PROJECT_ID, "project_name": "Test project", "project_slug": "test-project",
+            "facet_totals": result["facet_totals"], "coverage": result["coverage"],
+            "indexing_incomplete": result["indexing_incomplete"],
+        }]
         scopes = {"work_items": WorkAppliedFilters(), "artifacts": ArtifactAppliedFilters(),
                   "transcripts": TranscriptAppliedFilters()}
     elif tool == "search_work":

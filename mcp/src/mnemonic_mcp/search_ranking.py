@@ -100,7 +100,7 @@ def source_ranking(query: str | None, mode: str, *, work: bool = False,
     if not (query or "").strip():
         return "none", "browsed_records"
     if semantic:
-        return "hybrid_reciprocal_rank", "ranked_candidates"
+        return ("hybrid_reciprocal_rank" if work else "semantic_reciprocal_rank"), "ranked_candidates"
     score: ScoreType = "postgresql_lexical" if work else (
         "literal_presence" if mode == "literal" else "tantivy_relevance")
     return score, "lexical_matches"

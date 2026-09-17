@@ -1,6 +1,53 @@
 # Mnemonic validation record
 
+## Semantic artifact passages and selected-project search (0.60.0)
+
+API/MCP/dashboard 0.60.0 and plugin 0.38.0 require migration
+`0041_artifact_passages`. The existing shared worker builds resumable token-bounded
+passage generations; explicit multi-project search shares one candidate corpus
+and reports each selected project's coverage. No MCP tool or protected-write
+catalog entry is added. Upgrade consumers and worker together; repository delivery
+does not deploy services or migrate production.
+
+The combined backend suite passes 154 semantic-artifact, multi-project, exact-query,
+work-evidence, exploration and ranking regressions. Three additional cross-project
+checks cover shared tag counts, field/date scopes, evidence and diagnostics across
+terms, phrase and literal requests, including empty offset pages. Worker, passage,
+restore and migration review passes 124 targeted checks. Fresh and PostgreSQL
+schema-dump/restored migration catalogs agree at head 0041; 94 head/catalog checks
+pass. An independent producer/consumer probe passed 29 cases using unchanged
+PostgreSQL-backed REST responses through the actual MCP tool boundary in a separate
+virtual environment. It covered compact/full semantic artifacts, mixed and
+multi-project sources, exact work/transcript intent, filters/counts, sensitive
+omissions, empty/disabled coverage, and pinned artifact text. The probe did not
+construct disclosures or ranking data using MCP fixture helpers.
+
+Frontend validation passes 478 tests, type checking, and a Node 24 production
+build. Eight desktop/narrow artifact cases use the real local embedding model,
+near-end long-document evidence, revision/text-hash/offset pins, and stale-source
+recovery. Two final semantic cases also pass after the narrow preview layout
+refinement; isolated backup smoke checks pass. Screenshots and their test-fixture
+disclosure are linked from [artifact passage retrieval](artifact-semantic-search.md#dashboard-passage-retrieval).
+The full PostgreSQL/RabbitMQ backend run passed 3,146 tests with one stale
+scope fixture; the fixture was corrected and all 15 affected checks passed.
+Final OpenAPI and transcript-import checks pass 37 cases. Backend lint and type
+checks pass. The full MCP run passed 1,868 tests with 17 stale contract/catalog
+fixtures; all 17 corrected cases passed their exact rerun. Another 82 unified,
+83 semantic/disclosure, and 67 semantic/OpenAPI/vocabulary checks pass. MCP lint
+and type checks pass. Plugin verification passes 71 checks with one macOS-only
+skip. Required CI must pass before merge.
+
+A final query-error recovery fix passes both desktop and narrow browser cases:
+correcting a locally rejected semantic query restores its existing results within
+one second with periodic refresh paused and without another search request.
+Its 35 affected guards, type checks, and isolated backup smoke also pass.
+
 ## Search intent, evidence, exploration, and ranking (0.59.0)
+
+Complete GitHub CI passed 3,073 backend tests and 1,831 MCP tests (one platform
+skip), together with frontend, lint, type, secret, and repository freshness checks.
+The README-only base update was incorporated with unchanged implementation
+files. All required checks passed again on the rebased head before PR #115 merged.
 
 API/MCP/dashboard 0.59.0 and plugin 0.37.0 retain Alembic head
 `0040_normalized_transcripts`, 55 tools, and existing receipt/write catalogs.

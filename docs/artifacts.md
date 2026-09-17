@@ -1,7 +1,7 @@
 # Project artifact library
 
-Application/API/MCP/dashboard `0.59.0`, plugin `0.37.0`, and current migration
-`0040_normalized_transcripts` support files outside Git and local full-text search. Each artifact belongs permanently
+Application/API/MCP/dashboard `0.60.0`, plugin `0.38.0`, and current migration
+`0041_artifact_passages` support files outside Git and local full-text search. Each artifact belongs permanently
 to one project. Files retain their validated original basename inside
 `<artifact root>/<project UUID>/<artifact UUID>/<filename>`. Different artifacts
 can have the same filename without colliding.
@@ -78,8 +78,8 @@ context (`X-Artifact-Access: human-dashboard`, set by its server proxy), permit
 human previews/downloads/searches, and are audited. This header and the approval
 assertion are policy signals, not separate authentication credentials.
 
-Upgrade API, MCP and dashboard together to `0.59.0`, plugin `0.37.0`, and migration
-`0040_normalized_transcripts`. Migration 0029 initially marked older artifacts
+Upgrade API, MCP and dashboard together to `0.60.0`, plugin `0.38.0`, and migration
+`0041_artifact_passages`. Migration 0029 initially marked older artifacts
 non-sensitive; migration 0030 preserves their current sensitivity. No new
 configuration is required. Downgrade refuses populated artifact state; fix forward.
 Database backups retain extracted text and approval/audit metadata; sensitivity
@@ -525,3 +525,10 @@ large.
 
 Details drawer: [desktop](images/artifacts-ui/desktop-details.png) and
 [narrow dark theme](images/artifacts-ui/narrow-details-dark.png).
+
+## Semantic passage retrieval
+
+Opt into current body-passage ranking with `semantic=true, fulltext=true`. Each hit
+identifies its artifact revision and extracted-text SHA-256 so the existing text
+read can recover exact evidence. Embedding coverage remains separate from extraction
+coverage. See [passage indexing, bounded jobs, and upgrade](artifact-semantic-search.md).

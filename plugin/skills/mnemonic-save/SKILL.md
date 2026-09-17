@@ -62,7 +62,8 @@ from a draft.
    useful alternate term when a narrow query misses. All statuses are searched by
    default. Inspect `applied_filters`, `query_interpretation`, and `warnings`;
    an explicitly filtered zero does not establish absence from project history.
-3. Search returns compact pointers by default, without checkpoint bodies.
+3. Search returns compact pointers with bounded match excerpts by default;
+   full checkpoint bodies require recall.
    The default page has 20 rows; request `detail="full"` for full summaries, or call
    `recall_work(project_id, work_item_id)` for likely duplicates. If several
    results fit and the choice matters, ask instead of guessing.

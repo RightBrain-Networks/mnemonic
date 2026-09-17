@@ -18,9 +18,11 @@ from mnemonic_api.application.routes.artifacts import (
 from mnemonic_api.application.state import embedder_of, settings_of
 from mnemonic_api.application.suggestion_resources import semantic_search_inference_acquired
 from mnemonic_api.application.validation import raise_reviewed_body_validation
+from mnemonic_api.artifact_tokenizer import passage_tokenizer
 from mnemonic_api.database import Database
 from mnemonic_api.errors import ApplicationError, semantic_unavailable
-from mnemonic_api.search_schemas import SearchPage, SearchRequest
+from mnemonic_api.search_projects import ProjectSelection, selected_project_ids
+from mnemonic_api.search_schemas import MultiProjectSearchRequest, SearchPage, SearchRequest
 from mnemonic_api.semantic import semantic_query_vector
 from mnemonic_api.services.artifacts import recover_project_artifacts
 from mnemonic_api.services.search import search
@@ -38,7 +40,9 @@ def _unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
     return result
 
 
-async def _payload(request: Request) -> SearchRequest:
+async def _payload(
+    request: Request, model: type[SearchRequest] = SearchRequest,
+) -> SearchRequest:
     if request.query_params or request.headers.get("content-encoding", "identity") != "identity":
         raise ApplicationError(422, "search_invalid",
                                "Use an unencoded JSON body without query parameters.")
@@ -55,7 +59,7 @@ async def _payload(request: Request) -> SearchRequest:
     except TimeoutError:
         raise ApplicationError(408, "search_timeout", "Search request timed out.") from None
     try:
-        return SearchRequest.model_validate(json.loads(body, object_pairs_hook=_unique_object))
+        return model.model_validate(json.loads(body, object_pairs_hook=_unique_object))
     except (ValueError, RecursionError) as exc:
         raise_reviewed_body_validation(exc)
         raise ApplicationError(422, "search_invalid", "Provide valid search parameters.") from None
@@ -74,11 +78,11 @@ def _inline_schema(value: Any, definitions: dict[str, Any]) -> Any:
     return {key: _inline_schema(item, definitions) for key, item in value.items()}
 
 
-def _request_schema() -> dict[str, Any]:
+def _request_schema(model: type[SearchRequest] = SearchRequest) -> dict[str, Any]:
     # This body is parsed manually after its byte/time bounds. Inline request
     # definitions because JSON Schema's #/$defs links would point at the OpenAPI
     # document root when this schema is embedded in requestBody.
-    schema = SearchRequest.model_json_schema()
+    schema = model.model_json_schema()
     return _inline_schema(schema, schema.pop("$defs", {}))
 
 
@@ -109,18 +113,46 @@ async def search_project(
     project_id: UUID, request: Request, response: Response, database: Database,
 ) -> SearchPage:
     payload = await _payload(request)
+    return await _execute_search(project_id, payload, request, response, database)
+
+
+@router.post(
+    "/search", response_model=SearchPage,
+    openapi_extra={
+        "x-mnemonic-effect": "safe_read",
+        "requestBody": {
+            "required": True,
+            "description": "Select 1–10 accessible projects; one combined corpus and global page.",
+            "content": {"application/json": {"schema": _request_schema(MultiProjectSearchRequest)}},
+        },
+    },
+)
+async def search_projects(request: Request, response: Response, database: Database) -> SearchPage:
+    payload = await _payload(request, MultiProjectSearchRequest)
+    assert isinstance(payload, MultiProjectSearchRequest)
+    return await _execute_search(tuple(payload.project_ids), payload, request, response, database)
+
+
+async def _execute_search(
+    project_id: ProjectSelection, payload: SearchRequest, request: Request,
+    response: Response, database: Database,
+) -> SearchPage:
     response.headers["Cache-Control"] = "no-store"
     embedder = embedder_of(request)
     artifacts_enabled = artifact_status(request).enabled
+    artifact_semantic = artifacts_enabled and payload.filters.artifacts.semantic
     human_dashboard = _human_dashboard(request)
 
     def execute() -> SearchPage:
         query_vector = None
-        if payload.filters.work_items.semantic:
+        artifact_chunk_config = None
+        if payload.filters.work_items.semantic or artifact_semantic:
             if not semantic_search_inference_acquired(request.scope):
                 raise semantic_unavailable("capacity_exhausted")
             try:
                 query_vector = semantic_query_vector(embedder, payload.q)
+                if artifact_semantic:
+                    artifact_chunk_config = passage_tokenizer(embedder).config
             except Exception as exc:
                 logger.error("Unified semantic query failed (%s)", type(exc).__name__)
                 raise semantic_unavailable(
@@ -128,13 +160,15 @@ async def search_project(
                 ) from None
         if "artifacts" in payload.facets and artifacts_enabled:
             with storage_errors(request):
-                recover_project_artifacts(database, storage_of(request), project_id)
+                for identity in selected_project_ids(project_id):
+                    recover_project_artifacts(database, storage_of(request), identity)
             database.rollback()
         return search(
             database, project_id, payload, request.app.state.artifact_search_index,
             request.app.state.transcript_search_index,
             artifacts_enabled=artifacts_enabled, human_dashboard=human_dashboard,
             embedder=embedder, query_vector=query_vector,
+            artifact_chunk_config=artifact_chunk_config,
             maximum_transcript_content_bytes=settings_of(request).transcript_search_max_bytes,
         )
 

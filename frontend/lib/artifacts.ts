@@ -1,3 +1,4 @@
+import { decodeArtifactPassage, decodeEmbeddingCoverage, type ArtifactPassage, type ArtifactEmbeddingCoverage } from "./artifact-semantic.ts";
 import { validateSourceRanking, decodeSearchRanking, decodeHitRanking, SEARCH_RANKING_FIELDS, HIT_RANKING_FIELDS, type SearchRanking, type HitRanking } from "./search-ranking.ts";
 import { validQueryMode, type QueryMode } from "./search-evidence.ts";
 import { SEARCH_DATE_FIELDS, validDateBounds, validDiagnosticsMode } from "./search-exploration.ts";
@@ -111,6 +112,8 @@ export interface ArtifactIndexingStatus {
 }
 
 export interface ArtifactSearchMatch extends HitRanking {
+  evidence: "lexical" | "semantic";
+  passage: ArtifactPassage | null;
   artifact: Artifact;
   score: number;
   snippet: string | null;
@@ -119,7 +122,8 @@ export interface ArtifactSearchMatch extends HitRanking {
 
 export interface ArtifactSearchPage extends SearchDisclosure, SearchRanking {
   detail: "full";
-  match_mode: "all_terms" | "phrase" | "literal";
+  match_mode: "all_terms" | "phrase" | "literal" | "semantic_passages";
+  embedding: ArtifactEmbeddingCoverage | null;
   term_diagnostics: TermDiagnostic[];
   items: ArtifactSearchMatch[];
   total: number;
@@ -130,11 +134,11 @@ export interface ArtifactSearchPage extends SearchDisclosure, SearchRanking {
   sensitive_content_withheld: number;
 }
 
-export function decodeArtifactSearchPage(value: unknown, projectId: string, fulltext: boolean, limit = 50, offset = 0, sourceSearched = true, queryMode: QueryMode = "terms"): ArtifactSearchPage {
+export function decodeArtifactSearchPage(value: unknown, projectId: string, fulltext: boolean, limit = 50, offset = 0, sourceSearched = true, queryMode: QueryMode = "terms", semantic = false): ArtifactSearchPage {
   const page = objectValue(value);
   const indexing = objectValue(page?.indexing);
-  if (!page || !exactKeys(page, ["items", "total", "limit", "offset", "fulltext", "indexing", "sensitive_content_withheld", "match_mode", "detail", "term_diagnostics", ...SEARCH_DISCLOSURE_FIELDS, ...SEARCH_RANKING_FIELDS])
-    || !["all_terms", "phrase", "literal"].includes(String(page.match_mode)) || !sourceSearched && page.total !== 0
+  if (!page || !exactKeys(page, ["items", "total", "limit", "offset", "fulltext", "indexing", "sensitive_content_withheld", "embedding", "match_mode", "detail", "term_diagnostics", ...SEARCH_DISCLOSURE_FIELDS, ...SEARCH_RANKING_FIELDS])
+    || !["all_terms", "phrase", "literal", "semantic_passages"].includes(String(page.match_mode)) || !sourceSearched && page.total !== 0
     || !finiteInteger(page.sensitive_content_withheld)
     || !Array.isArray(page.items) || !finiteInteger(page.total) || page.limit !== limit || page.offset !== offset
     || page.items.length !== Math.min(limit, Math.max(0, page.total - offset)) || page.detail !== "full" || page.fulltext !== fulltext
@@ -143,17 +147,21 @@ export function decodeArtifactSearchPage(value: unknown, projectId: string, full
     throw new Error("Mnemonic returned invalid artifact search results.");
   }
   const disclosure = decodeSearchDisclosure(page, projectId, sourceSearched ? ["artifacts"] : []);
-  validateSearchDisclosure(disclosure, "artifacts", {}, fulltext, undefined, queryMode);
+  validateSearchDisclosure(disclosure, "artifacts", semantic && sourceSearched ? { semantic: true } : {}, fulltext, undefined, queryMode);
+  if ((disclosure.applied_filters.artifacts?.semantic === true) !== (semantic && sourceSearched)) throw new Error("Mnemonic returned an unexpected artifact search mode.");
+  const embedding = semantic && sourceSearched ? decodeEmbeddingCoverage(page.embedding) : null;
+  if (embedding ? !fulltext || page.total > embedding.ready || page.sensitive_content_withheld !== embedding.withheld : page.embedding !== null) throw new Error("Mnemonic returned inconsistent artifact semantic coverage.");
   const term_diagnostics = decodeTermDiagnostics(page.term_diagnostics, page.total as number, sourceSearched ? ["artifacts"] : [], disclosure.diagnostics, disclosure.query_interpretation.q);
   const ranking = decodeSearchRanking(page);
   validateSourceRanking(ranking, disclosure.query_interpretation.q, "artifacts", disclosure.query_interpretation.artifacts?.match_mode);
+  if (embedding && (ranking.semantic.candidate_scope !== "full_scope" || ranking.semantic.partial_vectors !== Boolean(embedding.pending || embedding.processing || embedding.failed || embedding.unavailable))) throw new Error("Mnemonic returned inconsistent artifact semantic comparison coverage.");
   const expectedMode = disclosure.query_interpretation.artifacts?.match_mode;
-  if (expectedMode && expectedMode !== "browse" && page.match_mode !== expectedMode) throw new Error("Mnemonic returned an unexpected artifact matching mode.");
+  if (page.match_mode !== (!expectedMode || expectedMode === "browse" ? "all_terms" : expectedMode)) throw new Error("Mnemonic returned an unexpected artifact matching mode.");
   const items = page.items.map((value): ArtifactSearchMatch => {
     const match = objectValue(value);
-    if (!match || !exactKeys(match, ["artifact", ...HIT_RANKING_FIELDS, "snippet", "matched_fields"])
+    if (!match || !exactKeys(match, ["artifact", ...HIT_RANKING_FIELDS, "snippet", "matched_fields", "evidence", "passage"])
       || typeof match.score !== "number" || !Number.isFinite(match.score) || match.score < 0
-      || !(match.snippet === null || typeof match.snippet === "string" && match.snippet.length <= 1000)
+      || !(match.snippet === null || typeof match.snippet === "string" && Array.from(match.snippet).length <= 1000)
       || !Array.isArray(match.matched_fields) || !match.matched_fields.length || match.matched_fields.length > 2
       || !match.matched_fields.every((field) => field === "metadata" || field === "content")
       || new Set(match.matched_fields).size !== match.matched_fields.length) {
@@ -163,15 +171,19 @@ export function decodeArtifactSearchPage(value: unknown, projectId: string, full
     if ((!fulltext || artifact.deleted_at !== null) && (match.snippet !== null || match.matched_fields.includes("content"))) {
       throw new Error("Mnemonic returned content outside the requested search scope.");
     }
-    return { artifact, ...decodeHitRanking(match, ranking.score_type, page.total as number), snippet: match.snippet, matched_fields: match.matched_fields as ("metadata" | "content")[] };
+    if (match.evidence !== (embedding ? "semantic" : "lexical") || embedding && JSON.stringify(match.matched_fields) !== JSON.stringify(["content"]) || !embedding && match.passage !== null) throw new Error("Mnemonic returned invalid artifact match evidence.");
+    const passage = embedding ? decodeArtifactPassage(match.passage, artifact, embedding, match.snippet as string | null) : null;
+    return { artifact, evidence: match.evidence as "semantic" | "lexical", passage, ...decodeHitRanking(match, ranking.score_type, page.total as number), snippet: match.snippet, matched_fields: match.matched_fields as ("metadata" | "content")[] };
   });
   if (new Set(items.map((item) => item.artifact.id.toLowerCase())).size !== items.length) throw new Error("Mnemonic returned duplicate artifact search matches.");
-  return { ...disclosure, ...ranking, detail: "full", match_mode: page.match_mode as ArtifactSearchPage["match_mode"], term_diagnostics, items, total: page.total, limit, offset, fulltext, indexing: indexing as unknown as ArtifactIndexingStatus, sensitive_content_withheld: page.sensitive_content_withheld };
+  return { ...disclosure, ...ranking, detail: "full", embedding, match_mode: page.match_mode as ArtifactSearchPage["match_mode"], term_diagnostics, items, total: page.total, limit, offset, fulltext, indexing: indexing as unknown as ArtifactIndexingStatus, sensitive_content_withheld: page.sensitive_content_withheld };
 }
 
 export function validArtifactSearchRequest(value: unknown): boolean {
   const request = objectValue(value);
-  return Boolean(request && Object.keys(request).every((key) => ["q", "query_mode", "fulltext", "detail", "work_item_id", "artifact_id", "include_deleted", "limit", "offset", "diagnostics", ...SEARCH_DATE_FIELDS].includes(key))
+  return Boolean(request && Object.keys(request).every((key) => ["q", "query_mode", "semantic", "fulltext", "detail", "work_item_id", "artifact_id", "include_deleted", "limit", "offset", "diagnostics", ...SEARCH_DATE_FIELDS].includes(key))
+    && (request.semantic === undefined || typeof request.semantic === "boolean")
+    && (request.semantic !== true || request.fulltext === true && (request.query_mode === undefined || request.query_mode === "terms") && typeof request.q === "string" && !request.q.includes('"'))
     && (request.query_mode === undefined || validQueryMode(request.query_mode)) && validDateBounds(request) && (request.diagnostics === undefined || validDiagnosticsMode(request.diagnostics))
     && boundedText(request.q, 200) && (request.q as string).trim().length > 0
     && (request.fulltext === undefined || typeof request.fulltext === "boolean")

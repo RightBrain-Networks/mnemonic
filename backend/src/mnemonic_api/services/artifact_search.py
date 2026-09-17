@@ -30,6 +30,7 @@ from mnemonic_api.models import Artifact, ArtifactExtraction, ArtifactWorkLink
 from mnemonic_api.search_diagnostics import TermDiagnostic, TermMatchCounts
 from mnemonic_api.search_disclosure import ArtifactAppliedFilters, search_disclosure
 from mnemonic_api.search_exploration import date_conditions, wants_diagnostics
+from mnemonic_api.search_projects import ProjectSelection, project_scope
 from mnemonic_api.search_query import QueryMode, analyzer, parse_query
 from mnemonic_api.search_ranking import search_ranking
 from mnemonic_api.search_schemas import ArtifactSearchFilters
@@ -37,6 +38,7 @@ from mnemonic_api.search_snippets import phrase_snippet, supporting_snippet
 from mnemonic_api.services.artifact_approvals import require_sensitive_access
 from mnemonic_api.services.artifact_exact import literal_artifact_hits
 from mnemonic_api.services.artifacts import _has_pending_operation, artifact_read
+from mnemonic_api.services.multi_search_limits import check_artifact_metadata
 from mnemonic_api.services.project_mutations import project_mutation
 from mnemonic_api.services.work_items import require_project
 
@@ -46,10 +48,12 @@ type Corpus = list[tuple[Artifact, ArtifactExtraction | None]]
 
 
 def _corpus(
-    database: Session, project_id: UUID, filters: ArtifactSearchRequest | ArtifactSearchFilters,
+    database: Session, project_id: ProjectSelection,
+    filters: ArtifactSearchRequest | ArtifactSearchFilters,
 ) -> Corpus:
     clauses = [
-        Artifact.project_id == project_id, Artifact.revision > 0, ~_has_pending_operation(),
+        project_scope(Artifact.project_id, project_id), Artifact.revision > 0,
+        ~_has_pending_operation(),
         *date_conditions(filters, Artifact.created_at, Artifact.modified_at),
     ]
     if not filters.include_deleted:
@@ -63,6 +67,8 @@ def _corpus(
         )))
     if isinstance(filters, ArtifactSearchFilters):
         clauses.extend(_facet_conditions(filters))
+    if not isinstance(project_id, UUID):
+        check_artifact_metadata(database, clauses)
     rows = database.execute(
         select(Artifact, ArtifactExtraction)
         .outerjoin(ArtifactExtraction, and_(
@@ -117,7 +123,7 @@ def _metadata_text(artifact: Artifact, extraction: ArtifactExtraction | None) ->
 
 
 def _signature(
-    project_id: UUID, corpus: Corpus, fulltext: bool, approved: set[UUID],
+    project_id: ProjectSelection, corpus: Corpus, fulltext: bool, approved: set[UUID],
 ) -> str:
     digest = hashlib.sha256(f"{project_id}:{fulltext}".encode())
     for artifact, extraction in corpus:
@@ -262,10 +268,17 @@ def _approved_contents(
 def _search_page(
     database: Session, project_id: UUID, filters: ArtifactSearchRequest,
     index: ArtifactSearchIndex, human_dashboard: bool,
+    query_vector: tuple[float, ...] | None, artifact_chunk_config: str | None,
 ) -> ArtifactSearchPage:
     require_project(database, project_id)
     corpus = _corpus(database, project_id, filters)
     approved = _approved_contents(database, corpus, filters, human_dashboard)
+    if filters.semantic:
+        from mnemonic_api.services.artifact_semantic_search import semantic_artifact_page
+
+        return semantic_artifact_page(
+            database, project_id, filters, corpus, approved, query_vector, index,
+            artifact_chunk_config)
     result = index.search(
         _signature(project_id, corpus, filters.fulltext, approved),
         lambda: _documents(database, corpus, filters.fulltext, approved),
@@ -312,11 +325,13 @@ def _search_page(
 def search_artifact_contents(
     database: Session, project_id: UUID, filters: ArtifactSearchRequest,
     index: ArtifactSearchIndex, *, human_dashboard: bool = False,
+    query_vector: tuple[float, ...] | None = None, artifact_chunk_config: str | None = None,
 ) -> ArtifactSearchPage:
     # Content mutations, sensitivity changes and extraction publication all hold
     # this lock. Keep corpus, approval consumption, snippets and revisions coherent
     # until the read and its audit commit; a concurrent token use must wait.
     with project_mutation(database, project_id, protected=True, domain_seconds=120):
-        page = _search_page(database, project_id, filters, index, human_dashboard)
+        page = _search_page(database, project_id, filters, index, human_dashboard, query_vector,
+                            artifact_chunk_config)
         database.commit()
         return page

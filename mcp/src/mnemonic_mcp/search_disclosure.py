@@ -42,6 +42,7 @@ class WorkAppliedFilters(EchoedDateBounds, DisclosureModel):
 
 
 class ArtifactAppliedFilters(EchoedDateBounds, DisclosureModel):
+    semantic: StrictBool = Field(default=False, exclude_if=lambda value: value is False)
     artifact_id: UUID | None = None
     work_item_id: UUID | None = None
     include_deleted: StrictBool = False
@@ -60,7 +61,8 @@ class TranscriptAppliedFilters(EchoedDateBounds, DisclosureModel):
 
 
 class AppliedSearchFilters(DisclosureModel):
-    project_id: UUID
+    project_id: UUID | None
+    project_ids: list[UUID] | None = Field(default=None, min_length=1, max_length=10)
     # Null identifies an unsearched source, including a disabled artifact library.
     work_items: WorkAppliedFilters | None = None
     artifacts: ArtifactAppliedFilters | None = None
@@ -69,7 +71,7 @@ class AppliedSearchFilters(DisclosureModel):
 
 class SourceQueryInterpretation(DisclosureModel):
     match_mode: Literal[
-        "browse", "postgresql_plain_terms_or_substring", "hybrid_lexical_semantic", "all_terms", "postgresql_phrase_terms", "phrase", "literal",
+        "browse", "postgresql_plain_terms_or_substring", "hybrid_lexical_semantic", "all_terms", "postgresql_phrase_terms", "phrase", "literal", "semantic_passages",
     ]
     fields: list[Literal[
         "title", "summary", "tags", "checkpoint", "identifiers", "provenance",
@@ -103,7 +105,7 @@ class SearchDisclosure(DisclosureModel):
 
 
 def search_disclosure(
-    project_id: UUID, q: str | None, *, query_mode: QueryMode = "terms",
+    project_id: UUID | tuple[UUID, ...], q: str | None, *, query_mode: QueryMode = "terms",
     work_items: WorkAppliedFilters | None = None,
     artifacts: ArtifactAppliedFilters | None = None,
     transcripts: TranscriptAppliedFilters | None = None,
@@ -111,7 +113,9 @@ def search_disclosure(
 ) -> SearchDisclosure:
     query = (q or "").strip()
     applied = AppliedSearchFilters(
-        project_id=project_id, work_items=work_items, artifacts=artifacts, transcripts=transcripts,
+        project_id=project_id if isinstance(project_id, UUID) else None,
+        project_ids=None if isinstance(project_id, UUID) else list(project_id),
+        work_items=work_items, artifacts=artifacts, transcripts=transcripts,
     )
     interpretation = QueryInterpretation(q=query, query_mode=query_mode)
     sources: list[SearchFacet] = []
@@ -134,6 +138,9 @@ def search_disclosure(
                        if query else "browse", fulltext=fulltext,
             fields=["metadata", "content"] if fulltext else ["metadata"],
         )
+        if isinstance(filters, ArtifactAppliedFilters) and filters.semantic:
+            source.match_mode = "semantic_passages"
+            source.fields = ["content"]
         setattr(interpretation, facet, source)
     return SearchDisclosure(
         diagnostics=diagnostics, applied_filters=applied, query_interpretation=interpretation,
@@ -153,7 +160,12 @@ def disclosure_matches(actual: SearchDisclosure, expected: SearchDisclosure) -> 
         return False
     sources = (actual.applied_filters, actual.query_interpretation)
     return all(
-        source is None or (source.model_fields_set - set(DATE_FIELDS)
-                           == set(type(source).model_fields) - set(DATE_FIELDS))
+        source is None or (source.model_fields_set - set(DATE_FIELDS) - _optional_filters(source)
+                           == set(type(source).model_fields) - set(DATE_FIELDS)
+                           - _optional_filters(source))
         for group in sources for source in (group.work_items, group.artifacts, group.transcripts)
     )
+
+
+def _optional_filters(source) -> set[str]:
+    return {"semantic"} if isinstance(source, ArtifactAppliedFilters) and not source.semantic else set()

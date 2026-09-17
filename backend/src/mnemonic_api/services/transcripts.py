@@ -28,6 +28,7 @@ from mnemonic_api.search_diagnostics import TermDiagnostic, TermMatchCounts
 from mnemonic_api.search_disclosure import TranscriptAppliedFilters, search_disclosure
 from mnemonic_api.search_exploration import date_conditions, wants_diagnostics
 from mnemonic_api.search_exploration_schemas import DiagnosticsMode
+from mnemonic_api.search_projects import ProjectSelection, project_scope
 from mnemonic_api.search_query import QueryMode, parse_query
 from mnemonic_api.search_ranking import search_ranking
 from mnemonic_api.services.work_items import require_project
@@ -121,9 +122,9 @@ def transcript_project_id():
     return func.coalesce(WorkItem.project_id, Transcript.import_project_id)
 
 
-def transcript_query(project_id: UUID):
+def transcript_query(project_id: ProjectSelection):
     return select(Transcript).outerjoin(WorkItem, WorkItem.id == Transcript.work_item_id).where(
-        transcript_project_id() == project_id)
+        project_scope(transcript_project_id(), project_id))
 
 
 def require_transcript(
