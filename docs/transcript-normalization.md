@@ -184,6 +184,8 @@ become eligible later. Old search text remains available until replacement text
 publishes, and an already pending or failed refresh is not repeatedly reset.
 Existing bounded retry and explicit rebuild controls handle failed refreshes.
 No migration, source-path rewrite, permission widening or recopy is required.
+Reading an already-private retained copy no longer performs redundant `chmod`
+writes, so verification and recovery can read correctly secured read-only mounts.
 
 Run a read-only audit inside the worker, which can access the native-copy bind:
 
@@ -193,6 +195,7 @@ docker compose exec -T worker python /app/scripts/audit_transcript_normalization
 
 The audit reports aggregate states and warning counts, validates native hashes,
 and verifies both persisted segment hashes and recomputed current-version canonical hashes. It emits no paths or transcript
-bodies. Non-transcript captures are reported separately; a journal/stdout file
+bodies and never repairs filesystem permissions; unsafe directories are reported
+as unreadable. Non-transcript captures are reported separately; a journal/stdout file
 cannot be repaired by pretending it is a native session. Use the audited recovery
 workflow when a historical assertion identified the wrong file.

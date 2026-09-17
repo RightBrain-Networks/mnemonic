@@ -47,3 +47,19 @@ def test_audit_detects_a_corrupted_stored_segment_hash(
     assert report["counts"]["normalized_hash_mismatch"] == 1
     assert report["counts"]["stored_segments_hash_mismatch"] == 1
     assert report["counts"]["native_copies_verified"] == 1
+
+
+def test_audit_reports_unsafe_directories_without_repairing_permissions(
+    api, project, work_payload, tmp_path, postgres_engine, monkeypatch,
+):
+    work, _, _, _ = register(api, project, work_payload, tmp_path)
+    expire_lease(postgres_engine, work["id"])
+    assert run(api)
+    root = api.app.state.settings.transcript_root
+    root.chmod(0o755)
+    path = Path(__file__).resolve().parents[2] / "scripts/audit_transcript_normalization.py"
+    audit = runpy.run_path(str(path))["audit"]
+    monkeypatch.setitem(audit.__globals__, "build_engine", lambda _: postgres_engine)
+    report = audit(api.app.state.settings, verify_native=True)
+    assert report["counts"]["native_copy_unreadable"] == 1
+    assert root.stat().st_mode & 0o777 == 0o755

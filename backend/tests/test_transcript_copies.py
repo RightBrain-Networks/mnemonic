@@ -142,3 +142,26 @@ def test_pinned_recovery_rechecks_competing_retained_file_at_publication(tmp_pat
     store = TranscriptStorage(root, 1024)
     assert store.read_copy(store.describe(store.key(identity, snapshot))) == unapproved.read_bytes()
     assert not list(root.rglob(".pending-*"))
+
+
+@pytest.mark.parametrize("private", [True, False])
+def test_retained_private_copies_can_be_read_without_permission_writes(
+    tmp_path, monkeypatch, private,
+):
+    source = tmp_path / "source.jsonl"
+    source.write_bytes(b'{"role":"user","content":"preserved"}')
+    storage = TranscriptStorage(tmp_path / "copies", 1024)
+    captured = storage.capture(uuid4(), uuid4(), str(source), [tmp_path])
+    if not private:
+        storage.root.chmod(0o755)
+
+    def readonly(*_args):
+        raise OSError(errno.EROFS, "Read-only filesystem")
+
+    monkeypatch.setattr(os, "fchmod", readonly)
+    if private:
+        assert storage.read_copy(captured) == source.read_bytes()
+    else:
+        with pytest.raises(ExtractionError, match="transcript_copy_unavailable"):
+            storage.read_copy(captured)
+        assert storage.root.stat().st_mode & 0o777 == 0o755

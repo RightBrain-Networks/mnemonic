@@ -4,6 +4,8 @@
 import argparse
 import hashlib
 import json
+import os
+import stat
 from collections import Counter
 
 from mnemonic_api.artifact_tika import ExtractionError
@@ -16,6 +18,14 @@ from mnemonic_api.transcript_normalization import (
     normalize_transcript,
 )
 from sqlalchemy import text
+
+
+class ReadOnlyTranscriptStorage(TranscriptStorage):
+    @staticmethod
+    def _secure_directory(descriptor: int) -> None:
+        info = os.fstat(descriptor)
+        if info.st_uid != os.geteuid() or stat.S_IMODE(info.st_mode) != 0o700:
+            raise PermissionError("Native capture directories must be owned and private")
 
 
 def verify_capture(row, storage, counts):
@@ -67,7 +77,7 @@ def audit(settings: Settings, *, verify_native: bool) -> dict:
     engine = build_engine(settings)
     counts: Counter = Counter()
     states: Counter = Counter()
-    storage = TranscriptStorage(settings.transcript_root, settings.transcript_max_bytes)
+    storage = ReadOnlyTranscriptStorage(settings.transcript_root, settings.transcript_max_bytes)
     try:
         with engine.connect() as connection:
             connection.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY"))
