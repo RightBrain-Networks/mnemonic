@@ -43,6 +43,22 @@ bounded search text; `normalization_incomplete` separately reports omitted or
 unsupported structure. Canonical rows contain untrusted content, just like native
 transcripts and derived text.
 
+Before 0.62.0 the indexer incorrectly combined normalization warnings with the
+`truncated` flag, so even a short conversation containing session bookkeeping
+could be labeled Truncated. The corrected status distinguishes **Search text
+limited**, **Normalization warnings**, and **Metadata limited**. Unsupported native
+record types, binary/encrypted content and unresolved relationships still report
+coverage limitations; they do not imply the raw source copy was shortened. Text
+preview/download limits apply to indexed text. Segment-window responses retain
+their separate structural-coverage `truncated` flag and per-block `text_truncated`
+pagination marker. Extracted property limits use `transcript:metadata_limited`.
+
+Migration 0043 queues idle, ready, copied transcripts with the old flag for normal
+reindexing from retained segments. It neither clears lease tokens nor queues work
+with an Active lease. Existing in-flight jobs finish under the new indexer; jobs
+still respect project pauses. Ready text remains readable during refresh. A
+record excluded because its work is Active can be rebuilt after that work ends.
+
 ## Ingestion, rebuilds, and migration
 
 Migration `0040_normalized_transcripts` queues existing transcripts through the

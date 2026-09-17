@@ -205,7 +205,10 @@ export function transcriptStatusLabel(transcript: Transcript): string {
     return `Indexed · ${replacement[transcript.index_status]}`;
   }
   const labels = { waiting: transcript.kind === "imported" ? "Queued" : "Waiting for work to leave Active", pending: "Queued", processing: "Indexing", ready: "Indexed", failed: "Failed" };
-  return `${labels[transcript.status]}${transcript.truncated ? " · Truncated" : ""}`;
+  const notes = [transcript.truncated ? "Search text limited" : "",
+    transcript.normalization_incomplete ? "Normalization warnings" : "",
+    transcript.metadata["transcript:metadata_limited"]?.includes("true") ? "Metadata limited" : ""].filter(Boolean);
+  return [labels[transcript.status], ...notes].join(" · ");
 }
 
 // Only these exact proxy-owned responses prove a fresh request was never dispatched.

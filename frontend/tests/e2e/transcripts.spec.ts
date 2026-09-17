@@ -340,3 +340,68 @@ test("transcript permission warnings name the blocked path and clear after autom
     await expect(notice).not.toBeVisible();
   } finally { await permissions("0600"); await api.dispose(); }
 });
+
+test("a transcript moved into a worktree after claim is copied after release", async ({ page }) => {
+  test.setTimeout(120000);
+  const api = await apiContext();
+  try {
+    const { project, work, runId, primary, folder } = await fixture(api);
+    const compose = ["compose", "-p", requireDisposableE2EComposeProject("Transcript relocation fixture"), "-f", resolve(process.cwd(), "../compose.e2e.yaml")];
+    const workPath = `/api/v1/projects/${project.id}/work-items/${work.id}`;
+    const collection = `/api/v1/projects/${project.id}/transcripts`;
+    const payload = { holder_client: "claude-code", holder_session_id: runId, claim_request_id: crypto.randomUUID(), session_transcript: { client: "claude_code", path: primary } };
+    const claimed = await api.post(workPath + "/claim", { data: payload });
+    expect(claimed.ok(), await claimed.text()).toBe(true);
+    const lease = await claimed.json();
+    const destination = `${folder}/worktree/${runId}.jsonl`;
+    await execFileAsync("docker", [...compose, "exec", "-T", "api", "python", "-c",
+      "import pathlib,sys; source=pathlib.Path(sys.argv[1]); target=pathlib.Path(sys.argv[2]); target.parent.mkdir(); source.rename(target)", primary, destination]);
+    const replay = await api.post(workPath + "/claim", { data: payload });
+    expect(await replay.json()).toEqual(lease);
+    const waiting = await (await api.get(collection)).json();
+    expect(waiting.items[0].copy_status).toBe("pending");
+    const released = await api.post(workPath + "/release-claim", { data: { lease_token: lease.lease_token, actor: { actor_client: "claude-code", actor_session_id: runId }, subagent_transcripts: null } });
+    expect(released.ok(), await released.text()).toBe(true);
+    await expect.poll(async () => {
+      const result = await api.get(collection + "?detail=full");
+      const row = (await result.json()).items[0];
+      return [row?.copy_status, row?.status, row?.source_path];
+    }, { timeout: 60000 }).toEqual(["ready", "ready", primary]);
+    await expect.poll(async () => (await (await api.get(collection + "/health")).json()).warnings, { timeout: 60000 }).toEqual([]);
+    await page.goto(`/transcripts?project=${project.id}`);
+    await expect(page.locator(".transcript-table tbody tr")).toHaveCount(1);
+    await expect(page.getByRole("status", { name: "Transcript access warnings" })).not.toBeVisible();
+    await page.getByRole("searchbox", { name: "Search transcript metadata and content" }).fill("magenta otter");
+    await page.getByRole("switch", { name: "Include contents" }).check();
+    await expect(page.locator(".transcript-table tbody tr")).toHaveCount(1);
+  } finally { await api.dispose(); }
+});
+
+test("normalization warnings do not label intact searchable text as truncated", async ({ page }, testInfo) => {
+  test.setTimeout(120000);
+  const api = await apiContext();
+  try {
+    const { project, work, runId, primary } = await fixture(api);
+    const compose = ["compose", "-p", requireDisposableE2EComposeProject("Transcript coverage fixture"), "-f", resolve(process.cwd(), "../compose.e2e.yaml")];
+    await execFileAsync("docker", [...compose, "exec", "-T", "api", "python", "-c",
+      "import json,sys; f=open(sys.argv[1],'a'); f.write(json.dumps({'type':'worktree-state','state':'synthetic bookkeeping'})+'\\n'); f.close()", primary]);
+    const path = `/api/v1/projects/${project.id}/work-items/${work.id}`;
+    const claimed = await api.post(path + "/claim", { data: { holder_client: "claude-code", holder_session_id: runId, claim_request_id: crypto.randomUUID(), session_transcript: { client: "claude_code", path: primary } } });
+    expect(claimed.ok(), await claimed.text()).toBe(true);
+    const lease = await claimed.json();
+    const released = await api.post(path + "/release-claim", { data: { lease_token: lease.lease_token, actor: { actor_client: "claude-code", actor_session_id: runId }, subagent_transcripts: null } });
+    expect(released.ok(), await released.text()).toBe(true);
+    await expect.poll(async () => {
+      const result = await api.get(`/api/v1/projects/${project.id}/transcripts?detail=full`);
+      const row = (await result.json()).items[0];
+      return [row?.status, row?.normalization_incomplete, row?.truncated];
+    }, { timeout: 60000 }).toEqual(["ready", true, false]);
+    await page.goto(`/transcripts?project=${project.id}`);
+    await expect(page.locator(".transcript-status")).toHaveText("Indexed · Normalization warnings");
+    await page.getByRole("button", { name: `${runId}.jsonl`, exact: true }).click();
+    await expect(page.getByText("No length limit reached", { exact: true })).toBeVisible();
+    await expect(page.getByText("Complete native copy retained", { exact: true })).toBeVisible();
+    await page.screenshot({ path: testInfo.outputPath("transcript-coverage.png"), fullPage: true, animations: "disabled" });
+    await testInfo.attach("Separate transcript coverage warnings", { path: testInfo.outputPath("transcript-coverage.png"), contentType: "image/png" });
+  } finally { await api.dispose(); }
+});

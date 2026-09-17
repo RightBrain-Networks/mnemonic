@@ -53,6 +53,7 @@ def _incomplete_records(rows) -> bool:
     return any(record.status != "ready" or record.copy_status != "ready"
         or record.reindex_status is not None or record.truncated
         or record.normalization_status != "ready" or record.normalization_incomplete
+        or record.extracted_metadata.get("transcript:metadata_limited") == ["true"]
         for record in rows)
 
 

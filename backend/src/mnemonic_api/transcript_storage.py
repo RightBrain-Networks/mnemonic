@@ -118,15 +118,19 @@ def check_transcript_source(source: Path | None, roots: list[Path]) -> None:
         ) from None
 
 
-def validate_transcript_assertion(source: str, roots: list[Path]) -> None:
+def validate_transcript_assertion(source: str, roots: list[Path]) -> dict | None:
     """Fresh assertions must identify readable native files; receipt replays skip this."""
     from mnemonic_api.errors import ApplicationError
     from mnemonic_api.transcript_access import access_instruction, require_native_path
+    from mnemonic_api.transcript_source_identity import capture_identity
 
     try:
         require_native_path(source)
         descriptor = _open_source(source, roots)
-        os.close(descriptor)
+        try:
+            return capture_identity(descriptor, source)
+        finally:
+            os.close(descriptor)
     except TranscriptAccessError as error:
         raise ApplicationError(422, error.code,
             f"Transcript source unavailable at {error.details['path']}. "

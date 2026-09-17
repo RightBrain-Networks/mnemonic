@@ -40,6 +40,7 @@ class TranscriptCopyJob:
     source_path: str
     maximum_bytes: int
     expected: TranscriptCopyPin | None = None
+    source_identity: dict | None = None
 
 
 def claimable_copies(settings: Settings):
@@ -51,7 +52,9 @@ def claimable_copies(settings: Settings):
             & (Transcript.copy_next_attempt_at <= func.clock_timestamp()),
             _resolved_path_errors(settings, copying=True),
             (Transcript.copy_status == "failed")
-            & Transcript.copy_error_code.in_(RECOVERABLE_COPY_ERRORS)
+            & or_(Transcript.copy_error_code.in_(RECOVERABLE_COPY_ERRORS),
+                  (Transcript.copy_error_code == "transcript_path_not_allowed")
+                  & Transcript.source_identity.is_not(None))
             & (Transcript.copy_next_attempt_at <= func.clock_timestamp()),
             (Transcript.copy_status == "processing")
             & (Transcript.copy_lease_expires_at <= func.clock_timestamp()),
@@ -79,7 +82,8 @@ def _start_copy(database: Session, row, settings: Settings) -> TranscriptCopyJob
         return None
     return TranscriptCopyJob(record.id, record.generation, record.snapshot_id,
         record.copy_lease_token, source,
-        min(maximum or settings.transcript_max_bytes, settings.transcript_max_bytes), expected)
+        min(maximum or settings.transcript_max_bytes, settings.transcript_max_bytes), expected,
+        record.source_identity if expected is None else None)
 
 
 def claim_transcript_copy(
@@ -125,6 +129,7 @@ def _copy_failure(record: Transcript, error: ExtractionError, now: datetime) -> 
 def _copy_success(record: Transcript, copy: TranscriptCopy, now: datetime) -> None:
     record.copy_status = "ready"
     record.storage_key = copy.storage_key
+    record.copy_source_path = copy.source_path
     record.copy_sha256 = copy.sha256
     record.copy_size_bytes = copy.size_bytes
     record.copied_at = now
@@ -188,7 +193,7 @@ def copy_next_transcript(factory: sessionmaker[Session], settings: Settings,
     try:
         copy = TranscriptStorage(settings.transcript_root, job.maximum_bytes).capture(
             job.transcript_id, job.snapshot_id, job.source_path, settings.transcript_allowed_roots,
-            expected=job.expected)
+            expected=job.expected, source_identity=job.source_identity)
     except ExtractionError as failure:
         error = failure
     except OSError as failure:

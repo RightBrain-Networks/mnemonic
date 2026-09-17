@@ -37,7 +37,9 @@ class TranscriptNormalizationRead(BaseModel):
     normalized_size_bytes: Nonnegative | None = None
     normalizer_version: Positive | None = None
     segment_count: Nonnegative = 0
-    normalization_incomplete: bool = False
+    normalization_incomplete: bool = Field(default=False,
+        description="Native records or relationships could not be represented; independent of "
+                    "search-text length and retained native-copy completeness.")
     segment_id: SegmentIdentity | None = None
     content_kind: ContentKind | None = None
     snippet_omission_reason: Literal["matched_span_exceeds_budget"] | None = None
@@ -69,7 +71,8 @@ class TranscriptRead(TranscriptNormalizationRead):
     sha256: Digest | None
     text_sha256: Digest | None
     metadata: dict[str, list[str]]
-    truncated: bool
+    truncated: bool = Field(description="Indexed text reached its character budget. "
+                           "Native copies and persisted conversation segments remain intact.")
     created_at: datetime
     snippet: str | None = None
     score: float | None = None
@@ -87,7 +90,8 @@ class CompactTranscriptRead(TranscriptNormalizationRead):
     status: TranscriptStatus
     index_status: TranscriptStatus
     copy_status: Literal["pending", "processing", "ready", "failed"]
-    truncated: bool
+    truncated: bool = Field(description="Indexed text reached its character budget. "
+                           "Native copies and persisted conversation segments remain intact.")
     snippet: str | None = None
     score: float | None = None
 

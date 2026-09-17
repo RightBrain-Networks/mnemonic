@@ -1,7 +1,7 @@
 # Transcript reliability RCA and remediation
 
-Application/API/MCP/dashboard **0.61.0**, plugin **0.39.0**, migration
-`0042_transcript_health`.
+Application/API/MCP/dashboard **0.62.0**, plugin **0.40.0**, migration
+`0043_transcript_source_identity` (includes the 0.61.0 access-diagnostics repair).
 
 ## Production evidence
 
@@ -16,9 +16,11 @@ Claude, Codex session, and archived-session directories. Opening affected paths
 as the actual worker showed these causes:
 
 - Forty queued records had a unique native session filename in a worktree-specific
-  Claude project directory. Their recorded path incorrectly used the main checkout's
-  encoded project directory. One other missing filename had no verified match in
-  the approved roots. A separate Active enrollment had the same main/worktree error.
+  Claude project directory, while their recorded paths used the main checkout's
+  encoded project directory. The mismatch alone does not establish whether the
+  original assertion was wrong or the client subsequently moved the file. One
+  missing filename had no verified match in the approved roots. A separate Active
+  enrollment had the same main/worktree mismatch.
 - Four assertions named `subagents/workflows/wf_*` directories. Each held several
   native agent files; there is no sound one-to-one replacement for a directory.
 - The rejected `/tmp/claude-1026/.../tasks/*.output` assertion was a temporary
@@ -39,6 +41,16 @@ claims and closeouts still accepted syntactically valid absolute paths without
 verifying them. New guessed paths could therefore recreate the same backlog after
 an earlier repair (59 recovery approvals already existed before this audit).
 
+The live recheck after deploying 0.61.0 found a newly enrolled path missing, despite
+server-side validation at claim time. The same native session filename existed in
+a worktree-specific directory. The initial RCA had overattributed these mismatches
+to guessed assertions. [Claude's documented behavior](https://code.claude.com/docs/en/worktrees#resume-a-worktree-session)
+explains that transcripts follow the working directory when entering or exiting
+Git-created worktrees. Validation proves accessibility at enrollment, not continued
+location. The new observation is consistent with that move; it does not retroactively
+prove how each older missing path arose. Version 0.62.0 adds durable enrollment
+evidence and verified relocation instead of relying on the original path staying put.
+
 Several independent failures were reduced to `transcript_io_error`. In particular,
 Python's `fdopen` rejected a directory before the intended regular-file check,
 turning an invalid directory assertion into an I/O failure. Missing files and
@@ -58,8 +70,9 @@ required permission, storage failure, or worker observation freshness.
 1. **Verify fresh assertions.** Claims and closeouts verify native `.jsonl`/`.json`
    paths are readable regular files under operator-approved roots. Directory,
    temporary-output, missing, permission, and symlink failures reject the fresh
-   transaction with a specific path and repair instructions. No transcript body
-   is read. Explicit null remains available when no verified transcript exists.
+   transaction with a specific path and repair instructions. The API hashes a bounded
+   prefix for relocation evidence; it returns no transcript body to the agent.
+   Explicit null remains available when no verified transcript exists.
    Successful permanent receipt replays bypass this check even if the original
    file or mount later disappears; uncertain retries remain byte-for-byte frozen.
 2. **Use least-required filesystem access.** Descriptor-based no-follow traversal
@@ -92,22 +105,44 @@ required permission, storage failure, or worker observation freshness.
    explicit service identity and access arrangement. A preflight checks both real
    Compose services and a bounded sample of native files without reading bodies.
    It supports built one-off containers before application startup.
+7. **Recognize verified moves.** New assertions retain a versioned filename/prefix
+   hash (256–65,536 bytes). A missing or changed source can be found only by a complete,
+   bounded scan inside current approved roots yielding one matching regular file.
+   The copier rechecks the evidence on the same descriptor used to stream bytes.
+   No symlinks, first-match guesses, legacy backfills or root expansion are allowed.
+   Original assertions stay immutable; actual capture locations are recorded when
+   known. Ambiguity, limits and changed identity are actionable warnings with slow
+   retries. Existing private copies and full-file operator recovery pins take priority.
+
+8. **Separate search limits from format coverage.** The previous indexer folded
+   every unsupported native record or unresolved relationship into `truncated`.
+   The live audit found 1,334 flagged rows, but only 11 at the two-million-character
+   search limit. Version 0.62.0 reserves that flag for the indexed text budget and
+   labels structural issues **Normalization warnings**. Metadata limits have their
+   own property. Retained raw copies and full stored segments are preserved. The
+   migration queues only idle ready copies, excludes Active work and never clears
+   lease fields; normal jobs refresh the derived flags from persisted segments.
 
 ## Instance repair and remaining historical gaps
 
 Forty unique exact session filenames and the verified native target of the one
 `.output` symlink were prepared and applied through
-`scripts/recover_transcript_paths.py`. All **41** resulting records reached both
-copy **ready** and index **ready**. The original assertions and work linkage were
+`scripts/recover_transcript_paths.py`. The separate Active mapping was recovered
+after its lease ended; all **42** resulting records reached both copy **ready**
+and index **ready**. The original assertions and work linkage were
 preserved; approved replacement paths, SHA-256/size pins and operation UUIDs are
 retained in the existing append-only journal. No roots or permissions were widened.
 
 The four multi-agent workflow directories and the one unmatched source require
 operator evidence identifying the actual native files, or restoration from an
 external backup. They must remain visible gaps rather than being filled with a
-plausible but unverified session. The additional verified mapping was deferred
-while its work lease remained Active; its content must be pinned after that lease
-ends. These are historical source-identification gaps, not permission repairs.
+plausible but unverified session. These are historical source-identification gaps,
+not permission repairs. The post-deployment moved source is handled through a new
+audited recovery because that enrollment predates persistent identity evidence.
+Its first approved hash failed when the session continued writing after work
+completion; that explicit failure prevented silently substituting unapproved bytes.
+A new verified approval subsequently completed copying and indexing, bringing the
+confirmed repairs to **43**. Both recovery intents remain in the append-only journal.
 Private recovery manifests are kept outside Git and contain paths/operation IDs,
 not transcript bodies or credentials.
 
@@ -116,7 +151,10 @@ not transcript bodies or credentials.
 Stop old API, MCP, dashboard and worker processes before upgrading the schema.
 Build the coordinated images, take a database backup, migrate, then start the new
 services together. Migration 0042 adds `transcripts.copy_error_details` and the
-worker-health observation table. No new MCP tool, agent write, receipt kind or
+worker-health observation table. Migration 0043 adds nullable `source_identity`
+and `copy_source_path`, with shape and evidence immutability guards. Existing rows
+remain unproven; enrolled evidence cannot be added retrospectively or discarded
+by downgrade. No new MCP tool, agent write, receipt kind or
 protected browser mutation is added.
 
 Regression coverage exercises real execute-only ancestors, denied parent/leaf
@@ -126,7 +164,12 @@ worker staleness/configuration mismatches and project isolation. Existing copy
 crash, recovery, migration, backup and RabbitMQ suites protect the established
 safety guarantees. Playwright verifies the warning above search at desktop and
 narrow widths and observes it disappear after the same source's permissions are
-restored and the normal retry runs.
+restored and the normal retry runs. Relocation regressions cover rename/append after
+claim, restart, frozen receipt replay, Active lease fencing, backup persistence,
+ambiguity, symlinks, outside-root targets, inaccessible and budget-limited scans,
+source substitution between discovery and capture, and unchanged full-file pins.
+Browser acceptance moves a real shared file after claim and observes normal
+RabbitMQ copying/indexing after release.
 
 The residual dependency is explicit: Mnemonic cannot recreate deleted external
 files, choose among several agent transcripts, grant itself host permissions,

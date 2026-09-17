@@ -446,3 +446,48 @@ SELinux/ACL restrictions, rootless UID mappings and Docker Desktop file sharing 
 need host-specific intervention; use the actual in-container probe as the evidence.
 A remote Docker daemon cannot mount a path from the client computer without an
 explicit filesystem share. Both services need the same exact absolute source paths.
+
+
+## Verified relocation after enrollment (0.62.0)
+
+Claude Code can move a session's transcript when entering or leaving a worktree;
+Codex sessions may also move to an approved archive root. A valid claim-time path
+can disappear before the lease ends. See [Claude Code's worktree resume behavior](https://code.claude.com/docs/en/worktrees#resume-a-worktree-session).
+
+For new assertions, the API now hashes the first at most 65,536 bytes through its
+verified no-follow file descriptor. It stores only the hash, byte count, filename
+and version. A file shorter than 256 bytes has no relocation evidence. This bounded
+server read never returns transcript content to the claiming agent; agent-side
+path verification still needs only filesystem metadata. Existing records are not
+backfilled with evidence inferred after enrollment.
+
+The worker first reuses an already-published private snapshot. Otherwise it checks
+the original path and prefix. If that file has moved, changed identity, or falls
+outside corrected roots, a bounded scan searches only current approved roots for
+the exact filename. Only one verified matching regular file, after a complete scan,
+is eligible. Overlapping roots are deduplicated, links are never followed, and the
+prefix is rechecked on the same descriptor that streams the private copy. Source
+appends are allowed; prefix replacement is not. The original `source_path` remains
+unchanged; `copy_source_path` records the actual read location when known. A crash
+that preserves bytes but loses the source-location observation leaves it unknown.
+
+Scans stop at 100,000 entries, 10,000 directories, depth 64 or five seconds checked
+between filesystem operations. Slow or unavailable filesystems can still delay an
+individual OS call. A limit, unreadable directory or concurrent disappearance
+prevents selection from an incomplete scan. Ambiguous matches and changed identity
+have explicit warnings at the top of `/transcripts` and are rechecked every five
+minutes. Use dedicated source roots or audited recovery when a complete scan is
+impractical. Never expand roots to include unrelated files or temporary stdout.
+
+Lease and pause guards still apply. Permanent receipts replay unchanged even when
+the original path has moved. Operator recovery keeps its stronger full-file hash
+and size pin; automatic relocation never relaxes that approval. If the approved
+file changes, wait for writes to finish and prepare a new recovery. Rebuilding
+cannot choose a replacement or rewrite a historical assertion.
+
+Migration `0043_transcript_source_identity` adds nullable enrollment evidence and
+capture provenance, shape constraints and a guard against changing enrolled
+identity evidence (including adding it to old unproven records). Import-to-session
+enrollment establishes fresh evidence. Project backups retain both new columns;
+restores fence jobs as before. Stop old processes for the coordinated upgrade.
+A downgrade refuses to discard captured enrollment evidence.

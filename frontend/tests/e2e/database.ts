@@ -93,7 +93,7 @@ function parseMigrationProof(serialized: string): Phase11MigrationProof {
   }
   const row = value as MigrationProofRow;
   if (
-    row.revision !== "0042_transcript_health"
+    row.revision !== "0043_transcript_source_identity"
     || typeof row.completion_event_id !== "string"
     || !/^[1-9][0-9]*$/.test(row.completion_event_id)
     || typeof row.completion_generation !== "string"
