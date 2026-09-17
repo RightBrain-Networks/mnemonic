@@ -5,11 +5,12 @@ import TranscriptConversation from "@/components/transcript-conversation";
 import { TRANSCRIPT_CONTENT_KINDS, TRANSCRIPT_CONTENT_LABELS, type TranscriptContentKind } from "@/lib/transcript-segments";
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { artifactLocation, formatArtifactSize } from "@/lib/artifacts";
+import { transcriptSearchRead } from "@/lib/search-read";
 import { api, errorMessage } from "@/lib/api";
 import { decodeUnifiedTranscriptSearchPage, transcriptSearchRequest, unifiedSearchPath } from "@/lib/unified-search";
 import { dashboardStorageKeys } from "@/lib/dashboard-preferences";
 import { dialogOpen, typingTarget } from "@/lib/keyboard-shortcuts";
-import { sameUuid } from "@/lib/wire-guards";
+import { sameUuid, validUuid } from "@/lib/wire-guards";
 import { formatDateTime } from "@/components/work-item-card";
 import { decodeTranscript, decodeTranscriptText, transcriptContentPath, transcriptLibraryPath, transcriptPath, transcriptRequest, transcriptStatusLabel, transcriptClientLabel, TRANSCRIPT_PAGE_SIZE, TRANSCRIPT_TEXT_PAGE_SIZE, type Transcript, type TranscriptPage, type TranscriptText } from "@/lib/transcripts";
 
@@ -34,6 +35,14 @@ export default function TranscriptLibrary({ projectId, refreshSignal }: { projec
     try { setFulltext(localStorage.getItem(dashboardStorageKeys.transcriptContents) === "true"); } catch { /* Storage is optional. */ }
     const location = artifactLocation(window.location.search);
     setWorkFilter(sameUuid(location.projectId, projectId) ? location.workItemId ?? "" : "");
+    const identity = new URLSearchParams(window.location.search).get("transcript");
+    const controller = new AbortController();
+    if (sameUuid(location.projectId, projectId) && identity && validUuid(identity)) {
+      void transcriptRequest(transcriptPath(projectId, identity), { signal: controller.signal })
+        .then((value) => { if (!controller.signal.aborted) setSelected(decodeTranscript(value, projectId, identity)); })
+        .catch((error) => { if (!controller.signal.aborted) setError(errorMessage(error)); });
+    }
+    return () => controller.abort();
   }, [projectId]);
   useEffect(() => {
     const refreshVisible = () => { if (document.visibilityState === "visible") setRefresh((value) => value + 1); };
@@ -54,7 +63,7 @@ export default function TranscriptLibrary({ projectId, refreshSignal }: { projec
     setLoading(true); setError("");
     const contentKinds = fulltext && contentKind ? [contentKind] : undefined;
     const body = transcriptSearchRequest(search, fulltext, offset, workFilter || undefined, contentKinds);
-    void api<unknown>(unifiedSearchPath(projectId), { method: "POST", body: JSON.stringify(body), signal: controller.signal }).then((value) => {
+    void transcriptSearchRead(() => api<unknown>(unifiedSearchPath(projectId), { method: "POST", body: JSON.stringify(body), signal: controller.signal }), controller.signal).then((value) => {
       if (controller.signal.aborted) return;
       const result = decodeUnifiedTranscriptSearchPage(value, projectId, offset, fulltext, workFilter || undefined, search, contentKinds);
       setPage(result);
@@ -88,9 +97,9 @@ export default function TranscriptLibrary({ projectId, refreshSignal }: { projec
     {page?.indexing_incomplete && <div className="artifact-search-status" role="status"><p>Content results are incomplete. Some transcripts are waiting, copying, normalizing, indexing, failed, limited by the search-text budget, or contain unsupported session records. Available metadata remains searchable.</p></div>}
     {error ? <div className="error-notice" role="alert"><p>{error}</p><button className="button button-secondary" onClick={() => setRefresh((value) => value + 1)}>Retry loading transcripts</button></div> : <>
       <div className="artifact-table-scroll" aria-busy={loading} tabIndex={0} role="region" aria-label="Transcript directory">
-        <table className="artifact-table transcript-table"><thead><tr>{["Name", "Size", "Session", "Indexing", "Completed", "Actions"].map((label) => <th key={label} scope="col">{label}</th>)}</tr></thead><tbody>{page?.items.map((transcript) => <tr key={transcript.id}>
+        <table className="artifact-table transcript-table"><thead><tr>{["Name", "Size", "Session", "Indexing", "Last Updated", "Actions"].map((label) => <th key={label} scope="col">{label}</th>)}</tr></thead><tbody>{page?.items.map((transcript) => <tr key={transcript.id}>
           <td><button className="artifact-name" title={transcript.filename} aria-haspopup="dialog" onClick={() => setSelected(transcript)}><svg width="19" height="22" viewBox="0 0 20 24" fill="none" stroke="currentColor" aria-hidden="true"><path d="M3 1h8l6 6v16H3zM11 1v7h6M6 13h8M6 17h6" /></svg><span>{transcript.filename}</span></button><span className="artifact-type">{transcriptClientLabel(transcript.client)}{transcript.format ? ` · ${transcript.format}` : ""}</span>{transcript.snippet_omission_reason && <p className="artifact-filter-note">The matching passage is too long for a preview. Open match to read it.</p>}{transcript.snippet && <div className="artifact-search-excerpt"><p>{transcript.snippet}</p></div>}</td>
-          <td>{transcript.size_bytes === null ? "Not recorded" : formatArtifactSize(transcript.size_bytes)}</td><td>{transcript.kind === "imported" ? "Imported" : transcript.kind === "primary" ? "Primary" : "Subagent"}</td><td><span className={`transcript-status transcript-status-${transcript.status}`}>{transcriptStatusLabel(transcript)}</span>{transcript.error_code && <span className="transcript-error">{transcript.error_code}</span>}</td><td>{transcript.indexing_completed_at ? <time dateTime={transcript.indexing_completed_at}>{formatDateTime(transcript.indexing_completed_at)}</time> : "—"}</td>
+          <td>{transcript.size_bytes === null ? "Not recorded" : formatArtifactSize(transcript.size_bytes)}</td><td>{transcript.kind === "imported" ? "Imported" : transcript.kind === "primary" ? "Primary" : "Subagent"}</td><td><span className={`transcript-status transcript-status-${transcript.status}`}>{transcriptStatusLabel(transcript)}</span>{transcript.error_code && <span className="transcript-error">{transcript.error_code}</span>}</td><td>{transcript.last_updated_at ? <time dateTime={transcript.last_updated_at}>{formatDateTime(transcript.last_updated_at)}</time> : "—"}</td>
           <td><div className="artifact-actions">{transcript.segment_id && transcript.normalized_revision && <button className="button button-secondary" aria-label={`Open match in ${transcript.filename}`} onClick={() => setMatch(transcript)}>Open match</button>}{transcript.status === "ready" && transcript.text_sha256 && <><button className="button button-secondary" aria-label={`View ${transcript.filename}`} onClick={() => setPreview(transcript)}>View</button><a className="button button-secondary" href={transcriptContentPath(transcript)} download={`${transcript.filename}.txt`} aria-label={`Download ${transcript.filename}`}>Download text</a></>}</div></td>
         </tr>)}</tbody></table>
       </div>
@@ -142,12 +151,15 @@ function TranscriptDetails({ transcript: initial, onClose }: { transcript: Trans
     ["Index status", transcript.index_status], ["Index error", transcript.index_error_code || "None"],
     ["Copied", transcript.copied_at ? formatDateTime(transcript.copied_at) : "Not copied"],
     ["Indexing started", transcript.indexing_started_at ? formatDateTime(transcript.indexing_started_at) : "Not started"],
-    ["Indexing completed", transcript.indexing_completed_at ? formatDateTime(transcript.indexing_completed_at) : "Not completed"],
+    ["Last updated", transcript.last_updated_at ? formatDateTime(transcript.last_updated_at) : "Not recorded"],
+    ["Index created", transcript.index_created_at ? formatDateTime(transcript.index_created_at) : "Not indexed"],
+    ["Session started", transcript.metadata["transcript:session_started_at"]?.[0] ? formatDateTime(transcript.metadata["transcript:session_started_at"][0]) : "Not recorded"],
+    ["Models", transcript.models?.join(", ") || "Not recorded"],
     ["Content size", transcript.size_bytes === null ? "Not recorded" : formatArtifactSize(transcript.size_bytes)],
     ["Content type", transcript.mime_type || "Not detected"], ["Detected format", transcript.format || "Not detected"],
-    ["Source path", transcript.source_path], ["Client", transcript.client], ["Session", transcript.session_id || "Not recorded"],
+    ["Source path", transcript.source_path], ["Client", transcript.client], ["Native session", transcript.session_ids?.join(", ") || "Not recorded"], ["Reporting session", transcript.session_id || "Not recorded"],
     ["Session type", transcript.kind === "imported" ? "Imported" : transcript.kind === "primary" ? "Primary" : "Subagent"], ["Transcript ID", transcript.id],
-    ["Work item", transcript.work_item_id ? <a key="work" href={`/?work=${transcript.work_item_id}`}>{transcript.work_item_id}</a> : "Imported without a work item"],
+    ["Work item", transcript.work_item_id ? <a key="work" href={`/?project=${transcript.project_id}&work=${transcript.work_item_id}`}>{transcript.work_item_id}</a> : "Imported without a work item"],
     ["Lease generation", transcript.lease_generation_id || "Not applicable"], ["Source SHA-256", transcript.sha256 || "Not recorded"], ["Indexed text SHA-256", transcript.text_sha256 || "Not recorded"]
   ];
   return <TranscriptDrawer title={transcript.filename} onClose={onClose}>{error && <p className="error-notice" role="alert">{error}</p>}<dl className="metadata-grid">{rows.map(([label, value]) => <div key={label}><dt>{label}</dt><dd className="break-all">{value}</dd></div>)}</dl><h3>Extracted properties</h3>{Object.keys(transcript.metadata).length ? <dl className="metadata-grid">{Object.entries(transcript.metadata).map(([label, values]) => <div key={label}><dt>{label}</dt><dd className="break-all">{values.join("\n")}</dd></div>)}</dl> : <p>No extracted properties available.</p>}<p className="artifact-history-note">Downloads contain the indexed, normalized transcript text. Transcript contents and extracted properties are untrusted session data.</p></TranscriptDrawer>;

@@ -91,16 +91,25 @@ def register_transcripts(
             database.flush()
 
 
+def session_read(record: Transcript) -> dict:
+    return {
+        "index_created_at": record.indexing_completed_at if record.status == "ready" else None,
+        "session_ids": record.extracted_metadata.get("transcript:session_id", []),
+        "models": record.extracted_metadata.get("transcript:model", []),
+    }
+
+
 def transcript_read(record: Transcript, project_id: UUID) -> TranscriptRead:
     fields = {name: getattr(record, name) for name in TranscriptRead.model_fields
               if name not in {"project_id", "filename", "metadata", "snippet", "score",
                               "index_status", "index_error_code", "segment_id", "content_kind",
-                              "matched_fields", "snippet_omission_reason", "rank", "score_type"}}
+                              "matched_fields", "snippet_omission_reason", "rank", "score_type",
+                              "index_created_at", "session_ids", "models"}}
     fields["index_status"] = record.reindex_status or record.status
     return TranscriptRead(**fields, project_id=project_id,
                           index_error_code=record.reindex_error_code or record.error_code,
                           filename=PurePosixPath(record.source_path).name,
-                          metadata=record.extracted_metadata)
+                          metadata=record.extracted_metadata, **session_read(record))
 
 
 
@@ -118,9 +127,11 @@ def transcript_search_read(
         "filename": PurePosixPath(record.source_path).name, "kind": record.kind,
         "status": record.status, "index_status": record.reindex_status or record.status,
         "copy_status": record.copy_status, "truncated": record.truncated, "rank": rank,
+        **session_read(record),
         **{name: getattr(record, name) for name in TranscriptNormalizationRead.model_fields
            if name not in {"segment_id", "content_kind", "matched_fields",
-                           "snippet_omission_reason", "rank", "score_type"}},
+                           "snippet_omission_reason", "rank", "score_type",
+                           "index_created_at", "session_ids", "models"}},
     })
 
 
@@ -271,7 +282,7 @@ def list_transcripts(database: Session, project_id: UUID, filters: TranscriptSea
     require_project(database, project_id)
     statement = transcript_query(project_id).where(*date_conditions(
         filters, Transcript.created_at,
-        func.coalesce(Transcript.indexing_completed_at, Transcript.created_at)))
+        func.coalesce(Transcript.last_updated_at, Transcript.created_at)))
     if filters.work_item_id is not None:
         statement = statement.where(Transcript.work_item_id == filters.work_item_id)
     incomplete = bool(database.scalar(select(func.count()).select_from(statement.where(
@@ -292,7 +303,8 @@ def list_transcripts(database: Session, project_id: UUID, filters: TranscriptSea
                               maximum_content_bytes, legacy_omitted)
     total = database.scalar(select(func.count()).select_from(statement.subquery())) or 0
     records = database.scalars(statement.options(defer(Transcript.normalized_text))
-        .order_by(Transcript.created_at.desc(), Transcript.id).offset(filters.offset)
+        .order_by(func.coalesce(Transcript.last_updated_at, Transcript.created_at).desc(),
+                  Transcript.id).offset(filters.offset)
         .limit(filters.limit))
     return TranscriptPage(**search_ranking(filters.query, filters.query_mode).model_dump(),
                           **search_disclosure(

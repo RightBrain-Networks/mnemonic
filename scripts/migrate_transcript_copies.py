@@ -1,6 +1,6 @@
 """Wait for the resumable worker backfill; optionally verify retained raw bytes.
 
-Run inside the shared worker after upgrading to 0043_transcript_source_identity.
+Run inside the shared worker after upgrading to 0044_transcript_metadata.
 This command never reads transcript bodies into its output or rewrites provenance.
 """
 

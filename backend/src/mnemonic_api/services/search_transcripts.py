@@ -37,7 +37,7 @@ from mnemonic_api.transcript_exact_search import omitted_legacy
 def _filtered_statement(project_id: ProjectSelection, request: SearchRequest):
     statement = transcript_query(project_id).where(*date_conditions(
         request.filters.transcripts, Transcript.created_at,
-        func.coalesce(Transcript.indexing_completed_at, Transcript.created_at)))
+        func.coalesce(Transcript.last_updated_at, Transcript.created_at)))
     fields = {
         "work_item_id": Transcript.work_item_id, "agent_session_id": Transcript.session_id,
         "client": Transcript.client, "kind": Transcript.kind, "status": Transcript.status,
@@ -100,7 +100,7 @@ def _source(
     candidates = [SearchCandidate(
         facet="transcripts", id=record.id, project_id=owners[record.id],
         created_at=record.created_at,
-        updated_at=record.indexing_completed_at or record.created_at,
+        updated_at=record.last_updated_at or record.created_at,
         score=hits[identity].score if request.q else 0.0,
     ) for identity, record in records.items() if not request.q or identity in hits]
 

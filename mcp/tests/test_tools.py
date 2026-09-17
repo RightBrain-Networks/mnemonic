@@ -4924,6 +4924,7 @@ async def test_phase9_core_catalog_exposes_exact_merge_and_search_contracts(sett
     assert "minimal" not in json.dumps(tools["search_work"].inputSchema)
     assert set(tools["get_work"].outputSchema["$defs"]["WorkItemDetailRead"]["properties"]) == {
         "work_item",
+        "transcripts",
         "canonical",
         "code_review_context",
         "readiness",

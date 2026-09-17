@@ -34,7 +34,7 @@ test("the separate dashboard searches encode their facet, filters and pagination
   const files = artifactSearchRequest("report", true, true, 50, 50, work);
   assert.deepEqual(files, { q: "report", detail: "full", facets: ["artifacts"], fulltext: true, filters: { artifacts: { include_deleted: true, work_item_id: work } }, limit: 50, offset: 50 });
   const sessions = transcriptSearchRequest("", false, 50, work);
-  assert.equal(sessions.sort.by, "created_at");
+  assert.equal(sessions.sort.by, "updated_at");
   assert.deepEqual(sessions.filters, { transcripts: { work_item_id: work } });
   for (const body of [workSearchRequest(options), files, sessions]) assert.equal(validSearchRequest(body), true);
   assert.equal(unifiedSearchPath(project), `/projects/${project}/search`);

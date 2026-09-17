@@ -27,6 +27,10 @@ TranscriptStatus = Literal["waiting", "pending", "processing", "ready", "failed"
 
 
 class TranscriptNormalizationRead(BaseModel):
+    last_updated_at: datetime | None = None
+    index_created_at: datetime | None = None
+    session_ids: list[str] = Field(default_factory=list, max_length=8)
+    models: list[str] = Field(default_factory=list, max_length=8)
     rank: int | None = Field(default=None, ge=1)
     score_type: ScoreType = "none"
     normalization_status: Literal["pending", "processing", "ready", "failed"] = "pending"

@@ -112,3 +112,28 @@ permissions, symlinks and full/read-only storage. Correctable environmental fail
 are rechecked every five minutes, including older generic I/O failures, while Active
 leases and paused projects remain protected. Rebuilding is unnecessary after fixing
 access to the same file. A wrong historical assertion still needs audited recovery.
+
+
+## Session metadata and work navigation (0.63.0)
+
+The dashboard **Last Updated** column and transcript `updated_after` / `updated_before`
+filters use the latest valid timestamp in the retained native conversation. A verified
+source-file modification time is the fallback when no native timestamp exists; unknown
+historical times stay null. Rebuilding the search index does not advance session activity.
+`index_created_at` identifies the current successful index build, not session completion.
+These times are stored in transcript metadata alongside native session IDs, models,
+message counts and parent-session references when supplied by the client. `session_id`
+remains the exact original reporting-session provenance; `session_ids` contains native
+identities, which can differ for subagents and are also available for imported sessions.
+
+Work detail and context return `transcripts={items,total,omitted_count}` with at most
+20 metadata-only links. Follow a link using `get_transcript(project_id, transcript_id)`;
+page additional links with `search_transcripts_content(work_item_id=...)`. Each transcript
+retains its originating work ID and current project ID for `get_work`. The dashboard
+links in both directions and can open a specific transcript from a work item.
+
+Transcript/work-only unified search uses a read-only repeatable-read snapshot rather
+than a project write lock. Artifact searches retain sensitivity serialization and audit
+behavior. Search congestion is reported as a search failure with instructions to retry
+that read; it never requires an operation ID. Actual writes still require identical
+same-operation retries when their outcome is uncertain.

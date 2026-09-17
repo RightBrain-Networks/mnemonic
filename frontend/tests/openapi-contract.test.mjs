@@ -26,7 +26,7 @@ const DEFAULTED_RESPONSE_FIELDS = {
   "frontend/lib/readiness-codecs.ts:decodeReadiness": ["review_status"],
   "frontend/lib/human-gates.ts:GATE_FIELDS": ["question_version", "previous_questions"],
   "frontend/lib/readiness-codecs.ts:decodeLease": ["purpose", "code_review_id", "mode"],
-  "frontend/lib/duplicate-handling.ts:decodeWorkItemDetail": ["code_review_context"],
+  "frontend/lib/duplicate-handling.ts:decodeWorkItemDetail": ["code_review_context", "transcripts"],
   "frontend/lib/work-events.ts:EVENT_FIELDS": ["code_review_id", "code_review_result_id", "work_follow_up_id", "work_follow_up_answer_id"],
   "frontend/lib/external-references.ts:decodeExternalReference": ["label", "state_observed_at"],
   "frontend/lib/work-codecs.ts:decodeWorkItem": ["external_references", "manual_review_request"],
@@ -50,6 +50,7 @@ const DEFAULTED_RESPONSE_FIELDS = {
     "ancestor_path_truncated"
   ],
   "frontend/lib/duplicate-handling.ts:decodeWorkContext": [
+    "transcripts",
     "artifacts",
     "artifact_total",
     "omitted_artifact_count",

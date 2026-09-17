@@ -271,3 +271,10 @@ test("transcript status distinguishes search limits from normalization and metad
   assert.equal(transcriptStatusLabel({ ...row, truncated: true, normalization_incomplete: true }), "Indexed · Search text limited · Normalization warnings");
   assert.equal(transcriptStatusLabel({ ...row, metadata: { "transcript:metadata_limited": ["true"] } }), "Indexed · Metadata limited");
 });
+
+test("native session metadata validates independently of reporting provenance", () => {
+  const metadata = { ...row, last_updated_at: "2026-02-01T14:30:00Z", index_created_at: row.indexing_completed_at, session_ids: ["native-child"], models: ["fixture-model"] };
+  assert.equal(decodeTranscript(metadata, project).session_ids[0], "native-child");
+  assert.equal(decodeTranscript(metadata, project).session_id, "session-1");
+  for (const change of [{last_updated_at: "yesterday"}, {index_created_at: "tomorrow"}, {models: Array(9).fill("model")}, {session_ids: [null]}]) assert.throws(() => decodeTranscript({...metadata,...change}, project));
+});

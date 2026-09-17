@@ -67,6 +67,7 @@ from mnemonic_api.search_exploration_schemas import SearchOptions
 from mnemonic_api.search_query import QueryMode, parse_query
 from mnemonic_api.search_ranking import SearchHitRanking, SearchRanking, SemanticDisposition
 from mnemonic_api.transcript_locations import TranscriptLocation, TranscriptSources
+from mnemonic_api.transcript_work_schemas import WorkTranscriptLinks
 from mnemonic_api.validation_rules import validation_rule
 from mnemonic_api.work_search_fields import WORK_FIELDS, WorkField, WorkFields
 
@@ -2639,6 +2640,16 @@ class WorkStatusRead(APIModel):
 
 
 class WorkItemDetailRead(APIModel):
+    transcripts: WorkTranscriptLinks | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
+
+    @model_validator(mode="after")
+    def transcript_scope(self) -> Self:
+        if self.transcripts is not None:
+            self.transcripts.require_scope(self.work_item.project_id, self.work_item.id)
+        return self
+
     readiness: Readiness
     lease_settings: LeaseSettingsRead
     work_item: WorkItemRead
@@ -3799,6 +3810,16 @@ class WorkMergeResult(APIModel):
 
 
 class WorkContext(APIModel):
+    transcripts: WorkTranscriptLinks | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
+
+    @model_validator(mode="after")
+    def transcript_scope(self) -> Self:
+        if self.transcripts is not None:
+            self.transcripts.require_scope(self.work_item.project_id, self.work_item.id)
+        return self
+
     lease_settings: LeaseSettingsRead
     artifacts: list[ArtifactRead] = Field(default_factory=list, max_length=20)
     artifact_total: int = Field(default=0, ge=0)

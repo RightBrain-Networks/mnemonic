@@ -38,6 +38,8 @@ import {
   validUuid
 } from "./wire-guards.ts";
 
+import { decodeWorkTranscripts } from "./work-transcripts.ts";
+
 const PAGE_FIELDS = ["items", "total", "limit", "offset"] as const;
 const SEARCH_HIT_FIELDS = ["summary", "matched_member", ...HIT_RANKING_FIELDS, ...EVIDENCE_FIELDS] as const;
 const PROJECTION_FIELDS = [
@@ -98,8 +100,8 @@ const CONTEXT_FIELDS = [
 export const DUPLICATE_HANDLING_DECODER_FIELDS = {
   decodeWorkPointer: [...WORK_POINTER_FIELDS, "external_references"],
   decodeCanonicalWorkProjection: PROJECTION_FIELDS,
-  decodeWorkContext: [...CONTEXT_FIELDS, "code_review_context"],
-  decodeWorkItemDetail: [...DETAIL_FIELDS, "code_review_context"],
+  decodeWorkContext: [...CONTEXT_FIELDS, "code_review_context", "transcripts"],
+  decodeWorkItemDetail: [...DETAIL_FIELDS, "code_review_context", "transcripts"],
   "decodeWorkSearchPage:item": SEARCH_HIT_FIELDS,
   decodeWorkSearchPage: [...PAGE_FIELDS, "detail", "work_rank_scope", "term_diagnostics", ...SEARCH_DISCLOSURE_FIELDS, ...SEARCH_RANKING_FIELDS]
 } as const;
@@ -190,7 +192,7 @@ export function decodeWorkItemDetail(
   workItemId: string
 ): WorkItemDetailRead {
   const detail = objectValue(value);
-  if (!detail || !exactKeys(detail, [...DETAIL_FIELDS, ...(Object.hasOwn(detail, "code_review_context") ? ["code_review_context"] : [])])) {
+  if (!detail || !exactKeys(detail, [...DETAIL_FIELDS, ...(Object.hasOwn(detail, "code_review_context") ? ["code_review_context"] : []), ...(Object.hasOwn(detail, "transcripts") ? ["transcripts"] : [])])) {
     throw new Error("Mnemonic returned an invalid work-item detail.");
   }
   const workItem = decodeWorkItem(
@@ -204,6 +206,7 @@ export function decodeWorkItemDetail(
     canonical: decodeCanonicalWorkProjection(detail.canonical, workItem),
     lease_settings: decodeLeaseSettings(detail.lease_settings),
     readiness: decodeReadiness(detail.readiness, workItem.status, workItem.id),
+    ...(Object.hasOwn(detail, "transcripts") ? { transcripts: decodeWorkTranscripts(detail.transcripts, projectId, workItemId) } : {}),
     ...(Object.hasOwn(detail, "code_review_context") ? { code_review_context: decodeCodeReviewContext(detail.code_review_context, projectId, workItemId) } : {})
   };
 }
@@ -374,7 +377,7 @@ export function decodeWorkContext(
   workItemId: string
 ): WorkContext {
   const context = objectValue(value);
-  if (!context || !exactKeys(context, [...CONTEXT_FIELDS, ...(Object.hasOwn(context, "code_review_context") ? ["code_review_context"] : [])])) {
+  if (!context || !exactKeys(context, [...CONTEXT_FIELDS, ...(Object.hasOwn(context, "code_review_context") ? ["code_review_context"] : []), ...(Object.hasOwn(context, "transcripts") ? ["transcripts"] : [])])) {
     throw new Error("Mnemonic returned an invalid work context.");
   }
   const workItem = decodeWorkItem(
@@ -595,6 +598,7 @@ export function decodeWorkContext(
     artifact_total: context.artifact_total,
     omitted_artifact_count: context.omitted_artifact_count,
     merge_review_revision: revision,
+    ...(Object.hasOwn(context, "transcripts") ? { transcripts: decodeWorkTranscripts(context.transcripts, projectId, workItemId) } : {}),
     ...(Object.hasOwn(context, "code_review_context") ? { code_review_context: decodeCodeReviewContext(context.code_review_context, projectId, workItemId) } : {}),
     canonical,
     duplicate_members: duplicateMembers,

@@ -232,7 +232,7 @@ def test_updated_bounds_use_the_source_sort_timestamp(api, project, mixed, facet
         dedicated = artifact_search(api, project, "needle", fulltext=True,
                                      diagnostics="always", **bounds)
     else:
-        assert stamp > datetime.fromisoformat(record["created_at"].replace("Z", "+00:00"))
+        assert row["updated_at"] == row["transcript"]["last_updated_at"]
         response = api.post(f"/api/v1/projects/{project['id']}/transcripts/search-content",
                             json={"query": "needle", "fulltext": True,
                                   "diagnostics": "always", **bounds})

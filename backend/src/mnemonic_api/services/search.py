@@ -39,8 +39,8 @@ from mnemonic_api.search_schemas import (
     TranscriptSearchCoverage,
 )
 from mnemonic_api.search_timing import refresh_cache
+from mnemonic_api.search_transactions import search_transaction
 from mnemonic_api.semantic import Embedder, EmbeddingCacheUpdate, persist_embedding_updates
-from mnemonic_api.services.project_mutations import project_mutation
 from mnemonic_api.services.search_artifacts import artifact_source
 from mnemonic_api.services.search_sources import SearchCandidate, SearchSource
 from mnemonic_api.services.search_transcripts import transcript_source
@@ -275,13 +275,12 @@ def search(
     artifact_chunk_config: str | None = None,
     maximum_transcript_content_bytes: int = DEFAULT_TRANSCRIPT_SEARCH_MAX_BYTES,
 ) -> SearchPage:
-    # Published work, artifact revisions/sensitivity and transcript snapshots all
-    # use this project lock. Acquire it before selecting any candidate so a queued
-    # search observes preceding sensitivity changes. Keep it through page hydration
-    # and the optional dashboard sensitive-read audit; embeddings publish afterward.
+    # Transcript/work searches use one MVCC read snapshot without blocking writers.
+    # Artifact searches retain the lock through sensitivity checks, hydration and
+    # the optional human-read audit. Embedding caches publish after this scope.
     projects = selected_project_ids(project_id)
-    with project_mutation(database, projects[0], additional_project_ids=projects[1:],
-                          protected=True, domain_seconds=120):
+    with search_transaction(database, projects,
+                            artifacts=artifacts_enabled and "artifacts" in request.facets):
         page, updates = _search_locked(
             database, project_id, request, artifact_index, transcript_index,
             artifacts_enabled=artifacts_enabled, human_dashboard=human_dashboard,

@@ -20,12 +20,12 @@ async function fixture(api: APIRequestContext, client = "claude-code") {
   const primary = `${folder}/${runId}.jsonl`;
   const subagent = `${folder}/${runId}/subagents/agent-${runId}.jsonl`;
   const rows = client === "codex" ? [
-    { type: "session_meta", payload: { id: runId, source: "cli" } },
+    { type: "session_meta", timestamp: "2026-02-01T14:00:00Z", payload: { id: runId, source: "cli" } },
     { type: "response_item", payload: { type: "message", role: "user", content: [{ type: "input_text", text: "Investigate the magenta otter indexing fixture." }] } },
-    { type: "response_item", payload: { type: "message", role: "assistant", content: [{ type: "output_text", text: "The magenta otter result is ready. <script>window.transcriptExecuted = true</script>" }] } }
+    { type: "response_item", timestamp: "2026-02-01T14:30:00Z", payload: { type: "message", role: "assistant", content: [{ type: "output_text", text: "The magenta otter result is ready. <script>window.transcriptExecuted = true</script>" }] } }
   ] : [
-    { type: "user", sessionId: runId, uuid: crypto.randomUUID(), parentUuid: null, isSidechain: false, message: { role: "user", content: "Investigate the magenta otter indexing fixture." } },
-    { type: "assistant", sessionId: runId, uuid: crypto.randomUUID(), parentUuid: null, isSidechain: false, message: { role: "assistant", model: "fixture-model", content: [{ type: "text", text: "The magenta otter result is ready. <script>window.transcriptExecuted = true</script>" }] } }
+    { type: "user", timestamp: "2026-02-01T14:00:00Z", sessionId: runId, uuid: crypto.randomUUID(), parentUuid: null, isSidechain: false, message: { role: "user", content: "Investigate the magenta otter indexing fixture." } },
+    { type: "assistant", timestamp: "2026-02-01T14:30:00Z", sessionId: runId, uuid: crypto.randomUUID(), parentUuid: null, isSidechain: false, message: { role: "assistant", model: "fixture-model", content: [{ type: "text", text: "The magenta otter result is ready. <script>window.transcriptExecuted = true</script>" }] } }
   ];
   const source = `import json,pathlib,sys\nroot=pathlib.Path(${JSON.stringify(transcriptRoot)})\nroot.mkdir(parents=True,exist_ok=True)\ndata=json.loads(sys.argv[1])\nfor path,rows in data.items():\n pathlib.Path(path).parent.mkdir(parents=True,exist_ok=True)\n pathlib.Path(path).write_text(''.join(json.dumps(row)+'\\n' for row in rows))\n`;
   await execFileAsync("docker", ["compose", "-p", requireDisposableE2EComposeProject("Transcript fixture"), "-f", resolve(process.cwd(), "../compose.e2e.yaml"), "exec", "-T", "api", "python", "-c", source, JSON.stringify({ [primary]: rows, [subagent]: rows.map((row) => ({ ...row, isSidechain: true })) })]);
@@ -56,6 +56,12 @@ test(`${client} transcripts index after closeout and support search, metadata, s
       const response = await api.get(collection);
       return (await response.json() as { items: { status: string }[] }).items.map((item) => item.status).sort();
     }, { timeout: 60000 }).toEqual(["ready", "ready"]);
+    let busySearches = 0;
+    await page.route(`**/api/mnemonic/projects/${project.id}/search`, async (route) => {
+      if (busySearches++ < 2) {
+        await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ detail: { code: "transcript_search_busy", message: "Transcript search is busy. Try again shortly.", context: {} } }) });
+      } else await route.continue();
+    });
     await page.goto(`/transcripts?project=${project.id}`);
     await expect(page.getByRole("region", { name: "Transcript library", exact: true })).toBeVisible();
     await expect(page.locator(".transcript-table tbody tr")).toHaveCount(2);
@@ -93,12 +99,15 @@ test(`${client} transcripts index after closeout and support search, metadata, s
     await name.click();
     const details = page.getByRole("dialog", { name: filename, exact: true });
     await expect(details).toContainText("Indexing started");
-    await expect(details).toContainText("Indexing completed");
+    await expect(details).toContainText("Index created");
+    await expect(details).toContainText("Last updated");
+    await expect(details).toContainText("Native session");
+    await expect(page.locator(".transcript-table th").filter({ hasText: "Last Updated" })).toHaveCount(1);
     await expect(details).toContainText("Copy status");
     await expect(details).toContainText("Conversation revision");
     await expect(details).toContainText("Conversation blocks");
     await expect(details).toContainText(primary);
-    await expect(details.getByRole("link", { name: work.id })).toHaveAttribute("href", `/?work=${work.id}`);
+    await expect(details.getByRole("link", { name: work.id })).toHaveAttribute("href", `/?project=${project.id}&work=${work.id}`);
     await expect(details.getByRole("button", { name: "Close details" })).toBeFocused();
     await page.screenshot({ path: testInfo.outputPath("transcript-details.png"), animations: "disabled" });
     await testInfo.attach("Transcript indexing metadata", { path: testInfo.outputPath("transcript-details.png"), contentType: "image/png" });
@@ -116,6 +125,15 @@ test(`${client} transcripts index after closeout and support search, metadata, s
     await page.evaluate(() => window.scrollTo(0, 0));
     await page.screenshot({ path: testInfo.outputPath("transcripts-library.png"), fullPage: true, animations: "disabled" });
     await testInfo.attach("Transcript search library", { path: testInfo.outputPath("transcripts-library.png"), contentType: "image/png" });
+    await page.goto(`/?project=${project.id}&work=${work.id}`);
+    const linked = page.getByRole("region", { name: "Linked transcripts", exact: true });
+    await expect(linked.getByRole("link", { name: "Transcripts (2)", exact: true })).toBeVisible();
+    await page.screenshot({ path: testInfo.outputPath("work-transcript-links.png"), animations: "disabled" });
+    await testInfo.attach("Reciprocal work transcript links", { path: testInfo.outputPath("work-transcript-links.png"), contentType: "image/png" });
+    await linked.getByRole("link", { name: filename, exact: true }).click();
+    await expect(page.getByRole("dialog", { name: filename, exact: true })).toBeVisible();
+    await expect(page.getByRole("dialog", { name: filename, exact: true })).toContainText("Native session");
+    await page.getByRole("button", { name: "Close details", exact: true }).click();
     await page.getByRole("link", { name: "Index settings", exact: true }).click();
     const settings = page.getByRole("region", { name: "Transcript indexing", exact: true });
     await expect(settings).toContainText(transcriptRoot);

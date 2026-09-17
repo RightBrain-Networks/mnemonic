@@ -755,8 +755,10 @@ def assemble_work_context(
         work_artifacts(database, project_id, work_item_id) if include_artifacts else ([], 0)
     )
     from mnemonic_api.services.lease_settings import lease_settings
+    from mnemonic_api.services.work_transcripts import work_transcripts
 
     return WorkContext(
+        transcripts=work_transcripts(database, project_id, work_item_id),
         lease_settings=lease_settings(database, project_id),
         artifacts=artifacts,
         artifact_total=artifact_total,

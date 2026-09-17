@@ -1155,7 +1155,7 @@ def _register_context_tools(server: FastMCP, api: MnemonicAPI) -> None:
     async def get_work(
         project_id: UUID, work_item_id: UUID, status_only: StrictBool = False,
     ) -> WorkRead:
-        """Immediately read assigned work with status_only=true to check current status, readiness and project lease_settings (default_minutes, minimum_minutes, maximum_minutes). That minimal response excludes prose, history and handoff, so cold reviewers may read it before findings freeze. Normal detail also returns lease_settings and readiness, plus durable identity and canonical projection without checkpoint bodies. A duplicate remains the requested audit record; this tool never redirects or substitutes the canonical work item."""
+        """Immediately read assigned work with status_only=true to check current status, readiness and project lease_settings (default_minutes, minimum_minutes, maximum_minutes). That minimal response excludes prose, history and handoff, so cold reviewers may read it before findings freeze. Normal detail also returns metadata-only transcripts with IDs, session IDs, models, activity timestamps and omitted counts. Follow each with get_transcript or page search_transcripts_content(work_item_id=...). No transcript bodies are loaded implicitly. Normal detail returns lease_settings and readiness, plus durable identity and canonical projection without checkpoint bodies. A duplicate remains the requested audit record; this tool never redirects or substitutes the canonical work item."""
         if not status_only:
             return WorkRead(await _fetch_work(api, project_id, work_item_id))
         status = cast(

@@ -265,8 +265,10 @@ def work_item_detail(
     from mnemonic_api.services.code_review_reads import review_context
     from mnemonic_api.services.lease_settings import lease_settings
     from mnemonic_api.services.readiness import work_readiness
+    from mnemonic_api.services.work_transcripts import work_transcripts
 
     return WorkItemDetailRead(
+        transcripts=work_transcripts(database, project_id, work_item.id),
         lease_settings=lease_settings(database, project_id),
         readiness=work_readiness(database, work_item),
         code_review_context=review_context(database, work_item.id),

@@ -55,6 +55,7 @@ def transcript_pointer():
         "normalized_sha256", "normalization_schema_version", "normalizer_version",
         "normalized_size_bytes", "segment_count", "normalization_incomplete", "segment_id",
         "content_kind", "matched_fields", "snippet_omission_reason", "rank", "score_type",
+        "last_updated_at", "index_created_at", "session_ids", "models",
     )}
 
 

@@ -28,6 +28,7 @@ HASH = hashlib.sha256(TEXT.encode()).hexdigest()
 def transcript(**changes):
     return {
         "matched_fields": [], "snippet_omission_reason": None, "rank": None, "score_type": "none",
+        "last_updated_at": NOW, "index_created_at": NOW, "session_ids": [], "models": [],
         "id": TRANSCRIPT_ID, "project_id": PROJECT_ID, "work_item_id": WORK_ID,
         "lease_generation_id": CLIENT_OPERATION_ID, "client": "claude_code",
         "session_id": "independent-session", "source_path": LOCATION["path"],
