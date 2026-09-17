@@ -21,14 +21,21 @@ Tested with Claude Code, OpenAI Codex, and OpenCode. Probably works with any sim
 - You don't want the complexity of a full orchestration platform like OpenClaw and/or prefer a strong human-in-the-loop workflow.
 
 ## Basic concepts
+The included agent skills encourage the LLM to default to using `mnemonic` to save hand-off prompts and self-discovered follow-up tasks, rather than your bug/issue tracker, Markdown docs, or ephemeral "Suggested task chips". U
 
-The included agent skills encourage the LLM to default to using `mnemonic` to save hand-off prompts and self-discovered follow-up tasks, rather than your bug/issue tracker, Markdown docs, or ephemeral "Suggested task chips". Upon discovering something worth doing, but is out-of-scope of the current task, the agent will first search `mnemonic` for related work items using sophisticated full-text matching. If no matches are found, the agent opens a new work item in the mnemonic dashboard, in the *Pending* queue.
+Upon discovering something worth doing, but is out-of-scope of the current task, the agent will first search `mnemonic` for related work items using sophisticated full-text matching. If no matches are found, the agent opens a new *Pending* work item in the `mnemonic` dashboard -- where it waits until you tell Claude Code/Codex/OpenCode, etc. to pick it up and get to work.
 
-When you decide **The human (you, presumably) then click the "Copy recall pointer" button of the task card and paste the copied prompt into a fresh session.** The LLM will then start a new session, retrieve the work item, and validate the stated premises. If the facts check-out, it requests a "work lease" of 15 minutes and then begins working. The lease is periodically renewed until the task is complete and then work item is marked as *Done*.
+### Just copy and paste a prompt
+When you decide to have your agent work on the task, you **click the "Copy recall pointer" button of the task card and paste the copied prompt into a fresh session** and... *that's pretty much it*. Everything else happens automatically.
 
-**The "human-required" copy-and-paste step is deliberate.** It allows you to balance your weekly usage quota or API costs between your normal development work and working through the `mnemonic` backlog. If an agent hits a human-needed decision, the work is parked in *Needs Attention* and returns only after a person records an answer in the dashboard.
+The LLM will then start a new session, retrieve the work item, and validate the stated premises. If the facts check-out, it requests a temporary "work lease" and then begins working. The lease is periodically renewed until the task is complete and then work item is marked as *Done*. If the agent dies before completing the task, the lease expires and another session can pick it up again. A healthy agent though will periodically update the task with detailed checkpoints and, optionally, request a code review once done.
 
-## Other features
+### "I need a human!"
+**The human-required copy-and-paste step is deliberate.** It allows you to balance your weekly usage quota or API costs between your normal development work and working through the `mnemonic` backlog. And it keeps you working inside your already familiar UI.
+
+If an agent hits a blocker that needs a human-needed decision, the work is parked in *Needs Attention* and returns only after you record an answer in the dashboard. For non-blocking FYIs, the *"Summaries"* list contain simplified, plain-English descriptions of what the agent accomplished once it marks a work item as done.
+
+## Other key features
  - **Code review hand-offs** -- Projects can also require or invite an adversarial code review at configurable priority thresholds (both default to Never). Reviewers lease the original *Done* item and perform either a warm or cold code review. See [code reviews](docs/code-reviews.md) for the complete workflow.
 
 - **Cross-platform coordination** -- Claude Code, OpenAI Codex, OpenCode, et al. can all be used simultaneously in the same project and intelligently coordinate amongst themselves.
@@ -39,7 +46,9 @@ When you decide **The human (you, presumably) then click the "Copy recall pointe
 
 - **Project artifact library** -- Some content shouldn't be committed in your repo (docs with PII, large binaries, etc). The project artifact library allows both agents and humans to upload, download, search, and reference these files stored in your local filesystem. The artifact library is a lightweight alternative to a traditional document management system (DMS) and can be optionally disabled in the project environment.
 
--  **Unified search** -- Agents can search across work items, artifacts, and session transcripts to retrieve relevant information in one-shot, with results being ranked using an intelligent, composite score. This saves time, tokens, and agent context space.
+- **Session transcript archival** -- Once an agent transitions a work item to *Done*, `mnemonic` copies that transcript (and any subagent transcripts) into the mnemonic project store. Each transcript is normalized to a common, cross-vendor format and indexed. This allows Codex agents to search and read Claude Code agents' past work activity and vice versa.
+
+-  **Unified search** -- Agents can search across work items, artifacts, and session transcripts to retrieve relevant information in one-shot, with results being ranked using an intelligent, composite score. This saves time, tokens, and agent context space. This hybrid search is powered by a combination of *Apache Tika*, *Tantivy*, and embeddings for semantic search.
 
 ## Run it
 
