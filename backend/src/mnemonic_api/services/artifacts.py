@@ -729,12 +729,18 @@ def _artifact_text_page(
         ArtifactExtraction.truncated,
         ArtifactExtraction.error_code,
         ArtifactExtraction.extracted_at,
+        ArtifactExtraction.text_sha256,
         func.substring(text_column, filters.offset + 1, filters.limit).label("text"),
         func.char_length(text_column).label("total_chars"),
     ).where(
         ArtifactExtraction.artifact_id == artifact.id,
         ArtifactExtraction.revision == artifact.revision,
     )).mappings().one_or_none()
+    if filters.expected_text_sha256 is not None and (
+        row is None or row["status"] != "ready"
+        or row["text_sha256"] != filters.expected_text_sha256
+    ):
+        raise conflict("artifact_text_changed", "The extracted artifact text changed.")
     extraction = ArtifactExtractionStatus() if row is None else ArtifactExtractionStatus(
         **{key: row[key] for key in ArtifactExtractionStatus.model_fields},
     )
@@ -749,6 +755,7 @@ def _artifact_text_page(
         artifact_id=artifact.id,
         revision=artifact.revision,
         sha256=artifact.sha256,
+        text_sha256=row["text_sha256"] if ready else None,
         extraction=extraction,
         text=text_page,
         offset=filters.offset,

@@ -141,9 +141,13 @@ must verify only aggregate behavior and must not commit a merge.
 
 ## Current coordinated cutover
 
-The current coordinated boundary is API/MCP/dashboard `0.59.0`, plugin `0.37.0`,
-and Alembic `0040_normalized_transcripts`. Follow [the transcript/job migration](transcript-jobs.md)
+The current coordinated boundary is API/MCP/dashboard `0.60.0`, plugin `0.38.0`,
+and Alembic `0041_artifact_passages`. Follow [the transcript/job migration](transcript-jobs.md)
 to provision RabbitMQ, the shared worker, retained copies, and backup ownership.
+Migration `0041_artifact_passages` adds rebuildable artifact passage caches; follow
+[semantic artifact upgrade and backfill](artifact-semantic-search.md#coordinated-upgrade).
+Explicit [multi-project search](multi-project-search.md) shares one bounded corpus
+and reports coverage for every selected project.
 Inventory exactly 55 MCP tools,
 17 protected MCP writes, 24 REST receipt kinds, 21 protected browser mutations,
 and 24 work-event types. Keep older writers stopped: fresh closeouts still

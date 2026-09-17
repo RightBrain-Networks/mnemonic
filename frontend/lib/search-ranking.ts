@@ -54,8 +54,8 @@ export function comparisonNotice(semantic: SemanticDisposition): string | null {
 }
 
 export function validateSourceRanking(ranking: SearchRanking, q: string, source: "work_items" | "artifacts" | "transcripts", matchMode: string | undefined): void {
-  const active = Boolean(q && matchMode), semantic = matchMode === "hybrid_lexical_semantic";
-  const expected = !active ? "none" : semantic ? "hybrid_reciprocal_rank" : source === "work_items" ? "postgresql_lexical" : matchMode === "literal" ? "literal_presence" : "tantivy_relevance";
+  const active = Boolean(q && matchMode), semantic = matchMode === "hybrid_lexical_semantic" || matchMode === "semantic_passages";
+  const expected = !active ? "none" : matchMode === "semantic_passages" ? "semantic_reciprocal_rank" : semantic ? "hybrid_reciprocal_rank" : source === "work_items" ? "postgresql_lexical" : matchMode === "literal" ? "literal_presence" : "tantivy_relevance";
   const total = !active ? "browsed_records" : semantic ? "ranked_candidates" : "lexical_matches";
   if (ranking.score_type !== expected || ranking.total_kind !== total || ranking.semantic.inference.status !== (semantic ? "completed" : "not_requested")) throw new Error("Mnemonic returned ranking outside the requested search mode.");
 }

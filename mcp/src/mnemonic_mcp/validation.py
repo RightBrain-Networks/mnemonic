@@ -46,7 +46,7 @@ VALIDATION_FIELDS = frozenset(
         "subagent_transcripts",
         "client",
         "transcript_id",
-        "expected_sha256",
+        "expected_sha256", "expected_text_sha256",
 
         "gate_id",
         "expected_question_version",
@@ -105,7 +105,7 @@ VALIDATION_FIELDS = frozenset(
         "slug",
         "description",
         "repository_url",
-        "project_id",
+        "project_id", "project_ids",
         "work_item_id",
         "gate_type",
         "source_work_item_id",

@@ -7,6 +7,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, model_validator
 
+from .artifact_semantic import ArtifactEmbeddingCoverage, ArtifactMatchEvidence
 from .search_diagnostics import TermDiagnostics
 from .search_disclosure import SearchDetail, SearchDisclosure
 from .search_ranking import SearchHitRanking, SearchRanking
@@ -151,7 +152,7 @@ class ArtifactDownload(ArtifactModel):
     content_base64: ArtifactContent
 
 
-class ArtifactSearchMatch(ArtifactModel, SearchHitRanking):
+class ArtifactSearchMatch(ArtifactModel, SearchHitRanking, ArtifactMatchEvidence):
     artifact: ArtifactRead
     score: Annotated[float, Field(ge=0, allow_inf_nan=False, strict=True)]
     snippet: Annotated[str, Field(max_length=1000)] | None
@@ -188,7 +189,7 @@ class CompactArtifactRead(ArtifactModel):
     extraction: CompactExtractionStatus
 
 
-class CompactArtifactMatch(ArtifactModel, SearchHitRanking):
+class CompactArtifactMatch(ArtifactModel, SearchHitRanking, ArtifactMatchEvidence):
     artifact: CompactArtifactRead
     score: Annotated[float, Field(ge=0, allow_inf_nan=False, strict=True)]
     snippet: Annotated[str, Field(max_length=1000)] | None
@@ -203,7 +204,8 @@ class CompactArtifactMatch(ArtifactModel, SearchHitRanking):
 
 class ArtifactContentSearch(ArtifactModel, SearchDisclosure, SearchRanking):
     detail: SearchDetail
-    match_mode: Literal["all_terms", "phrase", "literal"]
+    embedding: ArtifactEmbeddingCoverage | None = None
+    match_mode: Literal["all_terms", "phrase", "literal", "semantic_passages"]
     term_diagnostics: TermDiagnostics
     items: Annotated[list[ArtifactSearchMatch | CompactArtifactMatch], Field(max_length=100)]
     total: Annotated[StrictInt, Field(ge=0)]
@@ -252,7 +254,7 @@ class ArtifactToolDownload(ArtifactModel):
     artifact_library: ArtifactToolStatus
 
 
-class ArtifactToolSearchMatch(ArtifactModel, SearchHitRanking):
+class ArtifactToolSearchMatch(ArtifactModel, SearchHitRanking, ArtifactMatchEvidence):
     artifact: ArtifactSummary
     score: Annotated[float, Field(ge=0, allow_inf_nan=False, strict=True)]
     snippet: Annotated[str, Field(max_length=1000)] | None
@@ -263,7 +265,8 @@ class ArtifactToolContentSearch(
     ArtifactPage[ArtifactToolSearchMatch | CompactArtifactMatch], SearchDisclosure, SearchRanking,
 ):
     detail: SearchDetail
-    match_mode: Literal["all_terms", "phrase", "literal"]
+    embedding: ArtifactEmbeddingCoverage | None = None
+    match_mode: Literal["all_terms", "phrase", "literal", "semantic_passages"]
     term_diagnostics: TermDiagnostics
     fulltext: StrictBool
     indexing: ArtifactIndexingStatus

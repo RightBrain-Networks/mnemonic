@@ -35,6 +35,7 @@ def disclosed_response(request: httpx.Request, response: httpx.Response) -> http
     value.setdefault("detail", params.get("detail", "compact"))
     if route[1] in {"search", "work-items"}:
         value.setdefault("work_rank_scope", "work_items")
+    _project_defaults(value, route)
     q = params.get("q", params.get("query", ""))
     fulltext = params.get("fulltext", False)
     semantic = params.get("semantic") in (True, "true")
@@ -63,3 +64,14 @@ def disclosed_response(request: httpx.Request, response: httpx.Response) -> http
     )
     return httpx.Response(response.status_code, headers=response.headers,
                           json={**value, **disclosure.model_dump(mode="json")})
+
+
+def _project_defaults(value, route):
+    if route[1] == "search":
+        for hit in value["items"]:
+            hit.setdefault("project_id", route[0])
+        value.setdefault("project_coverage", [{
+            "project_id": route[0], "project_name": "Test project", "project_slug": "test-project",
+            "facet_totals": value["facet_totals"], "coverage": value["coverage"],
+            "indexing_incomplete": value["indexing_incomplete"],
+        }])

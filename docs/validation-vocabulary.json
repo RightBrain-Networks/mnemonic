@@ -52,6 +52,7 @@
     "expected_normalized_revision",
     "expected_question_version",
     "expected_review_version",
+    "expected_text_sha256",
     "expected_version",
     "external_candidates",
     "external_references",
@@ -89,6 +90,7 @@
     "priority",
     "problem",
     "project_id",
+    "project_ids",
     "prompt",
     "purpose",
     "q",
@@ -280,6 +282,14 @@
       "field": null,
       "message": "Include an absolute http:// or https:// URL."
     },
+    "artifact_semantic_requires_fulltext": {
+      "field": "fulltext",
+      "message": "Artifact semantic search requires fulltext=true."
+    },
+    "artifact_semantic_requires_query_and_facet": {
+      "field": "semantic",
+      "message": "Artifact semantic search requires a nonblank q and the artifacts facet."
+    },
     "canonical_filter_requires_alias_scope": {
       "field": "canonical_work_item_id",
       "message": "canonical_work_item_id requires duplicate_scope=aliases or all."
@@ -312,6 +322,10 @@
       "field": null,
       "message": "Include a timezone offset or Z in each search date bound."
     },
+    "search_projects_must_be_unique": {
+      "field": "project_ids",
+      "message": "project_ids must contain unique projects."
+    },
     "search_updated_range_invalid": {
       "field": "updated_before",
       "message": "updated_before must be later than updated_after; the upper bound is exclusive."
@@ -323,6 +337,10 @@
     "semantic_requires_query": {
       "field": "q",
       "message": "semantic=true requires a nonblank q."
+    },
+    "semantic_requires_unconstrained_artifact_query": {
+      "field": "q",
+      "message": "Semantic artifact search requires query_mode=terms without quoted phrases."
     },
     "semantic_requires_unconstrained_work_query": {
       "field": "q",

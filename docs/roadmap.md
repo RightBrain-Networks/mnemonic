@@ -29,8 +29,8 @@ This asymmetry is intentional. Mnemonic should absorb machine-generated coordina
 
 Phases 1–12, identity-preserving work moves, cross-project relationships,
 first-class code reviews, artifacts, and agent transcript indexing are implemented. The current
-release is application/API/MCP/dashboard `0.59.0`, plugin `0.37.0`, and migration
-`0040_normalized_transcripts`. [Human review actions](code-reviews.md#human-review-decisions-0410)
+release is application/API/MCP/dashboard `0.60.0`, plugin `0.38.0`, and migration
+`0041_artifact_passages`. [Human review actions](code-reviews.md#human-review-decisions-0410)
 allow deferral, manual closeout and return to To review. [Needs Attention](attention.md) keeps current questions
 under their original IDs with previous wording in tabs. [Artifacts](artifacts.md) add project-scoped file uploads,
 downloads, atomic replacement, retained audit metadata, and work discovery;

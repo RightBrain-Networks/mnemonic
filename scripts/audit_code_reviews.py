@@ -1,4 +1,4 @@
-"""Read-only code-review integrity audit for supported schemas 0024 through 0040.
+"""Read-only code-review integrity audit for supported schemas 0024 through 0041.
 
 Run with the backend virtual environment and private database access. Output
 contains counts only: no repository locators, prompts, findings, actors, tokens,
@@ -12,7 +12,7 @@ import os
 from sqlalchemy import Connection, create_engine, text
 from sqlalchemy.exc import SQLAlchemyError
 
-HEAD = "0040_normalized_transcripts"
+HEAD = "0041_artifact_passages"
 REVIEW_HEAD = "0024_code_reviews"
 SUPPORTED_HEADS = (REVIEW_HEAD, "0025_cross_project_relationships", "0026_artifact_library",
                    "0027_artifact_fulltext", "0028_work_summary_limit",
@@ -20,7 +20,7 @@ SUPPORTED_HEADS = (REVIEW_HEAD, "0025_cross_project_relationships", "0026_artifa
                    "0031_review_decisions", "0032_agent_transcripts", "0033_transcript_imports",
                    "0034_variable_work_leases", "0035_prompt_library",
                    "0036_transcript_copies", "0037_background_jobs", "0038_transcript_recovery",
-                   "0039_manual_review_requests", HEAD)
+                   "0039_manual_review_requests", "0040_normalized_transcripts", HEAD)
 CHECKS = {
     "lifecycle_event_witness_mismatch": """
         SELECT count(*) FROM work_events event
@@ -295,10 +295,10 @@ def checks_for_head(schema_head: str) -> dict[str, str]:
     human_decision_heads = {
         "0031_review_decisions", "0032_agent_transcripts", "0033_transcript_imports",
         "0034_variable_work_leases", "0035_prompt_library", "0036_transcript_copies",
-        "0037_background_jobs", "0038_transcript_recovery", "0039_manual_review_requests", HEAD,
+        "0037_background_jobs", "0038_transcript_recovery", "0039_manual_review_requests", "0040_normalized_transcripts", HEAD,
     }
     checks = {**CHECKS, **(HUMAN_DECISION_CHECKS if schema_head in human_decision_heads else {})}
-    if schema_head in {"0039_manual_review_requests", HEAD}:
+    if schema_head in {"0039_manual_review_requests", "0040_normalized_transcripts", HEAD}:
         checks.update(MANUAL_REQUEST_CHECKS)
         checks["review_resource_mismatch"] = checks["review_resource_mismatch"].replace(
             "WHERE scope.review_id IS NULL OR handoff.review_id IS NULL",

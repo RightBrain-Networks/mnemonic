@@ -5,7 +5,17 @@ from typing import LiteralString
 from pydantic_core import PydanticCustomError
 
 VALIDATION_RULES: dict[str, tuple[str | None, LiteralString]] = {
+    "semantic_requires_unconstrained_artifact_query": (
+        "q", "Semantic artifact search requires query_mode=terms without quoted phrases.",
+    ),
     "content_kinds_requires_fulltext": ("content_kinds", "content_kinds requires fulltext=true."),
+    "artifact_semantic_requires_fulltext": (
+        "fulltext", "Artifact semantic search requires fulltext=true.",
+    ),
+    "artifact_semantic_requires_query_and_facet": (
+        "semantic", "Artifact semantic search requires a nonblank q and the artifacts facet.",
+    ),
+    "search_projects_must_be_unique": ("project_ids", "project_ids must contain unique projects."),
     "exact_query_requires_text": ("q", "Phrase and literal search require nonblank q."),
     "unclosed_query_phrase": ("q", "Close each quoted phrase, or use query_mode=literal."),
     "query_phrase_requires_terms": (

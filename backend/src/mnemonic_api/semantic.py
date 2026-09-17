@@ -92,6 +92,7 @@ class FastembedEmbedder:
 
     def __init__(self) -> None:
         self._model = None
+        self._passage_tokenizer = None
         self._lock = Lock()
 
     def _load(self):
@@ -101,6 +102,15 @@ class FastembedEmbedder:
             cache_dir = os.getenv("MNEMONIC_EMBEDDING_CACHE")
             self._model = TextEmbedding(EMBED_MODEL, cache_dir=cache_dir)
         return self._model
+
+    def passage_tokenizer(self):
+        from mnemonic_api.artifact_tokenizer import PassageTokenizer
+
+        if self._passage_tokenizer is None:
+            with self._lock:
+                if self._passage_tokenizer is None:
+                    self._passage_tokenizer = PassageTokenizer(self._load().model.tokenizer)
+        return self._passage_tokenizer
 
     def embed_documents(self, texts: Sequence[str]) -> list[list[float]]:
         with self._lock:

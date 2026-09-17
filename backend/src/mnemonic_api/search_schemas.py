@@ -12,6 +12,7 @@ from mnemonic_api.artifact_search_schemas import (
     ArtifactSearchMatch,
     CompactArtifactMatch,
 )
+from mnemonic_api.artifact_semantic_schemas import ArtifactEmbeddingCoverage
 from mnemonic_api.schemas import (
     APIModel,
     ClientName,
@@ -86,6 +87,7 @@ class WorkSearchFilters(APIModel, DateBounds):
 
 
 class ArtifactSearchFilters(APIModel, DateBounds):
+    semantic: bool = False
     artifact_id: UUID | None = None
     work_item_id: UUID | None = None
     include_deleted: bool = False
@@ -135,6 +137,17 @@ class SearchRequest(APIModel):
         return value.strip()
 
     @model_validator(mode="after")
+    def artifact_semantics(self) -> Self:
+        if self.filters.artifacts.semantic:
+            if parse_query(self.q, self.query_mode).constrained:
+                raise validation_rule("semantic_requires_unconstrained_artifact_query")
+            if not self.fulltext:
+                raise validation_rule("artifact_semantic_requires_fulltext")
+            if not self.q or "artifacts" not in self.facets:
+                raise validation_rule("artifact_semantic_requires_query_and_facet")
+        return self
+
+    @model_validator(mode="after")
     def valid_content_kind_scope(self) -> Self:
         if self.tag_counts is not None and "work_items" not in self.facets:
             raise validation_rule("tag_counts_requires_work_facet")
@@ -169,7 +182,19 @@ class SearchRequest(APIModel):
         return self
 
 
+class MultiProjectSearchRequest(SearchRequest):
+    project_ids: list[UUID] = Field(min_length=1, max_length=10)
+
+    @field_validator("project_ids")
+    @classmethod
+    def unique_projects(cls, value: list[UUID]) -> list[UUID]:
+        if len(value) != len(set(value)):
+            raise validation_rule("search_projects_must_be_unique")
+        return sorted(value, key=str)
+
+
 class SearchHitBase(APIModel):
+    project_id: UUID
     rank: int = Field(ge=1)
     score_type: ScoreType
     id: UUID
@@ -205,6 +230,7 @@ class FacetTotals(APIModel):
 
 
 class ArtifactSearchCoverage(APIModel):
+    embedding: ArtifactEmbeddingCoverage | None = None
     enabled: bool = True
     indexing: ArtifactIndexingStatus = Field(default_factory=ArtifactIndexingStatus)
     sensitive_content_withheld: int = Field(default=0, ge=0)
@@ -220,7 +246,17 @@ class SearchCoverage(APIModel):
     transcripts: TranscriptSearchCoverage = Field(default_factory=TranscriptSearchCoverage)
 
 
+class ProjectSearchCoverage(APIModel):
+    project_id: UUID
+    project_name: str = Field(min_length=1, max_length=120)
+    project_slug: str = Field(min_length=1, max_length=100)
+    facet_totals: FacetTotals
+    coverage: SearchCoverage
+    indexing_incomplete: bool
+
+
 class SearchPage(APIModel, SearchDisclosure):
+    project_coverage: list[ProjectSearchCoverage] = Field(min_length=1, max_length=10)
     score_type: ScoreType
     total_kind: TotalKind | Literal["mixed"]
     facet_total_kinds: FacetTotalKinds

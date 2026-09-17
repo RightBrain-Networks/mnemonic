@@ -12,7 +12,7 @@ from mnemonic_mcp.server import build_server
 def text_page(**overrides):
     return {
         "project_id": PROJECT_ID, "artifact_id": ARTIFACT_ID, "revision": 3,
-        "sha256": "a" * 64,
+        "sha256": "a" * 64, "text_sha256": "b" * 64,
         "extraction": {"status": "ready", "truncated": False,
                        "error_code": None, "extracted_at": NOW},
         "text": "é🙂x", "offset": 0, "limit": 3, "total_chars": 5, "next_offset": 3,

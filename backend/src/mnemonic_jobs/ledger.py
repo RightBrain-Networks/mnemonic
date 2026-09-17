@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from mnemonic_jobs.models import BackgroundJob
 
-KINDS = frozenset({"transcript_copy", "transcript_index", "backup_create"})
+KINDS = frozenset({"transcript_copy", "transcript_index", "backup_create", "artifact_embed"})
 
 
 class PermanentJobError(Exception):
@@ -53,16 +53,21 @@ class JobContext:
 
 
 def _validate_payload(kind: str, payload: dict[str, Any]) -> None:
-    allowed = {"project_id"} if kind == "backup_create" else {"transcript_id", "generation"}
+    identifier_key = {"backup_create": "project_id", "artifact_embed": "passage_index_id"}.get(
+        kind, "transcript_id",
+    )
+    counter = "offset" if kind == "artifact_embed" else "generation"
+    allowed = {identifier_key} if kind == "backup_create" else {identifier_key, counter}
     if kind not in KINDS or set(payload) != allowed:
         raise ValueError("Job payload must contain only the required identifiers")
-    identifier = payload.get("project_id", payload.get("transcript_id"))
+    identifier = payload[identifier_key]
     if not isinstance(identifier, str) or str(UUID(identifier)) != identifier:
         raise ValueError("Job identifiers must be canonical UUID strings")
-    if "generation" in payload and (
-        type(payload["generation"]) is not int or payload["generation"] < 1
+    if counter in payload and (
+        type(payload[counter]) is not int or payload[counter] < (0 if counter == "offset" else 1)
+        or (counter == "offset" and payload[counter] > 8_000_000)
     ):
-        raise ValueError("Transcript generation must be a positive integer")
+        raise ValueError("Job cursor or generation is invalid")
 
 
 def enqueue_job(database: Session, kind: str, dedupe_key: str, payload: dict[str, Any], *,

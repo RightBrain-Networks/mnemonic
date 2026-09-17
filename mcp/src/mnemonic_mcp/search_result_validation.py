@@ -57,13 +57,20 @@ def _native_matches(hit: WorkFacetHit | ArtifactFacetHit | TranscriptFacetHit,
 
 def unified_ranking_matches(page: SearchPage, request: SearchRequest) -> bool:
     selected = page.search_scope.searched_facets
-    semantic = request.filters.work_items.semantic and "work_items" in selected
+    work_semantic = request.filters.work_items.semantic and "work_items" in selected
+    semantic = work_semantic or (
+        request.filters.artifacts.semantic and "artifacts" in selected
+    )
+    embedding = page.coverage.artifacts.embedding
     if not semantic_matches(page.semantic, semantic):
+        return False
+    if embedding is not None and page.semantic.partial_vectors != embedding.partial_vectors:
         return False
     kinds = set()
     for source in ("work_items", "artifacts", "transcripts"):
         expected = source_ranking(request.q, request.query_mode, work=source == "work_items",
-                                  semantic=semantic and source == "work_items")
+                                  semantic=(request.filters.work_items.semantic and source == "work_items")
+                                  or (request.filters.artifacts.semantic and source == "artifacts"))
         actual = (getattr(page.facet_score_types, source), getattr(page.facet_total_kinds, source))
         if actual != (expected if source in selected else (None, None)):
             return False

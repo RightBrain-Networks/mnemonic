@@ -570,7 +570,7 @@ wheels = [
 
 [[package]]
 name = "mnemonic-api"
-version = "0.59.0"
+version = "0.60.0"
 source = { editable = "." }
 dependencies = [
     { name = "aio-pika" },
@@ -585,6 +585,7 @@ dependencies = [
     { name = "sqlalchemy" },
     { name = "tantivy" },
     { name = "tenacity" },
+    { name = "tokenizers" },
     { name = "uvicorn", extra = ["standard"] },
 ]
 
@@ -612,6 +613,7 @@ requires-dist = [
     { name = "sqlalchemy", specifier = ">=2.0.41,<2.1" },
     { name = "tantivy", specifier = ">=0.26,<0.27" },
     { name = "tenacity", specifier = ">=9.1,<10" },
+    { name = "tokenizers", specifier = ">=0.23,<0.24" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.34,<1" },
 ]
 

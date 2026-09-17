@@ -38,6 +38,8 @@ class TransportEffect(StrEnum):
 _APPLICATION_ERRORS = {
     "transcript_not_found": "Transcript not found in this project.",
     "transcript_not_indexed": "Transcript text is not indexed yet. Read its indexing status.",
+    "artifact_text_changed": "Artifact extracted text changed. Search again for a current revision and text hash.",
+    "artifact_semantic_capacity": "Artifact semantic capacity reached. Narrow the artifact filters before retrying.",
     "transcript_content_changed": "Transcript text changed. Read metadata before a new text snapshot.",
     "subagent_transcripts_required": "Closeout requires subagent transcript locations or explicit null.",
     "gate_question_changed": "The question changed. Read its latest version before a new intent.",

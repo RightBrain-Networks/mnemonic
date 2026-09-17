@@ -46,6 +46,14 @@ other selected facets follow co-mingled. Offset and limit apply to the combined 
 distinguishes lexical matches, browsed records and a ranked semantic candidate
 corpus. Unified pages also name `facet_total_kinds` and `facet_score_types`.
 Scores are ordering signals, not calibrated confidence or comparable thresholds.
+For artifact paraphrases, set `fulltext=true` and
+`filters.artifacts.semantic=true` on unified search, or `semantic=true` on
+`search_artifact_contents`. Semantic artifacts require nonblank unquoted terms;
+phrase and literal intent must use lexical retrieval. Inspect embedding coverage
+and retrieve the passage using its artifact revision, extracted `text_sha256`,
+and Unicode character offsets. Cosine similarity is an ordering signal, not a
+probability or shared threshold.
+
 Check `semantic.inference`, candidate scope and `comparison_incomplete`; a failed
 cache refresh does not invalidate completed inference.
 
@@ -98,7 +106,10 @@ evidence that the project has no saved work.
 
 1. Resolve `project_id` with `list_projects` from the user's explicit choice, an
    established project, or an unambiguous repository/slug match. Paginate when
-   needed. Never silently choose the first project or mix projects.
+   needed. Never silently choose the first project or expand the project scope.
+   For explicitly selected projects, use `search(project_ids=[...], q=...)`
+   instead of `project_id`; choose 1–10 distinct accessible projects. Inspect
+   `project_coverage` and retain each hit's owning `project_id` for retrieval.
 2. Select the read that answers the question. `search` retrieves relevant context
    across all three sources. `search_work` remains available for specialized work
    retrieval. `list_ready_work` lists what appears

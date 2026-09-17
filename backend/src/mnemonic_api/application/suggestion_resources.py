@@ -151,7 +151,10 @@ class DuplicateSuggestionControlMiddleware:
             await self._serve(scope, receive, send)
 
     async def _serve(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if _is_unified_search_request(scope):
+        if _is_artifact_search_request(scope) and _artifact_library_disabled(scope):
+            await self.app(scope, receive, send)
+            return
+        if _is_unified_search_request(scope) or _is_artifact_search_request(scope):
             await _serve_unified_search(self.app, self.resources, scope, receive, send)
             return
         if _is_semantic_search_request(scope):
@@ -188,6 +191,8 @@ class DuplicateSuggestionControlMiddleware:
 
 
 def _search_operation(scope: Scope) -> str | None:
+    if _is_unified_search_request(scope):
+        return "unified_search"
     if scope.get("type") != "http":
         return None
     parts = str(scope.get("path", "")).strip("/").split("/")
@@ -396,12 +401,13 @@ async def _serve_unified_search(
 ) -> None:
     """Bound the JSON safe read and share semantic admission with work search."""
     send = _with_no_store(send)
-    if _declared_oversize(scope, 16_384):
+    maximum_bytes = 4096 if _is_artifact_search_request(scope) else 16_384
+    if _declared_oversize(scope, maximum_bytes):
         await _send_error(request_body_too_large(), scope, receive, send)
         return
     try:
         body = await asyncio.wait_for(
-            _read_bounded_body(receive, 16_384), timeout=resources.timeout_seconds,
+            _read_bounded_body(receive, maximum_bytes), timeout=resources.timeout_seconds,
         )
     except _ClientDisconnected:
         return
@@ -412,32 +418,56 @@ async def _serve_unified_search(
         await _send_error(request_body_too_large(), scope, receive, send)
         return
     if _preparse_rejects_json(body):
-        await _send_duplicate_key_error(scope, receive, send)
+        if _is_artifact_search_request(scope):
+            await app(scope, _replay_body(body), send)
+        else:
+            await _send_duplicate_key_error(scope, receive, send)
         return
     replay = _replay_body(body)
-    if _unified_semantic_requested(json.loads(body)):
+    if _unified_semantic_requested(
+        json.loads(body), artifacts_enabled=not _artifact_library_disabled(scope),
+    ):
         await _serve_semantic_search(app, resources, scope, replay, send)
     else:
         await app(scope, replay, send)
 
 
-def _unified_semantic_requested(payload: object) -> bool:
+def _unified_semantic_requested(payload: object, *, artifacts_enabled: bool = True) -> bool:
     if not isinstance(payload, dict):
         return False
     filters = payload.get("filters")
-    work = filters.get("work_items") if isinstance(filters, dict) else None
-    value = work.get("semantic") if isinstance(work, dict) else None
+    facets = ("work_items", "artifacts") if artifacts_enabled else ("work_items",)
+    sources = [filters.get(key) for key in facets] \
+        if isinstance(filters, dict) else []
+    values = [payload.get("semantic"), *(source.get("semantic") for source in sources
+                                       if isinstance(source, dict))]
     # Match Pydantic's boolean forms; invalid values remain its concern.
-    return value is True or value == 1 or (
+    return any(value is True or value == 1 or (
         isinstance(value, str) and value.lower() in {"1", "on", "t", "true", "y", "yes"}
-    )
+    ) for value in values)
+
+
+def _artifact_library_disabled(scope: Scope) -> bool:
+    app = scope.get("app")
+    settings = getattr(getattr(app, "state", None), "settings", None)
+    return settings is not None and settings.artifact_max_bytes <= 0
+
+
+def _is_artifact_search_request(scope: Scope) -> bool:
+    if scope.get("type") != "http" or scope.get("method") != "POST":
+        return False
+    parts = str(scope.get("path", "")).strip("/").split("/")
+    return (len(parts) == 6 and parts[:3] == ["api", "v1", "projects"]
+            and parts[4:] == ["artifacts", "search-content"])
 
 
 def _is_unified_search_request(scope: Scope) -> bool:
     if scope.get("type") != "http" or scope.get("method") != "POST":
         return False
     parts = str(scope.get("path", "")).strip("/").split("/")
-    return len(parts) == 5 and parts[:3] == ["api", "v1", "projects"] and parts[4] == "search"
+    return parts == ["api", "v1", "search"] or (
+        len(parts) == 5 and parts[:3] == ["api", "v1", "projects"] and parts[4] == "search"
+    )
 
 
 async def _serve_semantic_search(

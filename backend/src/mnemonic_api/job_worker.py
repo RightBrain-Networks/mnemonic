@@ -11,9 +11,15 @@ from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.orm import Session
 
+from mnemonic_api.artifact_passage_jobs import (
+    enqueue_artifact_passage_jobs,
+    handle_artifact_embedding,
+)
 from mnemonic_api.artifact_tika import TikaExtractor
+from mnemonic_api.artifact_tokenizer import passage_tokenizer
 from mnemonic_api.config import Settings
 from mnemonic_api.database import build_engine, build_session_factory
+from mnemonic_api.semantic import FastembedEmbedder
 from mnemonic_api.transcript_copies import TranscriptStorage
 from mnemonic_api.transcript_job_queue import (
     enqueue_transcript_jobs,
@@ -23,6 +29,7 @@ from mnemonic_api.transcript_job_queue import (
 from mnemonic_backup.config import BackupSettings
 from mnemonic_backup.jobs import schedule_backups
 from mnemonic_backup.service import create_app as create_backup_app
+from mnemonic_jobs.ledger import RetryJob
 from mnemonic_jobs.runtime import WorkerState, run_worker
 
 
@@ -43,6 +50,28 @@ class WorkerSettings(BaseSettings):
         return value
 
 
+def schedule_jobs(database: Session, settings: Settings, backups: BackupSettings, *,
+                  embedder) -> None:
+    # The worker supplies a fresh Session without a checked-out connection here.
+    # Model/tokenizer preparation must happen before the first scheduling SQL.
+    tokenizer = None
+    if settings.artifact_max_bytes > 0:
+        try:
+            tokenizer = passage_tokenizer(embedder)
+        except Exception:
+            pass  # Other job kinds remain available if local model loading fails.
+    enqueue_transcript_jobs(database, settings)
+    if tokenizer is not None:
+        enqueue_artifact_passage_jobs(database, tokenizer)
+    schedule_backups(database, backups)
+
+
+def _artifact_embedding_job(settings, factory, embedder, context):
+    if settings.artifact_max_bytes <= 0:
+        raise RetryJob("artifact_library_disabled", 60, consume_attempt=False)
+    return handle_artifact_embedding(factory, embedder, context)
+
+
 def create_app() -> FastAPI:
     settings = Settings()
     backups = BackupSettings()  # type: ignore[call-arg]
@@ -50,10 +79,7 @@ def create_app() -> FastAPI:
     engine = build_engine(settings)
     factory = build_session_factory(engine, work_summary_max_chars=settings.work_summary_max_chars)
     state = WorkerState()
-
-    def schedule(database: Session) -> None:
-        enqueue_transcript_jobs(database, settings)
-        schedule_backups(database, backups)
+    embedder = FastembedEmbedder()
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -70,7 +96,10 @@ def create_app() -> FastAPI:
                     handle_transcript_index, factory, settings, TikaExtractor(settings),
                 ),
                 "backup_create": app.state.backup_service.handle_job,
-            }, schedule, state=state, queue_name=worker.job_queue,
+                "artifact_embed": partial(
+                    _artifact_embedding_job, settings, factory, embedder),
+            }, partial(schedule_jobs, settings=settings, backups=backups, embedder=embedder),
+            state=state, queue_name=worker.job_queue,
         ))
         try:
             yield

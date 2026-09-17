@@ -17,6 +17,7 @@ def add_ranking(page, source, query="", mode="terms", semantic=False):
         return "none" if not query.strip() else "hybrid_reciprocal_rank" if semantic and facet == "work_items" else "postgresql_lexical" if facet == "work_items" else "literal_presence" if mode == "literal" else "tantivy_relevance"
     disposition = semantic_disposition("completed", scope="full_scope") if semantic and query.strip() else semantic_disposition()
     page.setdefault("semantic", disposition)
+    _embedding_defaults(page, source)
     if source == "search":
         selected = page.get("search_scope", {}).get("searched_facets", [])
         page.setdefault("facet_total_kinds", {facet: kind(facet) if facet in selected else None for facet in ("work_items", "artifacts", "transcripts")})
@@ -48,6 +49,9 @@ def add_ranking(page, source, query="", mode="terms", semantic=False):
 
 
 def _evidence_defaults(item, facet, query):
+    if facet == "artifacts":
+        item.setdefault("evidence", "lexical")
+        item.setdefault("passage", None)
     if facet == "work_items" and not ("self_matches_filter" in item and "summary" in item):
         item.setdefault("evidence_mode", "lexical" if query.strip() else "browse")
         item.setdefault("matched_fields", ["title"] if query.strip() else [])
@@ -57,3 +61,17 @@ def _evidence_defaults(item, facet, query):
         if not item.get("matched_fields"):
             item["matched_fields"] = ["content"] if item.get("snippet") else ["metadata"] if query.strip() else []
         item.setdefault("snippet_omission_reason", None)
+
+
+def _coverage_defaults(coverage):
+    coverage["artifacts"].setdefault("embedding", None)
+    coverage["transcripts"].setdefault("unsegmented_content_omitted", 0)
+
+
+def _embedding_defaults(page, source):
+    if source == "artifacts":
+        page.setdefault("embedding", None)
+    if source == "search":
+        _coverage_defaults(page["coverage"])
+        for project in page.get("project_coverage", []):
+            _coverage_defaults(project["coverage"])

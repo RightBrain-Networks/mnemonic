@@ -18,11 +18,11 @@ PUBLIC_LOCATION_REPLACEMENT = "field"
 # Reviewed in docs/validation-vocabulary.json; test_validation_vocabulary.py pins this subset.
 PUBLIC_LOCATION_SEGMENTS = frozenset(
     """
-    body query path header cookie project_id work_item_id relationship_id
+    body query path header cookie project_id project_ids work_item_id relationship_id
     name description slug q query_mode work_fields semantic status tag
     source_client source_session_id
     filters facets work_items artifacts transcripts
-    content_kinds segment_id expected_normalized_revision before
+    content_kinds segment_id expected_normalized_revision expected_text_sha256 before
     created_after created_before updated_after updated_before diagnostics tag_counts
     view detail sort limit offset min_priority parent_work_item_id direction type order
     event_type recent_limit recent_event_limit title summary priority expected_version
