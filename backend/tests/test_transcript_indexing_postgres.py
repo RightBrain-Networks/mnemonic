@@ -190,7 +190,7 @@ def test_rebuild_during_tika_call_discards_result_and_retains_old_search(
 
 
 @pytest.mark.parametrize("failure,code", [
-    ("missing", "transcript_io_error"),
+    ("missing", "transcript_source_missing"),
     ("client", "transcript_unsupported_client"),
     ("format", "transcript_invalid_format"),
     ("tika", "extraction_parse_failed"),

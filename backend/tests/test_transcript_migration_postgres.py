@@ -39,7 +39,7 @@ def test_populated_transcript_data_blocks_downgrade(
     with postgres_engine.connect() as connection:
         assert connection.scalar(text(f"SELECT count(*) FROM {populated}")) == before
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) \
-            == "0041_artifact_passages"
+            == "0042_transcript_health"
 
 
 def test_empty_transcript_schema_downgrades_and_upgrades(pristine_postgres_engine):
@@ -66,7 +66,7 @@ def test_import_receipts_and_sources_prevent_downgrade(api, project, tmp_path,
         assert connection.scalar(text("SELECT count(*) FROM transcript_imports")) == 1
         assert connection.scalar(text("SELECT count(*) FROM transcripts")) == int(with_sources)
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) \
-            == "0041_artifact_passages"
+            == "0042_transcript_health"
     assert import_folder(api, project, tmp_path, receipt["client_operation_id"]).json() == receipt
 
 
@@ -134,7 +134,7 @@ def test_populated_0035_upgrade_queues_every_source_and_preserves_ready_evidence
         after = {row["id"]: dict(row) for row in connection.execute(
             text("SELECT * FROM transcripts")).mappings()}
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) \
-            == "0041_artifact_passages"
+            == "0042_transcript_health"
         assert connection.scalar(text("SELECT count(*) FROM background_jobs")) == 0
     for status, identity in identities.items():
         row = after[identity]

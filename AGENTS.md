@@ -83,8 +83,8 @@ git pull --ff-only origin main
 
 Use Semantic Versioning (`MAJOR.MINOR.PATCH`) for application releases. `MAJOR` version bumps are reserved and require explicit human approval. Increment `MINOR` for user-facing changes and `PATCH` for all other changes.
 
-The current application/API/MCP/dashboard release is `0.60.0`, Claude plugin
-`0.38.0`, and Alembic head `0041_artifact_passages`. The catalog is exactly
+The current application/API/MCP/dashboard release is `0.61.0`, Claude plugin
+`0.39.0`, and Alembic head `0042_transcript_health`. The catalog is exactly
 55 MCP tools, 17 receipt-protected MCP writes, 24 REST receipt kinds, 21 protected
 browser mutations, 24 work-event types, and three plugin skills. The suggestion
 POST is a safe read. Completion evidence and job completion reports are nested
@@ -203,7 +203,11 @@ roots automatically retry earlier path-not-allowed failures while retaining leas
 and pause guards. Base Compose mounts the configured transcript sources read-only in
 API and worker at
 its original absolute path; the source supplies the default allowlist. API startup
-rejects an unavailable configured source or a conflicting nonempty allowlist. The
+retains dashboard access when a configured source is unavailable; transcript health
+reports exact path/permission failures and worker observations. Conflicting explicit
+allowlists remain invalid. Fresh assertions require a readable native regular file
+inside approved roots; receipt replays bypass fresh filesystem checks. Environmental
+copy failures recheck every five minutes without rebuilding, preserving lease/pause guards. The
 shared worker also queues scheduled/manual project backups; there is no dedicated
 backup container. Raw transcript copies require filesystem backups. See
 `docs/transcripts.md` for the read-only shared-filesystem mount and workspace settings.

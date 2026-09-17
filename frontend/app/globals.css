@@ -2538,3 +2538,20 @@ html[data-theme="dark"] .review-policy-summary, html[data-theme="dark"] .review-
   .prompt-editor-drawer { width: 100%; }
   .prompt-glossary dl > div { grid-template-columns: minmax(0, 1fr); gap: 4px; }
 }
+
+
+.transcript-health-notice {
+  margin-bottom: 1.25rem;
+  padding: 1rem 1.25rem;
+  border: 1px solid #be8a32;
+  border-radius: 8px;
+  background: color-mix(in srgb, #be8a32 9%, var(--surface, transparent));
+  overflow-wrap: anywhere;
+}
+.transcript-health-notice h2 { margin: 0 0 .5rem; font-size: 1.05rem; }
+.transcript-health-notice p { margin: .5rem 0; }
+.transcript-health-notice ul { padding-left: 1.25rem; margin: .75rem 0; }
+.transcript-health-notice li + li { margin-top: 1rem; }
+.transcript-health-path { display: block; margin-top: .35rem; white-space: pre-wrap; }
+.transcript-health-metadata { font-size: .85rem; opacity: .85; }
+.transcript-health-notice summary { cursor: pointer; }

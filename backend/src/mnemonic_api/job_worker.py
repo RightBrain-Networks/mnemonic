@@ -1,6 +1,7 @@
 """Shared RabbitMQ worker and the dashboard's private backup transport."""
 
 import asyncio
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
 from functools import partial
@@ -21,6 +22,7 @@ from mnemonic_api.config import Settings
 from mnemonic_api.database import build_engine, build_session_factory
 from mnemonic_api.semantic import FastembedEmbedder
 from mnemonic_api.transcript_copies import TranscriptStorage
+from mnemonic_api.transcript_health import TranscriptHealthReporter
 from mnemonic_api.transcript_job_queue import (
     enqueue_transcript_jobs,
     handle_transcript_copy,
@@ -51,7 +53,7 @@ class WorkerSettings(BaseSettings):
 
 
 def schedule_jobs(database: Session, settings: Settings, backups: BackupSettings, *,
-                  embedder) -> None:
+                  embedder, health: TranscriptHealthReporter | None = None) -> None:
     # The worker supplies a fresh Session without a checked-out connection here.
     # Model/tokenizer preparation must happen before the first scheduling SQL.
     tokenizer = None
@@ -60,6 +62,8 @@ def schedule_jobs(database: Session, settings: Settings, backups: BackupSettings
             tokenizer = passage_tokenizer(embedder)
         except Exception:
             pass  # Other job kinds remain available if local model loading fails.
+    if health is not None:
+        health.publish(database, settings)
     enqueue_transcript_jobs(database, settings)
     if tokenizer is not None:
         enqueue_artifact_passage_jobs(database, tokenizer)
@@ -80,15 +84,20 @@ def create_app() -> FastAPI:
     factory = build_session_factory(engine, work_summary_max_chars=settings.work_summary_max_chars)
     state = WorkerState()
     embedder = FastembedEmbedder()
+    health = TranscriptHealthReporter()
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         # Only unlocked abandoned partial files older than 24 hours are removed;
         # final immutable copies and concurrent writers are never selected.
-        await asyncio.to_thread(
-            TranscriptStorage(settings.transcript_root, settings.transcript_max_bytes)
-            .cleanup_staging, set(),
-        )
+        try:
+            await asyncio.to_thread(
+                TranscriptStorage(settings.transcript_root, settings.transcript_max_bytes)
+                .cleanup_staging, set(),
+            )
+        except (OSError, ValueError):
+            logging.getLogger(__name__).warning("Transcript staging cleanup unavailable; "
+                                               "worker health will report storage access")
         task = asyncio.create_task(run_worker(
             factory, worker.rabbitmq_url.get_secret_value(), {
                 "transcript_copy": partial(handle_transcript_copy, factory, settings),
@@ -98,7 +107,8 @@ def create_app() -> FastAPI:
                 "backup_create": app.state.backup_service.handle_job,
                 "artifact_embed": partial(
                     _artifact_embedding_job, settings, factory, embedder),
-            }, partial(schedule_jobs, settings=settings, backups=backups, embedder=embedder),
+            }, partial(schedule_jobs, settings=settings, backups=backups,
+                       embedder=embedder, health=health),
             state=state, queue_name=worker.job_queue,
         ))
         try:

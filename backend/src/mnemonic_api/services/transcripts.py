@@ -50,6 +50,7 @@ from mnemonic_api.transcript_schemas import (
 )
 from mnemonic_api.transcript_segment_search import filtered_documents, matching_segment
 from mnemonic_api.transcript_snapshots import empty_transcript_snapshot
+from mnemonic_api.transcript_storage import validate_transcript_assertion
 
 # The admission slot covers corpus preflight, loading, Tantivy building and
 # snippets. The index's own lock starts too late to bound concurrent DB loads.
@@ -72,6 +73,9 @@ def register_transcripts(
             Transcript.source_path == source["path"], Transcript.kind == kind,
         ))
         if existing is None:
+            settings = database.info.get("transcript_settings")
+            if settings is not None:
+                validate_transcript_assertion(source["path"], settings.transcript_allowed_roots)
             record = take_imported_transcript(database, work.project_id, source["path"])
             if record is None:
                 record = Transcript(id=uuid4())

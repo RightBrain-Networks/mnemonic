@@ -27,7 +27,7 @@ def new_transcript_copy() -> dict[str, Any]:
         "segment_count": 0, "normalization_incomplete": False,
         "snapshot_id": uuid4(), "copy_status": "pending", "storage_key": None,
         "copy_sha256": None, "copy_size_bytes": None, "copied_at": None,
-        "copy_error_code": None, "copy_attempts": 0,
+        "copy_error_code": None, "copy_error_details": None, "copy_attempts": 0,
         "copy_next_attempt_at": datetime.now(UTC),
         "copy_lease_token": None, "copy_lease_expires_at": None,
     }

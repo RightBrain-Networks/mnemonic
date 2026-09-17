@@ -93,7 +93,7 @@ def test_copy_read_detects_corruption_without_rereading_source(tmp_path):
         store.read_copy(copied)
 
 
-def test_permissions_retry_durably_without_three_immediate_attempts(tmp_path, monkeypatch):
+def test_permissions_report_environment_failure_without_immediate_retries(tmp_path, monkeypatch):
     attempts = []
 
     def denied(*_args):
@@ -103,7 +103,8 @@ def test_permissions_retry_durably_without_three_immediate_attempts(tmp_path, mo
     monkeypatch.setattr(TranscriptStorage, "_capture_once", denied)
     with pytest.raises(ExtractionError) as failure:
         TranscriptStorage(tmp_path, 1024).capture(uuid4(), uuid4(), "/source", [])
-    assert failure.value.retryable and len(attempts) == 1
+    assert not failure.value.retryable and len(attempts) == 1
+    assert failure.value.code == "transcript_permission_denied"
 
 
 @pytest.mark.parametrize("mismatch", ["hash", "size"])

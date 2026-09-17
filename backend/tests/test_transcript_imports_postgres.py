@@ -387,7 +387,8 @@ def test_rebuild_redetects_import_client_after_source_access_is_repaired(
         assert run(api)
     original = api.get(collection(project), params={"detail": "full"}).json()["items"][0]
     assert original["client"] == "claude_code"
-    assert original["status"] == "failed" and original["error_code"] == "transcript_io_error"
+    assert original["status"] == "failed"
+    assert original["error_code"] == "transcript_permission_denied"
     if old_failure == "misidentified":
         # Prior releases assigned every imported JSONL source to Claude Code.
         with api.app.state.session_factory() as database:

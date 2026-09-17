@@ -57,7 +57,7 @@ else:
 try:
     read_transcript(str(root / "linked.jsonl"), [root], 1024)
 except ExtractionError as error:
-    assert str(error) == "transcript_io_error"
+    assert str(error) == "transcript_symlink_rejected"
 else:
     raise AssertionError("Symlink was followed")
 assert not (root.parent / "credentials.json").exists()
@@ -73,7 +73,7 @@ try:
     result = index.search("mount-probe", lambda: [SearchDocument("one", "probe", "needle")],
                           query="needle", fulltext=True, count=1)
     assert len(result.hits) == 1
-    assert (settings.transcript_index_dir / "snapshot" / "meta.json").is_file()
+    assert len(list((settings.transcript_index_dir / "snapshot").glob("*/meta.json"))) == 1
 finally:
     index.close()
 print("PASS: private source read/discovery, containment, artifact write and configured disk index")
@@ -86,7 +86,7 @@ for root in Settings().transcript_allowed_roots:
     try:
         read_transcript(str(root / "existing.jsonl"), [root], 1024)
     except ExtractionError as error:
-        assert str(error) == "transcript_io_error"
+        assert str(error) == "transcript_permission_denied"
     else:
         raise AssertionError("Wrong UID read an owner-only transcript")
 print("PASS: mismatched service UID reproduces the permission failure")

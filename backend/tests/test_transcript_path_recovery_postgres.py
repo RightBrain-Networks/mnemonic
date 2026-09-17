@@ -23,13 +23,13 @@ def test_restored_roots_recover_primary_and_nested_subagents_without_duplicates(
     child.parent.mkdir(parents=True, mode=0o700)
     child.write_bytes(primary.read_bytes())
     child.chmod(0o600)
-    api.app.state.settings.transcript_allowed_roots = []
     payload = {"lease_token": receipt["lease_token"],
                "actor": {"actor_client": "claude-code", "actor_session_id": "transcript-test"},
                "subagent_transcripts": [{"client": "claude-code", "path": str(child)}]}
     release_path = item_path(project, work) + "/release-claim"
     released = api.post(release_path, json=payload)
     assert released.status_code == 200, released.text
+    api.app.state.settings.transcript_allowed_roots = []
     assert run(api) and run(api)
     assert not run(api)
     failed = api.get(collection(project), params={"detail": "full"}).json()["items"]
@@ -130,7 +130,7 @@ def test_recovery_still_rejects_symlinks_and_does_not_loop(
     api.app.state.settings.transcript_allowed_roots = [tmp_path]
     parser = Parser()
     assert run(api, parser)
-    assert read(api, project, record)["error_code"] == "transcript_io_error"
+    assert read(api, project, record)["error_code"] == "transcript_symlink_rejected"
     assert parser.calls == []
     assert not run(api, parser)
 

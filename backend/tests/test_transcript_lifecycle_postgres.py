@@ -16,6 +16,15 @@ SOURCE = {"client": "claude_code", "path": "/synthetic/session.jsonl"}
 CHILD = {"client": "claude_code", "path": "/synthetic/subagents/agent-child.jsonl"}
 
 
+@pytest.fixture(autouse=True)
+def native_sources(api, tmp_path, monkeypatch):
+    for source, name in ((SOURCE, "session.jsonl"), (CHILD, "agent-child.jsonl")):
+        path = tmp_path / name
+        path.write_text('{"type":"user","message":{"role":"user","content":"fixture"}}\n')
+        monkeypatch.setitem(source, "path", str(path))
+    api.app.state.settings.transcript_allowed_roots = [tmp_path]
+
+
 def transcripts(engine, work_id):
     with Session(engine) as database:
         return [(row.kind, row.source_path, row.lease_generation_id, row.status)
