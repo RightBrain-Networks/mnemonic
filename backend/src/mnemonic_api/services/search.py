@@ -2,14 +2,13 @@
 
 import logging
 from contextlib import ExitStack
-from uuid import UUID
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from mnemonic_api.artifact_index import ArtifactSearchIndex, literal_terms
 from mnemonic_api.config import DEFAULT_TRANSCRIPT_SEARCH_MAX_BYTES
-from mnemonic_api.errors import semantic_unavailable
+from mnemonic_api.models import Project
 from mnemonic_api.search_diagnostics import SearchScope, TermDiagnostic, TermMatchCounts
 from mnemonic_api.search_disclosure import (
     ArtifactAppliedFilters,
@@ -18,15 +17,28 @@ from mnemonic_api.search_disclosure import (
     WorkAppliedFilters,
     search_disclosure,
 )
+from mnemonic_api.search_exploration import wants_diagnostics
+from mnemonic_api.search_exploration_schemas import DiagnosticsMode
+from mnemonic_api.search_projects import ProjectSelection, selected_project_ids
+from mnemonic_api.search_ranking import (
+    FacetScoreTypes,
+    FacetTotalKinds,
+    SemanticDisposition,
+    completed_semantic,
+    search_ranking,
+)
 from mnemonic_api.search_schemas import (
     ArtifactSearchCoverage,
     FacetTotals,
+    ProjectSearchCoverage,
     SearchCoverage,
     SearchFacet,
     SearchPage,
     SearchRequest,
     SearchSort,
+    TranscriptSearchCoverage,
 )
+from mnemonic_api.search_timing import refresh_cache
 from mnemonic_api.semantic import Embedder, EmbeddingCacheUpdate, persist_embedding_updates
 from mnemonic_api.services.project_mutations import project_mutation
 from mnemonic_api.services.search_artifacts import artifact_source
@@ -80,8 +92,10 @@ def order_candidates(sources: dict[SearchFacet, SearchSource], request: SearchRe
     return candidates
 
 
-def _term_diagnostics(sources: dict[SearchFacet, SearchSource], query: str) -> list[TermDiagnostic]:
-    if not query or any(source.candidates for source in sources.values()):
+def _term_diagnostics(sources: dict[SearchFacet, SearchSource], query: str,
+                      mode: DiagnosticsMode = "on_empty") -> list[TermDiagnostic]:
+    total = sum(len(source.candidates) for source in sources.values())
+    if not wants_diagnostics(mode, query, total):
         return []
     terms = literal_terms(query, fold_accents=False)
     counts = {facet: source.term_counts(terms) for facet, source in sources.items()}
@@ -99,16 +113,63 @@ def _scope(sources: dict[SearchFacet, SearchSource], request: SearchRequest) -> 
     return SearchScope(searched_facets=list(sources), transcripts=transcripts)
 
 
+def _incomplete(coverage: SearchCoverage, request: SearchRequest) -> bool:
+    artifacts = coverage.artifacts
+    indexing = artifacts.indexing
+    return (not artifacts.enabled and "artifacts" in request.facets) or bool(
+        indexing.pending or indexing.failed or indexing.truncated
+        or artifacts.sensitive_content_withheld or coverage.transcripts.indexing_incomplete
+        or (artifacts.embedding is not None and artifacts.embedding.state != "ready")
+    )
+
+
+def _project_coverage(
+    projects: list[Project], sources, request, aggregate,
+) -> list[ProjectSearchCoverage]:
+    result = []
+    for project in projects:
+        coverage = SearchCoverage(artifacts=ArtifactSearchCoverage(
+            enabled=aggregate.artifacts.enabled,
+        ))
+        for source in sources.values():
+            facet_coverage = source.coverage_by_project.get(project.id)
+            if isinstance(facet_coverage, ArtifactSearchCoverage):
+                coverage.artifacts = facet_coverage
+            elif isinstance(facet_coverage, TranscriptSearchCoverage):
+                coverage.transcripts = facet_coverage
+        result.append(ProjectSearchCoverage(
+            project_id=project.id, project_name=project.name, project_slug=project.slug,
+            facet_totals=FacetTotals(**{
+                facet: sum(item.project_id == project.id for item in source.candidates)
+                for facet, source in sources.items()
+            }), coverage=coverage, indexing_incomplete=_incomplete(coverage, request),
+        ))
+    return result
+
+
+def _semantic_disposition(sources: dict[SearchFacet, SearchSource], request: SearchRequest,
+                          coverage: SearchCoverage) -> SemanticDisposition:
+    if not (("work_items" in sources and request.filters.work_items.semantic)
+            or ("artifacts" in sources and request.filters.artifacts.semantic)):
+        return SemanticDisposition()
+    embedding = coverage.artifacts.embedding
+    partial = embedding is not None and bool(
+        embedding.pending or embedding.processing or embedding.failed or embedding.unavailable)
+    return completed_semantic(partial_vectors=partial)
+
+
 def _page(
     sources: dict[SearchFacet, SearchSource], request: SearchRequest, coverage: SearchCoverage,
-    project_id: UUID,
+    project_id: ProjectSelection, projects: list[Project],
 ) -> SearchPage:
     if request.q:
         for source in sources.values():
             normalize_relevance(source.candidates)
     ordered = order_candidates(sources, request)
     ranks: dict[SearchFacet, int] = {}
-    for candidate in ordered:
+    for position, candidate in enumerate(ordered, 1):
+        candidate.rank = position
+        candidate.score_type = "unified_reciprocal_rank" if request.q else "none"
         ranks[candidate.facet] = ranks.get(candidate.facet, 0) + 1
         candidate.source_rank = ranks[candidate.facet]
     selected = ordered[request.offset:request.offset + request.limit]
@@ -118,19 +179,31 @@ def _page(
         if page:
             results.update({(facet, identity): hit
                             for identity, hit in source.hydrate(page).items()})
-    artifact_coverage = coverage.artifacts
-    indexing = artifact_coverage.indexing
-    incomplete = (not artifact_coverage.enabled and "artifacts" in request.facets) or bool(
-        indexing.pending or indexing.failed or indexing.truncated
-        or artifact_coverage.sensitive_content_withheld
-        or coverage.transcripts.indexing_incomplete
-    )
+    incomplete = _incomplete(coverage, request)
+    ranking = {facet: search_ranking(
+        request.q, request.query_mode, work=facet == "work_items",
+        semantic=(facet == "work_items" and request.filters.work_items.semantic)
+        or (facet == "artifacts" and request.filters.artifacts.semantic))
+        for facet in sources}
+    kinds = {value.total_kind for value in ranking.values()}
     return SearchPage(
+        score_type="unified_reciprocal_rank" if request.q else "none",
+        total_kind="mixed" if len(kinds) > 1 else next(
+            iter(kinds), "lexical_matches" if request.q else "browsed_records"),
+        facet_total_kinds=FacetTotalKinds(**{facet: value.total_kind
+                                          for facet, value in ranking.items()}),
+        facet_score_types=FacetScoreTypes(**{facet: value.score_type
+                                          for facet, value in ranking.items()}),
+        semantic=_semantic_disposition(sources, request, coverage),
         work_rank_scope="work_items",
+        project_coverage=_project_coverage(projects, sources, request, coverage),
         **_disclosure(project_id, sources, request).model_dump(),
         detail=request.detail,
         search_scope=_scope(sources, request),
-        term_diagnostics=_term_diagnostics(sources, request.q),
+        term_diagnostics=_term_diagnostics(sources, request.q, request.diagnostics),
+        tag_counts=(sources["work_items"].tag_counts(request.tag_counts)
+                    if request.tag_counts is not None
+                    and sources["work_items"].tag_counts else None),
         items=[results[(item.facet, item.id)] for item in selected], total=len(ordered),
         limit=request.limit, offset=request.offset,
         facet_totals=FacetTotals(**{facet: len(source.candidates)
@@ -140,11 +213,12 @@ def _page(
 
 
 def _disclosure(
-    project_id: UUID, sources: dict[SearchFacet, SearchSource], request: SearchRequest,
+    project_id: ProjectSelection, sources: dict[SearchFacet, SearchSource], request: SearchRequest,
 ) -> SearchDisclosure:
     filters = request.filters
     return search_disclosure(
         project_id, request.q, fulltext=request.fulltext, semantic=filters.work_items.semantic,
+        query_mode=request.query_mode, diagnostics=request.diagnostics,
         work_items=WorkAppliedFilters.model_validate(
             filters.work_items.model_dump(exclude={"semantic"}),
         ) if "work_items" in sources else None,
@@ -158,10 +232,11 @@ def _disclosure(
 
 
 def _search_locked(
-    database: Session, project_id: UUID, request: SearchRequest,
+    database: Session, project_id: ProjectSelection, request: SearchRequest,
     artifact_index: ArtifactSearchIndex, transcript_index: ArtifactSearchIndex,
     *, artifacts_enabled: bool, human_dashboard: bool, embedder: Embedder,
     query_vector: tuple[float, ...] | None, maximum_transcript_content_bytes: int,
+    artifact_chunk_config: str | None,
 ) -> tuple[SearchPage, list[EmbeddingCacheUpdate]]:
     as_of = database.scalar(select(func.clock_timestamp()))
     if as_of is None:
@@ -172,42 +247,49 @@ def _search_locked(
     with ExitStack() as stack:
         if "work_items" in request.facets:
             sources["work_items"], updates = work_source(
-                database, project_id, request, as_of, embedder=embedder, query_vector=query_vector,
+                database, project_id, request, as_of, embedder=embedder,
+                query_vector=query_vector if request.filters.work_items.semantic else None,
             )
         if "artifacts" in request.facets and artifacts_enabled:
             sources["artifacts"], coverage.artifacts = artifact_source(
                 database, project_id, request, artifact_index, human_dashboard=human_dashboard,
+                query_vector=query_vector if request.filters.artifacts.semantic else None,
+                artifact_chunk_config=artifact_chunk_config,
             )
         if "transcripts" in request.facets:
             sources["transcripts"], coverage.transcripts = stack.enter_context(transcript_source(
                 database, project_id, request, transcript_index,
                 maximum_content_bytes=maximum_transcript_content_bytes,
             ))
-        return _page(sources, request, coverage, project_id), updates
+        projects = list(database.scalars(select(Project).where(
+            Project.id.in_(selected_project_ids(project_id)),
+        ).order_by(Project.id)))
+        return _page(sources, request, coverage, project_id, projects), updates
 
 
 def search(
-    database: Session, project_id: UUID, request: SearchRequest,
+    database: Session, project_id: ProjectSelection, request: SearchRequest,
     artifact_index: ArtifactSearchIndex, transcript_index: ArtifactSearchIndex,
     *, artifacts_enabled: bool, human_dashboard: bool, embedder: Embedder,
     query_vector: tuple[float, ...] | None = None,
+    artifact_chunk_config: str | None = None,
     maximum_transcript_content_bytes: int = DEFAULT_TRANSCRIPT_SEARCH_MAX_BYTES,
 ) -> SearchPage:
     # Published work, artifact revisions/sensitivity and transcript snapshots all
     # use this project lock. Acquire it before selecting any candidate so a queued
     # search observes preceding sensitivity changes. Keep it through page hydration
     # and the optional dashboard sensitive-read audit; embeddings publish afterward.
-    with project_mutation(database, project_id, protected=True, domain_seconds=120):
+    projects = selected_project_ids(project_id)
+    with project_mutation(database, projects[0], additional_project_ids=projects[1:],
+                          protected=True, domain_seconds=120):
         page, updates = _search_locked(
             database, project_id, request, artifact_index, transcript_index,
             artifacts_enabled=artifacts_enabled, human_dashboard=human_dashboard,
             embedder=embedder, query_vector=query_vector,
             maximum_transcript_content_bytes=maximum_transcript_content_bytes,
+            artifact_chunk_config=artifact_chunk_config,
         )
         database.commit()
-    try:
-        persist_embedding_updates(database, updates)
-    except Exception as exc:
-        logger.error("Unified semantic cache refresh failed (%s)", type(exc).__name__)
-        raise semantic_unavailable() from None
+    page.semantic.cache_refresh = refresh_cache(
+        "work_semantic", bool(updates), lambda: persist_embedding_updates(database, updates))
     return page

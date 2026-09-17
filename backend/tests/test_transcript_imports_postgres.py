@@ -136,7 +136,8 @@ def test_imports_nested_sources_skip_enrollment_and_replay_without_rescanning(
     page = api.get(collection(project), params={"detail": "full"}).json()
     assert page["total"] == 2
     rows = {row["id"]: row for row in page["items"]}
-    assert rows[enrolled["id"]] == enrolled
+    assert [row["rank"] for row in page["items"]] == [1, 2]
+    assert rows[enrolled["id"]] == {**enrolled, "rank": 2}
     historical = next(row for row in rows.values() if row["kind"] == "imported")
     assert historical["status"] == "ready"
     assert historical["work_item_id"] is historical["lease_generation_id"] is None
@@ -330,7 +331,9 @@ def test_move_removes_only_redundant_imports_and_preserves_enrolled_history(
     assert len(rows) == 2
     assert {row["source_path"] for row in rows} == {str(path) + suffix,
                                                  str(tmp_path / "unrelated.jsonl")}
-    assert read(api, target, original) == {**original, "project_id": target["id"]}
+    assert read(api, target, original) == {
+        **original, "project_id": target["id"], "rank": None,
+    }
     assert api.get(collection(project), params={"detail": "full"}).json()["total"] == 0
     assert api.get(collection(target) + "/" + imported["id"]).status_code == 404
     assert import_folder(api, target, tmp_path, operation).json() == receipt

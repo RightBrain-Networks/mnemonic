@@ -7,7 +7,7 @@ from uuid import UUID
 from sqlalchemy.orm import Session
 
 from mnemonic_api.models import WorkItem
-from mnemonic_api.schemas import CompactWorkHit, WorkIdentityPointer
+from mnemonic_api.schemas import CompactWorkHit, WorkIdentityPointer, WorkMatchEvidence
 from mnemonic_api.services.hierarchy import ancestor_paths
 from mnemonic_api.services.readiness import (
     readiness,
@@ -20,6 +20,7 @@ from mnemonic_api.services.readiness import (
 def compact_work_hits(
     database: Session, project_id: UUID, work_items: Sequence[WorkItem], *,
     ranks: dict[UUID, int], matched_members: dict[UUID, WorkIdentityPointer], as_of: datetime,
+    evidence: dict[UUID, WorkMatchEvidence],
 ) -> list[CompactWorkHit]:
     if not work_items:
         return []
@@ -29,6 +30,7 @@ def compact_work_hits(
     paths, truncated = ancestor_paths(database, project_id, ids)
     return [CompactWorkHit(
         id=item.id, project_id=project_id, title=item.title, status=item.status,
+        **evidence[matched_members[item.id].id].model_dump(),
         priority=item.priority, updated_at=item.updated_at, rank=ranks[item.id],
         canonical_work_item_id=canonical.get(item.id, item.id),
         search_status=work_search_status(

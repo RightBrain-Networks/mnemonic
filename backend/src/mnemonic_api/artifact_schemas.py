@@ -75,12 +75,15 @@ class ArtifactExtractionRead(ArtifactExtractionStatus):
 
 
 class ArtifactTextQuery(ArtifactModel):
+    expected_text_sha256: str | None = Field(
+        default=None, pattern="^[0-9a-f]{64}$", exclude_if=lambda value: value is None)
     expected_revision: int = Field(ge=1)
     offset: int = Field(default=0, ge=0, le=8_000_000)
     limit: int = Field(default=20_000, ge=1, le=20_000)
 
 
 class ArtifactTextRead(ArtifactModel):
+    text_sha256: str | None = Field(default=None, pattern="^[0-9a-f]{64}$")
     project_id: UUID
     artifact_id: UUID
     revision: int = Field(ge=1)

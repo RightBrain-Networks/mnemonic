@@ -1,3 +1,4 @@
+import { ranking, hitRanking, unifiedRanking, semanticDisposition, evidence } from "./search-ranking-fixtures.mjs";
 import { disclosure } from "./search-disclosure-fixtures.mjs";
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -139,13 +140,14 @@ test("artifact search POST is a bounded safe read with strict controls and no op
 });
 
 test("artifact search validates scope, pagination, fields, counts and untrusted plain snippets", () => {
-  const match = { artifact: metadata, score: 1.5, snippet: "<script>untrusted text</script>", matched_fields: ["content"] };
-  const result = { detail: "full", ...disclosure(project, ["artifacts"], { fulltext: true }), match_mode: "all_terms", term_diagnostics: [], items: [match], total: 1, limit: 50, offset: 0, fulltext: true, sensitive_content_withheld: 0, indexing: { ready: 1, pending: 0, failed: 0, truncated: 0 } };
+  const match = { evidence: "lexical", passage: null, ...hitRanking("", "artifacts"), artifact: metadata, score: 0, snippet: "<script>untrusted text</script>", matched_fields: ["content"] };
+  const result = { ...ranking("", "artifacts"), detail: "full", ...disclosure(project, ["artifacts"], { fulltext: true }), match_mode: "all_terms", embedding: null, term_diagnostics: [], items: [match], total: 1, limit: 50, offset: 0, fulltext: true, sensitive_content_withheld: 0, indexing: { ready: 1, pending: 0, failed: 0, truncated: 0 } };
   assert.equal(decodeArtifactSearchPage(result, project, true).items[0].snippet, match.snippet);
   for (const invalid of [
     { ...result, fulltext: false }, { ...result, offset: 1 }, { ...result, total: 2 },
     { ...result, items: [match, match], total: 2 },
     { ...result, indexing: { ...result.indexing, pending: true } },
+    { ...result, match_mode: "semantic_passages" },
     { ...result, items: [{ ...match, score: Infinity }] },
     { ...result, items: [{ ...match, score: -1 }] },
     { ...result, items: [{ ...match, snippet: "x".repeat(1001) }] },

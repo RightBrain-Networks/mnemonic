@@ -72,7 +72,8 @@ async def duplicate_suggestions(
         raise
     except Exception as exc:
         logger.error("Duplicate suggestion unavailable (%s)", type(exc).__name__)
-        raise duplicate_suggestion_unavailable() from None
+        raise duplicate_suggestion_unavailable(
+            "deadline_exceeded" if isinstance(exc, TimeoutError) else "model_failure") from None
 
 
 @router.post(

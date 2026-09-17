@@ -27,9 +27,9 @@ def transcript_hit(**changes):
             "score": 1 / 61, "transcript": transcript(), **changes}
 
 
-def work_hit(work_summary):
+def work_hit(work_summary, *, score=1 / 61):
     return {"facet": "work_items", "id": WORK_ID, "created_at": NOW, "updated_at": NOW,
-            "score": 1 / 61, "work_item": {"summary": work_summary, "matched_member": {
+            "score": score, "work_item": {"summary": work_summary, "matched_member": {
                 key: work_summary["work_item"][key] for key in ("id", "title", "status")
             }}}
 
@@ -41,10 +41,10 @@ def page(items=(), **changes):
                                  'in facets or calling search_transcript_contents.')},
             "term_diagnostics": [], "items": list(items), "total": len(items), "limit": 50, "offset": 0,
             "facet_totals": {facet: sum(item["facet"] == facet for item in items) for facet in FACETS},
-            "coverage": {"artifacts": {"enabled": True, "indexing": {
+            "coverage": {"artifacts": {"enabled": True, "embedding": None, "indexing": {
                 "pending": 0, "ready": sum(item["facet"] == "artifacts" for item in items),
                 "failed": 0, "truncated": 0,
-            }, "sensitive_content_withheld": 0}, "transcripts": {"indexing_incomplete": False}},
+            }, "sensitive_content_withheld": 0}, "transcripts": {"indexing_incomplete": False, "unsegmented_content_omitted": 0}},
             "indexing_incomplete": False, **changes}
 
 
@@ -128,7 +128,7 @@ async def test_unavailable_and_sensitive_coverage_is_preserved(settings):
 
 
 async def test_disabled_artifacts_do_not_block_other_source_results(settings):
-    response = page([transcript_hit()])
+    response = page([transcript_hit(score=0.0)])
     response["coverage"]["artifacts"]["enabled"] = False
     response["search_scope"]["searched_facets"] = ["work_items", "transcripts"]
     response["indexing_incomplete"] = True
@@ -254,7 +254,9 @@ async def test_search_tool_schema_and_cold_review_guidance(settings):
     tools = {tool.name: tool for tool in await build_server(settings).list_tools()}
     tool = tools["search"]
     properties = tool.inputSchema["properties"]
-    assert tool.inputSchema["required"] == ["project_id"]
+    assert not tool.inputSchema.get("required")
+    assert properties["project_id"]["default"] is None
+    assert properties["project_ids"]["default"] is None
     assert "default" not in properties["facets"]
     assert properties["q"]["default"] == "" and properties["fulltext"]["default"] is False
     assert properties["detail"]["default"] == "compact"
@@ -300,7 +302,7 @@ async def test_work_status_uses_lifecycle_leases_and_review_disposition(
                          display_state=effective)
         if actual != "done":
             readiness["review_status"] = effective
-    response = page([work_hit(summary)])
+    response = page([work_hit(summary, score=0.0)])
     arguments = {"project_id": PROJECT_ID, "filters": {"work_items": {"status": selected}}}
     if accepted:
         result = await call(settings, "search", arguments,
@@ -315,7 +317,7 @@ async def test_work_status_uses_lifecycle_leases_and_review_disposition(
 async def test_blank_query_browses_all_facets_without_artifact_match_fields(settings, work_summary):
     artifact = artifact_hit(score=0.0)
     artifact["artifact"].update(score=0.0, matched_fields=[])
-    payload = page([work_hit(work_summary), artifact, transcript_hit()])
+    payload = page([work_hit(work_summary, score=0.0), artifact, transcript_hit(score=0.0)])
     result = await call(settings, "search", {"project_id": PROJECT_ID},
                         lambda request: httpx.Response(200, json=payload))
     assert [item["facet"] for item in result["items"]] == FACETS

@@ -8,6 +8,7 @@ import httpx
 import pytest
 from conftest import NOW, OTHER_WORK_ID, PROJECT_ID, WORK_ID
 from mcp.server.fastmcp.exceptions import ToolError
+from search_ranking_fixtures import add_ranking
 from test_artifacts import artifact
 from test_transcripts import transcript
 from test_unified_search import page as unified_page
@@ -53,7 +54,7 @@ def transcript_pointer():
         "normalization_status", "normalization_error_code", "normalized_revision",
         "normalized_sha256", "normalization_schema_version", "normalizer_version",
         "normalized_size_bytes", "segment_count", "normalization_incomplete", "segment_id",
-        "content_kind",
+        "content_kind", "matched_fields", "snippet_omission_reason", "rank", "score_type",
     )}
 
 
@@ -62,13 +63,21 @@ def response_page(tool, summary, *, q="needle", detail="compact"):
     file = artifact_pointer()
     session = transcript_pointer()
     if tool == "search":
-        items = [{"facet": facet, "id": value["artifact"]["id"] if facet == "artifacts"
+        items = [{"facet": facet, "project_id": PROJECT_ID,
+                  "id": value["artifact"]["id"] if facet == "artifacts"
                   else value["id"], "created_at": NOW, "updated_at": NOW, "score": 1 / 61,
                   key: value} for facet, key, value in (
                       ("work_items", "work_item", work), ("artifacts", "artifact", file),
                       ("transcripts", "transcript", session),
                   )]
         result = unified_page(items, limit=20)
+        result["coverage"]["artifacts"]["indexing"].update(pending=1, ready=0)
+        result["indexing_incomplete"] = True
+        result["project_coverage"] = [{
+            "project_id": PROJECT_ID, "project_name": "Test project", "project_slug": "test-project",
+            "facet_totals": result["facet_totals"], "coverage": result["coverage"],
+            "indexing_incomplete": result["indexing_incomplete"],
+        }]
         scopes = {"work_items": WorkAppliedFilters(), "artifacts": ArtifactAppliedFilters(),
                   "transcripts": TranscriptAppliedFilters()}
     elif tool == "search_work":
@@ -84,8 +93,14 @@ def response_page(tool, summary, *, q="needle", detail="compact"):
         result = {"items": [session], "total": 1, "limit": 20, "offset": 0,
                   "term_diagnostics": [], "indexing_incomplete": False}
         scopes = {"transcripts": TranscriptAppliedFilters()}
+    if tool == "search":
+        result["tag_counts"] = None
+    if tool == "search_work":
+        result["term_diagnostics"] = []
     if tool in {"search", "search_work"}:
         result["work_rank_scope"] = "work_items"
+    add_ranking(result, {"search_work": "work_items", "search_artifact_contents": "artifacts",
+                         "search_transcript_contents": "transcripts", "list_transcripts": "transcripts"}.get(tool, "search"), q)
     return {**result, "detail": detail,
             **search_disclosure(UUID(PROJECT_ID), q, **scopes).model_dump(mode="json")}
 
@@ -214,6 +229,8 @@ async def test_compact_work_reduces_twenty_hit_payload_and_full_detail_is_explic
             key: summary["work_item"][key] for key in ("id", "title", "status")
         }})
     full["total"] = compact["total"] = 20
+    add_ranking(compact, "work_items", "needle")
+    add_ranking(full, "work_items", "needle")
     small, _ = await native_call(settings, "search_work", {"q": "needle"}, compact)
     large, requests = await native_call(settings, "search_work", {"q": "needle", "detail": "full"}, full)
     assert requests[0].url.params["detail"] == "full"

@@ -1,3 +1,4 @@
+import { decodeSemantic } from "./search-ranking.ts";
 import { nfkcUnicode15_1 } from "./title-normalization.ts";
 import { validExternalCandidates, validSparseReferences, referenceKeys } from "./external-references.ts";
 import type {
@@ -35,6 +36,7 @@ const EXTERNAL_SUGGESTION_FIELDS = ["rank", "signals", "reference"] as const;
 const EXTERNAL_RESULT_REFERENCE_FIELDS = ["url", "title", "state"] as const;
 const SUGGESTION_FIELDS = ["canonical_work", "matched_member", "rank", "signals"] as const;
 const PAGE_FIELDS = [
+  "semantic",
   "items",
   "limit",
   "mode",
@@ -174,6 +176,9 @@ export function decodeDuplicateSuggestionPage(
     || !finiteInteger(page.exact_title_group_total)
     || !finiteInteger(page.omitted_exact_title_group_count)
   ) throw new Error("Mnemonic returned an invalid duplicate suggestion page.");
+  const semantic = decodeSemantic(page.semantic);
+  if (page.mode === "lexical" ? semantic.inference.status === "completed" : semantic.inference.status !== "completed" || semantic.candidate_scope !== (page.mode === "hybrid_full" ? "full_scope" : "lexical_shortlist")) throw new Error("Mnemonic returned inconsistent semantic comparison coverage.");
+  if (page.items.length && semantic.inference.status === "not_requested") throw new Error("Mnemonic returned incomplete duplicate comparison coverage.");
   const semanticContract = page.mode === "lexical"
     ? !page.semantic_available && page.semantic_scope === "unavailable"
     : page.mode === "hybrid_full"
@@ -206,7 +211,7 @@ export function decodeDuplicateSuggestionPage(
 
   const external = decodeExternalResults(page, request);
   return {
-    ...external,
+    ...external, semantic,
     items,
     limit: page.limit as number,
     mode: page.mode as DuplicateSuggestionPage["mode"],

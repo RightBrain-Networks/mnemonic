@@ -34,6 +34,11 @@ from mnemonic_api import code_review_db_tables as reviews
 from mnemonic_api import manual_review_db as manual_reviews
 from mnemonic_api import phase12_db_tables as phase12
 from mnemonic_api import transcript_db_tables as transcripts
+from mnemonic_api.artifact_passage_db import (
+    TEXT_HASH_EXPRESSION,
+    passage_elements,
+    passage_index_elements,
+)
 from mnemonic_api.background_job_db import job_elements
 from mnemonic_api.transcript_normalization_db import normalization_elements, segment_elements
 from mnemonic_api.transcript_recovery_db import recovery_elements
@@ -1994,6 +1999,9 @@ class ArtifactExtraction(Base):
     revision: Mapped[int] = mapped_column(Integer, primary_key=True)
     status: Mapped[str] = mapped_column(String(20), server_default="pending")
     normalized_text: Mapped[str | None] = mapped_column(Text, deferred=True)
+    text_sha256: Mapped[str | None] = mapped_column(
+        String(64), Computed(TEXT_HASH_EXPRESSION, persisted=True),
+    )
     extracted_metadata: Mapped[dict[str, list[str]]] = mapped_column(
         JSONB, server_default=text("'{}'::jsonb")
     )
@@ -2234,7 +2242,7 @@ class TranscriptImport(Base):
 
 
 class BackgroundJob(Base):
-    __table__ = Table("background_jobs", Base.metadata, *job_elements())
+    __table__ = Table("background_jobs", Base.metadata, *job_elements(artifact_embeddings=True))
 
     id: Mapped[UUID]
     kind: Mapped[str]
@@ -2261,3 +2269,11 @@ class TranscriptNormalization(Base):
 
 class TranscriptSegment(Base):
     __table__ = Table("transcript_segments", Base.metadata, *segment_elements())
+
+
+class ArtifactPassageIndex(Base):
+    __table__ = Table("artifact_passage_indexes", Base.metadata, *passage_index_elements())
+
+
+class ArtifactPassage(Base):
+    __table__ = Table("artifact_passages", Base.metadata, *passage_elements())

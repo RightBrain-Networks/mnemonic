@@ -8,6 +8,7 @@ from uuid import UUID
 import pytest
 from conftest import NOW, PROJECT_ID
 from mcp.server.fastmcp.exceptions import ToolError
+from search_ranking_fixtures import add_ranking
 from test_compact_search import native_call
 from test_transcript_segments import REVISION, segment
 from test_transcripts import TRANSCRIPT_ID, transcript
@@ -24,13 +25,20 @@ def search_result(tool, detail, kinds):
         record = {key: value for key, value in record.items()
                   if key in CompactTranscriptRead.model_fields}
     if tool == "search":
-        result = page([{"facet": "transcripts", "id": TRANSCRIPT_ID, "created_at": NOW,
+        result = page([{"facet": "transcripts", "id": TRANSCRIPT_ID, "project_id": PROJECT_ID, "created_at": NOW,
                        "updated_at": NOW, "score": 0.01, "transcript": record}], limit=20)
         result["search_scope"]["searched_facets"] = ["transcripts"]
         result["work_rank_scope"] = "work_items"
+        result["tag_counts"] = None
+        result["project_coverage"] = [{
+            "project_id": PROJECT_ID, "project_name": "Test project", "project_slug": "test-project",
+            "facet_totals": result["facet_totals"], "coverage": result["coverage"],
+            "indexing_incomplete": result["indexing_incomplete"],
+        }]
     else:
         result = {"items": [record], "total": 1, "limit": 20, "offset": 0,
                   "term_diagnostics": [], "indexing_incomplete": False}
+    add_ranking(result, "search" if tool == "search" else "transcripts", "needle")
     return {**result, "detail": detail, **search_disclosure(UUID(PROJECT_ID), "needle",
         fulltext=True, transcripts=TranscriptAppliedFilters(content_kinds=kinds)).model_dump(
             mode="json")}

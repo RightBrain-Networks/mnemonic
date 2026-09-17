@@ -26,7 +26,18 @@ from mnemonic_api.errors import ApplicationError, conflict
 from mnemonic_api.models import Transcript, TranscriptRebuild, TranscriptSettings, WorkItem
 from mnemonic_api.search_diagnostics import TermDiagnostic, TermMatchCounts
 from mnemonic_api.search_disclosure import TranscriptAppliedFilters, search_disclosure
+from mnemonic_api.search_exploration import date_conditions, wants_diagnostics
+from mnemonic_api.search_exploration_schemas import DiagnosticsMode
+from mnemonic_api.search_projects import ProjectSelection, project_scope
+from mnemonic_api.search_query import QueryMode, parse_query
+from mnemonic_api.search_ranking import search_ranking
 from mnemonic_api.services.work_items import require_project
+from mnemonic_api.transcript_exact_search import (
+    exact_documents,
+    exact_evidence,
+    literal_hits,
+    preflight_segments,
+)
 from mnemonic_api.transcript_normalized_storage import SEGMENTS
 from mnemonic_api.transcript_schemas import (
     CompactTranscriptRead,
@@ -77,7 +88,8 @@ def register_transcripts(
 def transcript_read(record: Transcript, project_id: UUID) -> TranscriptRead:
     fields = {name: getattr(record, name) for name in TranscriptRead.model_fields
               if name not in {"project_id", "filename", "metadata", "snippet", "score",
-                              "index_status", "index_error_code", "segment_id", "content_kind"}}
+                              "index_status", "index_error_code", "segment_id", "content_kind",
+                              "matched_fields", "snippet_omission_reason", "rank", "score_type"}}
     fields["index_status"] = record.reindex_status or record.status
     return TranscriptRead(**fields, project_id=project_id,
                           index_error_code=record.reindex_error_code or record.error_code,
@@ -88,17 +100,21 @@ def transcript_read(record: Transcript, project_id: UUID) -> TranscriptRead:
 
 def transcript_search_read(
     record: Transcript, project_id: UUID, detail: Literal["compact", "full"],
+    *, rank: int | None = None,
 ) -> TranscriptRead | CompactTranscriptRead:
     if detail == "full":
-        return transcript_read(record, project_id)
+        rendered = transcript_read(record, project_id)
+        rendered.rank = rank
+        return rendered
     return CompactTranscriptRead.model_validate({
         "id": record.id, "project_id": project_id, "work_item_id": record.work_item_id,
         "client": record.client, "session_id": record.session_id,
         "filename": PurePosixPath(record.source_path).name, "kind": record.kind,
         "status": record.status, "index_status": record.reindex_status or record.status,
-        "copy_status": record.copy_status, "truncated": record.truncated,
+        "copy_status": record.copy_status, "truncated": record.truncated, "rank": rank,
         **{name: getattr(record, name) for name in TranscriptNormalizationRead.model_fields
-           if name not in {"segment_id", "content_kind"}},
+           if name not in {"segment_id", "content_kind", "matched_fields",
+                           "snippet_omission_reason", "rank", "score_type"}},
     })
 
 
@@ -106,9 +122,9 @@ def transcript_project_id():
     return func.coalesce(WorkItem.project_id, Transcript.import_project_id)
 
 
-def transcript_query(project_id: UUID):
+def transcript_query(project_id: ProjectSelection):
     return select(Transcript).outerjoin(WorkItem, WorkItem.id == Transcript.work_item_id).where(
-        transcript_project_id() == project_id)
+        project_scope(transcript_project_id(), project_id))
 
 
 def require_transcript(
@@ -129,9 +145,15 @@ def _metadata(record: Transcript) -> str:
                       str(record.work_item_id), json.dumps(record.extracted_metadata)])
 
 
+def _metadata_parts(record: Transcript) -> tuple[str, ...]:
+    return (record.source_path, record.client, record.session_id or "", record.kind,
+            str(record.work_item_id) if record.work_item_id else "",
+            *(value for values in record.extracted_metadata.values() for value in values))
+
+
 def _corpus_key(records: list[Transcript], fulltext: bool,
-                content_kinds: Sequence[str] | None = None) -> str:
-    digest = hashlib.sha256(json.dumps([fulltext, sorted(content_kinds or [])]).encode())
+                content_kinds: Sequence[str] | None = None, *, exact: bool = False) -> str:
+    digest = hashlib.sha256(json.dumps([fulltext, sorted(content_kinds or []), exact]).encode())
     for record in records:
         digest.update(json.dumps([
             str(record.id), _metadata(record), record.generation, record.status,
@@ -172,21 +194,45 @@ def _documents(database: Session, records: list[Transcript], fulltext: bool,
 
 def _search_records(database: Session, records: list[Transcript], query: str, fulltext: bool,
                     index: ArtifactSearchIndex, maximum_content_bytes: int,
-                    content_kinds: Sequence[str] | None = None) -> IndexSearchResult:
+                    content_kinds: Sequence[str] | None = None,
+                    query_mode: QueryMode = "terms",
+                    diagnostics: DiagnosticsMode = "on_empty") -> IndexSearchResult:
+    intent = parse_query(query, query_mode)
+    if intent.constrained and fulltext:
+        preflight_segments(database, records, content_kinds, maximum_content_bytes)
+    documents = (lambda: exact_documents(
+        database, records, fulltext, content_kinds, _metadata_parts)
+    ) if intent.constrained else (lambda: _documents(
+        database, records, fulltext, maximum_content_bytes, content_kinds))
     return index.search(
-        _corpus_key(records, fulltext, content_kinds),
-        lambda: _documents(database, records, fulltext, maximum_content_bytes, content_kinds),
-        query=query, fulltext=fulltext, count=len(records),
+        _corpus_key(records, fulltext, content_kinds, exact=intent.constrained), documents,
+        query=query, fulltext=fulltext, count=len(records), query_mode=query_mode,
+        diagnostics=diagnostics,
+        literal_matches=lambda: literal_hits(database, records, intent.text, fulltext,
+                                             content_kinds, _metadata_parts),
     )
 
 
 def _search_read(
     database: Session, project_id: UUID, record: Transcript, hit: SearchHit, query: str,
     index: ArtifactSearchIndex, searcher: tantivy.Searcher | None,
-    content_kinds: Sequence[str] | None = None, *, detail: Literal["compact", "full"] = "full",
+    content_kinds: Sequence[str] | None = None,
+    *, rank: int = 1, detail: Literal["compact", "full"] = "full", query_mode: QueryMode = "terms",
 ) -> TranscriptRead | CompactTranscriptRead:
     rendered = transcript_search_read(record, project_id, detail)
+    rendered.rank = rank
+    rendered.score_type = search_ranking(query, query_mode).score_type
     rendered.score = hit.score
+    rendered.matched_fields = (["metadata"] if hit.metadata else []) + (
+        ["content"] if hit.content else [])
+    intent = parse_query(query, query_mode)
+    if hit.content and intent.constrained:
+        match = exact_evidence(database, record, intent, content_kinds)
+        if match is not None:
+            rendered.segment_id, rendered.content_kind, rendered.snippet = match
+            if rendered.snippet is None:
+                rendered.snippet_omission_reason = "matched_span_exceeds_budget"
+        return rendered
     if hit.content and searcher is not None:
         # Hydrate only the returned page, one body at a time, using the same
         # database snapshot and immutable Tantivy searcher that produced the hit.
@@ -217,7 +263,9 @@ def list_transcripts(database: Session, project_id: UUID, filters: TranscriptSea
                      maximum_content_bytes: int = DEFAULT_TRANSCRIPT_SEARCH_MAX_BYTES,
 ) -> TranscriptPage:
     require_project(database, project_id)
-    statement = transcript_query(project_id)
+    statement = transcript_query(project_id).where(*date_conditions(
+        filters, Transcript.created_at,
+        func.coalesce(Transcript.indexing_completed_at, Transcript.created_at)))
     if filters.work_item_id is not None:
         statement = statement.where(Transcript.work_item_id == filters.work_item_id)
     incomplete = bool(database.scalar(select(func.count()).select_from(statement.where(
@@ -225,66 +273,82 @@ def list_transcripts(database: Session, project_id: UUID, filters: TranscriptSea
         | Transcript.reindex_status.is_not(None) | Transcript.truncated
         | (Transcript.normalization_status != "ready")
         | Transcript.normalization_incomplete).subquery())))
+    intent = parse_query(filters.query, filters.query_mode)
+    legacy_omitted = (database.scalar(select(func.count()).select_from(statement.where(
+        Transcript.status == "ready", Transcript.normalized_revision.is_(None)).subquery())) or 0
+        ) if filters.fulltext and intent.constrained else 0
     if filters.content_kinds:
         statement = statement.where(has_content_kind(filters.content_kinds))
     if filters.query and filters.query.strip():
         return _searched_page(database, project_id, filters, index, statement, incomplete,
-                              maximum_content_bytes)
+                              maximum_content_bytes, legacy_omitted)
     total = database.scalar(select(func.count()).select_from(statement.subquery())) or 0
     records = database.scalars(statement.options(defer(Transcript.normalized_text))
         .order_by(Transcript.created_at.desc(), Transcript.id).offset(filters.offset)
         .limit(filters.limit))
-    return TranscriptPage(**search_disclosure(
+    return TranscriptPage(**search_ranking(filters.query, filters.query_mode).model_dump(),
+                          **search_disclosure(
                               project_id, filters.query, fulltext=filters.fulltext,
-                              transcripts=TranscriptAppliedFilters(
-                                  work_item_id=filters.work_item_id,
-                                  content_kinds=filters.content_kinds,
+                              query_mode=filters.query_mode,
+                              diagnostics=filters.diagnostics,
+                              transcripts=TranscriptAppliedFilters.model_validate(
+                                  filters.model_dump(
+                                      include=set(TranscriptAppliedFilters.model_fields)),
                               ),
                           ).model_dump(), detail=filters.detail,
-                          items=[transcript_search_read(row, project_id, filters.detail)
-                                 for row in records],
+                          items=[transcript_search_read(row, project_id, filters.detail, rank=rank)
+                                 for rank, row in enumerate(records, filters.offset + 1)],
                           total=total, limit=filters.limit, offset=filters.offset,
                           indexing_incomplete=incomplete)
 
 
 def _searched_page(database, project_id, filters, index, statement, incomplete,
-                   maximum_content_bytes) -> TranscriptPage:
+                   maximum_content_bytes, legacy_omitted=0) -> TranscriptPage:
     if not _SEARCH_SLOT.acquire(timeout=0.25):
         raise ApplicationError(503, "transcript_search_busy",
                                "Transcript search is busy. Try this read again shortly.")
     try:
         return _searched_page_locked(database, project_id, filters, index, statement, incomplete,
-                                     maximum_content_bytes)
+                                     maximum_content_bytes, legacy_omitted)
     finally:
         _SEARCH_SLOT.release()
 
 
 def _searched_page_locked(database, project_id, filters, index, statement, incomplete,
-                          maximum_content_bytes):
-    records = _bounded_records(database, statement, filters.fulltext and not filters.content_kinds,
+                          maximum_content_bytes, legacy_omitted=0):
+    intent = parse_query(filters.query, filters.query_mode)
+    records = _bounded_records(database, statement, filters.fulltext and not filters.content_kinds
+                               and not intent.constrained,
                                maximum_content_bytes)
     result = _search_records(database, records, filters.query, filters.fulltext, index,
-                             maximum_content_bytes, filters.content_kinds)
+                             maximum_content_bytes, filters.content_kinds, filters.query_mode,
+                             filters.diagnostics)
     by_id = {str(record.id): record for record in records}
     items = [_search_read(database, project_id, by_id[hit.identity], hit, filters.query,
-                          index, result.searcher, filters.content_kinds, detail=filters.detail)
-             for hit in result.hits[filters.offset:filters.offset + filters.limit]]
-    return TranscriptPage(**search_disclosure(
+                          index, result.searcher, filters.content_kinds, detail=filters.detail,
+                          query_mode=filters.query_mode, rank=rank)
+             for rank, hit in enumerate(
+                 result.hits[filters.offset:filters.offset + filters.limit], filters.offset + 1)]
+    return TranscriptPage(**search_ranking(filters.query, filters.query_mode).model_dump(),
+                          **search_disclosure(
                               project_id, filters.query, fulltext=filters.fulltext,
-                              transcripts=TranscriptAppliedFilters(
-                                  work_item_id=filters.work_item_id,
-                                  content_kinds=filters.content_kinds,
+                              query_mode=filters.query_mode,
+                              diagnostics=filters.diagnostics,
+                              transcripts=TranscriptAppliedFilters.model_validate(
+                                  filters.model_dump(
+                                      include=set(TranscriptAppliedFilters.model_fields)),
                               ),
                           ).model_dump(), detail=filters.detail, items=items,
-                          total=len(result.hits),
-                          limit=filters.limit,
+                          total=len(result.hits), limit=filters.limit,
                           offset=filters.offset, indexing_incomplete=incomplete,
+                          unsegmented_content_omitted=legacy_omitted,
                           term_diagnostics=[TermDiagnostic(
                               term=term, matches=TermMatchCounts(transcripts=count),
                           ) for term, count in index.term_counts(
                               literal_terms(filters.query, fold_accents=False),
                               filters.fulltext, result.searcher,
-                          ).items()] if not result.hits else [])
+                          ).items()] if wants_diagnostics(
+                              filters.diagnostics, filters.query, len(result.hits)) else [])
 
 
 def _capacity_error(*, content: bool = False) -> ApplicationError:

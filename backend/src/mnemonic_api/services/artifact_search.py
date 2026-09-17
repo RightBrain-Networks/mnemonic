@@ -29,9 +29,16 @@ from mnemonic_api.artifact_search_schemas import (
 from mnemonic_api.models import Artifact, ArtifactExtraction, ArtifactWorkLink
 from mnemonic_api.search_diagnostics import TermDiagnostic, TermMatchCounts
 from mnemonic_api.search_disclosure import ArtifactAppliedFilters, search_disclosure
+from mnemonic_api.search_exploration import date_conditions, wants_diagnostics
+from mnemonic_api.search_projects import ProjectSelection, project_scope
+from mnemonic_api.search_query import QueryMode, analyzer, parse_query
+from mnemonic_api.search_ranking import search_ranking
 from mnemonic_api.search_schemas import ArtifactSearchFilters
+from mnemonic_api.search_snippets import phrase_snippet, supporting_snippet
 from mnemonic_api.services.artifact_approvals import require_sensitive_access
+from mnemonic_api.services.artifact_exact import literal_artifact_hits
 from mnemonic_api.services.artifacts import _has_pending_operation, artifact_read
+from mnemonic_api.services.multi_search_limits import check_artifact_metadata
 from mnemonic_api.services.project_mutations import project_mutation
 from mnemonic_api.services.work_items import require_project
 
@@ -41,10 +48,13 @@ type Corpus = list[tuple[Artifact, ArtifactExtraction | None]]
 
 
 def _corpus(
-    database: Session, project_id: UUID, filters: ArtifactSearchRequest | ArtifactSearchFilters,
+    database: Session, project_id: ProjectSelection,
+    filters: ArtifactSearchRequest | ArtifactSearchFilters,
 ) -> Corpus:
     clauses = [
-        Artifact.project_id == project_id, Artifact.revision > 0, ~_has_pending_operation(),
+        project_scope(Artifact.project_id, project_id), Artifact.revision > 0,
+        ~_has_pending_operation(),
+        *date_conditions(filters, Artifact.created_at, Artifact.modified_at),
     ]
     if not filters.include_deleted:
         clauses.append(Artifact.deleted_at.is_(None))
@@ -57,6 +67,8 @@ def _corpus(
         )))
     if isinstance(filters, ArtifactSearchFilters):
         clauses.extend(_facet_conditions(filters))
+    if not isinstance(project_id, UUID):
+        check_artifact_metadata(database, clauses)
     rows = database.execute(
         select(Artifact, ArtifactExtraction)
         .outerjoin(ArtifactExtraction, and_(
@@ -92,7 +104,7 @@ def _metadata(artifact: Artifact, extraction: ArtifactExtraction | None) -> dict
     }
 
 
-def _metadata_text(artifact: Artifact, extraction: ArtifactExtraction | None) -> str:
+def _metadata_parts(artifact: Artifact, extraction: ArtifactExtraction | None) -> tuple[str, ...]:
     # Index values only: JSON field names and nulls are not artifact properties.
     values = [
         value for value in _metadata(artifact, extraction).values()
@@ -103,11 +115,15 @@ def _metadata_text(artifact: Artifact, extraction: ArtifactExtraction | None) ->
             value for property_values in extraction.extracted_metadata.values()
             for value in property_values if value.strip()
         )
-    return "\n".join(values)
+    return tuple(values)
+
+
+def _metadata_text(artifact: Artifact, extraction: ArtifactExtraction | None) -> str:
+    return "\n".join(_metadata_parts(artifact, extraction))
 
 
 def _signature(
-    project_id: UUID, corpus: Corpus, fulltext: bool, approved: set[UUID],
+    project_id: ProjectSelection, corpus: Corpus, fulltext: bool, approved: set[UUID],
 ) -> str:
     digest = hashlib.sha256(f"{project_id}:{fulltext}".encode())
     for artifact, extraction in corpus:
@@ -153,7 +169,8 @@ def _documents(
     for artifact, extraction in corpus:
         if artifact.id not in content_ids:
             yield SearchDocument(
-                str(artifact.id), _metadata_text(artifact, extraction)
+                str(artifact.id), _metadata_text(artifact, extraction),
+                metadata_parts=_metadata_parts(artifact, extraction),
             )
     if not content_ids:
         return
@@ -171,14 +188,14 @@ def _documents(
         artifact, extraction = by_id[identity]
         yield SearchDocument(
             str(identity), _metadata_text(artifact, extraction),
-            content or "",
+            content or "", metadata_parts=_metadata_parts(artifact, extraction),
         )
 
 
 def _match(
     database: Session, index: ArtifactSearchIndex, corpus: dict[str, Artifact],
     hit: SearchHit, query: str, searcher: tantivy.Searcher | None,
-    *, detail: Literal["compact", "full"] = "full",
+    query_mode: QueryMode = "terms", *, rank: int = 1, detail: Literal["compact", "full"] = "full",
 ) -> ArtifactSearchMatch | CompactArtifactMatch:
     artifact = corpus[hit.identity]
     fields: list[Literal["metadata", "content"]] = []
@@ -191,16 +208,24 @@ def _match(
             ArtifactExtraction.artifact_id == artifact.id,
             ArtifactExtraction.revision == artifact.revision,
         ))
-        if searcher is not None:
+        intent = parse_query(query, query_mode)
+        if query_mode == "literal":
+            snippet = supporting_snippet(content or "", query, literal_terms, literal=True)
+        elif intent.phrases:
+            snippet = phrase_snippet(content or "", intent.phrases, intent.unquoted,
+                                     analyzer().analyze)
+        elif searcher is not None:
             snippet = index.snippet(content or "", query, searcher)
     if detail == "compact":
         return CompactArtifactMatch(
             artifact=compact_artifact_read(database, artifact), score=hit.score,
-            snippet=snippet, matched_fields=fields,
+            snippet=snippet, matched_fields=fields, rank=rank,
+            score_type=search_ranking(query, query_mode).score_type,
         )
     return ArtifactSearchMatch(
         artifact=artifact_read(database, artifact), score=hit.score,
-        snippet=snippet, matched_fields=fields,
+        snippet=snippet, matched_fields=fields, rank=rank,
+            score_type=search_ranking(query, query_mode).score_type,
     )
 
 
@@ -243,19 +268,34 @@ def _approved_contents(
 def _search_page(
     database: Session, project_id: UUID, filters: ArtifactSearchRequest,
     index: ArtifactSearchIndex, human_dashboard: bool,
+    query_vector: tuple[float, ...] | None, artifact_chunk_config: str | None,
 ) -> ArtifactSearchPage:
     require_project(database, project_id)
     corpus = _corpus(database, project_id, filters)
     approved = _approved_contents(database, corpus, filters, human_dashboard)
+    if filters.semantic:
+        from mnemonic_api.services.artifact_semantic_search import semantic_artifact_page
+
+        return semantic_artifact_page(
+            database, project_id, filters, corpus, approved, query_vector, index,
+            artifact_chunk_config)
     result = index.search(
         _signature(project_id, corpus, filters.fulltext, approved),
         lambda: _documents(database, corpus, filters.fulltext, approved),
         query=filters.q, fulltext=filters.fulltext, count=len(corpus),
+        query_mode=filters.query_mode, diagnostics=filters.diagnostics,
+        literal_matches=lambda: literal_artifact_hits(
+            database, corpus, filters.q, filters.fulltext, approved, _metadata_parts,
+        ),
     )
     identities = {str(artifact.id): artifact for artifact, _ in corpus}
     return ArtifactSearchPage(
+        **search_ranking(filters.q, filters.query_mode).model_dump(),
+        match_mode="literal" if filters.query_mode == "literal" else
+        "phrase" if parse_query(filters.q, filters.query_mode).constrained else "all_terms",
         **search_disclosure(
-            project_id, filters.q, fulltext=filters.fulltext,
+            project_id, filters.q, fulltext=filters.fulltext, query_mode=filters.query_mode,
+            diagnostics=filters.diagnostics,
             artifacts=ArtifactAppliedFilters.model_validate(
                 filters.model_dump(include=set(ArtifactAppliedFilters.model_fields)),
             ),
@@ -263,8 +303,9 @@ def _search_page(
         detail=filters.detail,
         items=[
             _match(database, index, identities, hit, filters.q, result.searcher,
-                   detail=filters.detail)
-            for hit in result.hits[filters.offset:filters.offset + filters.limit]
+                   filters.query_mode, detail=filters.detail, rank=rank)
+            for rank, hit in enumerate(
+                result.hits[filters.offset:filters.offset + filters.limit], filters.offset + 1)
         ],
         total=len(result.hits), limit=filters.limit, offset=filters.offset,
         fulltext=filters.fulltext, indexing=_indexing(corpus),
@@ -272,7 +313,8 @@ def _search_page(
                           for term, count in index.term_counts(
                               literal_terms(filters.q, fold_accents=False),
                               filters.fulltext, result.searcher,
-                          ).items()] if not result.hits else [],
+                          ).items()] if wants_diagnostics(
+                              filters.diagnostics, filters.q, len(result.hits)) else [],
         sensitive_content_withheld=sum(
             1 for artifact, _ in corpus if filters.fulltext and artifact.sensitive
             and artifact.deleted_at is None and artifact.id not in approved
@@ -283,11 +325,13 @@ def _search_page(
 def search_artifact_contents(
     database: Session, project_id: UUID, filters: ArtifactSearchRequest,
     index: ArtifactSearchIndex, *, human_dashboard: bool = False,
+    query_vector: tuple[float, ...] | None = None, artifact_chunk_config: str | None = None,
 ) -> ArtifactSearchPage:
     # Content mutations, sensitivity changes and extraction publication all hold
     # this lock. Keep corpus, approval consumption, snippets and revisions coherent
     # until the read and its audit commit; a concurrent token use must wait.
     with project_mutation(database, project_id, protected=True, domain_seconds=120):
-        page = _search_page(database, project_id, filters, index, human_dashboard)
+        page = _search_page(database, project_id, filters, index, human_dashboard, query_vector,
+                            artifact_chunk_config)
         database.commit()
         return page

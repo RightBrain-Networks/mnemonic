@@ -17,6 +17,7 @@ from mnemonic_api.schemas import (
     WorkIdentityPointer,
     WorkItemListQuery,
 )
+from mnemonic_api.search_exploration import date_sql
 from mnemonic_api.services.duplicates import (
     require_canonical_work_item,
     validate_project_duplicate_graph,
@@ -90,7 +91,8 @@ def _hierarchy_match_sql(
             + " AND ".join(checkpoint_conditions)
             + ")"
         )
-    return " AND ".join(conditions), parameters
+    date_clauses, date_parameters = date_sql(filters, "candidate")
+    return " AND ".join(conditions + date_clauses), parameters | date_parameters
 
 
 def hierarchy_page(
@@ -700,6 +702,7 @@ def _hierarchy_result(
     )
     if compact:
         return CompactHierarchyHit(
+            evidence_mode="browse", matched_fields=[], excerpts=[], excerpts_truncated=False,
             **item, rank=rank, display_state=state.display_state,
             canonical_work_item_id=work.id,
             search_status=work_search_status(
@@ -708,7 +711,7 @@ def _hierarchy_result(
             ),
         )
     summary["readiness"] = state
-    return HierarchySummary.model_validate(item)
+    return HierarchySummary.model_validate({**item, "rank": rank})
 
 
 def ancestor_paths(

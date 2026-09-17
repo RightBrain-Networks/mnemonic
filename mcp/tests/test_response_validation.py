@@ -14,6 +14,7 @@ from conftest import (
     WORK_ID,
 )
 from mcp.server.fastmcp.exceptions import ToolError
+from search_ranking_fixtures import add_ranking
 
 from mnemonic_mcp.api import MnemonicAPI
 from mnemonic_mcp.search_disclosure import WorkAppliedFilters, search_disclosure
@@ -53,7 +54,7 @@ def pages(project, work_summary, checkpoint, adjacent_relationship, progress_eve
         "list_human_attention": {"gate": human_gate, "summary": attention_summary},
         "list_work_gates": human_gate,
     }
-    return {
+    result = {
         tool: {
             "items": [row], "total": 6, "limit": 3,
             **(search_disclosure(UUID(PROJECT_ID), "", work_items=WorkAppliedFilters())
@@ -66,6 +67,8 @@ def pages(project, work_summary, checkpoint, adjacent_relationship, progress_eve
         }
         for tool, row in rows.items()
     }
+    add_ranking(result["search_work"], "work_items")
+    return result
 
 
 def arguments(tool):

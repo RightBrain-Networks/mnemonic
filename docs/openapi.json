@@ -48,9 +48,33 @@
             ]
           },
           "project_id": {
-            "format": "uuid",
-            "title": "Project Id",
-            "type": "string"
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Id"
+          },
+          "project_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "maxItems": 10,
+                "minItems": 1,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Ids"
           },
           "transcripts": {
             "anyOf": [
@@ -94,6 +118,32 @@
             ],
             "title": "Artifact Id"
           },
+          "created_after": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Inclusive lower creation-time bound; include a timezone; normalized to UTC.",
+            "title": "Created After"
+          },
+          "created_before": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Exclusive upper creation-time bound; include a timezone; normalized to UTC.",
+            "title": "Created Before"
+          },
           "created_by_agent_session_id": {
             "anyOf": [
               {
@@ -121,6 +171,11 @@
             ],
             "title": "Mime Type"
           },
+          "semantic": {
+            "default": false,
+            "title": "Semantic",
+            "type": "boolean"
+          },
           "sensitive": {
             "anyOf": [
               {
@@ -131,6 +186,32 @@
               }
             ],
             "title": "Sensitive"
+          },
+          "updated_after": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Inclusive lower update-time bound; include a timezone; normalized to UTC.",
+            "title": "Updated After"
+          },
+          "updated_before": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Exclusive upper update-time bound; include a timezone; normalized to UTC.",
+            "title": "Updated Before"
           },
           "work_item_id": {
             "anyOf": [
@@ -237,6 +318,105 @@
           "created_at"
         ],
         "title": "ArtifactAuditRead",
+        "type": "object"
+      },
+      "ArtifactEmbeddingCoverage": {
+        "additionalProperties": false,
+        "properties": {
+          "chunk_config": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Chunk Config",
+            "type": "string"
+          },
+          "empty": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Empty",
+            "type": "integer"
+          },
+          "failed": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Failed",
+            "type": "integer"
+          },
+          "model": {
+            "maxLength": 300,
+            "minLength": 1,
+            "title": "Model",
+            "type": "string"
+          },
+          "passages": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Passages",
+            "type": "integer"
+          },
+          "pending": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Pending",
+            "type": "integer"
+          },
+          "processing": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Processing",
+            "type": "integer"
+          },
+          "ready": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Ready",
+            "type": "integer"
+          },
+          "score_type": {
+            "const": "semantic_reciprocal_rank",
+            "default": "semantic_reciprocal_rank",
+            "title": "Score Type",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "ready",
+              "incomplete",
+              "unavailable"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "total_kind": {
+            "const": "ranked_candidates",
+            "default": "ranked_candidates",
+            "title": "Total Kind",
+            "type": "string"
+          },
+          "truncated": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Truncated",
+            "type": "integer"
+          },
+          "unavailable": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Unavailable",
+            "type": "integer"
+          },
+          "withheld": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Withheld",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "model",
+          "chunk_config",
+          "state"
+        ],
+        "title": "ArtifactEmbeddingCoverage",
         "type": "object"
       },
       "ArtifactExtractionRead": {
@@ -375,10 +555,34 @@
             "title": "Id",
             "type": "string"
           },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "rank": {
+            "minimum": 1.0,
+            "title": "Rank",
+            "type": "integer"
+          },
           "score": {
             "minimum": 0.0,
             "title": "Score",
             "type": "number"
+          },
+          "score_type": {
+            "enum": [
+              "none",
+              "literal_presence",
+              "postgresql_lexical",
+              "tantivy_relevance",
+              "hybrid_reciprocal_rank",
+              "unified_reciprocal_rank",
+              "semantic_reciprocal_rank",
+              "cosine_similarity"
+            ],
+            "title": "Score Type",
+            "type": "string"
           },
           "updated_at": {
             "format": "date-time",
@@ -387,6 +591,9 @@
           }
         },
         "required": [
+          "project_id",
+          "rank",
+          "score_type",
           "id",
           "created_at",
           "updated_at",
@@ -564,6 +771,94 @@
           "offset"
         ],
         "title": "ArtifactPage[ArtifactRevisionRead]",
+        "type": "object"
+      },
+      "ArtifactPassageEvidence": {
+        "additionalProperties": false,
+        "properties": {
+          "artifact_revision": {
+            "minimum": 1.0,
+            "title": "Artifact Revision",
+            "type": "integer"
+          },
+          "chunk_config": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Chunk Config",
+            "type": "string"
+          },
+          "cosine_similarity": {
+            "maximum": 1.0,
+            "minimum": -1.0,
+            "title": "Cosine Similarity",
+            "type": "number"
+          },
+          "end_offset": {
+            "maximum": 8000000.0,
+            "minimum": 1.0,
+            "title": "End Offset",
+            "type": "integer"
+          },
+          "model": {
+            "maxLength": 300,
+            "minLength": 1,
+            "title": "Model",
+            "type": "string"
+          },
+          "passage_id": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Passage Id",
+            "type": "string"
+          },
+          "score_is_probability": {
+            "const": false,
+            "default": false,
+            "title": "Score Is Probability",
+            "type": "boolean"
+          },
+          "score_type": {
+            "const": "cosine_similarity",
+            "default": "cosine_similarity",
+            "title": "Score Type",
+            "type": "string"
+          },
+          "start_offset": {
+            "maximum": 8000000.0,
+            "minimum": 0.0,
+            "title": "Start Offset",
+            "type": "integer"
+          },
+          "text_sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Text Sha256",
+            "type": "string"
+          },
+          "token_count": {
+            "maximum": 8192.0,
+            "minimum": 1.0,
+            "title": "Token Count",
+            "type": "integer"
+          },
+          "token_limit": {
+            "maximum": 8192.0,
+            "minimum": 1.0,
+            "title": "Token Limit",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "passage_id",
+          "artifact_revision",
+          "text_sha256",
+          "start_offset",
+          "end_offset",
+          "model",
+          "chunk_config",
+          "token_count",
+          "token_limit",
+          "cosine_similarity"
+        ],
+        "title": "ArtifactPassageEvidence",
         "type": "object"
       },
       "ArtifactRead": {
@@ -1116,6 +1411,16 @@
       "ArtifactSearchCoverage": {
         "additionalProperties": false,
         "properties": {
+          "embedding": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ArtifactEmbeddingCoverage"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "enabled": {
             "default": true,
             "title": "Enabled",
@@ -1140,6 +1445,15 @@
           "artifact": {
             "$ref": "#/components/schemas/ArtifactRead"
           },
+          "evidence": {
+            "default": "lexical",
+            "enum": [
+              "lexical",
+              "semantic"
+            ],
+            "title": "Evidence",
+            "type": "string"
+          },
           "matched_fields": {
             "items": {
               "enum": [
@@ -1151,10 +1465,41 @@
             "title": "Matched Fields",
             "type": "array"
           },
+          "passage": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ArtifactPassageEvidence"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "rank": {
+            "default": 1,
+            "minimum": 1.0,
+            "title": "Rank",
+            "type": "integer"
+          },
           "score": {
             "minimum": 0.0,
             "title": "Score",
             "type": "number"
+          },
+          "score_type": {
+            "default": "none",
+            "enum": [
+              "none",
+              "literal_presence",
+              "postgresql_lexical",
+              "tantivy_relevance",
+              "hybrid_reciprocal_rank",
+              "unified_reciprocal_rank",
+              "semantic_reciprocal_rank",
+              "cosine_similarity"
+            ],
+            "title": "Score Type",
+            "type": "string"
           },
           "snippet": {
             "anyOf": [
@@ -1170,8 +1515,8 @@
           }
         },
         "required": [
-          "artifact",
           "score",
+          "artifact",
           "matched_fields"
         ],
         "title": "ArtifactSearchMatch",
@@ -1190,6 +1535,26 @@
             ],
             "title": "Detail",
             "type": "string"
+          },
+          "diagnostics": {
+            "default": "on_empty",
+            "enum": [
+              "on_empty",
+              "always",
+              "off"
+            ],
+            "title": "Diagnostics",
+            "type": "string"
+          },
+          "embedding": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ArtifactEmbeddingCoverage"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "fulltext": {
             "title": "Fulltext",
@@ -1219,8 +1584,13 @@
             "type": "integer"
           },
           "match_mode": {
-            "const": "all_terms",
             "default": "all_terms",
+            "enum": [
+              "all_terms",
+              "phrase",
+              "literal",
+              "semantic_passages"
+            ],
             "title": "Match Mode",
             "type": "string"
           },
@@ -1231,6 +1601,23 @@
           },
           "query_interpretation": {
             "$ref": "#/components/schemas/QueryInterpretation"
+          },
+          "score_type": {
+            "enum": [
+              "none",
+              "literal_presence",
+              "postgresql_lexical",
+              "tantivy_relevance",
+              "hybrid_reciprocal_rank",
+              "unified_reciprocal_rank",
+              "semantic_reciprocal_rank",
+              "cosine_similarity"
+            ],
+            "title": "Score Type",
+            "type": "string"
+          },
+          "semantic": {
+            "$ref": "#/components/schemas/SemanticDisposition"
           },
           "sensitive_content_withheld": {
             "default": 0,
@@ -1251,6 +1638,15 @@
             "title": "Total",
             "type": "integer"
           },
+          "total_kind": {
+            "enum": [
+              "lexical_matches",
+              "ranked_candidates",
+              "browsed_records"
+            ],
+            "title": "Total Kind",
+            "type": "string"
+          },
           "warnings": {
             "items": {
               "$ref": "#/components/schemas/SearchWarning"
@@ -1261,6 +1657,8 @@
           }
         },
         "required": [
+          "score_type",
+          "total_kind",
           "applied_filters",
           "query_interpretation",
           "warnings",
@@ -1337,6 +1735,18 @@
               }
             ],
             "title": "Text"
+          },
+          "text_sha256": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Text Sha256"
           },
           "total_chars": {
             "anyOf": [
@@ -1467,6 +1877,35 @@
           "expected_revision"
         ],
         "title": "ArtifactUpdateMetadata",
+        "type": "object"
+      },
+      "CacheRefresh": {
+        "additionalProperties": false,
+        "properties": {
+          "reason": {
+            "anyOf": [
+              {
+                "const": "cache_refresh_failed",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "status": {
+            "default": "not_needed",
+            "enum": [
+              "not_needed",
+              "completed",
+              "failed"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "title": "CacheRefresh",
         "type": "object"
       },
       "CanonicalWorkProjection": {
@@ -3290,6 +3729,15 @@
           "artifact": {
             "$ref": "#/components/schemas/CompactArtifactRead"
           },
+          "evidence": {
+            "default": "lexical",
+            "enum": [
+              "lexical",
+              "semantic"
+            ],
+            "title": "Evidence",
+            "type": "string"
+          },
           "matched_fields": {
             "items": {
               "enum": [
@@ -3301,10 +3749,41 @@
             "title": "Matched Fields",
             "type": "array"
           },
+          "passage": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ArtifactPassageEvidence"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "rank": {
+            "default": 1,
+            "minimum": 1.0,
+            "title": "Rank",
+            "type": "integer"
+          },
           "score": {
             "minimum": 0.0,
             "title": "Score",
             "type": "number"
+          },
+          "score_type": {
+            "default": "none",
+            "enum": [
+              "none",
+              "literal_presence",
+              "postgresql_lexical",
+              "tantivy_relevance",
+              "hybrid_reciprocal_rank",
+              "unified_reciprocal_rank",
+              "semantic_reciprocal_rank",
+              "cosine_similarity"
+            ],
+            "title": "Score Type",
+            "type": "string"
           },
           "snippet": {
             "anyOf": [
@@ -3320,8 +3799,8 @@
           }
         },
         "required": [
-          "artifact",
           "score",
+          "artifact",
           "matched_fields"
         ],
         "title": "CompactArtifactMatch",
@@ -3461,6 +3940,27 @@
             "title": "Display State",
             "type": "string"
           },
+          "evidence_mode": {
+            "enum": [
+              "lexical",
+              "semantic",
+              "browse"
+            ],
+            "title": "Evidence Mode",
+            "type": "string"
+          },
+          "excerpts": {
+            "items": {
+              "$ref": "#/components/schemas/WorkMatchExcerpt"
+            },
+            "maxItems": 3,
+            "title": "Excerpts",
+            "type": "array"
+          },
+          "excerpts_truncated": {
+            "title": "Excerpts Truncated",
+            "type": "boolean"
+          },
           "has_matching_descendants": {
             "title": "Has Matching Descendants",
             "type": "boolean"
@@ -3469,6 +3969,22 @@
             "format": "uuid",
             "title": "Id",
             "type": "string"
+          },
+          "matched_fields": {
+            "items": {
+              "enum": [
+                "title",
+                "summary",
+                "tags",
+                "checkpoint",
+                "identifiers",
+                "provenance"
+              ],
+              "type": "string"
+            },
+            "maxItems": 6,
+            "title": "Matched Fields",
+            "type": "array"
           },
           "matched_member": {
             "anyOf": [
@@ -3497,6 +4013,27 @@
             "minimum": 1.0,
             "title": "Rank",
             "type": "integer"
+          },
+          "score": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Score",
+            "type": "number"
+          },
+          "score_type": {
+            "default": "none",
+            "enum": [
+              "none",
+              "literal_presence",
+              "postgresql_lexical",
+              "tantivy_relevance",
+              "hybrid_reciprocal_rank",
+              "unified_reciprocal_rank",
+              "semantic_reciprocal_rank",
+              "cosine_similarity"
+            ],
+            "title": "Score Type",
+            "type": "string"
           },
           "search_status": {
             "enum": [
@@ -3537,6 +4074,11 @@
           }
         },
         "required": [
+          "rank",
+          "excerpts_truncated",
+          "evidence_mode",
+          "matched_fields",
+          "excerpts",
           "id",
           "project_id",
           "title",
@@ -3544,7 +4086,6 @@
           "display_state",
           "priority",
           "updated_at",
-          "rank",
           "canonical_work_item_id",
           "search_status",
           "self_matches_filter",
@@ -3620,6 +4161,18 @@
             ],
             "title": "Kind",
             "type": "string"
+          },
+          "matched_fields": {
+            "items": {
+              "enum": [
+                "metadata",
+                "content"
+              ],
+              "type": "string"
+            },
+            "maxItems": 2,
+            "title": "Matched Fields",
+            "type": "array"
           },
           "normalization_error_code": {
             "anyOf": [
@@ -3713,6 +4266,18 @@
             "title": "Project Id",
             "type": "string"
           },
+          "rank": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rank"
+          },
           "score": {
             "anyOf": [
               {
@@ -3723,6 +4288,21 @@
               }
             ],
             "title": "Score"
+          },
+          "score_type": {
+            "default": "none",
+            "enum": [
+              "none",
+              "literal_presence",
+              "postgresql_lexical",
+              "tantivy_relevance",
+              "hybrid_reciprocal_rank",
+              "unified_reciprocal_rank",
+              "semantic_reciprocal_rank",
+              "cosine_similarity"
+            ],
+            "title": "Score Type",
+            "type": "string"
           },
           "segment_count": {
             "default": 0,
@@ -3763,6 +4343,18 @@
               }
             ],
             "title": "Snippet"
+          },
+          "snippet_omission_reason": {
+            "anyOf": [
+              {
+                "const": "matched_span_exceeds_budget",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Snippet Omission Reason"
           },
           "status": {
             "enum": [
@@ -3845,10 +4437,47 @@
             "title": "Display State",
             "type": "string"
           },
+          "evidence_mode": {
+            "enum": [
+              "lexical",
+              "semantic",
+              "browse"
+            ],
+            "title": "Evidence Mode",
+            "type": "string"
+          },
+          "excerpts": {
+            "items": {
+              "$ref": "#/components/schemas/WorkMatchExcerpt"
+            },
+            "maxItems": 3,
+            "title": "Excerpts",
+            "type": "array"
+          },
+          "excerpts_truncated": {
+            "title": "Excerpts Truncated",
+            "type": "boolean"
+          },
           "id": {
             "format": "uuid",
             "title": "Id",
             "type": "string"
+          },
+          "matched_fields": {
+            "items": {
+              "enum": [
+                "title",
+                "summary",
+                "tags",
+                "checkpoint",
+                "identifiers",
+                "provenance"
+              ],
+              "type": "string"
+            },
+            "maxItems": 6,
+            "title": "Matched Fields",
+            "type": "array"
           },
           "matched_member": {
             "anyOf": [
@@ -3874,6 +4503,27 @@
             "minimum": 1.0,
             "title": "Rank",
             "type": "integer"
+          },
+          "score": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Score",
+            "type": "number"
+          },
+          "score_type": {
+            "default": "none",
+            "enum": [
+              "none",
+              "literal_presence",
+              "postgresql_lexical",
+              "tantivy_relevance",
+              "hybrid_reciprocal_rank",
+              "unified_reciprocal_rank",
+              "semantic_reciprocal_rank",
+              "cosine_similarity"
+            ],
+            "title": "Score Type",
+            "type": "string"
           },
           "search_status": {
             "enum": [
@@ -3910,6 +4560,11 @@
           }
         },
         "required": [
+          "rank",
+          "excerpts_truncated",
+          "evidence_mode",
+          "matched_fields",
+          "excerpts",
           "id",
           "project_id",
           "title",
@@ -3917,7 +4572,6 @@
           "display_state",
           "priority",
           "updated_at",
-          "rank",
           "canonical_work_item_id",
           "search_status"
         ],
@@ -5511,6 +6165,9 @@
             "title": "Omitted Exact Title Group Count",
             "type": "integer"
           },
+          "semantic": {
+            "$ref": "#/components/schemas/SemanticDisposition"
+          },
           "semantic_available": {
             "title": "Semantic Available",
             "type": "boolean"
@@ -5793,6 +6450,131 @@
         "title": "ExternalReferencesChange",
         "type": "object"
       },
+      "FacetScoreTypes": {
+        "additionalProperties": false,
+        "properties": {
+          "artifacts": {
+            "anyOf": [
+              {
+                "enum": [
+                  "none",
+                  "literal_presence",
+                  "postgresql_lexical",
+                  "tantivy_relevance",
+                  "hybrid_reciprocal_rank",
+                  "unified_reciprocal_rank",
+                  "semantic_reciprocal_rank",
+                  "cosine_similarity"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Artifacts"
+          },
+          "transcripts": {
+            "anyOf": [
+              {
+                "enum": [
+                  "none",
+                  "literal_presence",
+                  "postgresql_lexical",
+                  "tantivy_relevance",
+                  "hybrid_reciprocal_rank",
+                  "unified_reciprocal_rank",
+                  "semantic_reciprocal_rank",
+                  "cosine_similarity"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Transcripts"
+          },
+          "work_items": {
+            "anyOf": [
+              {
+                "enum": [
+                  "none",
+                  "literal_presence",
+                  "postgresql_lexical",
+                  "tantivy_relevance",
+                  "hybrid_reciprocal_rank",
+                  "unified_reciprocal_rank",
+                  "semantic_reciprocal_rank",
+                  "cosine_similarity"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Work Items"
+          }
+        },
+        "title": "FacetScoreTypes",
+        "type": "object"
+      },
+      "FacetTotalKinds": {
+        "additionalProperties": false,
+        "properties": {
+          "artifacts": {
+            "anyOf": [
+              {
+                "enum": [
+                  "lexical_matches",
+                  "ranked_candidates",
+                  "browsed_records"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Artifacts"
+          },
+          "transcripts": {
+            "anyOf": [
+              {
+                "enum": [
+                  "lexical_matches",
+                  "ranked_candidates",
+                  "browsed_records"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Transcripts"
+          },
+          "work_items": {
+            "anyOf": [
+              {
+                "enum": [
+                  "lexical_matches",
+                  "ranked_candidates",
+                  "browsed_records"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Work Items"
+          }
+        },
+        "title": "FacetTotalKinds",
+        "type": "object"
+      },
       "FacetTotals": {
         "additionalProperties": false,
         "properties": {
@@ -5911,6 +6693,33 @@
           },
           "presentation": {
             "$ref": "#/components/schemas/HierarchyPresentation"
+          },
+          "rank": {
+            "default": 1,
+            "minimum": 1.0,
+            "title": "Rank",
+            "type": "integer"
+          },
+          "score": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Score",
+            "type": "number"
+          },
+          "score_type": {
+            "default": "none",
+            "enum": [
+              "none",
+              "literal_presence",
+              "postgresql_lexical",
+              "tantivy_relevance",
+              "hybrid_reciprocal_rank",
+              "unified_reciprocal_rank",
+              "semantic_reciprocal_rank",
+              "cosine_similarity"
+            ],
+            "title": "Score Type",
+            "type": "string"
           },
           "self_matches_filter": {
             "title": "Self Matches Filter",
@@ -8669,6 +9478,48 @@
         "title": "ProjectRead",
         "type": "object"
       },
+      "ProjectSearchCoverage": {
+        "additionalProperties": false,
+        "properties": {
+          "coverage": {
+            "$ref": "#/components/schemas/SearchCoverage"
+          },
+          "facet_totals": {
+            "$ref": "#/components/schemas/FacetTotals"
+          },
+          "indexing_incomplete": {
+            "title": "Indexing Incomplete",
+            "type": "boolean"
+          },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "project_name": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Project Name",
+            "type": "string"
+          },
+          "project_slug": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Project Slug",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "project_name",
+          "project_slug",
+          "facet_totals",
+          "coverage",
+          "indexing_incomplete"
+        ],
+        "title": "ProjectSearchCoverage",
+        "type": "object"
+      },
       "ProjectSettingsPatch": {
         "additionalProperties": false,
         "properties": {
@@ -9053,6 +9904,16 @@
           "q": {
             "maxLength": 1000,
             "title": "Q",
+            "type": "string"
+          },
+          "query_mode": {
+            "default": "terms",
+            "enum": [
+              "terms",
+              "phrase",
+              "literal"
+            ],
+            "title": "Query Mode",
             "type": "string"
           },
           "transcripts": {
@@ -10087,6 +10948,22 @@
             "title": "Detail",
             "type": "string"
           },
+          "diagnostics": {
+            "default": "on_empty",
+            "enum": [
+              "on_empty",
+              "always",
+              "off"
+            ],
+            "title": "Diagnostics",
+            "type": "string"
+          },
+          "facet_score_types": {
+            "$ref": "#/components/schemas/FacetScoreTypes"
+          },
+          "facet_total_kinds": {
+            "$ref": "#/components/schemas/FacetTotalKinds"
+          },
           "facet_totals": {
             "$ref": "#/components/schemas/FacetTotals"
           },
@@ -10130,11 +11007,47 @@
             "title": "Offset",
             "type": "integer"
           },
+          "project_coverage": {
+            "items": {
+              "$ref": "#/components/schemas/ProjectSearchCoverage"
+            },
+            "maxItems": 10,
+            "minItems": 1,
+            "title": "Project Coverage",
+            "type": "array"
+          },
           "query_interpretation": {
             "$ref": "#/components/schemas/QueryInterpretation"
           },
+          "score_type": {
+            "enum": [
+              "none",
+              "literal_presence",
+              "postgresql_lexical",
+              "tantivy_relevance",
+              "hybrid_reciprocal_rank",
+              "unified_reciprocal_rank",
+              "semantic_reciprocal_rank",
+              "cosine_similarity"
+            ],
+            "title": "Score Type",
+            "type": "string"
+          },
           "search_scope": {
             "$ref": "#/components/schemas/SearchScope"
+          },
+          "semantic": {
+            "$ref": "#/components/schemas/SemanticDisposition"
+          },
+          "tag_counts": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TagCountPage"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "term_diagnostics": {
             "items": {
@@ -10148,6 +11061,23 @@
             "minimum": 0.0,
             "title": "Total",
             "type": "integer"
+          },
+          "total_kind": {
+            "anyOf": [
+              {
+                "enum": [
+                  "lexical_matches",
+                  "ranked_candidates",
+                  "browsed_records"
+                ],
+                "type": "string"
+              },
+              {
+                "const": "mixed",
+                "type": "string"
+              }
+            ],
+            "title": "Total Kind"
           },
           "warnings": {
             "items": {
@@ -10167,6 +11097,11 @@
           "applied_filters",
           "query_interpretation",
           "warnings",
+          "project_coverage",
+          "score_type",
+          "total_kind",
+          "facet_total_kinds",
+          "facet_score_types",
           "detail",
           "work_rank_scope",
           "search_scope",
@@ -10505,6 +11440,101 @@
         "title": "SegmentWindow",
         "type": "object"
       },
+      "SemanticDisposition": {
+        "additionalProperties": false,
+        "properties": {
+          "cache_refresh": {
+            "$ref": "#/components/schemas/CacheRefresh"
+          },
+          "candidate_scope": {
+            "default": "none",
+            "enum": [
+              "none",
+              "full_scope",
+              "lexical_shortlist"
+            ],
+            "title": "Candidate Scope",
+            "type": "string"
+          },
+          "comparison_incomplete": {
+            "default": false,
+            "title": "Comparison Incomplete",
+            "type": "boolean"
+          },
+          "inference": {
+            "$ref": "#/components/schemas/SemanticInference"
+          },
+          "partial_vectors": {
+            "default": false,
+            "title": "Partial Vectors",
+            "type": "boolean"
+          },
+          "retry": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SemanticRetry"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "title": "SemanticDisposition",
+        "type": "object"
+      },
+      "SemanticInference": {
+        "additionalProperties": false,
+        "properties": {
+          "reason": {
+            "anyOf": [
+              {
+                "enum": [
+                  "capacity_exhausted",
+                  "deadline_exceeded",
+                  "model_failure"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "status": {
+            "default": "not_requested",
+            "enum": [
+              "not_requested",
+              "completed",
+              "unavailable"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "title": "SemanticInference",
+        "type": "object"
+      },
+      "SemanticRetry": {
+        "additionalProperties": false,
+        "properties": {
+          "after_seconds": {
+            "const": 1,
+            "default": 1,
+            "title": "After Seconds",
+            "type": "integer"
+          },
+          "max_attempts": {
+            "const": 1,
+            "default": 1,
+            "title": "Max Attempts",
+            "type": "integer"
+          }
+        },
+        "title": "SemanticRetry",
+        "type": "object"
+      },
       "SourceQueryInterpretation": {
         "additionalProperties": false,
         "properties": {
@@ -10542,7 +11572,11 @@
               "browse",
               "postgresql_plain_terms_or_substring",
               "hybrid_lexical_semantic",
-              "all_terms"
+              "all_terms",
+              "postgresql_phrase_terms",
+              "phrase",
+              "literal",
+              "semantic_passages"
             ],
             "title": "Match Mode",
             "type": "string"
@@ -10648,6 +11682,95 @@
           "after"
         ],
         "title": "SummaryChange",
+        "type": "object"
+      },
+      "TagCount": {
+        "additionalProperties": false,
+        "properties": {
+          "count": {
+            "minimum": 1.0,
+            "title": "Count",
+            "type": "integer"
+          },
+          "tag": {
+            "maxLength": 50,
+            "minLength": 1,
+            "title": "Tag",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tag",
+          "count"
+        ],
+        "title": "TagCount",
+        "type": "object"
+      },
+      "TagCountPage": {
+        "additionalProperties": false,
+        "properties": {
+          "count_unit": {
+            "const": "canonical_work_items",
+            "default": "canonical_work_items",
+            "title": "Count Unit",
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/TagCount"
+            },
+            "maxItems": 100,
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "member_scope": {
+            "const": "returned_work_items",
+            "default": "returned_work_items",
+            "title": "Member Scope",
+            "type": "string"
+          },
+          "next_offset": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Offset"
+          },
+          "offset": {
+            "minimum": 0.0,
+            "title": "Offset",
+            "type": "integer"
+          },
+          "selected_tag_applied": {
+            "const": true,
+            "default": true,
+            "title": "Selected Tag Applied",
+            "type": "boolean"
+          },
+          "total": {
+            "minimum": 0.0,
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "TagCountPage",
         "type": "object"
       },
       "TermDiagnostic": {
@@ -10787,6 +11910,32 @@
             ],
             "title": "Content Kinds"
           },
+          "created_after": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Inclusive lower creation-time bound; include a timezone; normalized to UTC.",
+            "title": "Created After"
+          },
+          "created_before": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Exclusive upper creation-time bound; include a timezone; normalized to UTC.",
+            "title": "Created Before"
+          },
           "kind": {
             "anyOf": [
               {
@@ -10820,6 +11969,32 @@
               }
             ],
             "title": "Status"
+          },
+          "updated_after": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Inclusive lower update-time bound; include a timezone; normalized to UTC.",
+            "title": "Updated After"
+          },
+          "updated_before": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Exclusive upper update-time bound; include a timezone; normalized to UTC.",
+            "title": "Updated Before"
           },
           "work_item_id": {
             "anyOf": [
@@ -10856,10 +12031,34 @@
             "title": "Id",
             "type": "string"
           },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "rank": {
+            "minimum": 1.0,
+            "title": "Rank",
+            "type": "integer"
+          },
           "score": {
             "minimum": 0.0,
             "title": "Score",
             "type": "number"
+          },
+          "score_type": {
+            "enum": [
+              "none",
+              "literal_presence",
+              "postgresql_lexical",
+              "tantivy_relevance",
+              "hybrid_reciprocal_rank",
+              "unified_reciprocal_rank",
+              "semantic_reciprocal_rank",
+              "cosine_similarity"
+            ],
+            "title": "Score Type",
+            "type": "string"
           },
           "transcript": {
             "anyOf": [
@@ -10879,6 +12078,9 @@
           }
         },
         "required": [
+          "project_id",
+          "rank",
+          "score_type",
           "id",
           "created_at",
           "updated_at",
@@ -10987,6 +12189,16 @@
             "title": "Detail",
             "type": "string"
           },
+          "diagnostics": {
+            "default": "on_empty",
+            "enum": [
+              "on_empty",
+              "always",
+              "off"
+            ],
+            "title": "Diagnostics",
+            "type": "string"
+          },
           "indexing_incomplete": {
             "title": "Indexing Incomplete",
             "type": "boolean"
@@ -11016,6 +12228,23 @@
           "query_interpretation": {
             "$ref": "#/components/schemas/QueryInterpretation"
           },
+          "score_type": {
+            "enum": [
+              "none",
+              "literal_presence",
+              "postgresql_lexical",
+              "tantivy_relevance",
+              "hybrid_reciprocal_rank",
+              "unified_reciprocal_rank",
+              "semantic_reciprocal_rank",
+              "cosine_similarity"
+            ],
+            "title": "Score Type",
+            "type": "string"
+          },
+          "semantic": {
+            "$ref": "#/components/schemas/SemanticDisposition"
+          },
           "term_diagnostics": {
             "items": {
               "$ref": "#/components/schemas/TermDiagnostic"
@@ -11028,6 +12257,21 @@
             "title": "Total",
             "type": "integer"
           },
+          "total_kind": {
+            "enum": [
+              "lexical_matches",
+              "ranked_candidates",
+              "browsed_records"
+            ],
+            "title": "Total Kind",
+            "type": "string"
+          },
+          "unsegmented_content_omitted": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Unsegmented Content Omitted",
+            "type": "integer"
+          },
           "warnings": {
             "items": {
               "$ref": "#/components/schemas/SearchWarning"
@@ -11038,6 +12282,8 @@
           }
         },
         "required": [
+          "score_type",
+          "total_kind",
           "applied_filters",
           "query_interpretation",
           "warnings",
@@ -11214,6 +12460,18 @@
             ],
             "title": "Lease Generation Id"
           },
+          "matched_fields": {
+            "items": {
+              "enum": [
+                "metadata",
+                "content"
+              ],
+              "type": "string"
+            },
+            "maxItems": 2,
+            "title": "Matched Fields",
+            "type": "array"
+          },
           "metadata": {
             "additionalProperties": {
               "items": {
@@ -11327,6 +12585,18 @@
             "title": "Project Id",
             "type": "string"
           },
+          "rank": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rank"
+          },
           "score": {
             "anyOf": [
               {
@@ -11337,6 +12607,21 @@
               }
             ],
             "title": "Score"
+          },
+          "score_type": {
+            "default": "none",
+            "enum": [
+              "none",
+              "literal_presence",
+              "postgresql_lexical",
+              "tantivy_relevance",
+              "hybrid_reciprocal_rank",
+              "unified_reciprocal_rank",
+              "semantic_reciprocal_rank",
+              "cosine_similarity"
+            ],
+            "title": "Score Type",
+            "type": "string"
           },
           "segment_count": {
             "default": 0,
@@ -11400,6 +12685,18 @@
               }
             ],
             "title": "Snippet"
+          },
+          "snippet_omission_reason": {
+            "anyOf": [
+              {
+                "const": "matched_span_exceeds_budget",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Snippet Omission Reason"
           },
           "source_path": {
             "title": "Source Path",
@@ -11545,6 +12842,32 @@
             ],
             "title": "Content Kinds"
           },
+          "created_after": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Inclusive lower creation-time bound; include a timezone; normalized to UTC.",
+            "title": "Created After"
+          },
+          "created_before": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Exclusive upper creation-time bound; include a timezone; normalized to UTC.",
+            "title": "Created Before"
+          },
           "detail": {
             "default": "compact",
             "enum": [
@@ -11552,6 +12875,16 @@
               "full"
             ],
             "title": "Detail",
+            "type": "string"
+          },
+          "diagnostics": {
+            "default": "on_empty",
+            "enum": [
+              "on_empty",
+              "always",
+              "off"
+            ],
+            "title": "Diagnostics",
             "type": "string"
           },
           "fulltext": {
@@ -11585,6 +12918,42 @@
             ],
             "title": "Query"
           },
+          "query_mode": {
+            "default": "terms",
+            "enum": [
+              "terms",
+              "phrase",
+              "literal"
+            ],
+            "title": "Query Mode",
+            "type": "string"
+          },
+          "updated_after": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Inclusive lower update-time bound; include a timezone; normalized to UTC.",
+            "title": "Updated After"
+          },
+          "updated_before": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Exclusive upper update-time bound; include a timezone; normalized to UTC.",
+            "title": "Updated Before"
+          },
           "work_item_id": {
             "anyOf": [
               {
@@ -11608,6 +12977,12 @@
             "default": false,
             "title": "Indexing Incomplete",
             "type": "boolean"
+          },
+          "unsegmented_content_omitted": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Unsegmented Content Omitted",
+            "type": "integer"
           }
         },
         "title": "TranscriptSearchCoverage",
@@ -11895,6 +13270,32 @@
             ],
             "title": "Canonical Work Item Id"
           },
+          "created_after": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Inclusive lower creation-time bound; include a timezone; normalized to UTC.",
+            "title": "Created After"
+          },
+          "created_before": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Exclusive upper creation-time bound; include a timezone; normalized to UTC.",
+            "title": "Created Before"
+          },
           "duplicate_scope": {
             "default": "canonical",
             "enum": [
@@ -11965,6 +13366,32 @@
             ],
             "title": "Tag"
           },
+          "updated_after": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Inclusive lower update-time bound; include a timezone; normalized to UTC.",
+            "title": "Updated After"
+          },
+          "updated_before": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Exclusive upper update-time bound; include a timezone; normalized to UTC.",
+            "title": "Updated Before"
+          },
           "view": {
             "default": "full",
             "enum": [
@@ -11973,6 +13400,23 @@
             ],
             "title": "View",
             "type": "string"
+          },
+          "work_fields": {
+            "items": {
+              "enum": [
+                "title",
+                "summary",
+                "tags",
+                "checkpoint",
+                "identifiers",
+                "provenance"
+              ],
+              "type": "string"
+            },
+            "maxItems": 6,
+            "minItems": 1,
+            "title": "Work Fields",
+            "type": "array"
           }
         },
         "title": "WorkAppliedFilters",
@@ -13174,10 +14618,34 @@
             "title": "Id",
             "type": "string"
           },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "rank": {
+            "minimum": 1.0,
+            "title": "Rank",
+            "type": "integer"
+          },
           "score": {
             "minimum": 0.0,
             "title": "Score",
             "type": "number"
+          },
+          "score_type": {
+            "enum": [
+              "none",
+              "literal_presence",
+              "postgresql_lexical",
+              "tantivy_relevance",
+              "hybrid_reciprocal_rank",
+              "unified_reciprocal_rank",
+              "semantic_reciprocal_rank",
+              "cosine_similarity"
+            ],
+            "title": "Score Type",
+            "type": "string"
           },
           "updated_at": {
             "format": "date-time",
@@ -13197,6 +14665,9 @@
           }
         },
         "required": [
+          "project_id",
+          "rank",
+          "score_type",
           "id",
           "created_at",
           "updated_at",
@@ -14031,6 +15502,63 @@
         "title": "WorkItemRead",
         "type": "object"
       },
+      "WorkMatchExcerpt": {
+        "additionalProperties": false,
+        "properties": {
+          "checkpoint_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checkpoint Id"
+          },
+          "field": {
+            "enum": [
+              "title",
+              "summary",
+              "tags",
+              "checkpoint",
+              "identifiers",
+              "provenance"
+            ],
+            "title": "Field",
+            "type": "string"
+          },
+          "match_type": {
+            "enum": [
+              "lexical",
+              "substring",
+              "phrase",
+              "literal"
+            ],
+            "title": "Match Type",
+            "type": "string"
+          },
+          "matched_member_id": {
+            "format": "uuid",
+            "title": "Matched Member Id",
+            "type": "string"
+          },
+          "text": {
+            "maxLength": 320,
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "field",
+          "text",
+          "matched_member_id",
+          "match_type"
+        ],
+        "title": "WorkMatchExcerpt",
+        "type": "object"
+      },
       "WorkMergeCreate": {
         "additionalProperties": false,
         "properties": {
@@ -14631,14 +16159,82 @@
       "WorkSearchHit": {
         "additionalProperties": false,
         "properties": {
+          "evidence_mode": {
+            "enum": [
+              "lexical",
+              "semantic",
+              "browse"
+            ],
+            "title": "Evidence Mode",
+            "type": "string"
+          },
+          "excerpts": {
+            "items": {
+              "$ref": "#/components/schemas/WorkMatchExcerpt"
+            },
+            "maxItems": 3,
+            "title": "Excerpts",
+            "type": "array"
+          },
+          "excerpts_truncated": {
+            "title": "Excerpts Truncated",
+            "type": "boolean"
+          },
+          "matched_fields": {
+            "items": {
+              "enum": [
+                "title",
+                "summary",
+                "tags",
+                "checkpoint",
+                "identifiers",
+                "provenance"
+              ],
+              "type": "string"
+            },
+            "maxItems": 6,
+            "title": "Matched Fields",
+            "type": "array"
+          },
           "matched_member": {
             "$ref": "#/components/schemas/WorkIdentityPointer"
+          },
+          "rank": {
+            "default": 1,
+            "minimum": 1.0,
+            "title": "Rank",
+            "type": "integer"
+          },
+          "score": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Score",
+            "type": "number"
+          },
+          "score_type": {
+            "default": "none",
+            "enum": [
+              "none",
+              "literal_presence",
+              "postgresql_lexical",
+              "tantivy_relevance",
+              "hybrid_reciprocal_rank",
+              "unified_reciprocal_rank",
+              "semantic_reciprocal_rank",
+              "cosine_similarity"
+            ],
+            "title": "Score Type",
+            "type": "string"
           },
           "summary": {
             "$ref": "#/components/schemas/WorkSummary"
           }
         },
         "required": [
+          "excerpts_truncated",
+          "evidence_mode",
+          "matched_fields",
+          "excerpts",
           "summary",
           "matched_member"
         ],
@@ -14659,6 +16255,16 @@
             "title": "Detail",
             "type": "string"
           },
+          "diagnostics": {
+            "default": "on_empty",
+            "enum": [
+              "on_empty",
+              "always",
+              "off"
+            ],
+            "title": "Diagnostics",
+            "type": "string"
+          },
           "items": {
             "items": {
               "anyOf": [
@@ -14669,10 +16275,10 @@
                   "$ref": "#/components/schemas/HierarchySummary"
                 },
                 {
-                  "$ref": "#/components/schemas/CompactWorkHit"
+                  "$ref": "#/components/schemas/CompactHierarchyHit"
                 },
                 {
-                  "$ref": "#/components/schemas/CompactHierarchyHit"
+                  "$ref": "#/components/schemas/CompactWorkHit"
                 }
               ]
             },
@@ -14690,9 +16296,43 @@
           "query_interpretation": {
             "$ref": "#/components/schemas/QueryInterpretation"
           },
+          "score_type": {
+            "enum": [
+              "none",
+              "literal_presence",
+              "postgresql_lexical",
+              "tantivy_relevance",
+              "hybrid_reciprocal_rank",
+              "unified_reciprocal_rank",
+              "semantic_reciprocal_rank",
+              "cosine_similarity"
+            ],
+            "title": "Score Type",
+            "type": "string"
+          },
+          "semantic": {
+            "$ref": "#/components/schemas/SemanticDisposition"
+          },
+          "term_diagnostics": {
+            "items": {
+              "$ref": "#/components/schemas/TermDiagnostic"
+            },
+            "maxItems": 500,
+            "title": "Term Diagnostics",
+            "type": "array"
+          },
           "total": {
             "title": "Total",
             "type": "integer"
+          },
+          "total_kind": {
+            "enum": [
+              "lexical_matches",
+              "ranked_candidates",
+              "browsed_records"
+            ],
+            "title": "Total Kind",
+            "type": "string"
           },
           "warnings": {
             "items": {
@@ -14709,6 +16349,8 @@
           }
         },
         "required": [
+          "score_type",
+          "total_kind",
           "applied_filters",
           "query_interpretation",
           "warnings",
@@ -15063,7 +16705,7 @@
   "info": {
     "description": "Durable project-scoped work with immutable agent checkpoints.",
     "title": "Mnemonic API",
-    "version": "0.58.0"
+    "version": "0.60.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -15673,6 +17315,32 @@
                     ],
                     "title": "Artifact Id"
                   },
+                  "created_after": {
+                    "anyOf": [
+                      {
+                        "format": "date-time",
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "Inclusive lower creation-time bound; include a timezone; normalized to UTC.",
+                    "title": "Created After"
+                  },
+                  "created_before": {
+                    "anyOf": [
+                      {
+                        "format": "date-time",
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "Exclusive upper creation-time bound; include a timezone; normalized to UTC.",
+                    "title": "Created Before"
+                  },
                   "detail": {
                     "default": "compact",
                     "enum": [
@@ -15680,6 +17348,16 @@
                       "full"
                     ],
                     "title": "Detail",
+                    "type": "string"
+                  },
+                  "diagnostics": {
+                    "default": "on_empty",
+                    "enum": [
+                      "on_empty",
+                      "always",
+                      "off"
+                    ],
+                    "title": "Diagnostics",
                     "type": "string"
                   },
                   "fulltext": {
@@ -15716,6 +17394,47 @@
                     "minLength": 1,
                     "title": "Q",
                     "type": "string"
+                  },
+                  "query_mode": {
+                    "default": "terms",
+                    "enum": [
+                      "terms",
+                      "phrase",
+                      "literal"
+                    ],
+                    "title": "Query Mode",
+                    "type": "string"
+                  },
+                  "semantic": {
+                    "default": false,
+                    "title": "Semantic",
+                    "type": "boolean"
+                  },
+                  "updated_after": {
+                    "anyOf": [
+                      {
+                        "format": "date-time",
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "Inclusive lower update-time bound; include a timezone; normalized to UTC.",
+                    "title": "Updated After"
+                  },
+                  "updated_before": {
+                    "anyOf": [
+                      {
+                        "format": "date-time",
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "Exclusive upper update-time bound; include a timezone; normalized to UTC.",
+                    "title": "Updated Before"
                   },
                   "work_item_id": {
                     "anyOf": [
@@ -16272,6 +17991,23 @@
               "format": "uuid",
               "title": "Artifact Id",
               "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "expected_text_sha256",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "pattern": "^[0-9a-f]{64}$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Expected Text Sha256"
             }
           },
           {
@@ -17597,6 +19333,16 @@
                     "title": "Detail",
                     "type": "string"
                   },
+                  "diagnostics": {
+                    "default": "on_empty",
+                    "enum": [
+                      "on_empty",
+                      "always",
+                      "off"
+                    ],
+                    "title": "Diagnostics",
+                    "type": "string"
+                  },
                   "facet_order": {
                     "items": {
                       "additionalProperties": false,
@@ -17687,6 +19433,32 @@
                             ],
                             "title": "Artifact Id"
                           },
+                          "created_after": {
+                            "anyOf": [
+                              {
+                                "format": "date-time",
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Inclusive lower creation-time bound; include a timezone; normalized to UTC.",
+                            "title": "Created After"
+                          },
+                          "created_before": {
+                            "anyOf": [
+                              {
+                                "format": "date-time",
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Exclusive upper creation-time bound; include a timezone; normalized to UTC.",
+                            "title": "Created Before"
+                          },
                           "created_by_agent_session_id": {
                             "anyOf": [
                               {
@@ -17718,6 +19490,11 @@
                             ],
                             "title": "Mime Type"
                           },
+                          "semantic": {
+                            "default": false,
+                            "title": "Semantic",
+                            "type": "boolean"
+                          },
                           "sensitive": {
                             "anyOf": [
                               {
@@ -17728,6 +19505,32 @@
                               }
                             ],
                             "title": "Sensitive"
+                          },
+                          "updated_after": {
+                            "anyOf": [
+                              {
+                                "format": "date-time",
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Inclusive lower update-time bound; include a timezone; normalized to UTC.",
+                            "title": "Updated After"
+                          },
+                          "updated_before": {
+                            "anyOf": [
+                              {
+                                "format": "date-time",
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Exclusive upper update-time bound; include a timezone; normalized to UTC.",
+                            "title": "Updated Before"
                           },
                           "work_item_id": {
                             "anyOf": [
@@ -17800,6 +19603,32 @@
                             ],
                             "title": "Content Kinds"
                           },
+                          "created_after": {
+                            "anyOf": [
+                              {
+                                "format": "date-time",
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Inclusive lower creation-time bound; include a timezone; normalized to UTC.",
+                            "title": "Created After"
+                          },
+                          "created_before": {
+                            "anyOf": [
+                              {
+                                "format": "date-time",
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Exclusive upper creation-time bound; include a timezone; normalized to UTC.",
+                            "title": "Created Before"
+                          },
                           "kind": {
                             "anyOf": [
                               {
@@ -17834,6 +19663,32 @@
                             ],
                             "title": "Status"
                           },
+                          "updated_after": {
+                            "anyOf": [
+                              {
+                                "format": "date-time",
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Inclusive lower update-time bound; include a timezone; normalized to UTC.",
+                            "title": "Updated After"
+                          },
+                          "updated_before": {
+                            "anyOf": [
+                              {
+                                "format": "date-time",
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Exclusive upper update-time bound; include a timezone; normalized to UTC.",
+                            "title": "Updated Before"
+                          },
                           "work_item_id": {
                             "anyOf": [
                               {
@@ -17864,6 +19719,32 @@
                               }
                             ],
                             "title": "Canonical Work Item Id"
+                          },
+                          "created_after": {
+                            "anyOf": [
+                              {
+                                "format": "date-time",
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Inclusive lower creation-time bound; include a timezone; normalized to UTC.",
+                            "title": "Created After"
+                          },
+                          "created_before": {
+                            "anyOf": [
+                              {
+                                "format": "date-time",
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Exclusive upper creation-time bound; include a timezone; normalized to UTC.",
+                            "title": "Created Before"
                           },
                           "duplicate_scope": {
                             "default": "canonical",
@@ -17947,6 +19828,49 @@
                               }
                             ],
                             "title": "Tag"
+                          },
+                          "updated_after": {
+                            "anyOf": [
+                              {
+                                "format": "date-time",
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Inclusive lower update-time bound; include a timezone; normalized to UTC.",
+                            "title": "Updated After"
+                          },
+                          "updated_before": {
+                            "anyOf": [
+                              {
+                                "format": "date-time",
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Exclusive upper update-time bound; include a timezone; normalized to UTC.",
+                            "title": "Updated Before"
+                          },
+                          "work_fields": {
+                            "items": {
+                              "enum": [
+                                "title",
+                                "summary",
+                                "tags",
+                                "checkpoint",
+                                "identifiers",
+                                "provenance"
+                              ],
+                              "type": "string"
+                            },
+                            "maxItems": 6,
+                            "minItems": 1,
+                            "title": "Work Fields",
+                            "type": "array"
                           }
                         },
                         "title": "WorkSearchFilters",
@@ -17981,6 +19905,16 @@
                     "title": "Q",
                     "type": "string"
                   },
+                  "query_mode": {
+                    "default": "terms",
+                    "enum": [
+                      "terms",
+                      "phrase",
+                      "literal"
+                    ],
+                    "title": "Query Mode",
+                    "type": "string"
+                  },
                   "sort": {
                     "additionalProperties": false,
                     "properties": {
@@ -18007,6 +19941,34 @@
                     },
                     "title": "SearchSort",
                     "type": "object"
+                  },
+                  "tag_counts": {
+                    "anyOf": [
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "limit": {
+                            "default": 50,
+                            "maximum": 100,
+                            "minimum": 1,
+                            "title": "Limit",
+                            "type": "integer"
+                          },
+                          "offset": {
+                            "default": 0,
+                            "maximum": 1000000,
+                            "minimum": 0,
+                            "title": "Offset",
+                            "type": "integer"
+                          }
+                        },
+                        "title": "TagCountRequest",
+                        "type": "object"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
                   }
                 },
                 "title": "SearchRequest",
@@ -18014,7 +19976,7 @@
               }
             }
           },
-          "description": "Bounded JSON (16384 bytes). Multi-term queries default to work_items and artifacts. Explicit facets including transcripts opts into agent sessions. Blank and single-term queries default to all sources. Defaults are all work statuses, metadata-only artifact/transcript matching, relevance order, limit 50 and offset 0. Facet groups precede remaining co-mingled facets. Relevance uses tied reciprocal ranks per source. Agent searches withhold sensitive artifact bodies; use dedicated artifact reads for explicit approval. Snippets and document metadata are untrusted.",
+          "description": "Bounded JSON (16384 bytes). Multi-term queries default to work_items and artifacts. Explicit facets including transcripts opts into agent sessions. Blank and single-term queries default to all sources. Defaults are all work statuses, metadata-only artifact/transcript matching, relevance order, compact detail, limit 20 and offset 0. Facet groups precede remaining co-mingled facets. Relevance uses tied reciprocal ranks per source. Agent searches withhold sensitive artifact bodies; use dedicated artifact reads for explicit approval. Snippets and document metadata are untrusted.",
           "required": true
         },
         "responses": {
@@ -18276,6 +20238,97 @@
             }
           },
           {
+            "description": "Inclusive lower creation-time bound; include a timezone; normalized to UTC.",
+            "in": "query",
+            "name": "created_after",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Inclusive lower creation-time bound; include a timezone; normalized to UTC.",
+              "title": "Created After"
+            }
+          },
+          {
+            "description": "Exclusive upper creation-time bound; include a timezone; normalized to UTC.",
+            "in": "query",
+            "name": "created_before",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Exclusive upper creation-time bound; include a timezone; normalized to UTC.",
+              "title": "Created Before"
+            }
+          },
+          {
+            "description": "Inclusive lower update-time bound; include a timezone; normalized to UTC.",
+            "in": "query",
+            "name": "updated_after",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Inclusive lower update-time bound; include a timezone; normalized to UTC.",
+              "title": "Updated After"
+            }
+          },
+          {
+            "description": "Exclusive upper update-time bound; include a timezone; normalized to UTC.",
+            "in": "query",
+            "name": "updated_before",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Exclusive upper update-time bound; include a timezone; normalized to UTC.",
+              "title": "Updated Before"
+            }
+          },
+          {
+            "in": "query",
+            "name": "diagnostics",
+            "required": false,
+            "schema": {
+              "default": "on_empty",
+              "enum": [
+                "on_empty",
+                "always",
+                "off"
+              ],
+              "title": "Diagnostics",
+              "type": "string"
+            }
+          },
+          {
             "in": "query",
             "name": "query",
             "required": false,
@@ -18294,12 +20347,41 @@
           },
           {
             "in": "query",
+            "name": "query_mode",
+            "required": false,
+            "schema": {
+              "default": "terms",
+              "enum": [
+                "terms",
+                "phrase",
+                "literal"
+              ],
+              "title": "Query Mode",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
             "name": "fulltext",
             "required": false,
             "schema": {
               "default": false,
               "title": "Fulltext",
               "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "detail",
+            "required": false,
+            "schema": {
+              "default": "compact",
+              "enum": [
+                "compact",
+                "full"
+              ],
+              "title": "Detail",
+              "type": "string"
             }
           },
           {
@@ -18331,20 +20413,6 @@
                 }
               ],
               "title": "Content Kinds"
-            }
-          },
-          {
-            "in": "query",
-            "name": "detail",
-            "required": false,
-            "schema": {
-              "default": "compact",
-              "enum": [
-                "compact",
-                "full"
-              ],
-              "title": "Detail",
-              "type": "string"
             }
           },
           {
@@ -18983,6 +21051,134 @@
               "format": "uuid",
               "title": "Project Id",
               "type": "string"
+            }
+          },
+          {
+            "description": "Inclusive lower creation-time bound; include a timezone; normalized to UTC.",
+            "in": "query",
+            "name": "created_after",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Inclusive lower creation-time bound; include a timezone; normalized to UTC.",
+              "title": "Created After"
+            }
+          },
+          {
+            "description": "Exclusive upper creation-time bound; include a timezone; normalized to UTC.",
+            "in": "query",
+            "name": "created_before",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Exclusive upper creation-time bound; include a timezone; normalized to UTC.",
+              "title": "Created Before"
+            }
+          },
+          {
+            "description": "Inclusive lower update-time bound; include a timezone; normalized to UTC.",
+            "in": "query",
+            "name": "updated_after",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Inclusive lower update-time bound; include a timezone; normalized to UTC.",
+              "title": "Updated After"
+            }
+          },
+          {
+            "description": "Exclusive upper update-time bound; include a timezone; normalized to UTC.",
+            "in": "query",
+            "name": "updated_before",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Exclusive upper update-time bound; include a timezone; normalized to UTC.",
+              "title": "Updated Before"
+            }
+          },
+          {
+            "in": "query",
+            "name": "diagnostics",
+            "required": false,
+            "schema": {
+              "default": "on_empty",
+              "enum": [
+                "on_empty",
+                "always",
+                "off"
+              ],
+              "title": "Diagnostics",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "query_mode",
+            "required": false,
+            "schema": {
+              "default": "terms",
+              "enum": [
+                "terms",
+                "phrase",
+                "literal"
+              ],
+              "title": "Query Mode",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "work_fields",
+            "required": false,
+            "schema": {
+              "items": {
+                "enum": [
+                  "title",
+                  "summary",
+                  "tags",
+                  "checkpoint",
+                  "identifiers",
+                  "provenance"
+                ],
+                "type": "string"
+              },
+              "maxItems": 6,
+              "minItems": 1,
+              "title": "Work Fields",
+              "type": "array"
             }
           },
           {
@@ -21576,6 +23772,704 @@
           }
         ],
         "summary": "Return Work To Pending From Dashboard"
+      }
+    },
+    "/api/v1/search": {
+      "post": {
+        "operationId": "search_projects_api_v1_search_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "detail": {
+                    "default": "compact",
+                    "enum": [
+                      "compact",
+                      "full"
+                    ],
+                    "title": "Detail",
+                    "type": "string"
+                  },
+                  "diagnostics": {
+                    "default": "on_empty",
+                    "enum": [
+                      "on_empty",
+                      "always",
+                      "off"
+                    ],
+                    "title": "Diagnostics",
+                    "type": "string"
+                  },
+                  "facet_order": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "facet": {
+                          "enum": [
+                            "work_items",
+                            "artifacts",
+                            "transcripts"
+                          ],
+                          "title": "Facet",
+                          "type": "string"
+                        },
+                        "sort": {
+                          "anyOf": [
+                            {
+                              "additionalProperties": false,
+                              "properties": {
+                                "by": {
+                                  "default": "relevance",
+                                  "enum": [
+                                    "relevance",
+                                    "created_at",
+                                    "updated_at",
+                                    "priority"
+                                  ],
+                                  "title": "By",
+                                  "type": "string"
+                                },
+                                "direction": {
+                                  "default": "desc",
+                                  "enum": [
+                                    "asc",
+                                    "desc"
+                                  ],
+                                  "title": "Direction",
+                                  "type": "string"
+                                }
+                              },
+                              "title": "SearchSort",
+                              "type": "object"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "facet"
+                      ],
+                      "title": "FacetOrder",
+                      "type": "object"
+                    },
+                    "maxItems": 3,
+                    "title": "Facet Order",
+                    "type": "array"
+                  },
+                  "facets": {
+                    "items": {
+                      "enum": [
+                        "work_items",
+                        "artifacts",
+                        "transcripts"
+                      ],
+                      "type": "string"
+                    },
+                    "maxItems": 3,
+                    "minItems": 1,
+                    "title": "Facets",
+                    "type": "array"
+                  },
+                  "filters": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "artifacts": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "artifact_id": {
+                            "anyOf": [
+                              {
+                                "format": "uuid",
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "title": "Artifact Id"
+                          },
+                          "created_after": {
+                            "anyOf": [
+                              {
+                                "format": "date-time",
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Inclusive lower creation-time bound; include a timezone; normalized to UTC.",
+                            "title": "Created After"
+                          },
+                          "created_before": {
+                            "anyOf": [
+                              {
+                                "format": "date-time",
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Exclusive upper creation-time bound; include a timezone; normalized to UTC.",
+                            "title": "Created Before"
+                          },
+                          "created_by_agent_session_id": {
+                            "anyOf": [
+                              {
+                                "maxLength": 200,
+                                "minLength": 1,
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "title": "Created By Agent Session Id"
+                          },
+                          "include_deleted": {
+                            "default": false,
+                            "title": "Include Deleted",
+                            "type": "boolean"
+                          },
+                          "mime_type": {
+                            "anyOf": [
+                              {
+                                "maxLength": 255,
+                                "minLength": 1,
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "title": "Mime Type"
+                          },
+                          "semantic": {
+                            "default": false,
+                            "title": "Semantic",
+                            "type": "boolean"
+                          },
+                          "sensitive": {
+                            "anyOf": [
+                              {
+                                "type": "boolean"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "title": "Sensitive"
+                          },
+                          "updated_after": {
+                            "anyOf": [
+                              {
+                                "format": "date-time",
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Inclusive lower update-time bound; include a timezone; normalized to UTC.",
+                            "title": "Updated After"
+                          },
+                          "updated_before": {
+                            "anyOf": [
+                              {
+                                "format": "date-time",
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Exclusive upper update-time bound; include a timezone; normalized to UTC.",
+                            "title": "Updated Before"
+                          },
+                          "work_item_id": {
+                            "anyOf": [
+                              {
+                                "format": "uuid",
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "title": "Work Item Id"
+                          }
+                        },
+                        "title": "ArtifactSearchFilters",
+                        "type": "object"
+                      },
+                      "transcripts": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "agent_session_id": {
+                            "anyOf": [
+                              {
+                                "maxLength": 200,
+                                "minLength": 1,
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "title": "Agent Session Id"
+                          },
+                          "client": {
+                            "anyOf": [
+                              {
+                                "maxLength": 80,
+                                "minLength": 1,
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "title": "Client"
+                          },
+                          "content_kinds": {
+                            "anyOf": [
+                              {
+                                "items": {
+                                  "enum": [
+                                    "human_text",
+                                    "assistant_text",
+                                    "tool_call",
+                                    "tool_result",
+                                    "system_text",
+                                    "reasoning",
+                                    "summary",
+                                    "unsupported"
+                                  ],
+                                  "type": "string"
+                                },
+                                "maxItems": 8,
+                                "minItems": 1,
+                                "type": "array"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "title": "Content Kinds"
+                          },
+                          "created_after": {
+                            "anyOf": [
+                              {
+                                "format": "date-time",
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Inclusive lower creation-time bound; include a timezone; normalized to UTC.",
+                            "title": "Created After"
+                          },
+                          "created_before": {
+                            "anyOf": [
+                              {
+                                "format": "date-time",
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Exclusive upper creation-time bound; include a timezone; normalized to UTC.",
+                            "title": "Created Before"
+                          },
+                          "kind": {
+                            "anyOf": [
+                              {
+                                "enum": [
+                                  "primary",
+                                  "subagent",
+                                  "imported"
+                                ],
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "title": "Kind"
+                          },
+                          "status": {
+                            "anyOf": [
+                              {
+                                "enum": [
+                                  "waiting",
+                                  "pending",
+                                  "processing",
+                                  "ready",
+                                  "failed"
+                                ],
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "title": "Status"
+                          },
+                          "updated_after": {
+                            "anyOf": [
+                              {
+                                "format": "date-time",
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Inclusive lower update-time bound; include a timezone; normalized to UTC.",
+                            "title": "Updated After"
+                          },
+                          "updated_before": {
+                            "anyOf": [
+                              {
+                                "format": "date-time",
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Exclusive upper update-time bound; include a timezone; normalized to UTC.",
+                            "title": "Updated Before"
+                          },
+                          "work_item_id": {
+                            "anyOf": [
+                              {
+                                "format": "uuid",
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "title": "Work Item Id"
+                          }
+                        },
+                        "title": "TranscriptSearchFilters",
+                        "type": "object"
+                      },
+                      "work_items": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "canonical_work_item_id": {
+                            "anyOf": [
+                              {
+                                "format": "uuid",
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "title": "Canonical Work Item Id"
+                          },
+                          "created_after": {
+                            "anyOf": [
+                              {
+                                "format": "date-time",
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Inclusive lower creation-time bound; include a timezone; normalized to UTC.",
+                            "title": "Created After"
+                          },
+                          "created_before": {
+                            "anyOf": [
+                              {
+                                "format": "date-time",
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Exclusive upper creation-time bound; include a timezone; normalized to UTC.",
+                            "title": "Created Before"
+                          },
+                          "duplicate_scope": {
+                            "default": "canonical",
+                            "enum": [
+                              "canonical",
+                              "aliases",
+                              "all"
+                            ],
+                            "title": "Duplicate Scope",
+                            "type": "string"
+                          },
+                          "external_url": {
+                            "anyOf": [
+                              {
+                                "maxLength": 2000,
+                                "minLength": 1,
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "title": "External Url"
+                          },
+                          "semantic": {
+                            "default": false,
+                            "title": "Semantic",
+                            "type": "boolean"
+                          },
+                          "source_client": {
+                            "anyOf": [
+                              {
+                                "maxLength": 80,
+                                "minLength": 1,
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "title": "Source Client"
+                          },
+                          "source_session_id": {
+                            "anyOf": [
+                              {
+                                "maxLength": 200,
+                                "minLength": 1,
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "title": "Source Session Id"
+                          },
+                          "status": {
+                            "default": "all",
+                            "enum": [
+                              "pending",
+                              "active",
+                              "to-review",
+                              "dropped",
+                              "deferred",
+                              "done",
+                              "wont-do",
+                              "promoted",
+                              "all"
+                            ],
+                            "title": "Status",
+                            "type": "string"
+                          },
+                          "tag": {
+                            "anyOf": [
+                              {
+                                "maxLength": 50,
+                                "minLength": 1,
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "title": "Tag"
+                          },
+                          "updated_after": {
+                            "anyOf": [
+                              {
+                                "format": "date-time",
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Inclusive lower update-time bound; include a timezone; normalized to UTC.",
+                            "title": "Updated After"
+                          },
+                          "updated_before": {
+                            "anyOf": [
+                              {
+                                "format": "date-time",
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Exclusive upper update-time bound; include a timezone; normalized to UTC.",
+                            "title": "Updated Before"
+                          },
+                          "work_fields": {
+                            "items": {
+                              "enum": [
+                                "title",
+                                "summary",
+                                "tags",
+                                "checkpoint",
+                                "identifiers",
+                                "provenance"
+                              ],
+                              "type": "string"
+                            },
+                            "maxItems": 6,
+                            "minItems": 1,
+                            "title": "Work Fields",
+                            "type": "array"
+                          }
+                        },
+                        "title": "WorkSearchFilters",
+                        "type": "object"
+                      }
+                    },
+                    "title": "SearchFilters",
+                    "type": "object"
+                  },
+                  "fulltext": {
+                    "default": false,
+                    "title": "Fulltext",
+                    "type": "boolean"
+                  },
+                  "limit": {
+                    "default": 20,
+                    "maximum": 100.0,
+                    "minimum": 1.0,
+                    "title": "Limit",
+                    "type": "integer"
+                  },
+                  "offset": {
+                    "default": 0,
+                    "maximum": 1000000.0,
+                    "minimum": 0.0,
+                    "title": "Offset",
+                    "type": "integer"
+                  },
+                  "project_ids": {
+                    "items": {
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "maxItems": 10,
+                    "minItems": 1,
+                    "title": "Project Ids",
+                    "type": "array"
+                  },
+                  "q": {
+                    "default": "",
+                    "maxLength": 1000,
+                    "title": "Q",
+                    "type": "string"
+                  },
+                  "query_mode": {
+                    "default": "terms",
+                    "enum": [
+                      "terms",
+                      "phrase",
+                      "literal"
+                    ],
+                    "title": "Query Mode",
+                    "type": "string"
+                  },
+                  "sort": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "by": {
+                        "default": "relevance",
+                        "enum": [
+                          "relevance",
+                          "created_at",
+                          "updated_at",
+                          "priority"
+                        ],
+                        "title": "By",
+                        "type": "string"
+                      },
+                      "direction": {
+                        "default": "desc",
+                        "enum": [
+                          "asc",
+                          "desc"
+                        ],
+                        "title": "Direction",
+                        "type": "string"
+                      }
+                    },
+                    "title": "SearchSort",
+                    "type": "object"
+                  },
+                  "tag_counts": {
+                    "anyOf": [
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "limit": {
+                            "default": 50,
+                            "maximum": 100.0,
+                            "minimum": 1.0,
+                            "title": "Limit",
+                            "type": "integer"
+                          },
+                          "offset": {
+                            "default": 0,
+                            "maximum": 1000000.0,
+                            "minimum": 0.0,
+                            "title": "Offset",
+                            "type": "integer"
+                          }
+                        },
+                        "title": "TagCountRequest",
+                        "type": "object"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "project_ids"
+                ],
+                "title": "MultiProjectSearchRequest",
+                "type": "object"
+              }
+            }
+          },
+          "description": "Select 1\u201310 accessible projects; one combined corpus and global page.",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Search Projects",
+        "x-mnemonic-effect": "safe_read"
       }
     }
   },

@@ -1,4 +1,6 @@
+import { validQueryMode, validWorkFields } from "./search-evidence.ts";
 import { validContentKinds } from "./transcript-segments.ts";
+import { SEARCH_DATE_FIELDS, validDateBounds, validDiagnosticsMode, validTagCountRequest } from "./search-exploration.ts";
 import { boundedText, finiteInteger, objectValue, validUuid } from "./wire-guards.ts";
 
 const facets = ["work_items", "artifacts", "transcripts"];
@@ -16,12 +18,14 @@ function validFilters(value: unknown): boolean {
   return Object.entries(filters).every(([facet, value]) => {
     const filter = objectValue(value);
     if (!filter) return false;
-    const keys = facet === "work_items" ? ["status", "tag", "source_client", "source_session_id", "duplicate_scope", "canonical_work_item_id", "external_url", "semantic"]
-      : facet === "artifacts" ? ["work_item_id", "artifact_id", "include_deleted", "sensitive", "mime_type", "created_by_agent_session_id"]
+    const keys = facet === "work_items" ? ["work_fields", "status", "tag", "source_client", "source_session_id", "duplicate_scope", "canonical_work_item_id", "external_url", "semantic"]
+      : facet === "artifacts" ? ["semantic", "work_item_id", "artifact_id", "include_deleted", "sensitive", "mime_type", "created_by_agent_session_id"]
         : ["work_item_id", "agent_session_id", "client", "kind", "status", "content_kinds"];
-    if (!allowed(filter, keys)) return false;
+    if (!allowed(filter, [...keys, ...SEARCH_DATE_FIELDS]) || !validDateBounds(filter)) return false;
     return Object.entries(filter).every(([key, value]) => {
-      if (value === null) return !["semantic", "include_deleted", "duplicate_scope"].includes(key) && !(facet === "work_items" && key === "status");
+      if (SEARCH_DATE_FIELDS.includes(key as typeof SEARCH_DATE_FIELDS[number])) return true;
+      if (value === null) return !["work_fields", "semantic", "include_deleted", "duplicate_scope"].includes(key) && !(facet === "work_items" && key === "status");
+      if (key === "work_fields") return validWorkFields(value);
       if (key === "content_kinds") return validContentKinds(value);
       if (["work_item_id", "artifact_id", "canonical_work_item_id"].includes(key)) return validUuid(value);
       if (["semantic", "include_deleted", "sensitive"].includes(key)) return typeof value === "boolean";
@@ -34,14 +38,17 @@ function validFilters(value: unknown): boolean {
 }
 export function validSearchRequest(value: unknown): boolean {
   const body = objectValue(value);
-  if (!body || !allowed(body, ["q", "facets", "fulltext", "detail", "filters", "sort", "facet_order", "limit", "offset"])) return false;
-  if (!optional(body.q, (value) => typeof value === "string" && Array.from(value).length <= 1000 && !/[\u0000-\u001f]/u.test(value))
+  if (!body || !allowed(body, ["q", "query_mode", "facets", "fulltext", "detail", "filters", "sort", "facet_order", "limit", "offset", "diagnostics", "tag_counts"])) return false;
+  if (!optional(body.query_mode, validQueryMode) || !optional(body.q, (value) => typeof value === "string" && Array.from(value).length <= 1000 && !/[\u0000-\u001f]/u.test(value))
     || !optional(body.facets, (value) => Array.isArray(value) && value.length > 0 && value.length <= 3 && new Set(value).size === value.length && value.every((item) => facets.includes(item)))
     || !optional(body.fulltext, (value) => typeof value === "boolean")
     || !optional(body.detail, (value) => value === "compact" || value === "full") || !optional(body.filters, validFilters)
     || !optional(body.sort, validSort) || !optional(body.limit, (value) => finiteInteger(value, 1, 100))
     || !optional(body.offset, (value) => finiteInteger(value, 0, 1_000_000))) return false;
+  if (objectValue(objectValue(body.filters)?.artifacts)?.semantic === true && (body.fulltext !== true || typeof body.q !== "string" || !body.q.trim() || body.q.includes('"') || body.query_mode !== undefined && body.query_mode !== "terms" || Array.isArray(body.facets) && !body.facets.includes("artifacts"))) return false;
   if (objectValue(objectValue(body.filters)?.transcripts)?.content_kinds != null && body.fulltext !== true) return false;
+  if (!optional(body.diagnostics, validDiagnosticsMode) || !(body.tag_counts == null || validTagCountRequest(body.tag_counts))
+    || body.tag_counts != null && Array.isArray(body.facets) && !body.facets.includes("work_items")) return false;
   if (body.facet_order !== undefined) {
     if (!Array.isArray(body.facet_order) || body.facet_order.length > 3) return false;
     const selected = body.facets as string[] | undefined;

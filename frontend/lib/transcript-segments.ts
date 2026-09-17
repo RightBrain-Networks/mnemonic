@@ -22,6 +22,7 @@ export type TranscriptNormalization = {
   normalized_size_bytes: number | null; normalizer_version: number | null;
   segment_count: number; normalization_incomplete: boolean;
   segment_id: string | null; content_kind: TranscriptContentKind | null;
+  snippet_omission_reason: "matched_span_exceeds_budget" | null;
 };
 export function validTranscriptNormalization(row: Record<string, unknown>): boolean {
   return ["pending", "processing", "ready", "failed"].includes(String(row.normalization_status))
@@ -32,9 +33,10 @@ export function validTranscriptNormalization(row: Record<string, unknown>): bool
     && (row.normalizer_version === null || finiteInteger(row.normalizer_version, 1))
     && (row.normalized_size_bytes === null || finiteInteger(row.normalized_size_bytes))
     && finiteInteger(row.segment_count) && typeof row.normalization_incomplete === "boolean"
+    && (row.snippet_omission_reason === null || row.snippet_omission_reason === "matched_span_exceeds_budget" && row.snippet === null && segmentIdentity(row.segment_id))
     && (row.segment_id === null ? row.content_kind === null : segmentIdentity(row.segment_id)
       && digest(row.normalized_revision) && TRANSCRIPT_CONTENT_KINDS.includes(row.content_kind as TranscriptContentKind)
-      && typeof row.snippet === "string" && row.snippet.length > 0);
+      && (typeof row.snippet === "string" && row.snippet.length > 0 || row.snippet === null && row.snippet_omission_reason === "matched_span_exceeds_budget"));
 }
 
 type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };

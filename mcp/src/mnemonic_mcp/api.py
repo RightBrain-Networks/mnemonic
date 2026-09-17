@@ -38,6 +38,8 @@ class TransportEffect(StrEnum):
 _APPLICATION_ERRORS = {
     "transcript_not_found": "Transcript not found in this project.",
     "transcript_not_indexed": "Transcript text is not indexed yet. Read its indexing status.",
+    "artifact_text_changed": "Artifact extracted text changed. Search again for a current revision and text hash.",
+    "artifact_semantic_capacity": "Artifact semantic capacity reached. Narrow the artifact filters before retrying.",
     "transcript_content_changed": "Transcript text changed. Read metadata before a new text snapshot.",
     "subagent_transcripts_required": "Closeout requires subagent transcript locations or explicit null.",
     "gate_question_changed": "The question changed. Read its latest version before a new intent.",
@@ -104,7 +106,8 @@ _APPLICATION_ERRORS = {
     "client_operation_id_required": "This mutation requires a retained client_operation_id.",
     "slug_conflict": "A project with this slug already exists. List projects before creating another.",
     "semantic_unavailable": (
-        "Mnemonic semantic search is unavailable. Retry with semantic disabled."
+        "Mnemonic semantic search is unavailable; comparison is incomplete. "
+        "Retry once after one second, then use lexical search with semantic disabled if needed."
     ),
     "version_conflict": (
         "Version conflict. Recall the latest work item and review its changes before retrying."
@@ -188,7 +191,8 @@ _APPLICATION_ERRORS = {
         "ask an operator to run the local integrity audit."
     ),
     "duplicate_suggestion_busy": (
-        "Mnemonic duplicate suggestions are busy. Retry after one second, or continue creating "
+        "Mnemonic duplicate suggestions are busy; comparison is incomplete. Retry once after one "
+        "second, or continue creating "
         "the distinct work item without suggestions."
     ),
     "request_body_too_large": (
@@ -196,7 +200,8 @@ _APPLICATION_ERRORS = {
         "before retrying; creation remains independent."
     ),
     "duplicate_suggestion_unavailable": (
-        "Mnemonic duplicate suggestions are unavailable. Retry later, or continue creating the "
+        "Mnemonic duplicate suggestions are unavailable; comparison is incomplete. Retry once after "
+        "one second, or continue creating the "
         "distinct work item without suggestions."
     ),
 }
@@ -378,7 +383,28 @@ def _safe_uuid(value: object) -> str | None:
     return canonical if text == canonical else None
 
 
+def _semantic_error_message(context: dict[str, object]) -> str:
+    from .search_ranking import SemanticDisposition
+
+    message = _APPLICATION_ERRORS["semantic_unavailable"]
+    try:
+        disposition = SemanticDisposition.model_validate(context.get("semantic"), strict=True)
+    except ValueError:
+        return message
+    if disposition.model_dump(mode="json") != context.get("semantic") or (
+        disposition.inference.status != "unavailable"
+    ):
+        return message
+    reason = disposition.inference.reason
+    reasons = {"capacity_exhausted": "Semantic capacity is busy.",
+               "deadline_exceeded": "Semantic inference exceeded its deadline.",
+               "model_failure": "Semantic inference failed."}
+    return message + " " + reasons.get(reason, "")
+
+
 def _application_error_message(code: str, context: dict[str, object]) -> str | None:
+    if code == "semantic_unavailable":
+        return _semantic_error_message(context)
     if code.startswith("artifact_human_approval"):
         return artifact_approval_message(code, context)
     if code == "work_summary_too_long":
@@ -453,9 +479,13 @@ def _lease_purpose_message(context: dict[str, object]) -> str:
     return message
 
 
-def _raise_request_error(method: str, *, effect: TransportEffect | None) -> NoReturn:
+def _raise_request_error(method: str, *, effect: TransportEffect | None,
+                         path: str = "") -> NoReturn:
     if effect == TransportEffect.SAFE_READ:
-        raise ToolError(_SAFE_READ_FAILURE) from None
+        guidance = (" Duplicate comparison is incomplete. Retry once after one second, "
+                    "or continue creating distinct work without a completed comparison."
+                    if path.endswith("/duplicate-suggestions") else "")
+        raise ToolError(_SAFE_READ_FAILURE + guidance) from None
     if method not in {"POST", "PUT", "PATCH", "DELETE"}:
         raise ToolError(
             "Mnemonic API is unavailable. Check service health and try again."
@@ -562,7 +592,7 @@ def _raise_remaining_response_error(
         pairs = _validation_error_pairs(response)
         raise ToolError(validation_error_message(*validation_details(pairs)))
     if response.status_code == 503 and semantic_read:
-        raise ToolError("Mnemonic semantic search is unavailable. Retry with semantic disabled.")
+        raise ToolError(_APPLICATION_ERRORS["semantic_unavailable"])
     if 200 <= response.status_code < 300:
         return
     if effect == TransportEffect.RECEIPT_PROTECTED_WRITE:
@@ -791,7 +821,7 @@ class MnemonicAPI:
             TimeoutError,
             httpx.RequestError,
         ):
-            _raise_request_error(method, effect=effect)
+            _raise_request_error(method, effect=effect, path=path)
 
         _raise_for_response_error(
             response,

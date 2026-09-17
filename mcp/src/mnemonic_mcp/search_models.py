@@ -23,10 +23,21 @@ from .artifact_models import (
     ArtifactToolSearchMatch,
     CompactArtifactMatch,
 )
+from .artifact_semantic import ArtifactEmbeddingCoverage, validate_artifact_semantic
 from .external_records import ExternalURL
 from .models import CompactWorkHit, DuplicateScope, SearchStatus, WorkSearchHit
 from .search_diagnostics import SearchScope, TermDiagnostics
 from .search_disclosure import SearchDetail, SearchDisclosure
+from .search_exploration import DateBounds, DiagnosticsMode, TagCountPage, TagCountRequest
+from .search_query import WORK_FIELDS, QueryMode, WorkFields, validate_query
+from .search_ranking import (
+    FacetScoreTypes,
+    FacetTotalKinds,
+    ScoreType,
+    SearchHitRanking,
+    SemanticDisposition,
+    TotalKind,
+)
 from .transcript_models import CompactTranscriptRead, TranscriptRead, TranscriptStatus
 from .transcript_segments import ContentKinds
 
@@ -34,6 +45,7 @@ SearchFacet = Literal["work_items", "artifacts", "transcripts"]
 SearchQuery = Annotated[str, Field(max_length=1000)]
 SearchLimit = Annotated[StrictInt, Field(ge=1, le=100)]
 SearchOffset = Annotated[StrictInt, Field(ge=0, le=1_000_000)]
+SearchProjectIDs = Annotated[list[UUID], Field(min_length=1, max_length=10)]
 SearchScore = Annotated[float, Field(ge=0, allow_inf_nan=False, strict=True)]
 
 
@@ -71,7 +83,8 @@ SearchFacetOrder = Annotated[
 ]
 
 
-class WorkSearchFilters(SearchModel):
+class WorkSearchFilters(DateBounds, SearchModel):
+    work_fields: WorkFields = Field(default_factory=lambda: list(WORK_FIELDS))
     status: SearchStatus = "all"
     tag: Annotated[str, Field(min_length=1, max_length=50)] | None = None
     source_client: ArtifactClient | None = None
@@ -88,7 +101,8 @@ class WorkSearchFilters(SearchModel):
         return self
 
 
-class ArtifactSearchFilters(SearchModel):
+class ArtifactSearchFilters(DateBounds, SearchModel):
+    semantic: StrictBool = False
     work_item_id: UUID | None = None
     artifact_id: UUID | None = None
     include_deleted: StrictBool = False
@@ -97,7 +111,7 @@ class ArtifactSearchFilters(SearchModel):
     created_by_agent_session_id: ArtifactSession | None = None
 
 
-class TranscriptSearchFilters(SearchModel):
+class TranscriptSearchFilters(DateBounds, SearchModel):
     content_kinds: ContentKinds | None = None
     work_item_id: UUID | None = None
     agent_session_id: ArtifactSession | None = None
@@ -117,6 +131,9 @@ def _all_facets() -> list[SearchFacet]:
 
 
 class SearchRequest(SearchModel):
+    query_mode: QueryMode = "terms"
+    diagnostics: DiagnosticsMode = "on_empty"
+    tag_counts: TagCountRequest | None = None
     q: SearchQuery = ""
     facets: SearchFacets = Field(default_factory=_all_facets)
     fulltext: StrictBool = False
@@ -129,6 +146,11 @@ class SearchRequest(SearchModel):
 
     @model_validator(mode="after")
     def content_kind_requires_fulltext(self) -> Self:
+        validate_query(self.q, self.query_mode, semantic=self.filters.work_items.semantic,
+                       fields=self.filters.work_items.work_fields)
+        if self.filters.artifacts.semantic:
+            validate_artifact_semantic(self.q, self.query_mode, self.fulltext,
+                                       "artifacts" in self.facets)
         if self.filters.transcripts.content_kinds and not self.fulltext:
             raise PydanticCustomError("content_kinds_requires_fulltext",
                                       "content_kinds requires fulltext=true.")
@@ -142,6 +164,7 @@ class FacetTotals(SearchModel):
 
 
 class ArtifactSearchCoverage(SearchModel):
+    embedding: ArtifactEmbeddingCoverage | None = None
     enabled: StrictBool = True
     indexing: ArtifactIndexingStatus = Field(default_factory=lambda: ArtifactIndexingStatus(
         pending=0, failed=0, ready=0, truncated=0,
@@ -150,6 +173,7 @@ class ArtifactSearchCoverage(SearchModel):
 
 
 class TranscriptSearchCoverage(SearchModel):
+    unsegmented_content_omitted: Annotated[StrictInt, Field(ge=0)] = 0
     indexing_incomplete: StrictBool = False
 
 
@@ -158,7 +182,19 @@ class SearchCoverage(SearchModel):
     transcripts: TranscriptSearchCoverage = Field(default_factory=TranscriptSearchCoverage)
 
 
-class SearchHitBase(SearchModel):
+class ProjectSearchCoverage(SearchModel):
+    project_id: UUID
+    project_name: Annotated[str, Field(min_length=1, max_length=120)]
+    project_slug: Annotated[str, Field(min_length=1, max_length=100)]
+    facet_totals: FacetTotals
+    coverage: SearchCoverage
+    indexing_incomplete: StrictBool
+
+
+class SearchHitBase(SearchModel, SearchHitRanking):
+    rank: Annotated[StrictInt, Field(ge=1)]
+    score_type: ScoreType
+    project_id: UUID
     id: UUID
     created_at: datetime
     updated_at: datetime
@@ -196,8 +232,15 @@ SearchHit = Annotated[
 
 
 class SearchPage(SearchModel, SearchDisclosure):
+    score_type: ScoreType
+    total_kind: TotalKind | Literal["mixed"]
+    facet_total_kinds: FacetTotalKinds
+    facet_score_types: FacetScoreTypes
+    semantic: SemanticDisposition = Field(default_factory=SemanticDisposition)
+    tag_counts: TagCountPage | None = None
     detail: SearchDetail
     work_rank_scope: Literal["work_items"]
+    project_coverage: Annotated[list[ProjectSearchCoverage], Field(min_length=1, max_length=10)]
     search_scope: SearchScope
     term_diagnostics: TermDiagnostics
     items: Annotated[list[SearchHit], Field(max_length=100)]
@@ -234,8 +277,15 @@ SearchToolHit = Annotated[
 
 
 class SearchToolPage(SearchModel, SearchDisclosure):
+    score_type: ScoreType
+    total_kind: TotalKind | Literal["mixed"]
+    facet_total_kinds: FacetTotalKinds
+    facet_score_types: FacetScoreTypes
+    semantic: SemanticDisposition = Field(default_factory=SemanticDisposition)
+    tag_counts: TagCountPage | None = None
     detail: SearchDetail
     work_rank_scope: Literal["work_items"]
+    project_coverage: Annotated[list[ProjectSearchCoverage], Field(min_length=1, max_length=10)]
     search_scope: SearchScope
     term_diagnostics: TermDiagnostics
     items: Annotated[list[SearchToolHit], Field(max_length=100)]

@@ -8,13 +8,23 @@ from pydantic import Field, field_validator, model_validator
 
 from mnemonic_api.artifact_access_schemas import ArtifactAccessRequest
 from mnemonic_api.artifact_schemas import ArtifactModel, ArtifactRead
+from mnemonic_api.artifact_semantic_schemas import (
+    ArtifactEmbeddingCoverage,
+    ArtifactPassageEvidence,
+)
 from mnemonic_api.search_diagnostics import TermDiagnostics
 from mnemonic_api.search_disclosure import SearchDisclosure
+from mnemonic_api.search_exploration_schemas import SearchOptions
+from mnemonic_api.search_query import QueryMode, parse_query
+from mnemonic_api.search_ranking import SearchHitRanking, SearchRanking
+from mnemonic_api.validation_rules import validation_rule
 
 
-class ArtifactSearchRequest(ArtifactAccessRequest):
+class ArtifactSearchRequest(ArtifactAccessRequest, SearchOptions):
     q: str = Field(min_length=1, max_length=200)
     fulltext: bool = False
+    semantic: bool = False
+    query_mode: QueryMode = "terms"
     detail: Literal["compact", "full"] = "compact"
     artifact_id: UUID | None = None
     work_item_id: UUID | None = None
@@ -22,13 +32,22 @@ class ArtifactSearchRequest(ArtifactAccessRequest):
     limit: int = Field(default=20, ge=1, le=100)
     offset: int = Field(default=0, ge=0, le=1_000_000)
 
+    @model_validator(mode="after")
+    def valid_intent(self) -> Self:
+        intent = parse_query(self.q, self.query_mode)
+        if self.semantic and intent.constrained:
+            raise validation_rule("semantic_requires_unconstrained_artifact_query")
+        if self.semantic and not self.fulltext:
+            raise validation_rule("artifact_semantic_requires_fulltext")
+        return self
+
     @field_validator("q")
     @classmethod
     def valid_query(cls, value: str) -> str:
         value.encode("utf-8")
         if not value.strip() or any(ord(character) < 32 for character in value):
             raise ValueError("Provide nonblank search text without controls")
-        return value
+        return value.strip()
 
 
 class ArtifactIndexingStatus(ArtifactModel):
@@ -38,11 +57,13 @@ class ArtifactIndexingStatus(ArtifactModel):
     truncated: int = Field(default=0, ge=0)
 
 
-class ArtifactSearchMatch(ArtifactModel):
+class ArtifactSearchMatch(ArtifactModel, SearchHitRanking):
     artifact: ArtifactRead
     score: float = Field(ge=0, allow_inf_nan=False)
     snippet: str | None = Field(default=None, max_length=1000)
     matched_fields: list[Literal["metadata", "content"]]
+    evidence: Literal["lexical", "semantic"] = "lexical"
+    passage: ArtifactPassageEvidence | None = None
 
 
 class CompactExtractionStatus(ArtifactModel):
@@ -62,16 +83,19 @@ class CompactArtifactRead(ArtifactModel):
     extraction: CompactExtractionStatus
 
 
-class CompactArtifactMatch(ArtifactModel):
+class CompactArtifactMatch(ArtifactModel, SearchHitRanking):
     artifact: CompactArtifactRead
     score: float = Field(ge=0, allow_inf_nan=False)
     snippet: str | None = Field(default=None, max_length=1000)
     matched_fields: list[Literal["metadata", "content"]]
+    evidence: Literal["lexical", "semantic"] = "lexical"
+    passage: ArtifactPassageEvidence | None = None
 
 
-class ArtifactSearchPage(ArtifactModel, SearchDisclosure):
+class ArtifactSearchPage(ArtifactModel, SearchDisclosure, SearchRanking):
     detail: Literal["compact", "full"]
-    match_mode: Literal["all_terms"] = "all_terms"
+    match_mode: Literal["all_terms", "phrase", "literal", "semantic_passages"] = "all_terms"
+    embedding: ArtifactEmbeddingCoverage | None = None
     term_diagnostics: TermDiagnostics
     items: list[ArtifactSearchMatch | CompactArtifactMatch]
     total: int = Field(ge=0)

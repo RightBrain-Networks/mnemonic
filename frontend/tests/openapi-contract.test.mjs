@@ -19,6 +19,10 @@ import { COMPLETION_EVIDENCE_DECODER_FIELDS } from "../lib/completion-evidence.t
 
 const SNAPSHOT_URL = new URL("../../docs/openapi.json", import.meta.url);
 const DEFAULTED_RESPONSE_FIELDS = {
+  "frontend/lib/duplicate-handling.ts:decodeWorkSearchPage:item": ["rank", "score", "score_type"],
+  "frontend/lib/hierarchy-presentation.ts:decodeHierarchyPage:item": ["rank", "score", "score_type"],
+  "frontend/lib/duplicate-handling.ts:decodeWorkSearchPage": ["diagnostics", "term_diagnostics", "semantic"],
+  "frontend/lib/hierarchy-presentation.ts:decodeHierarchySearchPage": ["diagnostics", "term_diagnostics", "semantic"],
   "frontend/lib/readiness-codecs.ts:decodeReadiness": ["review_status"],
   "frontend/lib/human-gates.ts:GATE_FIELDS": ["question_version", "previous_questions"],
   "frontend/lib/readiness-codecs.ts:decodeLease": ["purpose", "code_review_id", "mode"],
@@ -28,7 +32,7 @@ const DEFAULTED_RESPONSE_FIELDS = {
   "frontend/lib/work-codecs.ts:decodeWorkItem": ["external_references", "manual_review_request"],
   "frontend/lib/duplicate-handling.ts:decodeWorkPointer": ["external_references"],
   "frontend/lib/duplicate-suggestions.ts:decodeDuplicateCandidateSummary": ["external_references"],
-  "frontend/lib/duplicate-suggestions.ts:decodeDuplicateSuggestionPage": ["external_items", "external_candidate_count", "external_scope"],
+  "frontend/lib/duplicate-suggestions.ts:decodeDuplicateSuggestionPage": ["semantic", "external_items", "external_candidate_count", "external_scope"],
   "frontend/lib/checkpoint-codecs.ts:decodeCheckpoint": [
     "affected_paths"
   ],

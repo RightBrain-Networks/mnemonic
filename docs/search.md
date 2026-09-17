@@ -2,8 +2,8 @@
 
 Application/API/MCP/dashboard `0.43.0` and plugin `0.26.0` add one project search
 surface across work items, artifacts, and transcripts. No migration or new
-configuration was required for that release. Current release 0.58.0 uses migration
-`0040_normalized_transcripts` and also searches [imported transcripts](transcripts.md#import-existing-transcripts).
+configuration was required for that release. Current release 0.60.0 uses migration
+`0041_artifact_passages` and also searches [imported transcripts](transcripts.md#import-existing-transcripts).
 The dashboard retains its separate work, artifact, and transcript interfaces.
 Their searches use the shared API, including the work semantic toggle. Hierarchy
 and file-directory browsing retain their existing endpoints and sort controls.
@@ -44,9 +44,9 @@ remains authoritative. See [transcript search deployment](transcripts.md#dashboa
 
 ## Empty conjunctions and source scope
 
-Artifact and transcript queries require every normalized literal term to match
-within one record, across metadata and (when opted in) content. They are not
-natural-language or Boolean query parsers. Case and accents fold, punctuation
+Default unquoted artifact and transcript queries require every normalized term to match
+within one record, across metadata and (when opted in) content. Phrase and literal
+intent use the explicit rules below; Boolean operators are not supported. Case and accents fold, punctuation
 separates words, duplicate terms collapse, and overlong tokens are discarded by
 the existing index analyzer. More than one resulting term selects the lighter
 unified default above. Work retains its PostgreSQL lexical matching and optional
@@ -59,8 +59,8 @@ option. Disabled artifacts are absent from searched facets and remain visible in
 coverage. Omitted sources do not make the selected sources' indexing incomplete;
 they are explicitly outside the search's scope.
 
-When the complete query has zero matches before pagination, `term_diagnostics`
-reports document counts for each case-normalized term under the same filters and
+With default `diagnostics="on_empty"`, a complete query with zero matches before
+pagination returns `term_diagnostics`, reporting document counts for each case-normalized term under the same filters and
 `fulltext` setting. Diagnostic labels preserve accents: work lexical search can
 distinguish `café` from `cafe`, while artifact/transcript matching folds both to
 the same index term. Each source applies its own matching rules to the displayed term. For example, `q="FastAPI AsyncSession", fulltext=true` can return:
@@ -86,11 +86,12 @@ Counts are documents, not occurrences, and canonical work groups are counted onc
 Every term can have matches while the conjunction has none because the terms occur
 in different records. Pending, failed, truncated or withheld content still limits
 what these counts establish. A fully ready index and a failed conjunction do not
-prove the subject absent. Positive totals (including an empty offset page) and
-blank queries return an empty diagnostic list.
+prove the subject absent. Set `diagnostics="always"` to inspect term coverage on
+positive results, including empty offset pages; `"off"` skips counts. Blank queries
+return an empty diagnostic list in every mode.
 
-Artifact/transcript diagnostics reuse the immutable search snapshot without
-reloading bodies. Work diagnostics reuse its filtered corpus and canonical
+Artifact/transcript diagnostics use the immutable search snapshot. Exact literal
+matching uses scoped SQL; a count index is built only when diagnostics require it. Work diagnostics reuse its filtered corpus and canonical
 selection. An omitted transcript source performs no transcript search or count.
 
 ## Facets and filters
@@ -100,9 +101,14 @@ source; omitting a source from `facets` excludes it regardless of its filters.
 
 | Facet | Filter fields |
 | --- | --- |
-| `work_items` | `status`, `tag`, `source_client`, `source_session_id`, `external_url`, `duplicate_scope`, `canonical_work_item_id`, `semantic` |
-| `artifacts` | `artifact_id`, `work_item_id`, `include_deleted`, `sensitive`, `mime_type`, `created_by_agent_session_id` |
-| `transcripts` | `work_item_id`, `agent_session_id`, `client`, `kind`, `status` |
+| `work_items` | `status`, `tag`, `source_client`, `source_session_id`, `external_url`, `duplicate_scope`, `canonical_work_item_id`, `semantic`, `work_fields` |
+| `artifacts` | `semantic`, `artifact_id`, `work_item_id`, `include_deleted`, `sensitive`, `mime_type`, `created_by_agent_session_id` |
+| `transcripts` | `work_item_id`, `agent_session_id`, `client`, `kind`, `status`, `content_kinds` |
+
+Each source also accepts inclusive `created_after` / `updated_after` and exclusive
+`created_before` / `updated_before` bounds with a timezone. Unified `tag_counts`
+returns paginated vocabulary for matching work before page slicing. See
+[search exploration](search-exploration.md) for bounds, counts, and diagnostics.
 
 For example, search pending work, nonsensitive files, and one transcript session
 in the same request:
@@ -169,7 +175,8 @@ co-mingled under the global sort. Each facet may appear only once in the selecti
 and group order. Selecting facets alone does not group the results.
 
 Offset and limit apply once, after all filters and ordering, including across
-group boundaries. `total` counts every matching result before paging;
+group boundaries. `total` counts the complete eligible result population before paging, with
+`total_kind` distinguishing lexical matches, semantic candidates, and browsing;
 `facet_totals` reports each source's count (zero for unselected sources). An offset
 past the end returns an empty page with accurate totals. Pagination is stable
 for unchanged data; restart at offset zero when completeness matters after
@@ -237,12 +244,109 @@ Work discovery now defaults to all statuses in both search front doors; pass
 `status=pending` explicitly when that narrower view is intended. Ready-work
 selection remains a separate read.
 
-Query interpretation distinguishes PostgreSQL plain-term/substr matching, hybrid
-work ranking, and literal all-term artifact/transcript matching. It names the
-searched fields and content inclusion; work uses null for `fulltext` because its
-checkpoint/provenance fields are always searched. Literal quote characters
-produce the static `phrase_operators_ignored` warning until phrase support ships.
-These disclosures apply before pagination, including empty offset pages.
+Query interpretation distinguishes PostgreSQL lexical matching, hybrid work ranking,
+and artifact/transcript matching, including phrase and literal intent. It names the
+selected fields and content inclusion; work uses null for `fulltext` because work
+field selection is controlled by `work_fields`. Quoted phrases are honored and no
+ignored-phrase warning is emitted. Disclosures apply before pagination, including
+empty offset pages.
 
 Compact discovery ships in 0.57.0. See the result contract above; full detail remains
 an explicit option for selected records.
+
+## Query intent and supporting evidence
+
+`query_mode="terms"` is the default. Double-quoted spans require ordered adjacent
+terms within one field; unquoted terms retain existing recall. `query_mode="phrase"`
+treats the whole query as a phrase. Work uses PostgreSQL English stemming and
+stopword positions; artifact/transcript phrases use the declared lowercase,
+accent-folding tokenizer. `query_mode="literal"` requires a case-sensitive,
+contiguous substring, preserving punctuation and internal whitespace in stored
+normalized text. It does not compare original raw file bytes. Unclosed quotes,
+empty phrases, and unsupported semantic work constraints return reviewed rules.
+
+Work `work_fields` selects any nonempty subset of `title`, `summary`, `tags`,
+`checkpoint`, `identifiers`, and `provenance`; all six are selected by default.
+A work row or one individual checkpoint must satisfy the query. A conjunction
+cannot be assembled across separate checkpoints. Work hits carry `evidence_mode`,
+`matched_fields`, and at most three `excerpts`, totaling at most 320 text characters.
+A field that proves the whole query supplies one excerpt; cross-field matches retain
+multiple excerpts. Ordinary excerpts use at most 160 characters each; exact
+phrases may use the full shared budget. Excerpts identify the matched member and
+checkpoint where applicable. Semantic-only
+hits are labeled without invented lexical evidence.
+
+Transcript phrases and literals stay inside one canonical segment. Results pin
+`normalized_revision`, `segment_id`, and `content_kind`; `matched_fields` separates
+metadata from body evidence. Legacy bodies without segment boundaries are omitted
+from exact content matching and counted in `unsegmented_content_omitted`; ordinary
+term search retains legacy fallback. A qualifying span longer than the excerpt
+budget retains its locator with `snippet_omission_reason="matched_span_exceeds_budget"`.
+Term diagnostics explain individual lexical terms under the selected fields and
+date bounds, even for phrase/literal requests; they do not count whole phrases.
+
+## Scores, totals, and semantic availability
+
+Search pages state `score_type` and `total_kind`; hits include their one-based
+`rank` and score type. Ranks follow the requested ordering over the complete result
+set before pagination. Unified wrapper ranks are global; nested source ranks are
+within that source. Scores order results and are not relevance probabilities.
+No universal cutoff or cross-source confidence scale is applied.
+
+| Score type | Meaning |
+| --- | --- |
+| `none` | Browsing, with a zero or absent score |
+| `postgresql_lexical` | Work relevance from the existing PostgreSQL ranking, including literal-filtered work |
+| `tantivy_relevance` | Artifact or transcript native text relevance |
+| `literal_presence` | Exact metadata/content presence, weighted 2/1; no lexical relevance inference |
+| `hybrid_reciprocal_rank` | Existing work lexical/dense reciprocal-rank fusion |
+| `unified_reciprocal_rank` | Source-normalized reciprocal rank used by the mixed result wrapper |
+| `semantic_reciprocal_rank` | Rank of a source's semantic candidates |
+| `cosine_similarity` | Raw embedding similarity, when supplied as component evidence |
+
+`total_kind=lexical_matches` counts records satisfying textual matching;
+`ranked_candidates` counts the eligible semantic population, including weak
+neighbors; `browsed_records` counts a filter-only listing. Unified pages also use
+`mixed` when their searched sources have different total meanings.
+`facet_total_kinds` and `facet_score_types` retain each source's meaning; null marks
+an unsearched source rather than an empty searched source.
+
+The `semantic` block separates inference from coverage. `inference.status` is
+`not_requested`, `completed`, or `unavailable`. Unavailable inference carries the
+safe reason `capacity_exhausted`, `deadline_exceeded`, or `model_failure`.
+`candidate_scope` independently names `none`, `full_scope`, or `lexical_shortlist`;
+`partial_vectors` reports missing vectors within the semantic candidate set.
+`comparison_incomplete` remains true for a shortlist, partial vectors, or a failed
+semantic comparison. It does not classify a result as a duplicate or clear a
+candidate for creation.
+
+Duplicate suggestions retain their existing advisory lexical fallback. An
+unavailable semantic comparison includes `retry={max_attempts:1,after_seconds:1}`;
+a caller may retry once or continue saving work with the incomplete comparison
+visible. Resource and deadline errors use the same bounded retry guidance and
+`Retry-After: 1`. Search and duplicate suggestion share inference admission while
+retaining their different candidate and cache composition policies.
+
+`semantic.cache_refresh` independently reports `not_needed`, `completed`, or
+`failed`, with `reason=cache_refresh_failed` only for failure. Once coherent
+ranking succeeds, failure to persist disposable embedding cache rows preserves
+that ranking and the successful inference status. A later request can rebuild
+the cache. Cache publication still uses its existing bounded lock waits and
+version/digest checks.
+
+Content-free logs record operation, phase, duration in milliseconds, and outcome
+for request/inference queues, query embedding, candidate capture, document
+inference, cache refresh, and total request handling. Vector-cache ready/missing
+counts distinguish cold and warm work. Logs contain no query, transcript,
+artifact body, provider exception text, or candidate identity. Existing admission
+limits and deadlines remain unchanged; these timings diagnose contention before
+changing capacity or ranking.
+
+## Expanded retrieval (0.60.0)
+
+Use [explicit project selection](multi-project-search.md) to search 1–10 projects
+with one global page and per-project coverage. The existing single-project route
+remains available. Artifact `semantic=true` searches current token-bounded body
+passages, requires `fulltext=true`, and returns pinned evidence with embedding
+coverage; see [semantic artifact search](artifact-semantic-search.md). This release
+requires migration `0041_artifact_passages` and coordinated consumer upgrades.

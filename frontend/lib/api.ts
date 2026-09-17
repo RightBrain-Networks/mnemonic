@@ -28,6 +28,7 @@ export const SAFE_VALIDATION_LOCATION_ROOTS: ReadonlySet<string> = new Set([
   "body", "query", "path", "header", "cookie"
 ]);
 export const SAFE_VALIDATION_LOCATION_PARTS: ReadonlySet<string> = new Set([
+  "created_after", "created_before", "updated_after", "updated_before", "diagnostics", "tag_counts", "filters", "facets", "work_items", "artifacts", "transcripts",
   "code_review_handoff",
   "scope",
   "repositories",
@@ -130,10 +131,10 @@ export const SAFE_VALIDATION_LOCATION_PARTS: ReadonlySet<string> = new Set([
   "outcome",
   "priority",
   "position",
-  "project_id",
+  "project_id", "project_ids",
   "prompt",
   "reference",
-  "q",
+  "q", "query_mode", "work_fields", "expected_text_sha256",
   "recall_pointer_template",
   "recent_event_limit",
   "recent_limit",

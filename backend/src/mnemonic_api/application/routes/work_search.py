@@ -22,6 +22,9 @@ from mnemonic_api.schemas import (
     WorkItemListQuery,
     WorkSearchPage,
 )
+from mnemonic_api.search_exploration import date_conditions
+from mnemonic_api.search_ranking import search_ranking
+from mnemonic_api.search_timing import refresh_cache
 from mnemonic_api.semantic import (
     Embedder,
     EmbeddingCandidate,
@@ -43,6 +46,7 @@ from mnemonic_api.services.work_search import (
     provenance_conditions,
     status_conditions,
     work_search_disclosure,
+    work_term_diagnostics,
 )
 
 logger = logging.getLogger(__name__)
@@ -61,7 +65,10 @@ def search_work(
 ) -> WorkSearchPage:
     if filters.view == "roots":
         roots, total = hierarchy_page(database, project_id, filters)
+        for rank, item in enumerate(roots, filters.offset + 1):
+            item.rank = rank
         return WorkSearchPage(
+            **search_ranking(None, "terms", work=True).model_dump(),
             work_rank_scope="work_items",
             **work_search_disclosure(project_id, filters).model_dump(),
             detail=filters.detail, items=roots, total=total,
@@ -73,7 +80,7 @@ def search_work(
     query_vector: tuple[float, ...] | None = None
     if filters.semantic:
         if not semantic_search_inference_acquired(request.scope):
-            raise semantic_unavailable()
+            raise semantic_unavailable("capacity_exhausted")
         try:
             query_vector = semantic_query_vector(embedder, query)
         except Exception as exc:
@@ -107,6 +114,7 @@ def search_work(
                 WorkItem.deleted_at.is_(None),
                 *status_conditions(filters.status, as_of),
                 *provenance_conditions(filters),
+                *date_conditions(filters, WorkItem.created_at, WorkItem.updated_at),
                 *([WorkItem.external_references.contains([{ "url": filters.external_url }])]
                   if filters.external_url is not None else []),
             )
@@ -117,10 +125,15 @@ def search_work(
         database,
         query,
         all_visible if filters.duplicate_scope == "canonical" else scoped,
+        filters,
     )
 
     if query_vector is not None:
-        return _semantic_response(
+        diagnostics = work_term_diagnostics(
+            database, filters, scoped, projections,
+            all_visible if filters.duplicate_scope == "canonical" else scoped, len(scoped),
+        )
+        response = _semantic_response(
             database=database,
             project_id=project_id,
             filters=filters,
@@ -132,6 +145,8 @@ def search_work(
             embedder=embedder,
             as_of=as_of,
         )
+        response.term_diagnostics = diagnostics
+        return response
 
     selections = _lexical_selections(scoped, filters, projections, lexical_rows, query)
     total = len(selections)
@@ -140,7 +155,12 @@ def search_work(
         item.id: WorkIdentityPointer.model_validate(item)
         for item in all_visible
     }
-    return _page(database, project_id, filters, page, pointers, total, as_of=as_of)
+    response = _page(database, project_id, filters, page, pointers, total, as_of=as_of)
+    response.term_diagnostics = work_term_diagnostics(
+        database, filters, scoped, projections,
+        all_visible if filters.duplicate_scope == "canonical" else scoped, total,
+    )
+    return response
 
 
 def _semantic_response(
@@ -163,7 +183,7 @@ def _semantic_response(
         dimensions=len(query_vector),
     )
     try:
-        ranked_ids, updates = rank_embedding_candidates(
+        ranked_ids, updates, scores = rank_embedding_candidates(
             captured,
             [work_item_id for work_item_id, _score in lexical_rows],
             query_vector,
@@ -182,9 +202,9 @@ def _semantic_response(
             if root_id in seen_roots or root_id not in by_id:
                 continue
             seen_roots.add(root_id)
-            selections.append(SearchSelection(by_id[root_id], member_id))
+            selections.append(SearchSelection(by_id[root_id], member_id, scores[member_id]))
         elif member_id in by_id:
-            selections.append(SearchSelection(by_id[member_id], member_id))
+            selections.append(SearchSelection(by_id[member_id], member_id, scores[member_id]))
     total = len(selections)
     page = selections[filters.offset : filters.offset + filters.limit]
     pointers = {
@@ -195,13 +215,12 @@ def _semantic_response(
     # Keep page evidence on the original read-only snapshot while ranking. No row
     # or advisory locks are held; shared inference admission bounds this work.
     database.commit()
-    try:
-        persist_embedding_updates(database, updates)
-    except Exception as exc:
-        raise _semantic_unavailable(exc) from None
+    result.semantic.cache_refresh = refresh_cache(
+        "work_semantic", bool(updates), lambda: persist_embedding_updates(database, updates))
     return result
 
 
 def _semantic_unavailable(exc: Exception) -> ApplicationError:
     logger.error("Semantic search failed (%s)", type(exc).__name__)
-    return semantic_unavailable()
+    return semantic_unavailable(
+        "deadline_exceeded" if isinstance(exc, TimeoutError) else "model_failure")

@@ -2,13 +2,15 @@
 
 import { useEffect, useId, useRef, useState } from "react";
 import MarkdownContent from "@/components/markdown-content";
-import { artifactPath, type Artifact } from "@/lib/artifacts";
+import { artifactPath, type Artifact, type ArtifactSearchMatch } from "@/lib/artifacts";
 import { type ArtifactPreviewKind } from "@/lib/artifact-preview";
-import { readBoundedBytes } from "@/lib/bounded-json";
+import { artifactPassageQuery, decodeArtifactPassageText } from "@/lib/artifact-semantic";
+import { readBoundedJson, readBoundedBytes } from "@/lib/bounded-json";
 
-export default function ArtifactPreviewDrawer({ artifact, kind, onClose }: {
+export default function ArtifactPreviewDrawer({ artifact, kind, match, onClose }: {
   artifact: Artifact;
   kind: ArtifactPreviewKind;
+  match?: ArtifactSearchMatch;
   onClose: () => void;
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -36,9 +38,17 @@ export default function ArtifactPreviewDrawer({ artifact, kind, onClose }: {
     let objectUrl: string | undefined;
     async function load() {
       try {
-        const response = await fetch(`${artifactPath(artifact.project_id, artifact.id)}/content`, {
+        const response = await fetch(`${artifactPath(artifact.project_id, artifact.id)}/${match?.passage ? `text?${artifactPassageQuery(match.passage)}` : "content"}`, {
           cache: "no-store", signal: controller.signal
         });
+        if (match?.passage) {
+          if (response.status === 409) throw new Error("This passage changed after the search. Close the preview and search again.");
+          if (!response.ok) throw new Error("Unable to read this passage. Close the preview and search again.");
+          const value = await readBoundedJson(response, 256 * 1024);
+          const text = decodeArtifactPassageText(value, match);
+          if (!controller.signal.aborted) setText(text);
+          return;
+        }
         if (!response.ok) throw new Error();
         const bytes = await readBoundedBytes(response, 1024 * 1024 * 1024);
         if (controller.signal.aborted) return;
@@ -48,8 +58,8 @@ export default function ArtifactPreviewDrawer({ artifact, kind, onClose }: {
         } else {
           setText(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
         }
-      } catch {
-        if (!controller.signal.aborted) setError("Unable to preview this file. Close the preview and try again, or download the file.");
+      } catch (error) {
+        if (!controller.signal.aborted) setError(match?.passage ? error instanceof Error && error.message === "This passage changed after the search. Close the preview and search again." ? error.message : "Unable to read this verified passage. Close the preview and search again." : "Unable to preview this file. Close the preview and try again, or download the file.");
       }
     }
     void load();
@@ -57,7 +67,7 @@ export default function ArtifactPreviewDrawer({ artifact, kind, onClose }: {
       controller.abort();
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [artifact.project_id, artifact.id, artifact.mime_type, kind]);
+  }, [artifact.project_id, artifact.id, artifact.mime_type, kind, match]);
 
   async function copyContents() {
     if (text === null) return;
@@ -67,7 +77,7 @@ export default function ArtifactPreviewDrawer({ artifact, kind, onClose }: {
     } catch { setCopyStatus("Unable to copy. Select the contents and copy them manually."); }
   }
 
-  return <dialog ref={dialogRef} className="artifact-preview-drawer" aria-labelledby={titleId}
+  return <dialog ref={dialogRef} className={`artifact-preview-drawer${match?.passage ? " artifact-passage-drawer" : ""}`} aria-labelledby={titleId}
     onCancel={(event) => { event.preventDefault(); onClose(); }}
     onDragEnter={(event) => { event.preventDefault(); event.stopPropagation(); }}
     onDragOver={(event) => { event.preventDefault(); event.stopPropagation(); event.dataTransfer.dropEffect = "none"; }}
@@ -78,7 +88,7 @@ export default function ArtifactPreviewDrawer({ artifact, kind, onClose }: {
       if (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom) onClose();
     }}>
     <header className="artifact-preview-header">
-      <div><span className="section-label">Artifact preview</span><h2 id={titleId} title={artifact.filename}>{artifact.filename}</h2></div>
+      <div><span className="section-label">{match?.passage ? "Supporting passage" : "Artifact preview"}</span><h2 id={titleId} title={artifact.filename}>{artifact.filename}</h2></div>
       <div className="artifact-preview-actions">
         {kind !== "image" && <button type="button" className="icon-button" aria-label="Copy contents" title="Copy contents" disabled={text === null || Boolean(error)} onClick={() => void copyContents()}>
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><rect x="8" y="8" width="12" height="13" rx="2" /><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3" /></svg>
@@ -89,6 +99,7 @@ export default function ArtifactPreviewDrawer({ artifact, kind, onClose }: {
       </div>
     </header>
     {artifact.sensitive && <p className="artifact-preview-notice"><span className="artifact-sensitive-badge">Sensitive</span> Agents need explicit human approval for each content access.</p>}
+    {match?.passage && <p className="artifact-preview-notice">Semantic evidence · revision {match.passage.artifact_revision} · characters {match.passage.start_offset + 1}–{match.passage.end_offset}. Cosine similarity {match.passage.cosine_similarity.toFixed(3)}; not a probability.</p>}
     {copyStatus && <p className="artifact-preview-notice" role="status">{copyStatus}</p>}
     <div className="artifact-preview-body">
       {error ? <p className="error-notice" role="alert">{error}</p> : kind === "image" && imageUrl ? <>
@@ -96,7 +107,7 @@ export default function ArtifactPreviewDrawer({ artifact, kind, onClose }: {
         <a className="artifact-preview-image-link" href={imageUrl} target="_blank" rel="noopener noreferrer">Open image in new tab</a>
       </> : text !== null ? kind === "markdown" ? <div className="artifact-preview-markdown" role="region" aria-label="Markdown contents" tabIndex={0}>
         <MarkdownContent>{text}</MarkdownContent>
-      </div> : <textarea className="artifact-preview-text" aria-label="Plain text contents" value={text} readOnly spellCheck={false} /> : <p role="status">Loading preview…</p>}
+      </div> : <textarea className="artifact-preview-text" aria-label={match?.passage ? "Supporting passage text" : "Plain text contents"} value={text} readOnly spellCheck={false} /> : <p role="status">Loading preview…</p>}
     </div>
   </dialog>;
 }

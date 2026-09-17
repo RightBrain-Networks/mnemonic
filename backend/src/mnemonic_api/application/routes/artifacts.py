@@ -18,7 +18,9 @@ from starlette.background import BackgroundTask
 from starlette.concurrency import run_in_threadpool
 
 from mnemonic_api.application.artifact_policy import artifact_status, require_artifacts_enabled
-from mnemonic_api.application.state import settings_of
+from mnemonic_api.application.state import embedder_of, settings_of
+from mnemonic_api.application.suggestion_resources import semantic_search_inference_acquired
+from mnemonic_api.application.validation import raise_reviewed_body_validation
 from mnemonic_api.artifact_access_schemas import ArtifactAccessRequest
 from mnemonic_api.artifact_schemas import (
     ArtifactActor,
@@ -44,13 +46,16 @@ from mnemonic_api.artifact_storage import (
     UnsafeArtifactPath,
     validate_filename,
 )
+from mnemonic_api.artifact_tokenizer import passage_tokenizer
 from mnemonic_api.database import Database
 from mnemonic_api.errors import (
     ApplicationError,
     client_operation_conflict,
     client_operation_secret_echo,
+    semantic_unavailable,
 )
 from mnemonic_api.schemas import APIModel
+from mnemonic_api.semantic import semantic_query_vector
 from mnemonic_api.services.artifact_search import ArtifactSearchIndex, search_artifact_contents
 from mnemonic_api.services.artifacts import (
     ArtifactMutation,
@@ -480,12 +485,26 @@ async def search_contents(
     response.headers["Cache-Control"] = "no-store"
 
     def search() -> ArtifactSearchPage:
+        query_vector = None
+        artifact_chunk_config = None
+        if payload.semantic:
+            if not semantic_search_inference_acquired(request.scope):
+                raise semantic_unavailable("capacity_exhausted")
+            try:
+                embedder = embedder_of(request)
+                query_vector = semantic_query_vector(embedder, payload.q)
+                artifact_chunk_config = passage_tokenizer(embedder).config
+            except Exception as exc:
+                raise semantic_unavailable(
+                    "deadline_exceeded" if isinstance(exc, TimeoutError) else "model_failure"
+                ) from None
         with storage_errors(request):
             recover_project_artifacts(database, storage_of(request), project_id)
         database.rollback()
         index = cast(ArtifactSearchIndex, request.app.state.artifact_search_index)
         return search_artifact_contents(
             database, project_id, payload, index, human_dashboard=_human_dashboard(request),
+            query_vector=query_vector, artifact_chunk_config=artifact_chunk_config,
         )
 
     return await run_in_threadpool(search)
@@ -515,7 +534,8 @@ async def _search_payload(request: Request) -> ArtifactSearchRequest:
         return ArtifactSearchRequest.model_validate(
             json.loads(body, object_pairs_hook=_unique_object)
         )
-    except ValueError, RecursionError:
+    except (ValueError, RecursionError) as exc:
+        raise_reviewed_body_validation(exc)
         raise ApplicationError(
             422, "artifact_search_invalid", "Provide valid artifact search parameters."
         ) from None

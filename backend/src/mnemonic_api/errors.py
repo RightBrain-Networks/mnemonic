@@ -4,6 +4,8 @@ from typing import Any
 
 from fastapi import HTTPException
 
+from mnemonic_api.search_ranking import SemanticDisposition, SemanticReason, unavailable_semantic
+
 SAFE_ERROR_CONTEXT_KEYS = frozenset(
     {
         "approval_token", "action", "artifact_id", "revision",
@@ -42,6 +44,11 @@ def _safe_context(context: dict[str, Any] | None) -> dict[str, Any]:
     fields = context.get("fields")
     if isinstance(fields, list) and all(field in SAFE_ERROR_FIELD_LOCATIONS for field in fields):
         safe["fields"] = sorted(set(fields))
+    if isinstance(context.get("semantic"), dict):
+        try:
+            safe["semantic"] = SemanticDisposition.model_validate(context["semantic"]).model_dump()
+        except ValueError:
+            pass
     return safe
 
 
@@ -257,22 +264,31 @@ def duplicate_suggestion_busy() -> ApplicationError:
     return ApplicationError(
         429,
         "duplicate_suggestion_busy",
-        "Duplicate suggestions are busy. Retry this safe read later.",
+        "Duplicate comparison is incomplete. Retry this safe read once after one second; "
+        "work creation remains available.",
+        context={"semantic": unavailable_semantic("capacity_exhausted").model_dump()},
         headers={"Retry-After": "1"},
     )
 
 
-def duplicate_suggestion_unavailable() -> ApplicationError:
+def duplicate_suggestion_unavailable(
+    reason: SemanticReason = "deadline_exceeded",
+) -> ApplicationError:
     return ApplicationError(
         503,
         "duplicate_suggestion_unavailable",
-        "Duplicate suggestions are unavailable. Work creation remains available.",
+        "Duplicate comparison is incomplete. Retry this safe read once after one second; "
+        "work creation remains available.",
+        context={"semantic": unavailable_semantic(reason).model_dump()},
+        headers={"Retry-After": "1"},
     )
 
 
-def semantic_unavailable() -> ApplicationError:
+def semantic_unavailable(reason: SemanticReason = "model_failure") -> ApplicationError:
     return ApplicationError(
         503,
         "semantic_unavailable",
-        "Semantic search is unavailable. Turn it off to use lexical search.",
+        "Semantic search is unavailable. Retry once after one second or use lexical search.",
+        context={"semantic": unavailable_semantic(reason).model_dump()},
+        headers={"Retry-After": "1"},
     )

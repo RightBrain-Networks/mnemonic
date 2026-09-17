@@ -6,9 +6,10 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import ColumnElement, String, cast, func, or_, select
+from sqlalchemy import ColumnElement, func, or_, select
 from sqlalchemy.orm import Session
 
+from mnemonic_api.artifact_index import literal_terms
 from mnemonic_api.errors import work_duplicate
 from mnemonic_api.models import Checkpoint, WorkItem, WorkLease
 from mnemonic_api.schemas import (
@@ -18,38 +19,25 @@ from mnemonic_api.schemas import (
     WorkSearchPage,
     WorkSummary,
 )
+from mnemonic_api.search_diagnostics import TermDiagnostic, TermMatchCounts
 from mnemonic_api.search_disclosure import SearchDisclosure, WorkAppliedFilters, search_disclosure
+from mnemonic_api.search_exploration import wants_diagnostics
+from mnemonic_api.search_query import parse_query
+from mnemonic_api.search_ranking import search_ranking
 from mnemonic_api.services.compact_work import compact_work_hits
 from mnemonic_api.services.hierarchy import ancestor_paths
 from mnemonic_api.services.readiness import review_status_clause
 from mnemonic_api.services.work_context import work_summaries
+from mnemonic_api.services.work_evidence import work_match_evidence
 from mnemonic_api.services.work_items import missing_work_item
-
-TS_RANK_NORMALIZATION = 32
-WORK_TEXT_FIELDS = (WorkItem.title, WorkItem.summary, cast(WorkItem.id, String))
-CHECKPOINT_TEXT_FIELDS = (
-    Checkpoint.prompt,
-    cast(Checkpoint.id, String),
-    Checkpoint.source_client,
-    Checkpoint.source_session_id,
-    Checkpoint.source_model,
-    Checkpoint.source_session_url,
-    Checkpoint.repository_branch,
-    Checkpoint.verified_against,
-    func.array_to_string(Checkpoint.tags, " "),
-)
-
-
-@dataclass(frozen=True)
-class LexicalMatch:
-    condition: ColumnElement[bool]
-    score: ColumnElement[Any]
+from mnemonic_api.services.work_matching import lexical_match
 
 
 @dataclass(frozen=True)
 class SearchSelection:
     work_item: WorkItem
     matched_member_id: UUID
+    score: float = 0.0
 
 
 def status_conditions(status: str, as_of: datetime) -> list[ColumnElement[bool]]:
@@ -100,33 +88,6 @@ def _checkpoint_exists(*conditions: ColumnElement[bool]) -> ColumnElement[bool]:
     )
 
 
-def lexical_match(query: str) -> LexicalMatch:
-    terms = func.plainto_tsquery("english", query)
-    in_checkpoint = _checkpoint_exists(
-        or_(
-            Checkpoint.search_vector.bool_op("@@")(terms),
-            *(field.icontains(query, autoescape=True) for field in CHECKPOINT_TEXT_FIELDS),
-        )
-    )
-    condition = or_(
-        WorkItem.search_vector.bool_op("@@")(terms),
-        *(field.icontains(query, autoescape=True) for field in WORK_TEXT_FIELDS),
-        in_checkpoint,
-    )
-    best_checkpoint_rank = (
-        select(func.max(func.ts_rank_cd(Checkpoint.search_vector, terms, TS_RANK_NORMALIZATION)))
-        .where(Checkpoint.work_item_id == WorkItem.id)
-        .scalar_subquery()
-    )
-    return LexicalMatch(
-        condition=condition,
-        score=func.greatest(
-            func.ts_rank_cd(WorkItem.search_vector, terms, TS_RANK_NORMALIZATION),
-            func.coalesce(best_checkpoint_rank, 0.0),
-        ),
-    )
-
-
 def _validate_root_filter(
     database: Session,
     project_id: UUID,
@@ -168,10 +129,12 @@ def _lexical_rows(
     database: Session,
     query: str,
     candidates: Sequence[WorkItem],
+    filters: WorkItemListQuery | None = None,
 ) -> list[tuple[UUID, float]]:
     if not query or not candidates:
         return []
-    match = lexical_match(query)
+    filters = filters or WorkItemListQuery()
+    match = lexical_match(parse_query(query, filters.query_mode), filters.work_fields)
     rows = database.execute(
         select(WorkItem.id, match.score.label("score"))
         .where(WorkItem.id.in_([item.id for item in candidates]), match.condition)
@@ -196,7 +159,7 @@ def _lexical_selections(
     if filters.duplicate_scope != "canonical":
         matches = [item for item in scoped if item.id in score_by_id]
         ordered = _sort_rows(matches, filters.sort, scores=score_by_id)
-        return [SearchSelection(item, item.id) for item in ordered]
+        return [SearchSelection(item, item.id, score_by_id[item.id]) for item in ordered]
 
     winner_by_root: dict[UUID, tuple[UUID, float]] = {}
     for member_id, score in lexical_rows:
@@ -206,7 +169,7 @@ def _lexical_selections(
     root_scores = {item.id: winner_by_root[item.id][1] for item in eligible}
     ordered = _sort_rows(eligible, filters.sort, scores=root_scores)
     return [
-        SearchSelection(item, winner_by_root[item.id][0])
+        SearchSelection(item, winner_by_root[item.id][0], root_scores[item.id])
         for item in ordered
     ]
 
@@ -254,10 +217,13 @@ def _page(
     total: int, *, as_of: datetime,
 ) -> WorkSearchPage:
     work_items = [selection.work_item for selection in selections]
+    evidence = work_match_evidence(
+        database, [selection.matched_member_id for selection in selections], filters)
     if filters.detail == "compact":
         items = compact_work_hits(
             database, project_id, work_items, as_of=as_of,
             ranks={item.id: filters.offset + index for index, item in enumerate(work_items, 1)},
+            evidence=evidence,
             matched_members={selection.work_item.id: pointers[selection.matched_member_id]
                              for selection in selections},
         )
@@ -267,8 +233,15 @@ def _page(
         items = [WorkSearchHit(
             summary=summary_by_id[selection.work_item.id],
             matched_member=pointers[selection.matched_member_id],
+            **evidence[selection.matched_member_id].model_dump(),
         ) for selection in selections]
+    ranking = search_ranking(filters.q, filters.query_mode, work=True, semantic=filters.semantic)
+    for rank, (item, selection) in enumerate(
+        zip(items, selections, strict=True), filters.offset + 1
+    ):
+        item.rank, item.score, item.score_type = rank, selection.score, ranking.score_type
     return WorkSearchPage(
+        **ranking.model_dump(),
         work_rank_scope="work_items",
         **work_search_disclosure(project_id, filters).model_dump(),
         detail=filters.detail, items=items, total=total, limit=filters.limit, offset=filters.offset,
@@ -278,8 +251,21 @@ def _page(
 
 def work_search_disclosure(project_id: UUID, filters: WorkItemListQuery) -> SearchDisclosure:
     return search_disclosure(
-        project_id, filters.q, semantic=filters.semantic,
+        project_id, filters.q, semantic=filters.semantic, query_mode=filters.query_mode,
+        diagnostics=filters.diagnostics,
         work_items=WorkAppliedFilters.model_validate(
             filters.model_dump(include=set(WorkAppliedFilters.model_fields)),
         ),
     )
+
+
+def work_term_diagnostics(database: Session, filters: WorkItemListQuery,
+                          scoped: Sequence[WorkItem], projections: dict[UUID, Any],
+                          pool: Sequence[WorkItem], total: int) -> list[TermDiagnostic]:
+    if not wants_diagnostics(filters.diagnostics, filters.q, total):
+        return []
+    return [TermDiagnostic(term=term, matches=TermMatchCounts(work_items=len(
+        _lexical_selections(scoped, filters, projections,
+                            _lexical_rows(database, term, pool,
+                                filters.model_copy(update={"query_mode": "terms"})), term),
+    ))) for term in literal_terms(filters.q or "", fold_accents=False)]

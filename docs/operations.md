@@ -119,9 +119,10 @@ for full semantic scope, ten returned candidates, and an absolute 60-second
 transport budget that starts before body handling.
 
 `429 duplicate_suggestion_busy` includes `Retry-After: 1` and is safe to retry.
-Model saturation, loading, inference, or vector/cache trouble returns a normal
-lexical response with semantic availability false; do not page an operator for
-that isolated fallback. `503 duplicate_suggestion_unavailable` means the
+Model saturation, loading, inference, or unusable-vector failures return a normal
+lexical response with semantic availability false and an incomplete comparison.
+A failed derived-cache write preserves the computed ranking and reports
+`semantic.cache_refresh.status=failed` separately; do not treat it as failed inference. `503 duplicate_suggestion_unavailable` means the
 database/system suggestion path failed. Repeated 429 or 503 responses are an
 aggregate capacity or availability incident, but neither implies a write,
 unknown mutation outcome, lost create request, or permission to disable Create
@@ -130,8 +131,8 @@ anyway.
 On PostgreSQL 17, suggestion snapshot and cache transactions set transaction,
 statement, and lock timeouts from the remaining route budget. Cache refresh is
 post-snapshot and derived: it skips locked work rows and caps cache lock waits at
-50 ms. Contention can force a lexical fallback, but cannot turn a cache refresh
-into an unbounded request.
+50 ms. Cache-write contention or failure preserves the completed ranking and
+reports a separate refresh disposition; it cannot turn refresh into an unbounded request.
 
 Draft text, query vectors, candidate text, IDs, scores, and results do not belong
 in logs or metric labels. Suggestion cache rows are derived existing-work data
@@ -140,9 +141,13 @@ must verify only aggregate behavior and must not commit a merge.
 
 ## Current coordinated cutover
 
-The current coordinated boundary is API/MCP/dashboard `0.58.0`, plugin `0.36.0`,
-and Alembic `0040_normalized_transcripts`. Follow [the transcript/job migration](transcript-jobs.md)
+The current coordinated boundary is API/MCP/dashboard `0.60.0`, plugin `0.38.0`,
+and Alembic `0041_artifact_passages`. Follow [the transcript/job migration](transcript-jobs.md)
 to provision RabbitMQ, the shared worker, retained copies, and backup ownership.
+Migration `0041_artifact_passages` adds rebuildable artifact passage caches; follow
+[semantic artifact upgrade and backfill](artifact-semantic-search.md#coordinated-upgrade).
+Explicit [multi-project search](multi-project-search.md) shares one bounded corpus
+and reports coverage for every selected project.
 Inventory exactly 55 MCP tools,
 17 protected MCP writes, 24 REST receipt kinds, 21 protected browser mutations,
 and 24 work-event types. Keep older writers stopped: fresh closeouts still

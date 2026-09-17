@@ -27,6 +27,7 @@ HASH = hashlib.sha256(TEXT.encode()).hexdigest()
 
 def transcript(**changes):
     return {
+        "matched_fields": [], "snippet_omission_reason": None, "rank": None, "score_type": "none",
         "id": TRANSCRIPT_ID, "project_id": PROJECT_ID, "work_item_id": WORK_ID,
         "lease_generation_id": CLIENT_OPERATION_ID, "client": "claude_code",
         "session_id": "independent-session", "source_path": LOCATION["path"],
@@ -164,7 +165,7 @@ async def test_search_is_metadata_by_default_and_fulltext_is_explicit(settings):
     await call(settings, "search_transcript_contents", args, handler)
     await call(settings, "search_transcript_contents", {**args, "fulltext": True}, handler)
     assert requests == [{"query": "objective", "fulltext": fulltext, "limit": 50,
-                         "offset": 0, "detail": "full", "work_item_id": WORK_ID} for fulltext in (False, True)]
+                         "offset": 0, "detail": "full", "diagnostics": "on_empty", "query_mode": "terms", "work_item_id": WORK_ID} for fulltext in (False, True)]
 
 
 @pytest.mark.parametrize("failure", ["project", "work", "duplicate", "page", "snippet", "oversize", "coverage"])

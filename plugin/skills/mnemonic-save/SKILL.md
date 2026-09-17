@@ -62,7 +62,8 @@ from a draft.
    useful alternate term when a narrow query misses. All statuses are searched by
    default. Inspect `applied_filters`, `query_interpretation`, and `warnings`;
    an explicitly filtered zero does not establish absence from project history.
-3. Search returns compact pointers by default, without checkpoint bodies.
+3. Search returns compact pointers with bounded match excerpts by default;
+   full checkpoint bodies require recall.
    The default page has 20 rows; request `detail="full"` for full summaries, or call
    `recall_work(project_id, work_item_id)` for likely duplicates. If several
    results fit and the choice matters, ask instead of guessing.
@@ -90,7 +91,7 @@ call `suggest_duplicate_work` only when the user or workflow explicitly asks to
 check for existing work. Pass exactly that draft, the resolved `project_id`, an
 optional exact `exclude_work_item_id`, and a bounded `limit`. Do not call it on
 each keystroke, send operation or lease identifiers, or treat it as part of the
-later `create_work` intent. It is a safe read: an ordinary retry after timeout,
+later `create_work` intent. It is a safe read: retry at most once after one second following a timeout,
 `duplicate_suggestion_busy`, or `duplicate_suggestion_unavailable` cannot
 duplicate a write. If suggestions remain unavailable, report that comparison
 could not run and leave creation available.
@@ -99,7 +100,10 @@ The response contains one current canonical root per candidate group and the
 exact member that matched. Read categorical `signals` only: `exact_title`,
 `lexical`, and `semantic`. `semantic_available=false` or
 `semantic_scope=unavailable` means lexical comparison still ran; a shortlist
-scope is not a full-project semantic scan. Candidate order, an exact title, a
+scope is not a full-project semantic scan. Inspect `semantic.comparison_incomplete`
+and report incomplete comparison when inference is unavailable or vectors are partial.
+A timeout does not establish that no duplicate exists. Completed inference remains
+usable when only `semantic.cache_refresh` failed. Candidate order, an exact title, a
 matched alias, or model similarity is retrieval evidence—not proof of identity,
 merge direction, or permission to suppress creation. Recall plausible items
 before choosing. If none is the same objective, or the user deliberately wants

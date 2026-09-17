@@ -10,7 +10,7 @@ from test_artifacts import ARTIFACT_ID, artifact, call, search_page
 async def test_search_defaults_to_metadata_and_does_not_require_a_receipt(settings):
     def handler(request):
         assert json.loads(request.content) == {
-            "q": "report", "fulltext": False, "detail": "full",
+            "q": "report", "fulltext": False, "detail": "full", "diagnostics": "on_empty", "query_mode": "terms",
             "include_deleted": False, "limit": 50, "offset": 0,
         }
         return httpx.Response(200, json=search_page())

@@ -7,6 +7,7 @@ const UUID = UUID_PATTERN.source.slice(1, -1);
 const COLLECTION = new RegExp(`^projects/${UUID}/artifacts$`);
 const ITEM = new RegExp(`^projects/${UUID}/artifacts/${UUID}$`);
 const CONTENT = new RegExp(`^projects/${UUID}/artifacts/${UUID}/content$`);
+const TEXT = new RegExp(`^projects/${UUID}/artifacts/${UUID}/text$`);
 const HISTORY = new RegExp(`^projects/${UUID}/artifacts/${UUID}/history$`);
 const SEARCH = new RegExp(`^projects/${UUID}/artifacts/search-content$`);
 const SECURITY_HEADERS = {
@@ -31,6 +32,7 @@ export function artifactQueryKeys(path: string, method: string): readonly string
     if (method === "GET") return [];
     if (method === "PUT") return [];
   }
+  if (TEXT.test(path) && method === "GET") return ["expected_revision", "expected_text_sha256", "offset", "limit"];
   if (HISTORY.test(path) && method === "GET") return ["limit", "offset"];
   return null;
 }
@@ -99,6 +101,9 @@ export async function proxyArtifact(request: Request, path: string[], environmen
   for (const field of query.keys()) {
     if (!keys.includes(field) || query.getAll(field).length !== 1) return fail(400, "The artifact query contains an unsupported or repeated field.");
   }
+  if (TEXT.test(route) && (!/^[1-9][0-9]*$/.test(query.get("expected_revision") ?? "") || !finiteInteger(Number(query.get("expected_revision")), 1, 2147483647)
+    || !/^[0-9a-f]{64}$/.test(query.get("expected_text_sha256") ?? "")
+    || !["offset", "limit"].every((field) => /^[0-9]+$/.test(query.get(field) ?? "") && finiteInteger(Number(query.get(field)), field === "limit" ? 1 : 0, field === "limit" ? 20_000 : 8_000_000)))) return fail(400, "Select an artifact passage with a revision and text hash.");
   if (maximum === 0 && route !== "status") return limitFailure(0);
   const update = request.method === "PATCH";
   const search = SEARCH.test(route) && request.method === "POST";

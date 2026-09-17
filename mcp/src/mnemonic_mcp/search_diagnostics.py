@@ -4,6 +4,8 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
+from .search_exploration import DiagnosticsMode
+
 SearchFacet = Literal["work_items", "artifacts", "transcripts"]
 MatchCount = Annotated[StrictInt, Field(ge=0)]
 
@@ -41,8 +43,10 @@ class SearchScope(DiagnosticModel):
 
 def diagnostics_match(
     diagnostics: list[TermDiagnostic], total: int, searched: list[SearchFacet],
+    mode: DiagnosticsMode = "on_empty", query: str | None = None,
 ) -> bool:
-    if total and diagnostics or len({item.term for item in diagnostics}) != len(diagnostics):
+    if ((mode == "off" or mode == "on_empty" and total or query is not None and not query.strip())
+            and diagnostics or len({item.term for item in diagnostics}) != len(diagnostics)):
         return False
     return all(
         (count is not None) == (facet in searched)

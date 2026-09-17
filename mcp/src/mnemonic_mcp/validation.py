@@ -17,6 +17,12 @@ from .validation_rules import VALIDATION_RULES
 # Reviewed in docs/validation-vocabulary.json; test_validation_vocabulary.py pins this subset.
 VALIDATION_FIELDS = frozenset(
     {
+        "created_after",
+        "created_before",
+        "updated_after",
+        "updated_before",
+        "diagnostics", "query_mode", "work_fields",
+        "tag_counts",
         "facets",
         "facet",
         "facet_order",
@@ -40,7 +46,7 @@ VALIDATION_FIELDS = frozenset(
         "subagent_transcripts",
         "client",
         "transcript_id",
-        "expected_sha256",
+        "expected_sha256", "expected_text_sha256",
 
         "gate_id",
         "expected_question_version",
@@ -99,7 +105,7 @@ VALIDATION_FIELDS = frozenset(
         "slug",
         "description",
         "repository_url",
-        "project_id",
+        "project_id", "project_ids",
         "work_item_id",
         "gate_type",
         "source_work_item_id",
