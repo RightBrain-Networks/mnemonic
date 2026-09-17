@@ -19,11 +19,12 @@ from mnemonic_api.artifact_storage import (
     StagedArtifact,
 )
 from mnemonic_api.artifact_tika import ExtractionError
+from mnemonic_api.transcript_access import TranscriptAccessError, access_error
 from mnemonic_api.transcript_storage import _open_source
 
 _CHUNK_BYTES = 1024 * 1024
 _TRANSIENT_ERRNOS = {errno.EAGAIN, errno.EINTR, errno.EIO, errno.ESTALE, errno.ETIMEDOUT,
-                     errno.ENOENT, errno.ENOSPC, errno.EDQUOT, errno.EMFILE, errno.ENFILE}
+                     errno.EMFILE, errno.ENFILE}
 
 
 @dataclass(frozen=True)
@@ -49,6 +50,13 @@ def _transient(error: BaseException) -> bool:
 
 
 def _source_chunks(source: str, roots: list[Path], maximum: int) -> Iterator[bytes]:
+    try:
+        yield from _read_source_chunks(source, roots, maximum)
+    except OSError as error:
+        raise access_error(error, source) from None
+
+
+def _read_source_chunks(source: str, roots: list[Path], maximum: int) -> Iterator[bytes]:
     descriptor = _open_source(source, roots)
     with os.fdopen(descriptor, "rb") as content:
         before = os.fstat(content.fileno())
@@ -151,10 +159,10 @@ class TranscriptStorage(ArtifactStorage):
         except ArtifactTooLarge as error:
             raise ExtractionError("transcript_too_large") from error
         except ArtifactContentUnavailable as error:
-            raise ExtractionError("transcript_copy_unavailable") from error
+            raise TranscriptAccessError("transcript_copy_unavailable", str(self.root),
+                                        operation="write_storage") from error
         except OSError as error:
-            retryable = _transient(error) or error.errno in {errno.EACCES, errno.EPERM}
-            raise ExtractionError("transcript_io_error", retryable=retryable) from error
+            raise access_error(error, str(self.root), operation="write_storage") from None
         raise AssertionError("Copy retry policy completed without a disposition")
 
     def read_copy(self, copy: TranscriptCopy) -> bytes:

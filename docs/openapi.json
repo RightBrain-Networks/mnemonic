@@ -12090,6 +12090,62 @@
         "title": "TranscriptFacetHit",
         "type": "object"
       },
+      "TranscriptHealthRead": {
+        "properties": {
+          "affected_transcripts": {
+            "title": "Affected Transcripts",
+            "type": "integer"
+          },
+          "checked_at": {
+            "format": "date-time",
+            "title": "Checked At",
+            "type": "string"
+          },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "recheck_seconds": {
+            "default": 300,
+            "title": "Recheck Seconds",
+            "type": "integer"
+          },
+          "warnings": {
+            "items": {
+              "$ref": "#/components/schemas/TranscriptWarning"
+            },
+            "title": "Warnings",
+            "type": "array"
+          },
+          "warnings_omitted": {
+            "title": "Warnings Omitted",
+            "type": "integer"
+          },
+          "worker_checked_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Worker Checked At"
+          }
+        },
+        "required": [
+          "project_id",
+          "checked_at",
+          "worker_checked_at",
+          "warnings",
+          "warnings_omitted",
+          "affected_transcripts"
+        ],
+        "title": "TranscriptHealthRead",
+        "type": "object"
+      },
       "TranscriptImportRead": {
         "properties": {
           "client_operation_id": {
@@ -13213,6 +13269,117 @@
           "text_sha256"
         ],
         "title": "TranscriptText",
+        "type": "object"
+      },
+      "TranscriptWarning": {
+        "properties": {
+          "action": {
+            "title": "Action",
+            "type": "string"
+          },
+          "affected": {
+            "default": 0,
+            "title": "Affected",
+            "type": "integer"
+          },
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "gid": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gid"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mode"
+          },
+          "owner_gid": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner Gid"
+          },
+          "owner_uid": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner Uid"
+          },
+          "path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Path"
+          },
+          "retry_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retry At"
+          },
+          "service": {
+            "title": "Service",
+            "type": "string"
+          },
+          "uid": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Uid"
+          }
+        },
+        "required": [
+          "code",
+          "service",
+          "message",
+          "action"
+        ],
+        "title": "TranscriptWarning",
         "type": "object"
       },
       "ValidationError": {
@@ -16705,7 +16872,7 @@
   "info": {
     "description": "Durable project-scoped work with immutable agent checkpoints.",
     "title": "Mnemonic API",
-    "version": "0.60.0"
+    "version": "0.61.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -20485,6 +20652,51 @@
           }
         ],
         "summary": "List Transcripts"
+      }
+    },
+    "/api/v1/projects/{project_id}/transcripts/health": {
+      "get": {
+        "operationId": "get_transcript_health_api_v1_projects__project_id__transcripts_health_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TranscriptHealthRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Transcript Health"
       }
     },
     "/api/v1/projects/{project_id}/transcripts/import": {

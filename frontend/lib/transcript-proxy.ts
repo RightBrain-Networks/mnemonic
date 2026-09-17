@@ -13,12 +13,13 @@ const SECURITY_HEADERS = {
   "Content-Security-Policy": "sandbox; default-src 'none'"
 };
 type Environment = { MNEMONIC_DASHBOARD_ORIGINS?: string; MNEMONIC_API_URL?: string; MNEMONIC_API_KEY?: string };
-type Action = "list" | "detail" | "text" | "content" | "settings" | "save" | "rebuild" | "import";
+type Action = "health" | "list" | "detail" | "text" | "content" | "settings" | "save" | "rebuild" | "import";
 export function transcriptRoute(path: string[], method: string): Action | null {
   if (path[0] !== "projects" || !validUuid(path[1])) return null;
   if (path.length === 3 && path[2] === "transcript-settings") return method === "GET" ? "settings" : method === "PATCH" ? "save" : null;
   if (path[2] !== "transcripts") return null;
   if (path.length === 3 && method === "GET") return "list";
+  if (path.length === 4 && path[3] === "health" && method === "GET") return "health";
   if (path.length === 4 && path[3] === "rebuild" && method === "POST") return "rebuild";
   if (path.length === 4 && path[3] === "import" && method === "POST") return "import";
   if (!validUuid(path[3]) || method !== "GET") return null;

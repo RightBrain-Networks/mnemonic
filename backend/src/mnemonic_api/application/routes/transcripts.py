@@ -17,6 +17,7 @@ from mnemonic_api.services import transcript_imports, transcripts
 from mnemonic_api.services.project_mutations import project_mutation
 from mnemonic_api.services.transcript_segments import segment_range
 from mnemonic_api.transcript_discovery import discover_transcripts
+from mnemonic_api.transcript_health import TranscriptHealthRead, transcript_health
 from mnemonic_api.transcript_schemas import (
     TranscriptImportRead,
     TranscriptImportRequest,
@@ -79,6 +80,14 @@ def import_transcripts(project_id: UUID, payload: TranscriptImportRequest,
         result = transcript_imports.import_transcripts(database, project_id, payload, scan)
         database.commit()
     return result
+
+
+@router.get(_collection + "/health", response_model=TranscriptHealthRead,
+            dependencies=[Depends(reject_empty_read_request)])
+def get_transcript_health(project_id: UUID, database: Database,
+                          request: Request) -> TranscriptHealthRead:
+    return transcript_health(database, project_id, settings_of(request),
+                             request.app.state.transcript_search_index)
 
 
 @router.get(_collection + "/{transcript_id}", response_model=TranscriptRead,

@@ -69,7 +69,7 @@ def enqueue_transcript_jobs(database: Session, settings: Settings) -> int:
     ):
         rows = database.execute(statement.with_only_columns(
             Transcript.id, Transcript.generation, attempts, due_at,
-        ).order_by(Transcript.created_at, Transcript.id).limit(100)).all()
+        ).order_by(due_at, Transcript.id).limit(100)).all()
         for identity, generation, attempt, due in rows:
             # Recovery can reset its bounded attempt budget. The committed due
             # time distinguishes that new retry from a completed earlier attempt.

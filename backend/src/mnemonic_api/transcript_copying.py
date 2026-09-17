@@ -12,6 +12,12 @@ from mnemonic_api.config import Settings
 from mnemonic_api.models import Transcript, TranscriptSettings, WorkItem
 from mnemonic_api.services.project_mutations import project_mutation
 from mnemonic_api.services.transcripts import transcript_project_id
+from mnemonic_api.transcript_access import (
+    RECHECK_SECONDS,
+    RECOVERABLE_COPY_ERRORS,
+    TranscriptAccessError,
+    access_error,
+)
 from mnemonic_api.transcript_copies import TranscriptCopy, TranscriptCopyPin, TranscriptStorage
 from mnemonic_api.transcript_indexing import (
     _active_generation,
@@ -44,6 +50,9 @@ def claimable_copies(settings: Settings):
             (Transcript.copy_status == "pending")
             & (Transcript.copy_next_attempt_at <= func.clock_timestamp()),
             _resolved_path_errors(settings, copying=True),
+            (Transcript.copy_status == "failed")
+            & Transcript.copy_error_code.in_(RECOVERABLE_COPY_ERRORS)
+            & (Transcript.copy_next_attempt_at <= func.clock_timestamp()),
             (Transcript.copy_status == "processing")
             & (Transcript.copy_lease_expires_at <= func.clock_timestamp()),
         )))
@@ -60,7 +69,6 @@ def _start_copy(database: Session, row, settings: Settings) -> TranscriptCopyJob
         return None
     record.copy_status = "processing"
     record.copy_attempts += 1
-    record.copy_error_code = None
     record.copy_lease_token = uuid4()
     record.copy_lease_expires_at = now + timedelta(minutes=10)
     try:
@@ -101,7 +109,10 @@ def _copy_failure(record: Transcript, error: ExtractionError, now: datetime) -> 
     retry = error.retryable and record.copy_attempts < MAX_COPY_ATTEMPTS
     record.copy_status = "pending" if retry else "failed"
     record.copy_error_code = error.code
+    record.copy_error_details = error.details if isinstance(error, TranscriptAccessError) else None
     record.copy_next_attempt_at = now + timedelta(seconds=min(15 * 2**record.copy_attempts, 120))
+    if not retry:
+        record.copy_next_attempt_at = now + timedelta(seconds=RECHECK_SECONDS)
     # A legacy ready snapshot is retained even if its source is no longer
     # recoverable. Copy metadata reports the migration gap independently.
     if record.status != "ready":
@@ -118,6 +129,7 @@ def _copy_success(record: Transcript, copy: TranscriptCopy, now: datetime) -> No
     record.copy_size_bytes = copy.size_bytes
     record.copied_at = now
     record.copy_error_code = None
+    record.copy_error_details = None
     if record.status == "ready":
         if record.sha256 != copy.sha256 or record.normalized_revision is None:
             record.reindex_status, record.reindex_error_code = "pending", None
@@ -179,5 +191,7 @@ def copy_next_transcript(factory: sessionmaker[Session], settings: Settings,
             expected=job.expected)
     except ExtractionError as failure:
         error = failure
+    except OSError as failure:
+        error = access_error(failure, str(settings.transcript_root), operation="write_storage")
     complete_transcript_copy(factory, job, copy, error, context)
     return True

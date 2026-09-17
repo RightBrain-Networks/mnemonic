@@ -282,7 +282,7 @@ def test_populated_legacy_history_backfills_exactly_and_freezes_legacy_tables():
         with engine.connect() as connection:
             assert connection.execute(
                 text("SELECT version_num FROM alembic_version")
-            ).scalar_one() == "0041_artifact_passages"
+            ).scalar_one() == "0042_transcript_health"
             assert connection.execute(text("SELECT to_regclass('handoffs')")).scalar_one() is None
             assert connection.execute(
                 text("SELECT to_regclass('handoff_comments')")

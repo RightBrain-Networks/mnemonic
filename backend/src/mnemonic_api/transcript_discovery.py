@@ -92,9 +92,12 @@ def discover_transcripts(directory: str, roots: list[Path], *,
         finally:
             os.close(descriptor)
     except ExtractionError as error:
-        raise ApplicationError(422, "transcript_import_path_not_allowed",
-                               "Choose a folder within the configured shared transcript folders.") \
-            from error
+        if error.code == "transcript_path_not_allowed":
+            raise ApplicationError(422, "transcript_import_path_not_allowed",
+                "Choose a folder within the configured shared transcript folders.") from None
+        raise ApplicationError(422, "transcript_import_scan_failed",
+            "The folder could not be read. Check its path, permissions and shared filesystem "
+            "mount. See transcript access warnings for source-root problems.") from None
     except OSError as error:
         raise ApplicationError(422, "transcript_import_scan_failed",
                                "The folder could not be read. Check its path, permissions and "

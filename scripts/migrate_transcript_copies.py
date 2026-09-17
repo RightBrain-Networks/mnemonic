@@ -1,6 +1,6 @@
 """Wait for the resumable worker backfill; optionally verify retained raw bytes.
 
-Run inside the shared worker after upgrading to 0041_artifact_passages.
+Run inside the shared worker after upgrading to 0042_transcript_health.
 This command never reads transcript bodies into its output or rewrites provenance.
 """
 

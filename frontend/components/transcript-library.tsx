@@ -1,5 +1,6 @@
 "use client";
 
+import TranscriptHealthNotice from "@/components/transcript-health-notice";
 import TranscriptConversation from "@/components/transcript-conversation";
 import { TRANSCRIPT_CONTENT_KINDS, TRANSCRIPT_CONTENT_LABELS, type TranscriptContentKind } from "@/lib/transcript-segments";
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
@@ -64,6 +65,7 @@ export default function TranscriptLibrary({ projectId, refreshSignal }: { projec
   }, [projectId, search, fulltext, offset, workFilter, contentKind, refresh, refreshSignal]);
 
   return <section className="artifact-library transcript-library" aria-label="Transcript library">
+    <TranscriptHealthNotice key={projectId} projectId={projectId} refreshSignal={refresh + refreshSignal} />
     <div className="artifact-search-panel">
       <label className="section-label" htmlFor="transcript-search">Find a transcript</label>
       <form className="artifact-search" onSubmit={(event) => { event.preventDefault(); setSearch(query.trim()); setOffset(0); setRefresh((value) => value + 1); }}>

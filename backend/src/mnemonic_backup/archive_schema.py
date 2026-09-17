@@ -15,10 +15,11 @@ from sqlalchemy import Connection, text
 
 from mnemonic_api.models import Base
 
-HEAD = "0041_artifact_passages"
+HEAD = "0042_transcript_health"
 # Infrastructure delivery state is neither project data nor a restore target.
 # The reconciler derives transcript jobs anew from the restored domain rows.
 INFRASTRUCTURE_TABLES = frozenset({
+    "transcript_worker_health",
     "background_jobs", "artifact_passage_indexes", "artifact_passages",
 })
 TABLES = tuple(sorted(set(Base.metadata.tables) - INFRASTRUCTURE_TABLES))

@@ -269,11 +269,16 @@ class ArtifactSearchIndex:
             raise
 
     def start(self) -> None:
-        if self._storage is not None:
-            try:
-                self._storage.open()
-            except OSError:
-                raise _storage_error() from None
+        if not self._lock.acquire(timeout=0.25):
+            raise ApplicationError(503, "transcript_search_busy", "Transcript search is busy.")
+        try:
+            if self._storage is not None:
+                try:
+                    self._storage.open()
+                except OSError:
+                    raise _storage_error() from None
+        finally:
+            self._lock.release()
 
     def _clear_locked(self) -> None:
         self._index = None

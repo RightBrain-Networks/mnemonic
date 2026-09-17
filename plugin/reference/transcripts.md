@@ -4,7 +4,12 @@ On every `claim_work` or `claim_and_recall`, explicitly supply `session_transcri
 as `{ "client": "claude_code", "path": "/absolute/path/to/session.jsonl" }`, or
 `null` if you cannot determine the transcript path or transcripts are unavailable.
 The path must name the actual native transcript file and be visible to the
-Mnemonic worker through the shared filesystem. Before a fresh assertion, verify
+Mnemonic API and worker through the shared filesystem. The API now checks
+readability, containment and regular-file type before accepting a fresh assertion;
+use the exact native `.jsonl` or `.json` file. A rejected fresh request reports the
+blocking path and repair instructions with `attempt_not_committed=true`. Fix that
+path or use explicit null when unavailable. Receipt replays never repeat this
+filesystem check, and an uncertain request must still retain its exact arguments. Before a fresh assertion, verify
 that the exact path exists and names a regular transcript file, not a directory.
 Claude Code hook input provides `transcript_path`; a SubagentStop hook also exposes
 `agent_transcript_path`. Preserve the exact assertion on uncertain claim retries.
@@ -89,3 +94,11 @@ body matches and counted in `unsegmented_content_omitted`; report that coverage 
 A span exceeding the excerpt budget returns `snippet_omission_reason` as
 `matched_span_exceeds_budget`, with its segment locator and normalized revision.
 Use that locator to read surrounding context even when `snippet` is null.
+
+
+The `/transcripts` page reports source, permission, storage, worker availability,
+and configuration problems near the top. Copy failures distinguish missing files,
+permissions, symlinks and full/read-only storage. Correctable environmental failures
+are rechecked every five minutes, including older generic I/O failures, while Active
+leases and paused projects remain protected. Rebuilding is unnecessary after fixing
+access to the same file. A wrong historical assertion still needs audited recovery.

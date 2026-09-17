@@ -293,3 +293,50 @@ test("workspace import retains exact retry requests and allows correcting fresh 
     await expect(page.locator("#project-select")).toBeEnabled();
   } finally { await api.dispose(); }
 });
+
+test("transcript permission warnings name the blocked path and clear after automatic recovery", async ({ page }, testInfo) => {
+  test.setTimeout(120000);
+  const api = await apiContext();
+  const { project, work, runId, primary } = await fixture(api);
+  const compose = ["compose", "-p", requireDisposableE2EComposeProject("Transcript health fixture"), "-f", resolve(process.cwd(), "../compose.e2e.yaml")];
+  const permissions = (mode: string) => execFileAsync("docker", [...compose, "exec", "-T", "api", "python", "-c", "import os,sys; os.chmod(sys.argv[1],int(sys.argv[2],8))", primary, mode]);
+  try {
+    // The fixture creates the shared source directory after worker startup. Wait for
+    // its next observation before testing this file's independent permission failure.
+    await expect.poll(async () => {
+      const result = await api.get(`/api/v1/projects/${project.id}/transcripts/health`);
+      return (await result.json()).warnings;
+    }, { timeout: 60000 }).toEqual([]);
+    const path = `/api/v1/projects/${project.id}/work-items/${work.id}`;
+    const claimed = await api.post(path + "/claim", { data: { holder_client: "claude-code", holder_session_id: runId, claim_request_id: crypto.randomUUID(), session_transcript: { client: "claude_code", path: primary } } });
+    expect(claimed.ok(), await claimed.text()).toBe(true);
+    const lease = await claimed.json();
+    await permissions("0000");
+    const released = await api.post(path + "/release-claim", { data: { lease_token: lease.lease_token, actor: { actor_client: "claude-code", actor_session_id: runId }, subagent_transcripts: null } });
+    expect(released.ok(), await released.text()).toBe(true);
+    await expect.poll(async () => {
+      const result = await api.get(`/api/v1/projects/${project.id}/transcripts/health`);
+      const value = await result.json();
+      return value.warnings?.some((warning: { code: string; path: string }) => warning.code === "transcript_permission_denied" && warning.path === primary);
+    }, { timeout: 60000 }).toBe(true);
+    await page.goto(`/transcripts?project=${project.id}`);
+    const notice = page.getByRole("status", { name: "Transcript access warnings" });
+    await expect(notice).toContainText(primary);
+    await expect(notice).toContainText("read (r) permission");
+    await expect(notice).toContainText("10001");
+    expect(await notice.evaluate((element) => element.getBoundingClientRect().top)).toBeLessThan(await page.getByLabel("Search transcript metadata and content").evaluate((element) => element.getBoundingClientRect().top));
+    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.screenshot({ path: testInfo.outputPath("transcript-access-warning.png"), fullPage: true, animations: "disabled" });
+    await testInfo.attach("Transcript access warning", { path: testInfo.outputPath("transcript-access-warning.png"), contentType: "image/png" });
+    await permissions("0600");
+    // Advance only this synthetic project's retry deadline; never rebuild or alter its source.
+    await execFileAsync("docker", [...compose, "exec", "-T", "api", "python", "-c",
+      "import sys; from sqlalchemy import text; from mnemonic_api.config import Settings; from mnemonic_api.database import build_engine; engine=build_engine(Settings()); c=engine.connect(); c.execute(text('UPDATE transcripts SET copy_next_attempt_at=clock_timestamp() WHERE work_item_id=:work'),{'work':sys.argv[1]}); c.commit(); c.close()", work.id]);
+    await expect.poll(async () => {
+      const result = await api.get(`/api/v1/projects/${project.id}/transcripts`);
+      return (await result.json()).items[0]?.copy_status;
+    }, { timeout: 60000 }).toBe("ready");
+    await page.getByRole("button", { name: "Refresh", exact: true }).click();
+    await expect(notice).not.toBeVisible();
+  } finally { await permissions("0600"); await api.dispose(); }
+});

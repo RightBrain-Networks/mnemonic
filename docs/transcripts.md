@@ -195,10 +195,10 @@ subdirectory creates container-local parent directories; it does not expose the
 host home directory or Claude credentials.
 
 `transcript_path_not_allowed` means the asserted path is outside the configured
-roots (including an empty root list). Missing files, missing mounts and denied
-filesystem permissions within an allowed root produce `transcript_io_error`.
-After fixing deployment access, use **Rebuild index** in workspace settings to
-retry previously failed records. Rebuild regenerates extracted text from retained
+roots (including an empty root list). Release 0.61.0 distinguishes missing sources,
+denied permissions, nonregular files, symlinks and storage failures. Earlier
+releases collapsed these into `transcript_io_error`. Environmental failures now
+retry automatically after access is restored; **Rebuild index** also remains available. Rebuild regenerates extracted text from retained
 copies and retries uncopied sources; active lease generations still wait until
 they end. An uncopied source that has been deleted must be recovered before
 capture. If an agent reported the wrong directory, rebuilding preserves
@@ -392,3 +392,57 @@ Stop older processes before applying migration 0033 and upgrading the API, MCP,
 dashboard and backup service together. Existing 0032 sources and receipts are preserved.
 Backups include imported text and import receipts; populated import state prevents a
 lossy downgrade. The source mount and operator roots remain the deployment boundary.
+
+## Access diagnostics and resilient recovery (0.61.0)
+
+See the [transcript reliability RCA](transcript-reliability-rca.md) for the observed
+production causes and coordinated upgrade procedure. `/transcripts` now shows
+project-wide warnings above search, including the exact path, needed permissions,
+actual worker identity, storage problems, mismatched API/worker settings and stale
+worker reports. Search filters do not hide these warnings. A failed health request
+also remains visible. Diagnostics contain metadata, never transcript bodies.
+
+Fresh claims and closeouts now verify readable native `.jsonl`/`.json` files under
+approved roots before accepting assertions. Invalid assertions reject the fresh
+transaction; use explicit null if the actual file cannot be established. Existing
+successful receipt replays remain independent of current filesystem access.
+Historical bad paths still require audited recovery rather than a different retry.
+
+Missing files, denied permissions, full/read-only storage and earlier generic I/O
+failures are rechecked every five minutes. No rebuild is needed after access to the
+same file is restored. Active leases and paused projects still wait. Parser and
+integrity failures retain their own explicit dispositions. Configured source outages
+allow the dashboard to start so operators can see the warning; inconsistent explicit
+allowlists remain configuration errors.
+
+For a new local installation, choose source roots explicitly (omit absent roots):
+
+```sh
+python scripts/setup.py --transcript-source /home/your-user/.claude/projects \
+  --codex-source /home/your-user/.codex/sessions
+```
+
+Setup selects the chosen source owner's numeric UID/GID for both service images
+and prints matching private-storage creation commands. Existing `.env` files are
+left unchanged. Use `--service-uid` and `--service-gid` for an explicit identity;
+multiple owners need an operator-managed access arrangement. A default ACL or
+supplementary group does not override a client's explicit creation of mode 0600
+files. Do not make transcripts world-readable to accommodate a mismatched container.
+
+After configuring mounts/storage and building the images, verify access before
+startup, then verify running services:
+
+```sh
+python scripts/check_transcript_access.py --one-off
+python scripts/check_transcript_access.py
+```
+
+The checker uses each service's own settings, mounts and unprivileged identity.
+It opens/closes a bounded sample (default 100 files, at most 1,000), reports incomplete
+sampling, and exercises worker storage. It does not change source permissions or
+print credentials/content. Run the check again after moving sources, changing users,
+restoring backups or altering Docker mounts. Owner-only files from another user,
+SELinux/ACL restrictions, rootless UID mappings and Docker Desktop file sharing may
+need host-specific intervention; use the actual in-container probe as the evidence.
+A remote Docker daemon cannot mount a path from the client computer without an
+explicit filesystem share. Both services need the same exact absolute source paths.
