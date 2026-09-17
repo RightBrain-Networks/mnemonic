@@ -28,6 +28,7 @@ from mnemonic_api.transcript_job_queue import (
     handle_transcript_copy,
     handle_transcript_index,
 )
+from mnemonic_api.transcript_upgrades import refresh_outdated_normalizations
 from mnemonic_backup.config import BackupSettings
 from mnemonic_backup.jobs import schedule_backups
 from mnemonic_backup.service import create_app as create_backup_app
@@ -62,6 +63,7 @@ def schedule_jobs(database: Session, settings: Settings, backups: BackupSettings
             tokenizer = passage_tokenizer(embedder)
         except Exception:
             pass  # Other job kinds remain available if local model loading fails.
+    refresh_outdated_normalizations(database, settings)
     if health is not None:
         health.publish(database, settings)
     enqueue_transcript_jobs(database, settings)

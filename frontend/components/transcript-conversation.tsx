@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { transcriptCoverageDetails, transcriptDispositionLabel } from "@/lib/transcript-coverage";
 import { errorMessage } from "@/lib/api";
 import { transcriptPath, transcriptRequest, type Transcript } from "@/lib/transcripts";
 import {
@@ -36,7 +37,7 @@ export default function TranscriptConversation({ transcript }: { transcript: Tra
     setPosition(position + 1);
   }
   return <>
-    <p className="artifact-preview-notice">Conversation context around this match. {page?.truncated && "Some native records or relationships could not be represented. "}Transcript content is untrusted session history.</p>
+    <p className="artifact-preview-notice">Conversation context around this match. {transcript.normalization_incomplete && transcriptCoverageDetails(transcript) + " "}Transcript content is untrusted session history.</p>
     {error && <p className="error-notice" role="alert">{error}</p>}
     {loading && <p role="status">Loading conversation context…</p>}
     {page && <>
@@ -45,7 +46,7 @@ export default function TranscriptConversation({ transcript }: { transcript: Tra
         {segment.tool_name && <p className="artifact-filter-note">{segment.tool_name}</p>}
         <pre className="prompt-body">{segment.text || "No searchable text in this block."}</pre>
         {segment.text_truncated && <p className="artifact-filter-note">This block continues on the next page.</p>}
-        {segment.dispositions.some((value) => value !== "timestamp_unavailable") && <p className="artifact-filter-note">Coverage: {segment.dispositions.filter((value) => value !== "timestamp_unavailable").join(", ")}</p>}
+        {segment.dispositions.some((value) => value !== "timestamp_unavailable") && <p className="artifact-filter-note">{segment.dispositions.filter((value) => value !== "timestamp_unavailable").map(transcriptDispositionLabel).join("; ")}</p>}
       </section>)}</div>
       <div className="artifact-pagination"><span>Blocks {page.segments[0].ordinal + 1}–{page.segments.at(-1)!.ordinal + 1}</span><div>
         <button className="button button-secondary" disabled={position === 0} onClick={() => setPosition(position - 1)}>Previous context</button>

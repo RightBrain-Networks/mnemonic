@@ -136,11 +136,11 @@ def test_failed_normalizer_upgrade_keeps_indexed_revision_and_locators_coherent(
     assert run(api)
     ready = read(api, project, record)
     normalize = transcript_normalization.normalize_transcript
-    monkeypatch.setattr(transcript_normalization, "NORMALIZER_VERSION", 2)
+    monkeypatch.setattr(transcript_normalization, "NORMALIZER_VERSION", 3)
 
     def revised(*args):
         result = normalize(*args)
-        return replace(result, normalizer_version=2)
+        return replace(result, normalizer_version=3)
 
     monkeypatch.setattr("mnemonic_api.transcript_indexing.normalize_transcript", revised)
     assert api.post(collection(project) + "/rebuild",
@@ -236,7 +236,7 @@ def test_normalizer_failure_retains_last_ready_text_and_active_revision(
     expire_lease(postgres_engine, work["id"])
     assert run(api)
     original = read(api, project, record)
-    monkeypatch.setattr("mnemonic_api.transcript_normalization.NORMALIZER_VERSION", 2)
+    monkeypatch.setattr("mnemonic_api.transcript_normalization.NORMALIZER_VERSION", 3)
 
     def unsupported(*_args):
         raise ExtractionError("transcript_unsupported_format")
@@ -337,7 +337,7 @@ def test_normalization_warnings_do_not_mean_search_text_was_truncated(
 
     work, _, record, source = register(api, project, work_payload, tmp_path)
     with source.open("a") as output:
-        output.write('\n{"type":"worktree-state","state":"synthetic bookkeeping"}\n')
+        output.write('\n{"type":"future-unknown-record","state":"synthetic bookkeeping"}\n')
     expire_lease(postgres_engine, work["id"])
 
     class MetadataParser(Parser):
@@ -366,7 +366,7 @@ def test_migration_recomputes_old_truncation_flags_from_retained_segments(
 
     work, _, record, source = register(api, project, work_payload, tmp_path)
     with source.open("a") as output:
-        output.write('\n{"type":"worktree-state","state":"synthetic bookkeeping"}\n')
+        output.write('\n{"type":"future-unknown-record","state":"synthetic bookkeeping"}\n')
     expire_lease(postgres_engine, work["id"])
     assert run(api)
     original = read(api, project, record)
@@ -423,7 +423,7 @@ def test_rebuild_at_exact_text_budget_does_not_invent_truncation_from_trailing_r
 
     work, _, record, source = register(api, project, work_payload, tmp_path)
     with source.open("a") as output:
-        output.write('\n{"type":"worktree-state","state":"synthetic bookkeeping"}\n')
+        output.write('\n{"type":"future-unknown-record","state":"synthetic bookkeeping"}\n')
     api.app.state.settings.artifact_extraction_max_chars = (
         len("user: rare needle in transcript") + spare_characters)
     expire_lease(postgres_engine, work["id"])
