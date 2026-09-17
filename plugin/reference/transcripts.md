@@ -137,3 +137,13 @@ than a project write lock. Artifact searches retain sensitivity serialization an
 behavior. Search congestion is reported as a search failure with instructions to retry
 that read; it never requires an operation ID. Actual writes still require identical
 same-operation retries when their outcome is uncertain.
+
+
+Normalizer 2 (application 0.64.0) retains readable Claude context attachments and
+Codex compaction context and web results. Metadata includes
+`transcript:normalization_warnings` and `transcript:normalization_notes`, each as
+`code=count` entries. Report actual coverage limitations: binary bodies are not
+searchable, while expected encrypted provider state is an informational note.
+Unknown native formats and absent tool-call references remain explicit warnings.
+Workers automatically refresh old ready normalizations from retained copies after
+Active/pause guards clear; refresh failures preserve the prior search snapshot.

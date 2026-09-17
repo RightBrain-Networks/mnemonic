@@ -16,7 +16,8 @@ def test_scheduler_obeys_artifact_availability_without_pausing_other_job_kinds(
     monkeypatch, maximum,
 ):
     calls = {}
-    for name in ("enqueue_transcript_jobs", "enqueue_artifact_passage_jobs", "schedule_backups"):
+    for name in ("refresh_outdated_normalizations", "enqueue_transcript_jobs",
+                 "enqueue_artifact_passage_jobs", "schedule_backups"):
         calls[name] = Mock()
         monkeypatch.setattr(f"mnemonic_api.job_worker.{name}", calls[name])
     schedule_jobs(None, SimpleNamespace(artifact_max_bytes=maximum), None,
@@ -38,7 +39,8 @@ def test_disabled_existing_delivery_defers_without_inference_or_attempt_exhausti
 
 def test_tokenizer_preparation_precedes_sql_and_failure_keeps_other_jobs(monkeypatch):
     order = []
-    for name in ("enqueue_transcript_jobs", "enqueue_artifact_passage_jobs", "schedule_backups"):
+    for name in ("refresh_outdated_normalizations", "enqueue_transcript_jobs",
+                 "enqueue_artifact_passage_jobs", "schedule_backups"):
         monkeypatch.setattr(f"mnemonic_api.job_worker.{name}",
                             lambda *_args, name=name: order.append(name))
 
@@ -48,7 +50,8 @@ def test_tokenizer_preparation_precedes_sql_and_failure_keeps_other_jobs(monkeyp
 
     settings = SimpleNamespace(artifact_max_bytes=1024)
     schedule_jobs(None, settings, None, embedder=SimpleNamespace(passage_tokenizer=tokenizer))
-    assert order == ["prepare_tokenizer", "enqueue_transcript_jobs",
+    assert order == ["prepare_tokenizer", "refresh_outdated_normalizations",
+                     "enqueue_transcript_jobs",
                      "enqueue_artifact_passage_jobs", "schedule_backups"]
     order.clear()
 
@@ -56,4 +59,5 @@ def test_tokenizer_preparation_precedes_sql_and_failure_keeps_other_jobs(monkeyp
         raise RuntimeError("private model failure")
 
     schedule_jobs(None, settings, None, embedder=SimpleNamespace(passage_tokenizer=unavailable))
-    assert order == ["enqueue_transcript_jobs", "schedule_backups"]
+    assert order == ["refresh_outdated_normalizations", "enqueue_transcript_jobs",
+                     "schedule_backups"]

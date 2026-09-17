@@ -280,9 +280,13 @@ class ArtifactStorage:
 
     @staticmethod
     def _secure_directory(descriptor: int) -> None:
-        if os.fstat(descriptor).st_uid != os.geteuid():
+        info = os.fstat(descriptor)
+        if info.st_uid != os.geteuid():
             raise ArtifactStorageOwnerMismatch("Artifact storage has an unexpected owner.")
-        os.fchmod(descriptor, 0o700)
+        # Already-private captures may be mounted read-only for verification or
+        # recovery. Reading them must not require a redundant permission write.
+        if stat.S_IMODE(info.st_mode) != 0o700:
+            os.fchmod(descriptor, 0o700)
 
     @contextmanager
     def _writer(

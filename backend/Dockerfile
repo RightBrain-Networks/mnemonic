@@ -17,6 +17,7 @@ COPY backend/alembic ./alembic
 COPY backend/alembic.ini ./
 COPY prompts /app/prompts
 COPY scripts/migrate_transcript_copies.py /app/scripts/migrate_transcript_copies.py
+COPY scripts/audit_transcript_normalization.py /app/scripts/audit_transcript_normalization.py
 COPY scripts/recover_transcript_paths.py /app/scripts/recover_transcript_paths.py
 COPY scripts/audit_project_activity.py scripts/audit_duplicate_handling.py scripts/audit_code_reviews.py /app/scripts/
 RUN uv sync --frozen --no-dev && \

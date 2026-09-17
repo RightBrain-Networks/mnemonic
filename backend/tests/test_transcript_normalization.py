@@ -89,7 +89,7 @@ def test_unsupported_and_broken_references_have_explicit_dispositions():
     result = normalize_transcript(data, "claude-code", uuid4())
     assert result.incomplete
     assert result.segments[0].content_kind == "unsupported"
-    assert "unsupported_content" in result.segments[0].dispositions
+    assert "image_content_not_searchable" in result.segments[0].dispositions
     assert "call_reference_unresolved" in result.segments[1].dispositions
     assert "PRIVATE_BINARY" not in str(result.segments)
 

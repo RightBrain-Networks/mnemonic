@@ -8,7 +8,7 @@ import { reportForFixture } from "./job-report-fixture";
 const execFileAsync = promisify(execFile);
 const transcriptRoot = "/var/lib/mnemonic/artifacts/transcripts";
 
-async function fixture(api: APIRequestContext, client = "claude-code") {
+async function fixture(api: APIRequestContext, client = "claude-code", limitation?: "image" | "unknown") {
   const runId = crypto.randomUUID();
   const projectResponse = await api.post("/api/v1/projects", { data: { name: `Transcript library ${runId.slice(0, 8)}` } });
   expect(projectResponse.ok(), await projectResponse.text()).toBe(true);
@@ -19,7 +19,7 @@ async function fixture(api: APIRequestContext, client = "claude-code") {
   const folder = `${transcriptRoot}/${runId}`;
   const primary = `${folder}/${runId}.jsonl`;
   const subagent = `${folder}/${runId}/subagents/agent-${runId}.jsonl`;
-  const rows = client === "codex" ? [
+  const rows: Record<string, unknown>[] = client === "codex" ? [
     { type: "session_meta", timestamp: "2026-02-01T14:00:00Z", payload: { id: runId, source: "cli" } },
     { type: "response_item", payload: { type: "message", role: "user", content: [{ type: "input_text", text: "Investigate the magenta otter indexing fixture." }] } },
     { type: "response_item", timestamp: "2026-02-01T14:30:00Z", payload: { type: "message", role: "assistant", content: [{ type: "output_text", text: "The magenta otter result is ready. <script>window.transcriptExecuted = true</script>" }] } }
@@ -27,6 +27,16 @@ async function fixture(api: APIRequestContext, client = "claude-code") {
     { type: "user", timestamp: "2026-02-01T14:00:00Z", sessionId: runId, uuid: crypto.randomUUID(), parentUuid: null, isSidechain: false, message: { role: "user", content: "Investigate the magenta otter indexing fixture." } },
     { type: "assistant", timestamp: "2026-02-01T14:30:00Z", sessionId: runId, uuid: crypto.randomUUID(), parentUuid: null, isSidechain: false, message: { role: "assistant", model: "fixture-model", content: [{ type: "text", text: "The magenta otter result is ready. <script>window.transcriptExecuted = true</script>" }] } }
   ];
+  const context = client === "codex" ? [
+    { type: "response_item", payload: { type: "reasoning", summary: [], encrypted_content: "synthetic-opaque-state" } },
+    { type: "token_usage_record", payload: { turn_usage: { input_tokens: 7 } } },
+    { type: "compacted", payload: { message: "", replacement_history: [{ type: "message", role: "developer", content: [{ type: "input_text", text: "recoveredcontextneedle" }] }] } }
+  ] : [
+    { type: "worktree-state", state: {} },
+    { type: "attachment", attachment: { type: "instructions", files: [{ content: "recoveredcontextneedle", path: "/example/AGENTS.md" }] } }
+  ];
+  rows.splice(rows.length - 1, 0, ...context);
+  if (limitation) rows.push({ role: "user", content: [{ type: limitation === "image" ? "image" : "future-block", data: "synthetic-native-only" }] });
   const source = `import json,pathlib,sys\nroot=pathlib.Path(${JSON.stringify(transcriptRoot)})\nroot.mkdir(parents=True,exist_ok=True)\ndata=json.loads(sys.argv[1])\nfor path,rows in data.items():\n pathlib.Path(path).parent.mkdir(parents=True,exist_ok=True)\n pathlib.Path(path).write_text(''.join(json.dumps(row)+'\\n' for row in rows))\n`;
   await execFileAsync("docker", ["compose", "-p", requireDisposableE2EComposeProject("Transcript fixture"), "-f", resolve(process.cwd(), "../compose.e2e.yaml"), "exec", "-T", "api", "python", "-c", source, JSON.stringify({ [primary]: rows, [subagent]: rows.map((row) => ({ ...row, isSidechain: true })) })]);
   return { project, work, runId, primary, subagent, folder };
@@ -76,6 +86,15 @@ test(`${client} transcripts index after closeout and support search, metadata, s
     await page.getByRole("switch", { name: "Include contents" }).check();
     await expect(page.locator(".transcript-table tbody tr")).toHaveCount(2);
     await expect(page.locator(".artifact-search-excerpt").first()).toContainText("magenta otter");
+    await expect(page.getByText("Normalization warnings", { exact: false })).toHaveCount(0);
+    await expect(page.getByText("Coverage incomplete", { exact: false })).toHaveCount(0);
+    await search.fill("recoveredcontextneedle");
+    await search.press("Enter");
+    await expect(page.locator(".transcript-table tbody tr")).toHaveCount(2);
+    await expect(page.locator(".artifact-search-excerpt").first()).toContainText("recoveredcontextneedle");
+    await search.fill("magenta otter");
+    await search.press("Enter");
+    await expect(page.locator(".artifact-search-excerpt").first()).toContainText("magenta otter");
     const filename = `${runId}.jsonl`;
     const name = page.getByRole("button", { name: filename, exact: true });
     const contentKind = page.getByRole("combobox", { name: "Conversation content", exact: true });
@@ -106,6 +125,8 @@ test(`${client} transcripts index after closeout and support search, metadata, s
     await expect(details).toContainText("Copy status");
     await expect(details).toContainText("Conversation revision");
     await expect(details).toContainText("Conversation blocks");
+    await expect(details).toContainText("All supported readable content represented");
+    if (client === "codex") await expect(details).toContainText("Provider-encrypted content has no readable text");
     await expect(details).toContainText(primary);
     await expect(details.getByRole("link", { name: work.id })).toHaveAttribute("href", `/?project=${project.id}&work=${work.id}`);
     await expect(details.getByRole("button", { name: "Close details" })).toBeFocused();
@@ -402,7 +423,7 @@ test("normalization warnings do not label intact searchable text as truncated", 
     const { project, work, runId, primary } = await fixture(api);
     const compose = ["compose", "-p", requireDisposableE2EComposeProject("Transcript coverage fixture"), "-f", resolve(process.cwd(), "../compose.e2e.yaml")];
     await execFileAsync("docker", [...compose, "exec", "-T", "api", "python", "-c",
-      "import json,sys; f=open(sys.argv[1],'a'); f.write(json.dumps({'type':'worktree-state','state':'synthetic bookkeeping'})+'\\n'); f.close()", primary]);
+      "import json,sys; f=open(sys.argv[1],'a'); f.write(json.dumps({'type':'future-unknown-record','state':'synthetic unknown state'})+'\\n'); f.close()", primary]);
     const path = `/api/v1/projects/${project.id}/work-items/${work.id}`;
     const claimed = await api.post(path + "/claim", { data: { holder_client: "claude-code", holder_session_id: runId, claim_request_id: crypto.randomUUID(), session_transcript: { client: "claude_code", path: primary } } });
     expect(claimed.ok(), await claimed.text()).toBe(true);
@@ -415,7 +436,7 @@ test("normalization warnings do not label intact searchable text as truncated", 
       return [row?.status, row?.normalization_incomplete, row?.truncated];
     }, { timeout: 60000 }).toEqual(["ready", true, false]);
     await page.goto(`/transcripts?project=${project.id}`);
-    await expect(page.locator(".transcript-status")).toHaveText("Indexed · Normalization warnings");
+    await expect(page.locator(".transcript-status")).toHaveText("Indexed · Unrecognized native message type");
     await page.getByRole("button", { name: `${runId}.jsonl`, exact: true }).click();
     await expect(page.getByText("No length limit reached", { exact: true })).toBeVisible();
     await expect(page.getByText("Complete native copy retained", { exact: true })).toBeVisible();
@@ -423,3 +444,30 @@ test("normalization warnings do not label intact searchable text as truncated", 
     await testInfo.attach("Separate transcript coverage warnings", { path: testInfo.outputPath("transcript-coverage.png"), contentType: "image/png" });
   } finally { await api.dispose(); }
 });
+
+
+for (const limitation of ["image", "unknown"] as const) {
+  test(`transcript coverage explains ${limitation} limitations without hiding them`, async ({ page }, testInfo) => {
+    test.setTimeout(120000);
+    const api = await apiContext();
+    try {
+      const { project, folder, runId } = await fixture(api, "claude-code", limitation);
+      const collection = `/api/v1/projects/${project.id}/transcripts`;
+      const imported = await api.post(`${collection}/import`, { data: { directory: folder, client_operation_id: crypto.randomUUID() } });
+      expect(imported.ok(), await imported.text()).toBe(true);
+      await expect.poll(async () => {
+        const response = await api.get(collection);
+        return (await response.json()).items.map((item: { status: string }) => item.status);
+      }, { timeout: 60000 }).toEqual(["ready", "ready"]);
+      await page.goto(`/transcripts?project=${project.id}`);
+      const label = limitation === "image" ? "Images not searchable" : "Unrecognized native content";
+      await expect(page.locator(".transcript-table tbody tr").first()).toContainText(label);
+      await page.getByRole("button", { name: `${runId}.jsonl`, exact: true }).click();
+      const details = page.getByRole("dialog", { name: `${runId}.jsonl`, exact: true });
+      await expect(details).toContainText(`${label} (1 block)`);
+      await expect(details).toContainText("The native copy retains the original records.");
+      await page.screenshot({ path: testInfo.outputPath(`transcript-${limitation}-coverage.png`), animations: "disabled" });
+      await testInfo.attach("Specific transcript coverage limitation", { path: testInfo.outputPath(`transcript-${limitation}-coverage.png`), contentType: "image/png" });
+    } finally { await api.dispose(); }
+  });
+}

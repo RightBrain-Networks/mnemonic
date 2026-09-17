@@ -1,5 +1,6 @@
 "use client";
 
+import { transcriptCoverageDetails, transcriptCoverageNotes } from "@/lib/transcript-coverage";
 import TranscriptHealthNotice from "@/components/transcript-health-notice";
 import TranscriptConversation from "@/components/transcript-conversation";
 import { TRANSCRIPT_CONTENT_KINDS, TRANSCRIPT_CONTENT_LABELS, type TranscriptContentKind } from "@/lib/transcript-segments";
@@ -140,7 +141,8 @@ function TranscriptDetails({ transcript: initial, onClose }: { transcript: Trans
   const rows: [string, ReactNode][] = [
     ["Disposition", transcriptStatusLabel(transcript)], ["Error", transcript.error_code || "None"],
     ["Conversation status", transcript.normalization_status], ["Conversation error", transcript.normalization_error_code || "None"],
-    ["Conversation coverage", transcript.normalization_incomplete ? "Some native records or relationships could not be represented" : "No structural omissions reported"],
+    ["Conversation coverage", transcriptCoverageDetails(transcript)],
+    ["Native content notes", transcriptCoverageNotes(transcript)],
     ["Search text", transcript.status !== "ready" ? "Not indexed" : transcript.truncated ? "Limited by the configured character budget" : "No length limit reached"],
     ["Retained source", transcript.copy_status === "ready" ? "Complete native copy retained" : "Not copied"],
     ["Conversation revision", transcript.normalized_revision || "Not available"], ["Conversation SHA-256", transcript.normalized_sha256 || "Not available"],
@@ -178,7 +180,7 @@ function TranscriptPreview({ transcript, onClose }: { transcript: Transcript; on
     return () => controller.abort();
   }, [transcript, offset]);
   return <TranscriptDrawer title={transcript.filename} preview onClose={onClose}>
-    <p className="artifact-preview-notice">Normalized transcript text{page?.truncated ? " · Search text reached its indexing limit; this preview and text download contain the indexed prefix" : ""}. {transcript.normalization_incomplete && "Some native records or relationships could not be represented. "} <a href={transcriptContentPath(transcript)} download={`${transcript.filename}.txt`}>Download text</a></p>
+    <p className="artifact-preview-notice">Normalized transcript text{page?.truncated ? " · Search text reached its indexing limit; this preview and text download contain the indexed prefix" : ""}. {transcript.normalization_incomplete && transcriptCoverageDetails(transcript) + " "} <a href={transcriptContentPath(transcript)} download={`${transcript.filename}.txt`}>Download text</a></p>
     {error && <p className="error-notice" role="alert">{error}</p>}{loading && <p role="status">Loading transcript text…</p>}
     {page && <><textarea className="artifact-preview-text" aria-label="Transcript text" readOnly value={page.text} spellCheck={false} /><div className="artifact-pagination"><span>{page.total_chars ? `${offset + 1}–${Math.min(offset + TRANSCRIPT_TEXT_PAGE_SIZE, page.total_chars)} of ${page.total_chars.toLocaleString()} characters` : "Empty transcript"}</span><div><button className="button button-secondary" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - TRANSCRIPT_TEXT_PAGE_SIZE))}>Previous text</button><button className="button button-secondary" disabled={offset + TRANSCRIPT_TEXT_PAGE_SIZE >= page.total_chars} onClick={() => setOffset(offset + TRANSCRIPT_TEXT_PAGE_SIZE)}>Next text</button></div></div></>}
   </TranscriptDrawer>;

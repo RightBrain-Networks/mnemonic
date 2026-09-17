@@ -1,3 +1,4 @@
+import { transcriptCoverageLabel } from "./transcript-coverage.ts";
 import type { QueryMode } from "./search-evidence.ts";
 import { validateSourceRanking, decodeSearchRanking, decodeHitRanking, validScoreType, type SearchRanking, type ScoreType } from "./search-ranking.ts";
 import { validTranscriptNormalization, type TranscriptNormalization, type TranscriptContentKind } from "./transcript-segments.ts";
@@ -212,7 +213,7 @@ export function transcriptStatusLabel(transcript: Transcript): string {
   }
   const labels = { waiting: transcript.kind === "imported" ? "Queued" : "Waiting for work to leave Active", pending: "Queued", processing: "Indexing", ready: "Indexed", failed: "Failed" };
   const notes = [transcript.truncated ? "Search text limited" : "",
-    transcript.normalization_incomplete ? "Normalization warnings" : "",
+    transcriptCoverageLabel(transcript),
     transcript.metadata["transcript:metadata_limited"]?.includes("true") ? "Metadata limited" : ""].filter(Boolean);
   return [labels[transcript.status], ...notes].join(" · ");
 }

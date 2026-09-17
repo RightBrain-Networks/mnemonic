@@ -266,9 +266,9 @@ test("valid escaped Unicode segment windows fit the browser text transport budge
 
 test("transcript status distinguishes search limits from normalization and metadata warnings", () => {
   assert.equal(transcriptStatusLabel(row), "Indexed");
-  assert.equal(transcriptStatusLabel({ ...row, normalization_incomplete: true }), "Indexed · Normalization warnings");
+  assert.equal(transcriptStatusLabel({ ...row, normalization_incomplete: true }), "Indexed · Coverage incomplete");
   assert.equal(transcriptStatusLabel({ ...row, truncated: true }), "Indexed · Search text limited");
-  assert.equal(transcriptStatusLabel({ ...row, truncated: true, normalization_incomplete: true }), "Indexed · Search text limited · Normalization warnings");
+  assert.equal(transcriptStatusLabel({ ...row, truncated: true, normalization_incomplete: true }), "Indexed · Search text limited · Coverage incomplete");
   assert.equal(transcriptStatusLabel({ ...row, metadata: { "transcript:metadata_limited": ["true"] } }), "Indexed · Metadata limited");
 });
 
