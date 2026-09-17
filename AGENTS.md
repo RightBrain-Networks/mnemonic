@@ -83,8 +83,8 @@ git pull --ff-only origin main
 
 Use Semantic Versioning (`MAJOR.MINOR.PATCH`) for application releases. `MAJOR` version bumps are reserved and require explicit human approval. Increment `MINOR` for user-facing changes and `PATCH` for all other changes.
 
-The current application/API/MCP/dashboard release is `0.61.0`, Claude plugin
-`0.39.0`, and Alembic head `0042_transcript_health`. The catalog is exactly
+The current application/API/MCP/dashboard release is `0.62.0`, Claude plugin
+`0.40.0`, and Alembic head `0043_transcript_source_identity`. The catalog is exactly
 55 MCP tools, 17 receipt-protected MCP writes, 24 REST receipt kinds, 21 protected
 browser mutations, 24 work-event types, and three plugin skills. The suggestion
 POST is a safe read. Completion evidence and job completion reports are nested
@@ -171,13 +171,19 @@ symlinks; establish and verify the actual native regular-file target instead.
 Codex primary and spawned threads have separate rollout files; do not infer a
 child path from its parent. Do not widen roots or guess among multiple matches.
 Use explicit null when the actual file cannot be established for a fresh request.
-Path verification does not require reading transcript bodies. Preserve original
+Agent path verification does not require reading transcript bodies. The API retains
+a bounded prefix hash at fresh enrollment; after a client moves the file, workers
+may resolve a unique same-filename/prefix match strictly within approved roots.
+Original assertions stay immutable. Incomplete scans, changed prefixes and multiple
+matches remain visible failures; historical rows without proof need audited recovery. Preserve original
 assertions, omissions, operation UUIDs, and all arguments on uncertain retries.
 Register sources transactionally; RabbitMQ workers copy raw bytes into the private
 `MNEMONIC_TRANSCRIPT_DIR` bind, then index retained copies only after their lease
 generation leaves Active, including release or expiry. Client adapters persist a shared,
 versioned conversation manifest and typed segments before text indexing; search and bounded
-segment retrieval consume that common representation. Native copies remain immutable.
+segment retrieval consume that common representation. Native copies remain immutable. `truncated` in transcript metadata denotes the
+search-text character limit; `normalization_incomplete` separately denotes
+unsupported records or relationships. Do not conflate these with raw-copy loss.
 Rebuilds reuse persisted segments when capture and normalizer versions match. See
 `docs/transcript-normalization.md`. PostgreSQL retains a durable job ledger; messages carry only job UUIDs.
 Existing transcripts backfill automatically; preserve legacy ready text on copy

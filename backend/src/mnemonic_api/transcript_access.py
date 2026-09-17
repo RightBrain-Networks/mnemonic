@@ -11,6 +11,8 @@ from mnemonic_api.artifact_tika import ExtractionError
 RECOVERABLE_COPY_ERRORS = (
     "transcript_source_missing", "transcript_permission_denied", "transcript_storage_full",
     "transcript_storage_read_only", "transcript_io_error", "transcript_copy_unavailable",
+    "transcript_source_identity_changed", "transcript_relocation_ambiguous",
+    "transcript_relocation_scan_limit",
 )
 RECHECK_SECONDS = 300
 
@@ -69,6 +71,19 @@ def access_instruction(code: str, details: dict) -> str:
     if code == "transcript_permission_denied":
         return permission_instruction(details)
     instructions = {
+        "transcript_recovery_content_changed": "The file changed after operator approval. "
+            "Wait for the session to stop writing, verify the replacement again, then prepare "
+            "a new audited recovery with its current SHA-256 and size. The existing approval "
+            "cannot authorize different bytes.",
+        "transcript_source_identity_changed": "The source no longer matches the bytes verified "
+            "at enrollment. Restore the original native file, or use audited path recovery "
+            "after verifying a replacement. Automatic recovery will not choose unrelated bytes.",
+        "transcript_relocation_ambiguous": "Several files match the enrolled transcript. "
+            "Use audited path recovery to approve one verified native file; no candidate "
+            "was selected automatically.",
+        "transcript_relocation_scan_limit": "The approved roots exceeded the bounded relocation "
+            "scan. Use dedicated transcript roots, or audited path recovery for the verified "
+            "moved file. Incomplete scans never select a candidate.",
         "transcript_source_missing": "Verify this exact path exists on the host and is mounted "
             "at the same absolute path in both API and worker. Restore a removed file, or use "
             "audited transcript path recovery for a verified native file in another directory.",

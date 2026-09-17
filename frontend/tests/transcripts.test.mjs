@@ -2,7 +2,7 @@ import { ranking, hitRanking, unifiedRanking, semanticDisposition, evidence } fr
 import { disclosure } from "./search-disclosure-fixtures.mjs";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { decodeTranscriptProxyRejection, decodeTranscript, decodeTranscriptPage, decodeTranscriptSettings, decodeTranscriptText, transcriptContentPath, transcriptLibraryPath, transcriptRequest, transcriptClientLabel, TRANSCRIPT_JSON_MAX_BYTES, TRANSCRIPT_MAX_BYTES } from "../lib/transcripts.ts";
+import { decodeTranscriptProxyRejection, decodeTranscript, decodeTranscriptPage, decodeTranscriptSettings, decodeTranscriptText, transcriptContentPath, transcriptLibraryPath, transcriptRequest, transcriptStatusLabel, transcriptClientLabel, TRANSCRIPT_JSON_MAX_BYTES, TRANSCRIPT_MAX_BYTES } from "../lib/transcripts.ts";
 import { proxyTranscript, readTranscriptMutationBody, transcriptRoute, validTranscriptQuery } from "../lib/transcript-proxy.ts";
 const project = "7a5dc555-0a6d-4f92-9678-1647524827c8";
 const id = "e36a7e53-938f-4c8a-b75a-af9c7331711a";
@@ -261,4 +261,13 @@ test("valid escaped Unicode segment windows fit the browser text transport budge
     async () => new Response(encoded, { headers: { "Content-Type": "application/json" } }));
   assert.equal(response.status, 200);
   assert.equal((await response.json()).text, text);
+});
+
+
+test("transcript status distinguishes search limits from normalization and metadata warnings", () => {
+  assert.equal(transcriptStatusLabel(row), "Indexed");
+  assert.equal(transcriptStatusLabel({ ...row, normalization_incomplete: true }), "Indexed · Normalization warnings");
+  assert.equal(transcriptStatusLabel({ ...row, truncated: true }), "Indexed · Search text limited");
+  assert.equal(transcriptStatusLabel({ ...row, truncated: true, normalization_incomplete: true }), "Indexed · Search text limited · Normalization warnings");
+  assert.equal(transcriptStatusLabel({ ...row, metadata: { "transcript:metadata_limited": ["true"] } }), "Indexed · Metadata limited");
 });

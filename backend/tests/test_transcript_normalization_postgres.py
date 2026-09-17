@@ -327,3 +327,114 @@ def test_backup_rejects_active_normalization_projection_drift(
     snapshot["transcripts"][0][field] = value
     with pytest.raises(BackupError, match="does not match its captured source"):
         validate_normalized_transcripts(snapshot)
+
+
+@pytest.mark.parametrize("limited_metadata", [False, True])
+def test_normalization_warnings_do_not_mean_search_text_was_truncated(
+    api, project, work_payload, tmp_path, postgres_engine, limited_metadata,
+):
+    from mnemonic_api.artifact_tika import ExtractedArtifact
+
+    work, _, record, source = register(api, project, work_payload, tmp_path)
+    with source.open("a") as output:
+        output.write('\n{"type":"worktree-state","state":"synthetic bookkeeping"}\n')
+    expire_lease(postgres_engine, work["id"])
+
+    class MetadataParser(Parser):
+        def extract(self, content, **kwargs):
+            result = super().extract(content, **kwargs)
+            metadata = {f"property-{i}": ["x" * 300] for i in range(64)}
+            return ExtractedArtifact(result.text, metadata if limited_metadata else {}, False)
+
+    assert run(api, MetadataParser())
+    ready = read(api, project, record)
+    assert ready["normalization_incomplete"] and not ready["truncated"]
+    assert (ready["metadata"].get("transcript:metadata_limited") == ["true"]) == limited_metadata
+    assert api.get(collection(project)).json()["indexing_incomplete"]
+    page = api.get(collection(project) + "/" + record["id"] + "/text", params={
+        "expected_sha256": ready["text_sha256"],
+    }).json()
+    assert not page["truncated"] and "rare needle" in page["text"]
+
+
+def test_migration_recomputes_old_truncation_flags_from_retained_segments(
+    api, project, work_payload, tmp_path, postgres_engine, monkeypatch,
+):
+    from sqlalchemy import text
+
+    from .test_artifact_extraction_migration_postgres import migrate
+
+    work, _, record, source = register(api, project, work_payload, tmp_path)
+    with source.open("a") as output:
+        output.write('\n{"type":"worktree-state","state":"synthetic bookkeeping"}\n')
+    expire_lease(postgres_engine, work["id"])
+    assert run(api)
+    original = read(api, project, record)
+    migrate(postgres_engine, "0042_transcript_health", downgrade=True)
+    with postgres_engine.begin() as connection:
+        connection.execute(text("UPDATE transcripts SET truncated=true"))
+    migrate(postgres_engine, "head")
+    queued = read(api, project, record)
+    assert queued["status"] == "ready" and queued["index_status"] == "pending"
+    assert queued["copy_status"] == "ready" and queued["text_sha256"] == original["text_sha256"]
+    source.unlink()
+    monkeypatch.setattr("mnemonic_api.transcript_indexing.normalize_transcript",
+                        lambda *_: pytest.fail("Persisted normalization should be reused"))
+    assert run(api)
+    ready = read(api, project, record)
+    assert ready["normalization_incomplete"] and not ready["truncated"]
+    assert ready["normalized_revision"] == original["normalized_revision"]
+    assert ready["text_sha256"] == original["text_sha256"]
+
+
+def test_coverage_refresh_does_not_alter_an_active_work_lease(
+    api, project, work_payload, tmp_path, postgres_engine,
+):
+    from sqlalchemy import text
+
+    from .test_artifact_extraction_migration_postgres import migrate
+
+    work, _, record, _ = register(api, project, work_payload, tmp_path)
+    expire_lease(postgres_engine, work["id"])
+    assert run(api)
+    migrate(postgres_engine, "0042_transcript_health", downgrade=True)
+    with postgres_engine.begin() as connection:
+        connection.execute(text("UPDATE transcripts SET truncated=true"))
+        connection.execute(text("UPDATE work_leases SET expires_at=clock_timestamp() "
+                                "+ interval '10 minutes' WHERE work_item_id=:id"),
+                           {"id": work["id"]})
+        before = connection.execute(text("SELECT * FROM work_leases WHERE work_item_id=:id"),
+                                    {"id": work["id"]}).mappings().one()
+        generation = connection.scalar(text("SELECT generation FROM transcripts"))
+    migrate(postgres_engine, "head")
+    with postgres_engine.connect() as connection:
+        after = connection.execute(text("SELECT * FROM work_leases WHERE work_item_id=:id"),
+                                   {"id": work["id"]}).mappings().one()
+        assert after == before
+        assert connection.scalar(text("SELECT generation FROM transcripts")) == generation
+    assert read(api, project, record)["index_status"] == "ready"
+
+
+@pytest.mark.parametrize("spare_characters", [0, 1])
+def test_rebuild_at_exact_text_budget_does_not_invent_truncation_from_trailing_records(
+    api, project, work_payload, tmp_path, postgres_engine, spare_characters,
+):
+    from uuid import uuid4
+
+    work, _, record, source = register(api, project, work_payload, tmp_path)
+    with source.open("a") as output:
+        output.write('\n{"type":"worktree-state","state":"synthetic bookkeeping"}\n')
+    api.app.state.settings.artifact_extraction_max_chars = (
+        len("user: rare needle in transcript") + spare_characters)
+    expire_lease(postgres_engine, work["id"])
+    assert run(api)
+    before = read(api, project, record)
+    assert not before["truncated"] and before["normalization_incomplete"]
+    assert api.post(collection(project) + "/rebuild", json={
+        "client_operation_id": str(uuid4()),
+    }).status_code == 200
+    source.unlink()
+    assert run(api)
+    rebuilt = read(api, project, record)
+    assert not rebuilt["truncated"] and rebuilt["normalization_incomplete"]
+    assert rebuilt["text_sha256"] == before["text_sha256"]

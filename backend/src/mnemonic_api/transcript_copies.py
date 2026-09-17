@@ -6,7 +6,7 @@ import hashlib
 import os
 import stat
 from collections.abc import Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from uuid import UUID
 
@@ -20,6 +20,8 @@ from mnemonic_api.artifact_storage import (
 )
 from mnemonic_api.artifact_tika import ExtractionError
 from mnemonic_api.transcript_access import TranscriptAccessError, access_error
+from mnemonic_api.transcript_relocation import resolve_source
+from mnemonic_api.transcript_source_identity import require_identity
 from mnemonic_api.transcript_storage import _open_source
 
 _CHUNK_BYTES = 1024 * 1024
@@ -32,6 +34,7 @@ class TranscriptCopy:
     storage_key: str
     sha256: str
     size_bytes: int
+    source_path: str | None = field(default=None, compare=False)
 
 
 @dataclass(frozen=True)
@@ -49,17 +52,20 @@ def _transient(error: BaseException) -> bool:
             or (isinstance(error, ExtractionError) and error.retryable))
 
 
-def _source_chunks(source: str, roots: list[Path], maximum: int) -> Iterator[bytes]:
+def _source_chunks(source: str, roots: list[Path], maximum: int,
+                   identity: dict | None = None) -> Iterator[bytes]:
     try:
-        yield from _read_source_chunks(source, roots, maximum)
+        yield from _read_source_chunks(source, roots, maximum, identity)
     except OSError as error:
         raise access_error(error, source) from None
 
 
-def _read_source_chunks(source: str, roots: list[Path], maximum: int) -> Iterator[bytes]:
+def _read_source_chunks(source: str, roots: list[Path], maximum: int,
+                        identity: dict | None = None) -> Iterator[bytes]:
     descriptor = _open_source(source, roots)
     with os.fdopen(descriptor, "rb") as content:
         before = os.fstat(content.fileno())
+        require_identity(content.fileno(), source, identity)
         if not stat.S_ISREG(before.st_mode):
             raise ExtractionError("transcript_not_regular_file")
         if before.st_size > maximum:
@@ -128,7 +134,8 @@ class TranscriptStorage(ArtifactStorage):
 
     def _capture_once(self, transcript_id: UUID, snapshot_id: UUID,
                       source: str, roots: list[Path],
-                      expected: TranscriptCopyPin | None = None) -> TranscriptCopy:
+                      expected: TranscriptCopyPin | None = None,
+                      source_identity: dict | None = None) -> TranscriptCopy:
         key = self.key(transcript_id, snapshot_id)
         try:
             retained = self.describe(key)
@@ -140,22 +147,30 @@ class TranscriptStorage(ArtifactStorage):
             with self._directory(str(transcript_id), str(snapshot_id)) as directory:
                 os.fsync(directory)
             return retained
+        source = resolve_source(source, roots, source_identity)
         staged = self.stage(transcript_id, snapshot_id, "transcript.jsonl",
-                            _source_chunks(source, roots, self.max_bytes))
+                            _source_chunks(source, roots, self.max_bytes, source_identity))
         try:
-            return self._publish_once(staged, expected)
+            copied = self._publish_once(staged, expected)
+            if (copied.sha256, copied.size_bytes) == (staged.sha256, staged.size_bytes):
+                copied = replace(copied, source_path=source)
+            return copied
         finally:
             self.discard(staged)
 
     def capture(self, transcript_id: UUID, snapshot_id: UUID,
                 source: str, roots: list[Path], *,
-                expected: TranscriptCopyPin | None = None) -> TranscriptCopy:
+                expected: TranscriptCopyPin | None = None,
+                source_identity: dict | None = None) -> TranscriptCopy:
+        if expected is not None:
+            source_identity = None  # Audited full-file pins never permit automatic relocation.
         try:
             for attempt in Retrying(stop=stop_after_attempt(3),
                                     wait=wait_random_exponential(multiplier=0.1, max=1),
                                     retry=retry_if_exception(_transient), reraise=True):
                 with attempt:
-                    return self._capture_once(transcript_id, snapshot_id, source, roots, expected)
+                    return self._capture_once(transcript_id, snapshot_id, source, roots, expected,
+                                              source_identity)
         except ArtifactTooLarge as error:
             raise ExtractionError("transcript_too_large") from error
         except ArtifactContentUnavailable as error:

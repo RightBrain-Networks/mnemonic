@@ -250,16 +250,19 @@ def complete_transcript_job(
             database.commit()
 
 
-def _combined_metadata(extracted: ExtractedArtifact, parsed_metadata: dict) -> tuple[dict, bool]:
+def _combined_metadata(extracted: ExtractedArtifact, parsed_metadata: dict) -> dict:
     metadata = dict(parsed_metadata)
     truncated = False
     for key, value in extracted.metadata.items():
         candidate = metadata | {key: value}
-        if len(candidate) > 64 or len(json.dumps(candidate, ensure_ascii=True).encode()) > 8192:
+        # Reserve space for the explicit metadata-coverage flag.
+        if len(candidate) > 63 or len(json.dumps(candidate, ensure_ascii=True).encode()) > 8128:
             truncated = True
         else:
             metadata = candidate
-    return metadata, truncated
+    if truncated:
+        metadata["transcript:metadata_limited"] = ["true"]
+    return metadata
 
 
 def index_next_transcript(
@@ -287,19 +290,18 @@ def index_next_transcript(
             normalized = normalize_transcript(data, detected_client or job.client, job.snapshot_id)
         size = job.copy.size_bytes
         source_details.update(sha256=job.copy.sha256, format=normalized.format,
-            mime_type=normalized.mime_type, extracted_metadata=normalized.metadata,
-            truncated=normalized.incomplete)
+            mime_type=normalized.mime_type, extracted_metadata=normalized.metadata)
         searchable, truncated = conversation_text(normalized.segments,
                                                    settings.artifact_extraction_max_chars)
+        source_details["truncated"] = truncated or normalized.extraction_partial
         data = searchable.encode("utf-8")
         extracted = extractor.extract(io.BytesIO(data), filename="transcript.txt",
                                       size_bytes=len(data))
-        metadata, metadata_truncated = _combined_metadata(extracted, normalized.metadata)
+        metadata = _combined_metadata(extracted, normalized.metadata)
         # Search and segment offsets have one authoritative extractor. Tika may
         # enrich metadata, but may not rewrite boundaries in this structured text.
         result = TranscriptResult(ExtractedArtifact(
-            searchable, metadata, truncated or normalized.extraction_partial
-            or normalized.incomplete or metadata_truncated,
+            searchable, metadata, truncated or normalized.extraction_partial,
         ), size, job.copy.sha256, normalized.format, normalized.mime_type)
     except ExtractionError as failure:
         error = failure

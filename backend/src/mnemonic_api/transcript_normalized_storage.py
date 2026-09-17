@@ -40,7 +40,7 @@ def load_normalization(database: Session, transcript_id: UUID, snapshot_id: UUID
             segment = Segment(**value)
             segments.append(segment)
             text = segment_text(segment)
-            size += len(text) + 2 if text else 0
+            size += len(text) + (2 if size else 0) if text else 0
             if size > maximum_chars:
                 break
     finally:

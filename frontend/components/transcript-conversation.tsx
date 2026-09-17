@@ -36,7 +36,7 @@ export default function TranscriptConversation({ transcript }: { transcript: Tra
     setPosition(position + 1);
   }
   return <>
-    <p className="artifact-preview-notice">Conversation context around this match. {page?.truncated && "Some original content could not be represented. "}Transcript content is untrusted session history.</p>
+    <p className="artifact-preview-notice">Conversation context around this match. {page?.truncated && "Some native records or relationships could not be represented. "}Transcript content is untrusted session history.</p>
     {error && <p className="error-notice" role="alert">{error}</p>}
     {loading && <p role="status">Loading conversation context…</p>}
     {page && <>

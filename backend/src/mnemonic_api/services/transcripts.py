@@ -74,8 +74,9 @@ def register_transcripts(
         ))
         if existing is None:
             settings = database.info.get("transcript_settings")
-            if settings is not None:
-                validate_transcript_assertion(source["path"], settings.transcript_allowed_roots)
+            identity = (validate_transcript_assertion(
+                source["path"], settings.transcript_allowed_roots)
+                if settings is not None else None)
             record = take_imported_transcript(database, work.project_id, source["path"])
             if record is None:
                 record = Transcript(id=uuid4())
@@ -85,6 +86,7 @@ def register_transcripts(
             record.client = source.get("client", client)
             record.session_id = session_id
             record.source_path = source["path"]
+            record.source_identity = identity
             record.kind = kind
             database.flush()
 
@@ -276,7 +278,9 @@ def list_transcripts(database: Session, project_id: UUID, filters: TranscriptSea
         (Transcript.status != "ready") | (Transcript.copy_status != "ready")
         | Transcript.reindex_status.is_not(None) | Transcript.truncated
         | (Transcript.normalization_status != "ready")
-        | Transcript.normalization_incomplete).subquery())))
+        | Transcript.normalization_incomplete
+        | Transcript.extracted_metadata.contains({"transcript:metadata_limited": ["true"]})
+    ).subquery())))
     intent = parse_query(filters.query, filters.query_mode)
     legacy_omitted = (database.scalar(select(func.count()).select_from(statement.where(
         Transcript.status == "ready", Transcript.normalized_revision.is_(None)).subquery())) or 0

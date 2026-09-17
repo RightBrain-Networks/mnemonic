@@ -4187,6 +4187,7 @@
           },
           "normalization_incomplete": {
             "default": false,
+            "description": "Native records or relationships could not be represented; independent of search-text length and retained native-copy completeness.",
             "title": "Normalization Incomplete",
             "type": "boolean"
           },
@@ -4368,6 +4369,7 @@
             "type": "string"
           },
           "truncated": {
+            "description": "Indexed text reached its character budget. Native copies and persisted conversation segments remain intact.",
             "title": "Truncated",
             "type": "boolean"
           },
@@ -12562,6 +12564,7 @@
           },
           "normalization_incomplete": {
             "default": false,
+            "description": "Native records or relationships could not be represented; independent of search-text length and retained native-copy completeness.",
             "title": "Normalization Incomplete",
             "type": "boolean"
           },
@@ -12782,6 +12785,7 @@
             "title": "Text Sha256"
           },
           "truncated": {
+            "description": "Indexed text reached its character budget. Native copies and persisted conversation segments remain intact.",
             "title": "Truncated",
             "type": "boolean"
           },
@@ -16872,7 +16876,7 @@
   "info": {
     "description": "Durable project-scoped work with immutable agent checkpoints.",
     "title": "Mnemonic API",
-    "version": "0.61.0"
+    "version": "0.62.0"
   },
   "openapi": "3.1.0",
   "paths": {
