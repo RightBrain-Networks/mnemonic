@@ -80,3 +80,12 @@ counts, not occurrences, and incomplete indexing still limits conclusions.
 This dedicated tool explicitly opts into session search. Unified multi-term
 `search` omits sessions by default; include `transcripts` in `facets` to opt in.
 Its `search_scope` and transcript hint describe that exclusion in every response.
+
+Exact transcript search accepts `query_mode="phrase"` for adjacent analyzed words
+or `query_mode="literal"` for case-sensitive exact text within a single published
+segment. Terms mode also honors double-quoted phrases. Metadata remains searchable;
+`fulltext=true` includes content. Legacy unsegmented content is omitted from exact
+body matches and counted in `unsegmented_content_omitted`; report that coverage gap.
+A span exceeding the excerpt budget returns `snippet_omission_reason` as
+`matched_span_exceeds_budget`, with its segment locator and normalized revision.
+Use that locator to read surrounding context even when `snippet` is null.

@@ -28,7 +28,7 @@ async def test_content_query_alias_preserves_wire_query_and_scope(settings, tool
     arguments = {"project_id": PROJECT_ID, field: "café FastAPI", "fulltext": fulltext,
                  "work_item_id": WORK_ID, "limit": 2, "offset": 3}
     expected = {"q" if artifact else "query": "café FastAPI", "fulltext": fulltext,
-                "detail": "full",
+                "detail": "full", "diagnostics": "on_empty", "query_mode": "terms",
                 "work_item_id": WORK_ID, "limit": 2, "offset": 3}
     if artifact:
         arguments["artifact_id"] = ARTIFACT_ID

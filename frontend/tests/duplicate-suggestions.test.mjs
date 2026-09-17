@@ -1,3 +1,4 @@
+import { ranking, hitRanking, unifiedRanking, semanticDisposition, evidence } from "./search-ranking-fixtures.mjs";
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
@@ -46,6 +47,7 @@ function suggestion(overrides = {}) {
 
 function page(overrides = {}) {
   return {
+    semantic: semanticDisposition(overrides.mode === "hybrid_full" ? "full_scope" : overrides.mode === "hybrid_shortlist" ? "lexical_shortlist" : "unavailable"),
     items: [suggestion()],
     limit: 5,
     mode: "lexical",

@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 
 from mnemonic_api.database import database_sqlstate
 from mnemonic_api.models import WorkItem, WorkItemEmbedding
+from mnemonic_api.search_timing import timed_phase
 
 EMBED_MODEL = "BAAI/bge-small-en-v1.5"
 EMBED_BODY_CHARS = 1500
@@ -195,6 +196,7 @@ class EmbeddingCacheUpdate:
     vector: tuple[float, ...]
 
 
+@timed_phase("work_semantic", "query_embedding")
 def semantic_query_vector(embedder: Embedder, query: str) -> tuple[float, ...]:
     """Run query inference before a database snapshot occupies a connection."""
     vector = tuple(embedder.embed_query(BGE_QUERY_PREFIX + query))
@@ -203,6 +205,7 @@ def semantic_query_vector(embedder: Embedder, query: str) -> tuple[float, ...]:
     return vector
 
 
+@timed_phase("work_semantic", "candidate_selection")
 def capture_embedding_candidates(
     database: Session,
     work_items: Sequence[WorkItem],
@@ -244,15 +247,16 @@ def capture_embedding_candidates(
     return candidates
 
 
+@timed_phase("work_semantic", "document_inference")
 def rank_embedding_candidates(
     candidates: Sequence[EmbeddingCandidate],
     lexical_ids: Sequence[UUID],
     query_vector: Sequence[float],
     embedder: Embedder,
-) -> tuple[list[UUID], list[EmbeddingCacheUpdate]]:
+) -> tuple[list[UUID], list[EmbeddingCacheUpdate], dict[UUID, float]]:
     """Rank an immutable snapshot and return disposable cache work separately."""
     if not candidates:
-        return [], []
+        return [], [], {}
     dimensions = len(query_vector)
     vectors = {
         candidate.work_item.id: list(candidate.cached_vector)
@@ -260,6 +264,7 @@ def rank_embedding_candidates(
         if candidate.cached_vector is not None
     }
     stale = [candidate for candidate in candidates if candidate.cached_vector is None]
+    logger.info("Semantic vector cache ready=%d missing=%d", len(vectors), len(stale))
     updates: list[EmbeddingCacheUpdate] = []
     for start in range(0, len(stale), EMBED_BATCH_SIZE):
         batch = stale[start : start + EMBED_BATCH_SIZE]
@@ -307,15 +312,16 @@ def rank_embedding_candidates(
         ),
         reverse=True,
     )
-    return [work_item.id for work_item in ranked], updates
+    return ([work_item.id for work_item in ranked], updates,
+            {work_item.id: fusion_score(work_item) for work_item in ranked})
 
 
 def persist_embedding_updates(
     database: Session, updates: Sequence[EmbeddingCacheUpdate]
-) -> None:
+) -> bool:
     """Persist snapshot vectors with a fresh, row-locked version/digest compare-and-set."""
     if not updates:
-        return
+        return True
     updates_by_id = {update.work_item_id: update for update in updates}
     # The response session retains its repeatable-read identity map after commit.
     # A distinct session is required both to observe committed writers and to
@@ -375,3 +381,5 @@ def persist_embedding_updates(
         if database_sqlstate(error) not in {"55P03", "57014"}:
             raise
         logger.warning("Semantic cache refresh skipped after bounded database wait")
+        return False
+    return True

@@ -10,6 +10,8 @@ from sqlalchemy.orm import Session
 from mnemonic_api.errors import semantic_unavailable
 from mnemonic_api.models import WorkItem
 from mnemonic_api.schemas import WorkIdentityPointer, WorkItemListQuery, WorkSearchHit
+from mnemonic_api.search_exploration import date_conditions
+from mnemonic_api.search_ranking import search_ranking
 from mnemonic_api.search_schemas import SearchHit, SearchRequest, WorkFacetHit
 from mnemonic_api.semantic import (
     Embedder,
@@ -20,6 +22,8 @@ from mnemonic_api.semantic import (
 from mnemonic_api.services.compact_work import compact_work_hits
 from mnemonic_api.services.duplicates import canonical_projections
 from mnemonic_api.services.search_sources import SearchCandidate, SearchSource
+from mnemonic_api.services.search_tags import work_tag_counts
+from mnemonic_api.services.work_evidence import work_match_evidence
 from mnemonic_api.services.work_search import (
     SearchSelection,
     _lexical_rows,
@@ -45,6 +49,7 @@ def _work_corpus(database: Session, project_id: UUID, filters: WorkItemListQuery
     conditions = [
         WorkItem.project_id == project_id, WorkItem.deleted_at.is_(None),
         *status_conditions(filters.status, as_of), *provenance_conditions(filters),
+        *date_conditions(filters, WorkItem.created_at, WorkItem.updated_at),
     ]
     if filters.external_url is not None:
         conditions.append(WorkItem.external_references.contains([{"url": filters.external_url}]))
@@ -59,12 +64,14 @@ def _semantic_selections(
 ) -> tuple[list[SearchSelection], dict[UUID, float], list[EmbeddingCacheUpdate]]:
     captured = capture_embedding_candidates(database, pool, dimensions=len(query_vector))
     try:
-        ranked, updates = rank_embedding_candidates(
+        ranked, updates, fused_scores = rank_embedding_candidates(
             captured, [identity for identity, _ in lexical_rows], query_vector, embedder,
         )
     except Exception as exc:
         logger.error("Unified semantic ranking failed (%s)", type(exc).__name__)
-        raise semantic_unavailable() from None
+        raise semantic_unavailable(
+                    "deadline_exceeded" if isinstance(exc, TimeoutError) else "model_failure"
+                ) from None
     by_id = {item.id: item for item in scoped}
     selections: list[SearchSelection] = []
     scores: dict[UUID, float] = {}
@@ -73,7 +80,7 @@ def _semantic_selections(
                     if filters.duplicate_scope == "canonical" else member_id)
         if identity not in by_id or identity in scores:
             continue
-        selections.append(SearchSelection(by_id[identity], member_id))
+        selections.append(SearchSelection(by_id[identity], member_id, fused_scores[member_id]))
         scores[identity] = 1.0 / rank
     return selections, scores, updates
 
@@ -82,10 +89,11 @@ def work_source(
     database: Session, project_id: UUID, request: SearchRequest, as_of: datetime,
     *, query_vector: tuple[float, ...] | None = None, embedder: Embedder,
 ) -> tuple[SearchSource, list[EmbeddingCacheUpdate]]:
-    filters = WorkItemListQuery(**request.filters.work_items.model_dump(exclude={"semantic"}))
+    filters = WorkItemListQuery(**request.filters.work_items.model_dump(),
+                                q=request.q, query_mode=request.query_mode)
     visible, projections, scoped = _work_corpus(database, project_id, filters, as_of)
     pool = visible if filters.duplicate_scope == "canonical" else scoped
-    lexical_rows = _lexical_rows(database, request.q, pool)
+    lexical_rows = _lexical_rows(database, request.q, pool, filters)
     updates: list[EmbeddingCacheUpdate] = []
     if query_vector is not None:
         selections, scores, updates = _semantic_selections(
@@ -104,28 +112,40 @@ def work_source(
         priority=selection.work_item.priority,
     ) for selection in selections]
 
+    ranking = search_ranking(request.q, request.query_mode, work=True,
+                             semantic=filters.semantic)
+
     def hydrate(page: list[SearchCandidate]) -> dict[UUID, SearchHit]:
         selected_work = [by_id[item.id].work_item for item in page]
+        evidence = work_match_evidence(
+            database, [by_id[item.id].matched_member_id for item in page], filters)
         if request.detail == "compact":
             compact = compact_work_hits(
                 database, project_id, selected_work, as_of=as_of,
-                ranks={item.id: item.source_rank for item in page},
+                ranks={item.id: item.source_rank for item in page}, evidence=evidence,
                 matched_members={item.id: pointers[by_id[item.id].matched_member_id]
                                  for item in page},
             )
+            for item in compact:
+                item.score, item.score_type = by_id[item.id].score, ranking.score_type
             compact_by_id = {item.id: item for item in compact}
             return {item.id: WorkFacetHit(**item.fields(), work_item=compact_by_id[item.id])
                     for item in page}
         summaries = _summaries_with_ancestry(database, project_id, selected_work, as_of=as_of)
         summary_by_id = {summary.work_item.id: summary for summary in summaries}
         return {item.id: WorkFacetHit(**item.fields(), work_item=WorkSearchHit(
-            summary=summary_by_id[item.id],
+            summary=summary_by_id[item.id], rank=item.source_rank,
+            score=by_id[item.id].score, score_type=ranking.score_type,
             matched_member=pointers[by_id[item.id].matched_member_id],
+            **evidence[by_id[item.id].matched_member_id].model_dump(),
         )) for item in page}
 
     def term_counts(terms: list[str]) -> dict[str, int]:
         return {term: len(_lexical_selections(
-            scoped, filters, projections, _lexical_rows(database, term, pool), term,
+            scoped, filters, projections, _lexical_rows(database, term, pool,
+                filters.model_copy(update={"query_mode": "terms"})), term,
         )) for term in terms}
 
-    return SearchSource(candidates, hydrate, term_counts), updates
+    members = {identity: projections[identity].canonical_work_item.id for identity in by_id}
+    return SearchSource(candidates, hydrate, term_counts,
+                        lambda options: work_tag_counts(database, members, options)), updates

@@ -279,6 +279,7 @@ export function allowedQueryKeys(path: string, method: string): string[] | null 
       return [
         "q", "semantic", "status", "sort", "tag", "source_client",
         "external_url", "source_session_id", "view", "detail", "duplicate_scope", "canonical_work_item_id",
+        "created_after", "created_before", "updated_after", "updated_before", "diagnostics", "query_mode", "work_fields",
         "limit", "offset"
       ];
     }

@@ -1,3 +1,5 @@
+import type { QueryMode } from "./search-evidence.ts";
+import { validateSourceRanking, decodeSearchRanking, decodeHitRanking, validScoreType, type SearchRanking, type ScoreType } from "./search-ranking.ts";
 import { validTranscriptNormalization, type TranscriptNormalization, type TranscriptContentKind } from "./transcript-segments.ts";
 import { decodeSearchDisclosure, validateSearchDisclosure, type SearchDisclosure } from "./search-disclosure.ts";
 import { readBoundedJson } from "./bounded-json.ts";
@@ -38,8 +40,12 @@ export interface Transcript extends TranscriptNormalization {
   created_at: string;
   snippet?: string | null;
   score?: number | null;
+  rank: number | null;
+  score_type: ScoreType;
+  matched_fields: ("metadata" | "content")[];
 }
-export interface TranscriptPage extends SearchDisclosure {
+export interface TranscriptPage extends SearchDisclosure, SearchRanking {
+  unsegmented_content_omitted: number;
   detail: "full";
   term_diagnostics: TermDiagnostic[];
   items: Transcript[];
@@ -81,7 +87,10 @@ export const transcriptDigest = (value: unknown): value is string => typeof valu
 export function decodeTranscript(value: unknown, projectId: string, transcriptId?: string): Transcript {
   const row = objectValue(value);
   const metadata = objectValue(row?.metadata);
-  if (!row || !validTranscriptNormalization(row) || !validUuid(row.id) || !sameUuid(row.project_id, projectId)
+  if (!row || !validScoreType(row.score_type) || !(row.rank === null || finiteInteger(row.rank, 1))
+    || !Array.isArray(row.matched_fields) || row.matched_fields.length > 2 || new Set(row.matched_fields).size !== row.matched_fields.length || row.matched_fields.some((field) => !["metadata", "content"].includes(String(field)))
+    || row.segment_id != null && !(row.matched_fields as string[]).includes("content")
+    || !validTranscriptNormalization(row) || !validUuid(row.id) || !sameUuid(row.project_id, projectId)
     || transcriptId !== undefined && !sameUuid(row.id, transcriptId)
     || (row.kind === "imported"
       ? row.work_item_id !== null || row.lease_generation_id !== null || row.session_id !== null
@@ -109,24 +118,32 @@ export function decodeTranscript(value: unknown, projectId: string, transcriptId
   return row as unknown as Transcript;
 }
 
-export function decodeTranscriptPage(value: unknown, projectId: string, offset = 0, fulltext = false, workItemId?: string, contentKinds?: TranscriptContentKind[]): TranscriptPage {
+export function decodeTranscriptPage(value: unknown, projectId: string, offset = 0, fulltext = false, workItemId?: string, contentKinds?: TranscriptContentKind[], queryMode: QueryMode = "terms"): TranscriptPage {
   const page = objectValue(value);
   if (!page || page.detail !== "full" || !Array.isArray(page.items) || !finiteInteger(page.total) || page.limit !== TRANSCRIPT_PAGE_SIZE
     || page.offset !== offset || page.items.length !== Math.min(page.limit, Math.max(0, page.total - offset))
     || typeof page.indexing_incomplete !== "boolean") throw new Error("Mnemonic returned an invalid transcript listing.");
-  decodeTermDiagnostics(page.term_diagnostics, page.total as number, ["transcripts"]);
   const disclosure = decodeSearchDisclosure(page, projectId, ["transcripts"]);
-  validateSearchDisclosure(disclosure, "transcripts", { work_item_id: workItemId ?? null, content_kinds: contentKinds ?? null }, fulltext);
-  const items = page.items.map((item) => decodeTranscript(item, projectId));
+  decodeTermDiagnostics(page.term_diagnostics, page.total as number, ["transcripts"], disclosure.diagnostics, disclosure.query_interpretation.q);
+  validateSearchDisclosure(disclosure, "transcripts", { work_item_id: workItemId ?? null, content_kinds: contentKinds ?? null }, fulltext, undefined, queryMode);
+  const ranking = decodeSearchRanking(page);
+  validateSourceRanking(ranking, disclosure.query_interpretation.q, "transcripts", disclosure.query_interpretation.transcripts?.match_mode);
+  if (!finiteInteger(page.unsegmented_content_omitted) || page.unsegmented_content_omitted > 0 && (!page.indexing_incomplete || !fulltext || queryMode === "terms" && !disclosure.query_interpretation.q.includes('"'))) throw new Error("Mnemonic returned invalid transcript search coverage.");
+  const items = page.items.map((item) => {
+    const transcript = decodeTranscript(item, projectId);
+    decodeHitRanking({ ...transcript, score: transcript.score ?? 0 }, ranking.score_type, page.total as number);
+    if (!fulltext && transcript.matched_fields.includes("content")) throw new Error("Mnemonic returned content outside the requested search scope.");
+    return transcript;
+  });
   if (new Set(items.map((item) => item.id.toLowerCase())).size !== items.length
     || !fulltext && items.some((item) => item.snippet != null || item.segment_id != null)
-    || contentKinds && items.some((item) => item.snippet != null && (!item.segment_id || !contentKinds.includes(item.content_kind!)))
+    || contentKinds && items.some((item) => (item.segment_id != null || item.matched_fields.includes("content")) && (!item.segment_id || !contentKinds.includes(item.content_kind!)))
     || !page.indexing_incomplete && items.some((item) => item.normalization_status !== "ready" || item.normalization_incomplete
       || item.status !== "ready" || item.copy_status !== "ready" || item.index_status !== "ready" || item.truncated)
     || workItemId && items.some((item) => !sameUuid(item.work_item_id, workItemId))) {
     throw new Error("Mnemonic returned transcripts outside the requested scope.");
   }
-  return { ...page, items } as TranscriptPage;
+  return { ...page, ...ranking, items } as TranscriptPage;
 }
 
 export function decodeTranscriptSettings(value: unknown): TranscriptSettings {

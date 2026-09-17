@@ -9,7 +9,6 @@ from sqlalchemy.orm import Session
 
 from mnemonic_api.artifact_index import ArtifactSearchIndex, literal_terms
 from mnemonic_api.config import DEFAULT_TRANSCRIPT_SEARCH_MAX_BYTES
-from mnemonic_api.errors import semantic_unavailable
 from mnemonic_api.search_diagnostics import SearchScope, TermDiagnostic, TermMatchCounts
 from mnemonic_api.search_disclosure import (
     ArtifactAppliedFilters,
@@ -17,6 +16,15 @@ from mnemonic_api.search_disclosure import (
     TranscriptAppliedFilters,
     WorkAppliedFilters,
     search_disclosure,
+)
+from mnemonic_api.search_exploration import wants_diagnostics
+from mnemonic_api.search_exploration_schemas import DiagnosticsMode
+from mnemonic_api.search_ranking import (
+    FacetScoreTypes,
+    FacetTotalKinds,
+    SemanticDisposition,
+    completed_semantic,
+    search_ranking,
 )
 from mnemonic_api.search_schemas import (
     ArtifactSearchCoverage,
@@ -27,6 +35,7 @@ from mnemonic_api.search_schemas import (
     SearchRequest,
     SearchSort,
 )
+from mnemonic_api.search_timing import refresh_cache
 from mnemonic_api.semantic import Embedder, EmbeddingCacheUpdate, persist_embedding_updates
 from mnemonic_api.services.project_mutations import project_mutation
 from mnemonic_api.services.search_artifacts import artifact_source
@@ -80,8 +89,10 @@ def order_candidates(sources: dict[SearchFacet, SearchSource], request: SearchRe
     return candidates
 
 
-def _term_diagnostics(sources: dict[SearchFacet, SearchSource], query: str) -> list[TermDiagnostic]:
-    if not query or any(source.candidates for source in sources.values()):
+def _term_diagnostics(sources: dict[SearchFacet, SearchSource], query: str,
+                      mode: DiagnosticsMode = "on_empty") -> list[TermDiagnostic]:
+    total = sum(len(source.candidates) for source in sources.values())
+    if not wants_diagnostics(mode, query, total):
         return []
     terms = literal_terms(query, fold_accents=False)
     counts = {facet: source.term_counts(terms) for facet, source in sources.items()}
@@ -108,7 +119,9 @@ def _page(
             normalize_relevance(source.candidates)
     ordered = order_candidates(sources, request)
     ranks: dict[SearchFacet, int] = {}
-    for candidate in ordered:
+    for position, candidate in enumerate(ordered, 1):
+        candidate.rank = position
+        candidate.score_type = "unified_reciprocal_rank" if request.q else "none"
         ranks[candidate.facet] = ranks.get(candidate.facet, 0) + 1
         candidate.source_rank = ranks[candidate.facet]
     selected = ordered[request.offset:request.offset + request.limit]
@@ -125,12 +138,29 @@ def _page(
         or artifact_coverage.sensitive_content_withheld
         or coverage.transcripts.indexing_incomplete
     )
+    ranking = {facet: search_ranking(
+        request.q, request.query_mode, work=facet == "work_items",
+        semantic=facet == "work_items" and request.filters.work_items.semantic)
+        for facet in sources}
+    kinds = {value.total_kind for value in ranking.values()}
     return SearchPage(
+        score_type="unified_reciprocal_rank" if request.q else "none",
+        total_kind="mixed" if len(kinds) > 1 else next(
+            iter(kinds), "lexical_matches" if request.q else "browsed_records"),
+        facet_total_kinds=FacetTotalKinds(**{facet: value.total_kind
+                                          for facet, value in ranking.items()}),
+        facet_score_types=FacetScoreTypes(**{facet: value.score_type
+                                          for facet, value in ranking.items()}),
+        semantic=completed_semantic() if request.filters.work_items.semantic
+                 else SemanticDisposition(),
         work_rank_scope="work_items",
         **_disclosure(project_id, sources, request).model_dump(),
         detail=request.detail,
         search_scope=_scope(sources, request),
-        term_diagnostics=_term_diagnostics(sources, request.q),
+        term_diagnostics=_term_diagnostics(sources, request.q, request.diagnostics),
+        tag_counts=(sources["work_items"].tag_counts(request.tag_counts)
+                    if request.tag_counts is not None
+                    and sources["work_items"].tag_counts else None),
         items=[results[(item.facet, item.id)] for item in selected], total=len(ordered),
         limit=request.limit, offset=request.offset,
         facet_totals=FacetTotals(**{facet: len(source.candidates)
@@ -145,6 +175,7 @@ def _disclosure(
     filters = request.filters
     return search_disclosure(
         project_id, request.q, fulltext=request.fulltext, semantic=filters.work_items.semantic,
+        query_mode=request.query_mode, diagnostics=request.diagnostics,
         work_items=WorkAppliedFilters.model_validate(
             filters.work_items.model_dump(exclude={"semantic"}),
         ) if "work_items" in sources else None,
@@ -205,9 +236,6 @@ def search(
             maximum_transcript_content_bytes=maximum_transcript_content_bytes,
         )
         database.commit()
-    try:
-        persist_embedding_updates(database, updates)
-    except Exception as exc:
-        logger.error("Unified semantic cache refresh failed (%s)", type(exc).__name__)
-        raise semantic_unavailable() from None
+    page.semantic.cache_refresh = refresh_cache(
+        "work_semantic", bool(updates), lambda: persist_embedding_updates(database, updates))
     return page

@@ -17,6 +17,12 @@ from .validation_rules import VALIDATION_RULES
 # Reviewed in docs/validation-vocabulary.json; test_validation_vocabulary.py pins this subset.
 VALIDATION_FIELDS = frozenset(
     {
+        "created_after",
+        "created_before",
+        "updated_after",
+        "updated_before",
+        "diagnostics", "query_mode", "work_fields",
+        "tag_counts",
         "facets",
         "facet",
         "facet_order",

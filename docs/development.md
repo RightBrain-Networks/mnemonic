@@ -497,9 +497,9 @@ ordered FYIs, revision, version, and provenance for Done/Won’t do/Promoted;
 old receipt replay stays sparse. A report’s insertion time is independent of
 checkpoint/work timestamps. Reads never call human dismissal/follow-up routes.
 
-The inner plugin manifest is `0.36.0`. Before release, parse the marketplace
-and inner plugin manifests, then exercise a disposable fresh `0.36.0` install
-plus a `0.18.0 -> 0.36.0` marketplace/plugin update. Use an
+The inner plugin manifest is `0.37.0`. Before release, parse the marketplace
+and inner plugin manifests, then exercise a disposable fresh `0.37.0` install
+plus a `0.18.0 -> 0.37.0` marketplace/plugin update. Use an
 isolated `CLAUDE_CONFIG_DIR`; a marketplace refresh alone does not prove that
 the cached binary, reference, and skill bytes changed. Confirm the installed
 helper retains executable mode, all `${CLAUDE_PLUGIN_ROOT}` links resolve, and
@@ -823,13 +823,13 @@ remain server-only.
 
 ## Current acceptance boundary
 
-Current application/API/MCP/dashboard versions are `0.58.0`, plugin is `0.36.0`,
+Current application/API/MCP/dashboard versions are `0.59.0`, plugin is `0.37.0`,
 and Alembic head is `0040_normalized_transcripts`. Validate all surfaces
-together with the existing regression suites. This release adds zero-hit search
-diagnostics, explicit source scope, multi-term transcript opt-in, content-query
-aliases and static corrective validation hints. Check normalized terms, filtered
-counts, null versus zero, incomplete indexing, sensitive content and unchanged
-single-term defaults. API, MCP and dashboard must upgrade together for the new
+together with the existing regression suites. This release adds phrase/literal
+query intent, work field scope and evidence, date bounds, tag vocabulary, positive
+diagnostics, and declared ranking/semantic dispositions. Check field and segment
+boundaries, scoped term counts, null versus zero, incomplete indexing, sensitive
+content, cache failure disclosure, and unchanged single-term source defaults. API, MCP and dashboard must upgrade together for the new
 response fields. There is no migration or configuration change. It retains
 MCP-issued local upload grants and raw transfers, plus per-project
 Default/Minimum/Maximum lease settings and agent-requested claim/renew durations.

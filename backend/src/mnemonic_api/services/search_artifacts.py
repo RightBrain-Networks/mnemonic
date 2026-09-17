@@ -14,12 +14,14 @@ from mnemonic_api.search_schemas import (
     SearchRequest,
 )
 from mnemonic_api.services.artifact_approvals import require_sensitive_access
+from mnemonic_api.services.artifact_exact import literal_artifact_hits
 from mnemonic_api.services.artifact_search import (
     Corpus,
     _corpus,
     _documents,
     _indexing,
     _match,
+    _metadata_parts,
     _signature,
     compact_artifact_read,
 )
@@ -59,6 +61,10 @@ def artifact_source(
             _signature(project_id, corpus, request.fulltext, approved),
             lambda: _documents(database, corpus, request.fulltext, approved),
             query=request.q, fulltext=request.fulltext, count=len(corpus),
+            query_mode=request.query_mode, diagnostics=request.diagnostics,
+            literal_matches=lambda: literal_artifact_hits(
+                database, corpus, request.q, request.fulltext, approved, _metadata_parts,
+            ),
         )
         hits = {hit.identity: hit for hit in result.hits}
         searcher = result.searcher
@@ -81,7 +87,7 @@ def artifact_source(
             identity = str(item.id)
             if request.q:
                 match = _match(database, index, records, hits[identity], request.q, searcher,
-                               detail=request.detail)
+                               request.query_mode, detail=request.detail)
             elif request.detail == "compact":
                 match = CompactArtifactMatch(
                     artifact=compact_artifact_read(database, records[identity]), score=0,
@@ -91,6 +97,7 @@ def artifact_source(
                 match = ArtifactSearchMatch(
                     artifact=artifact_read(database, records[identity]), score=0, matched_fields=[],
                 )
+            match.rank = item.source_rank
             rendered[item.id] = ArtifactFacetHit(**item.fields(), artifact=match)
         return rendered
 

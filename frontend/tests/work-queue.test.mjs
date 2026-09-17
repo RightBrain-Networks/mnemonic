@@ -177,6 +177,7 @@ test("resultCountLabel reports progress, flat-search records, and hierarchy root
   assert.equal(resultCountLabel({ loading: false, pendingQuery: false, flatSearch: false, total: null }), "");
   assert.equal(resultCountLabel({ loading: false, pendingQuery: false, flatSearch: true, total: 1 }), "1 work record");
   assert.equal(resultCountLabel({ loading: false, pendingQuery: false, flatSearch: true, total: 3 }), "3 work records");
+  assert.equal(resultCountLabel({ loading: false, pendingQuery: false, flatSearch: true, total: 3, ranked: true }), "3 ranked candidates");
   assert.equal(resultCountLabel({ loading: false, pendingQuery: false, flatSearch: false, total: 1 }), "1 root branch");
   assert.equal(resultCountLabel({ loading: false, pendingQuery: false, flatSearch: false, total: 6 }), "6 root branches");
   assert.equal(resultCountLabel({ loading: false, pendingQuery: false, flatSearch: false, total: 0 }), "0 root branches");

@@ -54,7 +54,7 @@ def test_semantic_equal_score_and_updated_at_ties_use_uuid_ascending() -> None:
         for item_id in item_ids
     ]
 
-    ranked, updates = rank_embedding_candidates(
+    ranked, updates, scores = rank_embedding_candidates(
         candidates,
         lexical_ids=[],
         query_vector=(1.0, 0.0),
@@ -63,6 +63,7 @@ def test_semantic_equal_score_and_updated_at_ties_use_uuid_ascending() -> None:
 
     assert ranked == sorted(item_ids, key=lambda item_id: item_id.int)
     assert updates == []
+    assert all(score > 0 for score in scores.values())
 
 
 def _valid_merge_response() -> dict:

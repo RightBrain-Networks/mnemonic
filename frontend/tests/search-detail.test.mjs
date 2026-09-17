@@ -1,3 +1,4 @@
+import { ranking, hitRanking, unifiedRanking, semanticDisposition, evidence } from "./search-ranking-fixtures.mjs";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { validSearchRequest } from "../lib/search-request.ts";
@@ -34,7 +35,7 @@ test("browser search boundaries allow only the two supported detail modes", () =
 });
 
 test("dashboard rejects a compact or unspecified substitute even when a work result is empty", () => {
-  const page = { ...disclosure(project, ["work_items"]), detail: "full", work_rank_scope: "work_items", items: [], total: 0, limit: 50, offset: 0, search_scope: { searched_facets: ["work_items"], transcripts: "not_selected", transcript_search_hint: TRANSCRIPT_SEARCH_HINT }, term_diagnostics: [], facet_totals: { work_items: 0, artifacts: 0, transcripts: 0 }, coverage: { artifacts: { enabled: true }, transcripts: { indexing_incomplete: false } }, indexing_incomplete: false };
+  const page = { ...unifiedRanking(["work_items"]), ...disclosure(project, ["work_items"]), detail: "full", work_rank_scope: "work_items", items: [], total: 0, limit: 50, offset: 0, tag_counts: null, search_scope: { searched_facets: ["work_items"], transcripts: "not_selected", transcript_search_hint: TRANSCRIPT_SEARCH_HINT }, term_diagnostics: [], facet_totals: { work_items: 0, artifacts: 0, transcripts: 0 }, coverage: { artifacts: { enabled: true }, transcripts: { indexing_incomplete: false } }, indexing_incomplete: false };
   assert.equal(decodeUnifiedWorkSearchPage(page, project).detail, "full");
   assert.throws(() => decodeUnifiedWorkSearchPage({ ...page, detail: "compact" }, project));
   const missing = { ...page }; delete missing.detail;

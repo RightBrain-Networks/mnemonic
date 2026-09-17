@@ -42,6 +42,13 @@ orders all matches by date; `updated_at` and `relevance` are also available.
 {"facet": "work_items", "sort": {"by": "created_at"}}]` places ordered groups first;
 other selected facets follow co-mingled. Offset and limit apply to the combined list.
 
+`rank` is an ordinal; `score_type` names its ranking signal. `total_kind`
+distinguishes lexical matches, browsed records and a ranked semantic candidate
+corpus. Unified pages also name `facet_total_kinds` and `facet_score_types`.
+Scores are ordering signals, not calibrated confidence or comparable thresholds.
+Check `semantic.inference`, candidate scope and `comparison_incomplete`; a failed
+cache refresh does not invalidate completed inference.
+
 Every hit identifies its facet and carries exactly one work, artifact, or transcript
 payload. Preserve exact identities and matched work members. Disclose partial pages
 and `indexing_incomplete`, per-source coverage and sensitive content withholding.
@@ -110,14 +117,21 @@ evidence that the project has no saved work.
    Pass `pending`, `active`, `dropped`, `deferred`, `done`, `wont-do`, or
    `promoted` to narrow it; Pending excludes active and dropped leases.
    Every search echoes `applied_filters`, source-specific `query_interpretation`,
-   and warnings. Quoted phrases currently produce `phrase_operators_ignored`;
-   word adjacency is not enforced. A filtered zero does not prove absence.
+   and warnings. `query_mode="terms"` honors double-quoted phrases; `phrase`
+   requires adjacent analyzed words, while `literal` preserves case, punctuation
+   and spacing within one stored field or transcript segment. Malformed phrases
+   are rejected. A filtered zero does not prove absence.
+   Narrow lexical search with `work_fields=["title", "summary"]`; unified search
+   accepts this list in `filters.work_items`. Semantic retrieval requires all six
+   work fields and unquoted terms.
 4. `detail="compact"` is the discovery default; use `detail="full"` for the complete
    summary and readiness metadata. `view` independently defaults to `full` (flat results).
    Use `view="roots"` only for blank/filter-only canonical hierarchy browsing.
    Compact work rows include identity, title, status, display state, priority, update time,
    canonical identity and one-based source rank. A different `matched_member` appears only
    when an alias supplies the match. Full rows retain `summary` and `matched_member`.
+   `matched_fields` and bounded `excerpts` explain the winning member and checkpoint.
+   `evidence_mode="semantic"` supplies no invented literal evidence.
    Match evidence never grants permission to merge or substitute IDs. `ancestor_path`
    follows `parent-child` edges only, root to parent.
 5. Use `duplicate_scope="aliases"` or `"all"` only when the user explicitly wants duplicate audit
@@ -144,7 +158,9 @@ signals—not scores. Exact-title candidates are globally reserved before other
 lanes. `hybrid_full`, `hybrid_shortlist`, and `lexical` describe retrieval
 coverage, not confidence; `semantic_scope=lexical_shortlist` means semantic
 comparison covered only the lexical shortlist. Recall plausible candidates and
-keep Create anyway available. Never turn a suggestion into an automatic merge,
+keep Create anyway available. A timeout or unavailable semantic lane is an
+incomplete comparison, not a clean duplicate check. Follow the bounded retry
+guidance: at most one retry after one second. Never turn a suggestion into an automatic merge,
 redirect, relationship, or hidden creation veto.
 
 ## Discover actionable candidates

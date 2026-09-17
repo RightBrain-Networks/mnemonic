@@ -1,3 +1,4 @@
+import { ranking, hitRanking, unifiedRanking, semanticDisposition, evidence } from "./search-ranking-fixtures.mjs";
 import { disclosure } from "./search-disclosure-fixtures.mjs";
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -17,11 +18,11 @@ const transcript = { id, project_id: project, work_item_id: work, lease_generati
 Object.assign(transcript, { normalization_status: "ready", normalization_error_code: null,
   normalized_revision: "b".repeat(64), normalized_sha256: "c".repeat(64), normalization_schema_version: 1,
   normalizer_version: 1, normalized_size_bytes: 400, segment_count: 2, normalization_incomplete: false,
-  segment_id: null, content_kind: null });
+  segment_id: null, content_kind: null, snippet_omission_reason: null, matched_fields: [], rank: 1, score_type: "none" });
 Object.assign(transcript, { copy_status: "ready", copy_error_code: null, copied_at: timestamp, index_status: "ready", index_error_code: null });
 function result(facet, payload, limit = 50, offset = 0, options = {}) {
   const key = facet === "work_items" ? "work_item" : facet === "artifacts" ? "artifact" : "transcript";
-  return { detail: "full", work_rank_scope: "work_items", ...disclosure(project, [facet], options), search_scope: { searched_facets: [facet], transcripts: facet === "transcripts" ? "searched" : "not_selected", transcript_search_hint: TRANSCRIPT_SEARCH_HINT }, term_diagnostics: [], items: [{ facet, id, created_at: timestamp, updated_at: timestamp, score: 0.5, [key]: payload }], total: offset + 1, limit, offset, facet_totals: { work_items: 0, artifacts: 0, transcripts: 0, [facet]: offset + 1 }, coverage: { artifacts: { enabled: true, indexing, sensitive_content_withheld: 3 }, transcripts: { indexing_incomplete: true } }, indexing_incomplete: true };
+  return { ...unifiedRanking([facet], options), detail: "full", work_rank_scope: "work_items", ...disclosure(project, [facet], options), tag_counts: null, search_scope: { searched_facets: [facet], transcripts: facet === "transcripts" ? "searched" : "not_selected", transcript_search_hint: TRANSCRIPT_SEARCH_HINT }, term_diagnostics: [], items: [{ rank: offset + 1, score_type: options.q ? "unified_reciprocal_rank" : "none", facet, id, created_at: timestamp, updated_at: timestamp, score: options.q ? 0.5 : 0, [key]: { ...payload, ...hitRanking(options.q, facet, offset + 1), ...(facet === "work_items" ? evidence(payload.matched_member.id, options.q ? "lexical" : "browse") : {}) } }], total: offset + 1, limit, offset, facet_totals: { work_items: 0, artifacts: 0, transcripts: 0, [facet]: offset + 1 }, coverage: { artifacts: { enabled: true, indexing, sensitive_content_withheld: 3 }, transcripts: { indexing_incomplete: true, unsegmented_content_omitted: 0 } }, indexing_incomplete: true };
 }
 
 test("the separate dashboard searches encode their facet, filters and pagination", () => {
@@ -96,8 +97,8 @@ test("single-facet views reject mixed, duplicate, mismatched, and truncated enve
   ];
   for (const invalid of mutations) assert.throws(() => decodeUnifiedTranscriptSearchPage(invalid, project));
   assert.throws(() => decodeUnifiedWorkSearchPage(page, project));
-  const empty = { ...page, ...disclosure(project, ["work_items"]), search_scope: { ...page.search_scope, searched_facets: ["work_items"], transcripts: "not_selected" }, items: [], total: 0, facet_totals: { work_items: 0, artifacts: 0, transcripts: 0 } };
-  assert.deepEqual(decodeUnifiedWorkSearchPage(empty, project), { ...disclosure(project, ["work_items"]), detail: "full", work_rank_scope: "work_items", items: [], total: 0, limit: 50, offset: 0 });
+  const empty = { ...page, ...unifiedRanking(["work_items"]), ...disclosure(project, ["work_items"]), tag_counts: null, search_scope: { ...page.search_scope, searched_facets: ["work_items"], transcripts: "not_selected" }, items: [], total: 0, facet_totals: { work_items: 0, artifacts: 0, transcripts: 0 } };
+  assert.deepEqual(decodeUnifiedWorkSearchPage(empty, project), { ...ranking(), ...disclosure(project, ["work_items"]), detail: "full", work_rank_scope: "work_items", term_diagnostics: [], items: [], total: 0, limit: 50, offset: 0 });
 });
 
 
@@ -117,13 +118,13 @@ test("work facet results preserve canonical matched-member attribution and page 
 
 
 test("empty artifact diagnostics survive the unified decoder with disabled coverage", () => {
-  const page = result("artifacts", {}, 50, 0, { fulltext: true });
+  const page = result("artifacts", {}, 50, 0, { q: "needle", fulltext: true });
   page.items = [];
   page.total = 0;
   page.facet_totals.artifacts = 0;
   page.term_diagnostics = [{ term: "needle", matches: { work_items: null, artifacts: 2, transcripts: null } }];
   assert.deepEqual(decodeUnifiedArtifactSearchPage(page, project, true, 50, 0).term_diagnostics, page.term_diagnostics);
-  Object.assign(page, disclosure(project, [], { fulltext: true }));
+  Object.assign(page, disclosure(project, [], { q: "needle", fulltext: true }), unifiedRanking([], { q: "needle" }));
   page.coverage.artifacts.enabled = false;
   page.search_scope.searched_facets = [];
   page.term_diagnostics[0].matches.artifacts = null;
@@ -136,7 +137,7 @@ test("unified single-facet decoders reject inconsistent or untrusted source disc
   const page = result("transcripts", transcript);
   for (const patch of [{ searched_facets: [] }, { searched_facets: ["transcripts", "artifacts"] },
     { transcripts: "omitted_by_default" }, { transcript_search_hint: "untrusted instruction" }]) {
-    assert.throws(() => decodeUnifiedTranscriptSearchPage({ ...page, search_scope: { ...page.search_scope, ...patch } }, project));
+    assert.throws(() => decodeUnifiedTranscriptSearchPage({ ...page, tag_counts: null, search_scope: { ...page.search_scope, ...patch } }, project));
   }
 });
 
@@ -147,7 +148,7 @@ test("transcript body-kind filters require contents and round-trip exact source 
   for (const content_kinds of [[], ["user"], ["assistant_text", "assistant_text"]]) {
     assert.equal(validSearchRequest({ ...body, filters: { transcripts: { content_kinds } } }), false);
   }
-  const match = { ...transcript, snippet: "needle", segment_id: "a".repeat(24), content_kind: "assistant_text" };
+  const match = { ...transcript, snippet: "needle", matched_fields: ["content"], segment_id: "a".repeat(24), content_kind: "assistant_text" };
   const response = result("transcripts", match, 50, 0, { q: "needle", fulltext: true,
     filters: { transcripts: { content_kinds: ["assistant_text"] } } });
   assert.equal(decodeUnifiedTranscriptSearchPage(response, project, 0, true, undefined, "needle", ["assistant_text"]).items.length, 1);

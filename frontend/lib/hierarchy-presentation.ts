@@ -1,3 +1,5 @@
+import { decodeSearchRanking, decodeHitRanking, SEARCH_RANKING_FIELDS, HIT_RANKING_FIELDS } from "./search-ranking.ts";
+import { decodeTermDiagnostics } from "./search-diagnostics.ts";
 import { decodeSearchDisclosure, SEARCH_DISCLOSURE_FIELDS, validateSearchDisclosure, type SearchDisclosure, type FullWorkSearchDetail } from "./search-disclosure.ts";
 import type { HierarchyPresentation, HierarchySummary, Page } from "@/lib/types";
 import { decodeWorkSummary } from "./work-codecs.ts";
@@ -31,13 +33,13 @@ const PRESENTATION_FIELDS = [
   "next_active_descendant_lease_expires_at"
 ] as const;
 const HIERARCHY_FIELDS = [
-  "summary", "self_matches_filter", "has_matching_descendants", "presentation"
+  "summary", "self_matches_filter", "has_matching_descendants", "presentation", ...HIT_RANKING_FIELDS
 ] as const;
 const PAGE_FIELDS = ["items", "total", "limit", "offset"] as const;
 
 export const HIERARCHY_DECODER_FIELDS = {
   decodeHierarchyPage: PAGE_FIELDS,
-  decodeHierarchySearchPage: [...PAGE_FIELDS, "detail", "work_rank_scope", ...SEARCH_DISCLOSURE_FIELDS],
+  decodeHierarchySearchPage: [...PAGE_FIELDS, "detail", "work_rank_scope", "term_diagnostics", ...SEARCH_DISCLOSURE_FIELDS, ...SEARCH_RANKING_FIELDS],
   "decodeHierarchyPage:item": HIERARCHY_FIELDS,
   decodeHierarchyPresentation: PRESENTATION_FIELDS
 } as const;
@@ -96,7 +98,7 @@ export function decodeHierarchyPage(
       throw new Error("Mnemonic returned a duplicate in canonical hierarchy.");
     }
     return {
-      summary,
+      summary, ...decodeHitRanking(item, "none"),
       self_matches_filter: item.self_matches_filter,
       has_matching_descendants: item.has_matching_descendants,
       presentation: decodeHierarchyPresentation(item.presentation)
@@ -111,10 +113,11 @@ export function decodeHierarchyPage(
 
 export function decodeHierarchySearchPage(value: unknown, projectId: string, expectedLimit?: number, expectedOffset?: number, expectedFilters: Record<string, unknown> = {}): Page<HierarchySummary> & SearchDisclosure & FullWorkSearchDetail {
   const page = objectValue(value);
-  if (!page || !exactKeys(page, [...PAGE_FIELDS, "detail", "work_rank_scope", ...SEARCH_DISCLOSURE_FIELDS]) || page.detail !== "full" || page.work_rank_scope !== "work_items") throw new Error("Mnemonic returned an invalid hierarchy search page.");
+  if (!page || !exactKeys(page, [...PAGE_FIELDS, "detail", "work_rank_scope", "term_diagnostics", ...SEARCH_DISCLOSURE_FIELDS, ...SEARCH_RANKING_FIELDS]) || page.detail !== "full" || page.work_rank_scope !== "work_items") throw new Error("Mnemonic returned an invalid hierarchy search page.");
   const disclosure = decodeSearchDisclosure(page, projectId, ["work_items"]);
+  const term_diagnostics = decodeTermDiagnostics(page.term_diagnostics, page.total as number, ["work_items"], disclosure.diagnostics, disclosure.query_interpretation.q);
   validateSearchDisclosure(disclosure, "work_items", { ...expectedFilters, view: "roots", duplicate_scope: "canonical", canonical_work_item_id: null }, undefined, "");
-  return { ...decodeHierarchyPage({ items: page.items, total: page.total, limit: page.limit, offset: page.offset }, projectId, expectedLimit, expectedOffset), ...disclosure, detail: "full", work_rank_scope: "work_items" };
+  return { ...decodeHierarchyPage({ items: page.items, total: page.total, limit: page.limit, offset: page.offset }, projectId, expectedLimit, expectedOffset), ...disclosure, ...decodeSearchRanking(page), detail: "full", work_rank_scope: "work_items", term_diagnostics };
 }
 
 function plural(count: number, singular: string, pluralForm = `${singular}s`): string {

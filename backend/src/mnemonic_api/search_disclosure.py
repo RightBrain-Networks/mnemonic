@@ -6,14 +6,18 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 
 from mnemonic_api.search_diagnostics import SearchFacet
+from mnemonic_api.search_exploration_schemas import DateBounds, DiagnosticsMode
+from mnemonic_api.search_query import QueryMode, parse_query
 from mnemonic_api.transcript_normalization import ContentKind
+from mnemonic_api.work_search_fields import WORK_FIELDS, WorkFields
 
 
 class DisclosureModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
-class WorkAppliedFilters(DisclosureModel):
+class WorkAppliedFilters(DisclosureModel, DateBounds):
+    work_fields: WorkFields = Field(default_factory=lambda: list(WORK_FIELDS))
     status: Literal[
         "pending", "active", "to-review", "dropped", "deferred", "done",
         "wont-do", "promoted", "all",
@@ -27,7 +31,7 @@ class WorkAppliedFilters(DisclosureModel):
     view: Literal["full", "roots"] = "full"
 
 
-class ArtifactAppliedFilters(DisclosureModel):
+class ArtifactAppliedFilters(DisclosureModel, DateBounds):
     artifact_id: UUID | None = None
     work_item_id: UUID | None = None
     include_deleted: bool = False
@@ -36,7 +40,7 @@ class ArtifactAppliedFilters(DisclosureModel):
     created_by_agent_session_id: str | None = None
 
 
-class TranscriptAppliedFilters(DisclosureModel):
+class TranscriptAppliedFilters(DisclosureModel, DateBounds):
     content_kinds: list[ContentKind] | None = Field(default=None, min_length=1, max_length=8)
     work_item_id: UUID | None = None
     agent_session_id: str | None = None
@@ -56,6 +60,7 @@ class AppliedSearchFilters(DisclosureModel):
 class SourceQueryInterpretation(DisclosureModel):
     match_mode: Literal[
         "browse", "postgresql_plain_terms_or_substring", "hybrid_lexical_semantic", "all_terms",
+        "postgresql_phrase_terms", "phrase", "literal",
     ]
     fields: list[Literal[
         "title", "summary", "tags", "checkpoint", "identifiers", "provenance",
@@ -66,6 +71,7 @@ class SourceQueryInterpretation(DisclosureModel):
 
 
 class QueryInterpretation(DisclosureModel):
+    query_mode: QueryMode = "terms"
     q: str = Field(max_length=1000)
     work_items: SourceQueryInterpretation | None = None
     artifacts: SourceQueryInterpretation | None = None
@@ -81,6 +87,7 @@ class SearchWarning(DisclosureModel):
 
 
 class SearchDisclosure(DisclosureModel):
+    diagnostics: DiagnosticsMode = "on_empty"
     applied_filters: AppliedSearchFilters
     query_interpretation: QueryInterpretation
     warnings: list[SearchWarning] = Field(max_length=1)
@@ -91,31 +98,37 @@ def search_disclosure(
     work_items: WorkAppliedFilters | None = None,
     artifacts: ArtifactAppliedFilters | None = None,
     transcripts: TranscriptAppliedFilters | None = None,
-    semantic: bool = False, fulltext: bool = False,
+    semantic: bool = False, fulltext: bool = False, query_mode: QueryMode = "terms",
+    diagnostics: DiagnosticsMode = "on_empty",
 ) -> SearchDisclosure:
     query = (q or "").strip()
     applied = AppliedSearchFilters(
         project_id=project_id, work_items=work_items, artifacts=artifacts, transcripts=transcripts,
     )
-    interpretation = QueryInterpretation(q=query)
+    intent = parse_query(query, query_mode)
+    interpretation = QueryInterpretation(q=query, query_mode=query_mode)
     sources: list[SearchFacet] = []
     if work_items is not None:
         sources.append("work_items")
         mode = "hybrid_lexical_semantic" if semantic else "postgresql_plain_terms_or_substring"
+        if intent.constrained:
+            mode = "literal" if query_mode == "literal" else "postgresql_phrase_terms"
         interpretation.work_items = SourceQueryInterpretation(
             match_mode=mode if query else "browse", fulltext=None,
-            fields=["title", "summary", "tags", "checkpoint", "identifiers", "provenance"],
+            fields=list(work_items.work_fields),
         )
     for facet, filters in (("artifacts", artifacts), ("transcripts", transcripts)):
         if filters is None:
             continue
         sources.append(facet)
+        content_mode = ("literal" if query_mode == "literal" else
+                        "phrase" if intent.constrained else "all_terms")
         source = SourceQueryInterpretation(
-            match_mode="all_terms" if query else "browse", fulltext=fulltext,
+            match_mode=content_mode if query else "browse", fulltext=fulltext,
             fields=["metadata", "content"] if fulltext else ["metadata"],
         )
         setattr(interpretation, facet, source)
     return SearchDisclosure(
-        applied_filters=applied, query_interpretation=interpretation,
-        warnings=[SearchWarning(sources=sources)] if '"' in query and sources else [],
+        diagnostics=diagnostics, applied_filters=applied, query_interpretation=interpretation,
+        warnings=[],
     )

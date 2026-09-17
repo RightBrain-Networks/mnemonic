@@ -11,6 +11,7 @@
     "answer",
     "artifact_references",
     "artifact_type",
+    "artifacts",
     "availability",
     "base_commit",
     "before",
@@ -29,6 +30,8 @@
     "content_kinds",
     "context_checkpoint_id",
     "coverage",
+    "created_after",
+    "created_before",
     "created_by_client",
     "created_by_model",
     "created_by_session_id",
@@ -37,6 +40,7 @@
     "description",
     "destination_work_item_id",
     "detail",
+    "diagnostics",
     "direction",
     "duplicate_scope",
     "end_line",
@@ -52,6 +56,8 @@
     "external_candidates",
     "external_references",
     "external_url",
+    "facets",
+    "filters",
     "finding_key",
     "findings",
     "focus_areas",
@@ -86,6 +92,7 @@
     "prompt",
     "purpose",
     "q",
+    "query_mode",
     "rationale",
     "recent_event_limit",
     "recent_limit",
@@ -122,12 +129,16 @@
     "supersede_code_review_id",
     "supersede_follow_up_id",
     "tag",
+    "tag_counts",
     "tags",
     "target_work_item_id",
     "title",
+    "transcripts",
     "traps",
     "triggering_conditions",
     "type",
+    "updated_after",
+    "updated_before",
     "url",
     "validation_summary",
     "verification_results",
@@ -135,7 +146,9 @@
     "verified_against",
     "view",
     "work_event_count",
+    "work_fields",
     "work_item_id",
+    "work_items",
     "work_version"
   ],
   "surface_fields": {
@@ -193,7 +206,6 @@
     "mcp": [
       "agent_session_id",
       "artifact_id",
-      "artifacts",
       "by",
       "changes",
       "claim_request_id",
@@ -204,8 +216,6 @@
       "expected_sha256",
       "facet",
       "facet_order",
-      "facets",
-      "filters",
       "fulltext",
       "fyi_items",
       "holder_client",
@@ -238,9 +248,7 @@
       "start",
       "status_only",
       "subagent_transcripts",
-      "transcript_id",
-      "transcripts",
-      "work_items"
+      "transcript_id"
     ],
     "browser": [
       "completion_checkpoint_id",
@@ -280,17 +288,53 @@
       "field": "content_kinds",
       "message": "content_kinds requires fulltext=true."
     },
+    "exact_query_requires_text": {
+      "field": "q",
+      "message": "Phrase and literal search require nonblank q."
+    },
     "external_url_requires_full_view": {
       "field": "view",
       "message": "external_url requires view=full."
+    },
+    "query_phrase_requires_terms": {
+      "field": "q",
+      "message": "A phrase needs searchable words; use query_mode=literal for punctuation."
     },
     "roots_require_canonical_scope": {
       "field": "duplicate_scope",
       "message": "view=roots requires duplicate_scope=canonical."
     },
+    "search_created_range_invalid": {
+      "field": "created_before",
+      "message": "created_before must be later than created_after; the upper bound is exclusive."
+    },
+    "search_datetime_timezone_required": {
+      "field": null,
+      "message": "Include a timezone offset or Z in each search date bound."
+    },
+    "search_updated_range_invalid": {
+      "field": "updated_before",
+      "message": "updated_before must be later than updated_after; the upper bound is exclusive."
+    },
+    "semantic_requires_all_work_fields": {
+      "field": "work_fields",
+      "message": "Semantic work search requires all work_fields; disable semantic to narrow fields."
+    },
     "semantic_requires_query": {
       "field": "q",
       "message": "semantic=true requires a nonblank q."
+    },
+    "semantic_requires_unconstrained_work_query": {
+      "field": "q",
+      "message": "Semantic work search requires query_mode=terms without quoted phrases."
+    },
+    "tag_counts_requires_work_facet": {
+      "field": "tag_counts",
+      "message": "tag_counts requires work_items in facets."
+    },
+    "unclosed_query_phrase": {
+      "field": "q",
+      "message": "Close each quoted phrase, or use query_mode=literal."
     },
     "view_requires_blank_query": {
       "field": "view",

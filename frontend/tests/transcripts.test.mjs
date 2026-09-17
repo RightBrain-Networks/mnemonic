@@ -1,3 +1,4 @@
+import { ranking, hitRanking, unifiedRanking, semanticDisposition, evidence } from "./search-ranking-fixtures.mjs";
 import { disclosure } from "./search-disclosure-fixtures.mjs";
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -12,9 +13,9 @@ const row = { id, project_id: project, work_item_id: operation, lease_generation
 Object.assign(row, { normalization_status: "ready", normalization_error_code: null,
   normalized_revision: "b".repeat(64), normalized_sha256: "c".repeat(64), normalization_schema_version: 1,
   normalizer_version: 1, normalized_size_bytes: 400, segment_count: 2, normalization_incomplete: false,
-  segment_id: null, content_kind: null });
+  segment_id: null, content_kind: null, snippet_omission_reason: null, matched_fields: [], rank: 1, score_type: "none" });
 Object.assign(row, { copy_status: "ready", copy_error_code: null, copied_at: "2026-09-10T12:00:00Z", index_status: "ready", index_error_code: null });
-const listing = { detail: "full", ...disclosure(project, ["transcripts"]), term_diagnostics: [], items: [row], total: 1, limit: 50, offset: 0, indexing_incomplete: false };
+const listing = { ...ranking("", "transcripts"), unsegmented_content_omitted: 0, detail: "full", ...disclosure(project, ["transcripts"]), term_diagnostics: [], items: [row], total: 1, limit: 50, offset: 0, indexing_incomplete: false };
 const environment = { MNEMONIC_API_KEY: "k".repeat(64), MNEMONIC_API_URL: "http://api:8000" };
 const request = (path, method = "GET", value, headers = {}) => new Request(`http://localhost:3000/api/transcripts/${path}`, { method, headers: { host: "localhost:3000", ...(method !== "GET" ? { origin: "http://localhost:3000", "content-type": "application/json" } : {}), ...headers }, ...(value === undefined ? {} : { body: typeof value === "string" ? value : JSON.stringify(value) }) });
 
@@ -220,7 +221,7 @@ test("Codex transcripts retain client metadata and display their provider name",
 
 test("normalization coverage and matched content kinds remain explicit in transcript results", () => {
   const contentKinds = ["human_text", "assistant_text"];
-  const matched = { ...row, snippet: "needle", segment_id: "a".repeat(24), content_kind: "human_text" };
+  const matched = { ...row, snippet: "needle", matched_fields: ["content"], segment_id: "a".repeat(24), content_kind: "human_text" };
   const result = { ...listing, ...disclosure(project, ["transcripts"], { fulltext: true,
     filters: { transcripts: { content_kinds: contentKinds } } }), items: [matched] };
   assert.equal(decodeTranscriptPage(result, project, 0, true, undefined, contentKinds).items[0].segment_id, matched.segment_id);

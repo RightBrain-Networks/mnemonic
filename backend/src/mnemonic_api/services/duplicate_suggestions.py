@@ -33,6 +33,12 @@ from mnemonic_api.schemas import (
     DuplicateSuggestionSignal,
     WorkIdentityPointer,
 )
+from mnemonic_api.search_ranking import (
+    SemanticReason,
+    completed_semantic,
+    unavailable_semantic,
+)
+from mnemonic_api.search_timing import refresh_cache, timed_phase
 from mnemonic_api.semantic import (
     BGE_QUERY_PREFIX,
     EMBED_BATCH_SIZE,
@@ -404,41 +410,47 @@ def capture_internal_suggestions(
 ) -> InternalSuggestionResult:
     """Capture once, rank outside the snapshot, and persist only derived cache rows."""
     _remaining_deadline_milliseconds(deadline)
-    query_vector = _query_vector(embedder, payload) if inference_permitted else None
+    query_vector, reason = (_query_vector(embedder, payload) if inference_permitted
+                            else (None, "capacity_exhausted"))
     dimensions = len(query_vector) if query_vector is not None else None
     _remaining_deadline_milliseconds(deadline)
     begin_coherent_read(database)
     _set_transaction_deadline(database, deadline)
-    snapshot = _capture_snapshot(database, project_id, payload, settings, dimensions)
+    with timed_phase("duplicate_suggestions", "candidate_selection"):
+        snapshot = _capture_snapshot(database, project_id, payload, settings, dimensions)
     database.commit()
     if query_vector is None:
-        return InternalSuggestionResult(_lexical_page(snapshot, payload.limit), query_vector)
+        return InternalSuggestionResult(_lexical_page(
+            snapshot, payload.limit, reason=reason or "model_failure"), query_vector)
     try:
-        page, updates = _semantic_page(snapshot, payload.limit, query_vector, embedder, settings)
-        _persist_cache_updates(
-            database,
-            updates,
-            dimensions=len(query_vector),
-            deadline=deadline,
-        )
+        with timed_phase("duplicate_suggestions", "document_inference"):
+            page, updates = _semantic_page(
+                snapshot, payload.limit, query_vector, embedder, settings)
     except Exception as exc:
         logger.warning("Duplicate suggestion semantic fallback (%s)", type(exc).__name__)
-        return InternalSuggestionResult(_lexical_page(snapshot, payload.limit), query_vector)
+        return InternalSuggestionResult(_lexical_page(
+            snapshot, payload.limit, reason="deadline_exceeded" if isinstance(exc, TimeoutError)
+            else "model_failure"), query_vector)
+    page.semantic.cache_refresh = refresh_cache("duplicate_suggestions", bool(updates),
+        lambda: _persist_cache_updates(database, updates, dimensions=len(query_vector),
+                                        deadline=deadline))
     return InternalSuggestionResult(page, query_vector)
 
 
 def _query_vector(
     embedder: Embedder,
     payload: DuplicateSuggestionRequest,
-) -> tuple[float, ...] | None:
+) -> tuple[tuple[float, ...] | None, SemanticReason | None]:
     try:
-        vector = tuple(float(value) for value in embedder.embed_query(
-            BGE_QUERY_PREFIX + _draft_text(payload)
-        ))
+        with timed_phase("duplicate_suggestions", "query_embedding"):
+            vector = tuple(float(value) for value in embedder.embed_query(
+                BGE_QUERY_PREFIX + _draft_text(payload)))
+            if not _valid_vector(vector):
+                raise ValueError("Invalid query vector")
     except Exception as exc:
         logger.warning("Duplicate suggestion query fallback (%s)", type(exc).__name__)
-        return None
-    return vector if _valid_vector(vector) else None
+        return None, "deadline_exceeded" if isinstance(exc, TimeoutError) else "model_failure"
+    return vector, None
 
 
 def _draft_text(payload: DuplicateSuggestionRequest) -> str:
@@ -911,6 +923,7 @@ def _shortlist_vectors(
         if candidate.cached_vector is not None
     }
     missing = [candidate for candidate in candidates if candidate.cached_vector is None]
+    logger.info("Suggestion vector cache ready=%d missing=%d", len(vectors), len(missing))
     missing = missing[: settings.duplicate_suggestion_missing_vector_limit]
     updates: list[CacheUpdate] = []
     for start in range(0, len(missing), EMBED_BATCH_SIZE):
@@ -982,6 +995,8 @@ def _hybrid_page(
         snapshot,
         mode=mode,
         semantic_scope="full_project" if mode == "hybrid_full" else "lexical_shortlist",
+        partial_vectors=any(snapshot.lexical_winner_by_root[root] not in vectors
+                            for root in nonexact_lexical),
     )
 
 
@@ -1036,6 +1051,7 @@ def _rank_fused_roots(
 def _lexical_page(
     snapshot: CapturedSuggestionSnapshot,
     limit: int,
+    *, reason: SemanticReason = "model_failure",
 ) -> DuplicateSuggestionPage:
     exact_roots = _ordered_roots(snapshot.exact_winner_by_root, snapshot.work_by_id)
     nonexact = [
@@ -1049,7 +1065,7 @@ def _lexical_page(
         limit,
         snapshot,
         mode="lexical",
-        semantic_scope="unavailable",
+        semantic_scope="unavailable", reason=reason,
     )
 
 
@@ -1117,6 +1133,7 @@ def _page(
     *,
     mode: DuplicateSuggestionMode,
     semantic_scope: DuplicateSuggestionSemanticScope,
+    reason: SemanticReason = "model_failure", partial_vectors: bool = False,
 ) -> DuplicateSuggestionPage:
     exact_total = snapshot.exact_title_group_total
     visible_exact = min(exact_total, limit)
@@ -1124,6 +1141,9 @@ def _page(
         items=items,
         limit=limit,
         mode=mode,
+        semantic=unavailable_semantic(reason) if mode == "lexical" else completed_semantic(
+            "full_scope" if mode == "hybrid_full" else "lexical_shortlist",
+            partial_vectors=partial_vectors),
         semantic_available=mode != "lexical",
         semantic_scope=semantic_scope,
         composition_version=COMPOSITION_VERSION,
@@ -1138,9 +1158,9 @@ def _persist_cache_updates(
     *,
     dimensions: int,
     deadline: float,
-) -> None:
+) -> bool:
     if not updates or monotonic() >= deadline:
-        return
+        return False
     by_id = {update.work_item_id: update for update in updates}
     with Session(bind=database.get_bind()) as cache_database:
         cache_database.connection()
@@ -1173,6 +1193,7 @@ def _persist_cache_updates(
                 )
             )
         cache_database.commit()
+    return True
 
 
 def _set_transaction_deadline(

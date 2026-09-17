@@ -27,9 +27,9 @@ def transcript_hit(**changes):
             "score": 1 / 61, "transcript": transcript(), **changes}
 
 
-def work_hit(work_summary):
+def work_hit(work_summary, *, score=1 / 61):
     return {"facet": "work_items", "id": WORK_ID, "created_at": NOW, "updated_at": NOW,
-            "score": 1 / 61, "work_item": {"summary": work_summary, "matched_member": {
+            "score": score, "work_item": {"summary": work_summary, "matched_member": {
                 key: work_summary["work_item"][key] for key in ("id", "title", "status")
             }}}
 
@@ -44,7 +44,7 @@ def page(items=(), **changes):
             "coverage": {"artifacts": {"enabled": True, "indexing": {
                 "pending": 0, "ready": sum(item["facet"] == "artifacts" for item in items),
                 "failed": 0, "truncated": 0,
-            }, "sensitive_content_withheld": 0}, "transcripts": {"indexing_incomplete": False}},
+            }, "sensitive_content_withheld": 0}, "transcripts": {"indexing_incomplete": False, "unsegmented_content_omitted": 0}},
             "indexing_incomplete": False, **changes}
 
 
@@ -128,7 +128,7 @@ async def test_unavailable_and_sensitive_coverage_is_preserved(settings):
 
 
 async def test_disabled_artifacts_do_not_block_other_source_results(settings):
-    response = page([transcript_hit()])
+    response = page([transcript_hit(score=0.0)])
     response["coverage"]["artifacts"]["enabled"] = False
     response["search_scope"]["searched_facets"] = ["work_items", "transcripts"]
     response["indexing_incomplete"] = True
@@ -300,7 +300,7 @@ async def test_work_status_uses_lifecycle_leases_and_review_disposition(
                          display_state=effective)
         if actual != "done":
             readiness["review_status"] = effective
-    response = page([work_hit(summary)])
+    response = page([work_hit(summary, score=0.0)])
     arguments = {"project_id": PROJECT_ID, "filters": {"work_items": {"status": selected}}}
     if accepted:
         result = await call(settings, "search", arguments,
@@ -315,7 +315,7 @@ async def test_work_status_uses_lifecycle_leases_and_review_disposition(
 async def test_blank_query_browses_all_facets_without_artifact_match_fields(settings, work_summary):
     artifact = artifact_hit(score=0.0)
     artifact["artifact"].update(score=0.0, matched_fields=[])
-    payload = page([work_hit(work_summary), artifact, transcript_hit()])
+    payload = page([work_hit(work_summary, score=0.0), artifact, transcript_hit(score=0.0)])
     result = await call(settings, "search", {"project_id": PROJECT_ID},
                         lambda request: httpx.Response(200, json=payload))
     assert [item["facet"] for item in result["items"]] == FACETS

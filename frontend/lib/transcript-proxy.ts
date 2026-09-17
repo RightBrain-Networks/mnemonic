@@ -1,4 +1,6 @@
+import { validQueryMode } from "./search-evidence.ts";
 import { NORMALIZED_SEGMENT_OFFSET_MAX, segmentIdentity } from "./transcript-segments.ts";
+import { SEARCH_DATE_FIELDS, validDateBounds, validDiagnosticsMode } from "./search-exploration.ts";
 import { readBoundedBytes, readBoundedJson } from "./bounded-json.ts";
 import { configuredOrigins, forbiddenControlTransport, trustedRequest } from "./proxy-policy.ts";
 import { TRANSCRIPT_JSON_MAX_BYTES, TRANSCRIPT_MAX_BYTES, TRANSCRIPT_PROXY_REJECTION_MESSAGES, transcriptDigest, validTranscriptDirectory } from "./transcripts.ts";
@@ -25,7 +27,8 @@ export function transcriptRoute(path: string[], method: string): Action | null {
   return null;
 }
 export function validTranscriptQuery(query: URLSearchParams, action: Action): boolean {
-  const allowed = action === "list" ? ["query", "fulltext", "detail", "work_item_id", "limit", "offset"] : action === "text" ? ["limit", "offset", "expected_sha256", "segment_id", "expected_normalized_revision", "before", "after"] : action === "content" ? ["expected_sha256"] : [];
+  const allowed = action === "list" ? ["query", "query_mode", "fulltext", "detail", "work_item_id", "limit", "offset", "diagnostics", ...SEARCH_DATE_FIELDS] : action === "text" ? ["limit", "offset", "expected_sha256", "segment_id", "expected_normalized_revision", "before", "after"] : action === "content" ? ["expected_sha256"] : [];
+  if (action === "list" && (query.has("query_mode") && !validQueryMode(query.get("query_mode")) || !validDateBounds(Object.fromEntries(query)) || query.has("diagnostics") && !validDiagnosticsMode(query.get("diagnostics")))) return false;
   for (const [key, value] of query) {
     if (!allowed.includes(key) || query.getAll(key).length !== 1) return false;
     if (key === "query" && (Array.from(value).length > 200 || !value.trim())) return false;

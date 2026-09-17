@@ -15,7 +15,11 @@ from typing import Protocol, cast
 import tantivy
 
 from mnemonic_api.errors import ApplicationError
+from mnemonic_api.search_exploration import wants_diagnostics
+from mnemonic_api.search_exploration_schemas import DiagnosticsMode
 from mnemonic_api.search_index_storage import SearchIndexStorage
+from mnemonic_api.search_query import QueryIntent, QueryMode, analyzer, parse_query
+from mnemonic_api.search_snippets import supporting_snippet
 
 
 @dataclass(frozen=True)
@@ -23,6 +27,8 @@ class SearchDocument:
     identity: str
     metadata: str
     content: str = ""
+    metadata_parts: tuple[str, ...] | None = None
+    content_parts: tuple[str, ...] | None = None
 
 
 @dataclass(frozen=True)
@@ -46,14 +52,7 @@ class _CountedSearchResult(Protocol):
 
 
 def _analyzer(*, fold_accents: bool = True) -> tantivy.TextAnalyzer:
-    builder = (
-        tantivy.TextAnalyzerBuilder(tantivy.Tokenizer.simple())
-        .filter(tantivy.Filter.remove_long(200))
-        .filter(tantivy.Filter.lowercase())
-    )
-    if fold_accents:
-        builder = builder.filter(tantivy.Filter.ascii_fold())
-    return builder.build()
+    return analyzer(fold_accents=fold_accents)
 
 
 def literal_terms(query: str, *, fold_accents: bool = True) -> list[str]:
@@ -90,6 +89,30 @@ def _literal_query(schema: tantivy.Schema, tokens: list[str], fulltext: bool) ->
     ])
 
 
+def _phrase(schema: tantivy.Schema, field: str, text: str) -> tantivy.Query:
+    tokens = analyzer().analyze(text)
+    return (_term(schema, field, tokens[0]) if len(tokens) == 1 else
+            tantivy.Query.phrase_query(schema, field, list(tokens)))
+
+
+def _intent_query(schema: tantivy.Schema, intent: QueryIntent, fulltext: bool) -> tantivy.Query:
+    fields = ["metadata", "content"] if fulltext else ["metadata"]
+    clauses = [(tantivy.Occur.Must, _literal_query(schema, intent.tokens, fulltext))]
+    for phrase in intent.phrases:
+        clauses.append((tantivy.Occur.Must, tantivy.Query.boolean_query([
+            (tantivy.Occur.Should, _phrase(schema, field, phrase)) for field in fields
+        ])))
+    return tantivy.Query.boolean_query(clauses)
+
+
+def _evidence_query(schema: tantivy.Schema, intent: QueryIntent, field: str) -> tantivy.Query:
+    clauses = [(tantivy.Occur.Should, _term(schema, field, token))
+               for token in analyzer().analyze(intent.unquoted)]
+    clauses.extend((tantivy.Occur.Should, _phrase(schema, field, phrase))
+                   for phrase in intent.phrases)
+    return tantivy.Query.boolean_query(clauses)
+
+
 def _identities(searcher: tantivy.Searcher, query: tantivy.Query, count: int) -> set[str]:
     return {
         cast(str, searcher.doc(address).get_first("identity"))
@@ -115,7 +138,11 @@ class ArtifactSearchIndex:
         try:
             for document in documents:
                 writer.add_document(tantivy.Document(
-                    identity=document.identity, metadata=document.metadata, content=document.content
+                    identity=document.identity,
+                    metadata=list(document.metadata_parts) if document.metadata_parts is not None
+                    else document.metadata,
+                    content=list(document.content_parts) if document.content_parts is not None
+                    else document.content
                 ))
             writer.commit()
         except BaseException:
@@ -129,17 +156,27 @@ class ArtifactSearchIndex:
 
     def search(
         self, key: str, documents: Callable[[], Iterable[SearchDocument]],
-        *, query: str, fulltext: bool, count: int,
+        *, query: str, fulltext: bool, count: int, query_mode: QueryMode = "terms",
+        literal_matches: Callable[[], list[SearchHit]] | None = None,
+        diagnostics: DiagnosticsMode = "on_empty",
     ) -> IndexSearchResult:
-        tokens = list(dict.fromkeys(self._analyzer.analyze(query)))
-        if not tokens:
-            return IndexSearchResult([], None)
+        intent = parse_query(query, query_mode)
+        if query_mode == "literal" and literal_matches is None:
+            raise ValueError("Literal search requires an access-checked exact matcher")
+        exact_hits = literal_matches() if query_mode == "literal" and literal_matches else []
+        if not intent.tokens or (query_mode == "literal" and not wants_diagnostics(
+            diagnostics, query, len(exact_hits),
+        )):
+            return IndexSearchResult(exact_hits, None)
         if not self._lock.acquire(timeout=0.25):
             raise ApplicationError(
                 503, "artifact_search_busy", "Artifact search is busy. Try this read again shortly."
             )
         try:
-            return self._search_locked(key, documents, tokens, fulltext, count)
+            result = self._search_locked(key, documents, intent, fulltext, count)
+            if query_mode == "literal":
+                return IndexSearchResult(exact_hits, result.searcher)
+            return result
         except (OSError, ValueError):
             if self._storage is None:
                 raise
@@ -149,7 +186,7 @@ class ArtifactSearchIndex:
 
     def _search_locked(
         self, key: str, documents: Callable[[], Iterable[SearchDocument]],
-        tokens: list[str], fulltext: bool, count: int,
+        intent: QueryIntent, fulltext: bool, count: int,
     ) -> IndexSearchResult:
         if not count:
             self._clear_locked()
@@ -161,7 +198,7 @@ class ArtifactSearchIndex:
             self._index = self._load_or_build(key, documents)
             self._key = key
         try:
-            return self._query(tokens, fulltext, count)
+            return self._query(intent, fulltext, count)
         except (OSError, ValueError):
             if self._storage is None:
                 raise
@@ -171,18 +208,22 @@ class ArtifactSearchIndex:
             self._index = self._load_or_build(key, documents)
             self._key = key
             try:
-                return self._query(tokens, fulltext, count)
+                return self._query(intent, fulltext, count)
             except (OSError, ValueError):
                 self._clear_locked()
                 raise
 
-    def _query(self, tokens: list[str], fulltext: bool, count: int) -> IndexSearchResult:
+    def _query(self, intent: QueryIntent, fulltext: bool, count: int) -> IndexSearchResult:
         assert self._index is not None
         searcher = self._index.searcher()
-        matches = searcher.search(_literal_query(self._schema, tokens, fulltext), limit=count)
-        metadata_ids = _identities(searcher, _any_terms(self._schema, "metadata", tokens), count)
+        if intent.mode == "literal":
+            return IndexSearchResult([], searcher)
+        matches = searcher.search(_intent_query(self._schema, intent, fulltext), limit=count)
+        metadata_ids = _identities(
+            searcher, _evidence_query(self._schema, intent, "metadata"), count,
+        )
         content_ids = (
-            _identities(searcher, _any_terms(self._schema, "content", tokens), count)
+            _identities(searcher, _evidence_query(self._schema, intent, "content"), count)
             if fulltext else set()
         )
         hits = [
@@ -202,7 +243,7 @@ class ArtifactSearchIndex:
     def _load_or_build(self, key: str, documents: Callable[[], Iterable[SearchDocument]]):
         # Generation-isolated disk layout invalidates the old flat derived
         # cache; PostgreSQL documents remain the source of truth.
-        storage_key = f"{version('tantivy')}:schema1:generation1:{key}"
+        storage_key = f"{version('tantivy')}:schema1:generation2:{key}"
         if self._storage is not None and self._storage.reusable(storage_key):
             try:
                 # The constructor's reuse=True also creates an empty index
@@ -273,16 +314,9 @@ class ArtifactSearchIndex:
             for term in terms
         }
 
-    def snippet(self, text: str, query: str, searcher: tantivy.Searcher) -> str:
-        """Use Tantivy's plain fragment, never its HTML renderer."""
-        tokens = list(dict.fromkeys(self._analyzer.analyze(query)))
-        # Keep the query's immutable searcher alive while rendering this page,
-        # even if another request replaces the single cached project index.
-        generator = tantivy.SnippetGenerator.create(
-            searcher, _any_terms(self._schema, "content", tokens), self._schema, "content"
-        )
-        generator.set_max_num_chars(320)
-        return generator.snippet_from_doc(tantivy.Document(content=text)).fragment()[:1000]
+    def snippet(self, text: str, query: str, searcher: tantivy.Searcher) -> str | None:
+        """Prefer supporting evidence while the caller retains its immutable searcher."""
+        return supporting_snippet(text, query, self._analyzer.analyze)
 
 
 def _storage_error() -> ApplicationError:

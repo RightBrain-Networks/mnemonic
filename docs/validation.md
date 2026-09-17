@@ -1,5 +1,49 @@
 # Mnemonic validation record
 
+## Search intent, evidence, exploration, and ranking (0.59.0)
+
+API/MCP/dashboard 0.59.0 and plugin 0.37.0 retain Alembic head
+`0040_normalized_transcripts`, 55 tools, and existing receipt/write catalogs.
+Upgrade the search consumers and API together: search pages now declare native
+score/total semantics, effective query intent, and optional positive diagnostics.
+Work hits expose bounded evidence and field scoping. Phrase/literal searches honor
+field and canonical transcript segment boundaries. Date filters and tag counts
+share the matching scope; semantic fallback and cache refresh report independent
+dispositions. No migration, configuration change, model change, or relevance
+threshold is introduced by this slice.
+
+Full PostgreSQL/RabbitMQ backend validation passed 3,053 tests; eight stale
+transcript-rank/vocabulary assertions were corrected and all 59 affected checks
+passed. Combined focused checks cover 141 cases, including nine integration
+regressions for exact matching with dates, field scope, tags, content kinds,
+sensitive withholding, and disabled diagnostics. Later excerpt refinements passed
+43 work-evidence checks and 53 artifact phrase/snippet checks. Backend and
+operational-script lint and backend type checks pass.
+
+The full MCP run passed 1,800 tests; 26 legacy query/ranking fixtures were corrected,
+and all 310 affected contract, omission, duplicate, exploration, and catalog checks
+pass. MCP lint/types pass. Plugin tests pass 71 checks with one platform-specific
+skip. Frontend verification passes 470 tests, type checking, and a production
+build on Node 24. Fourteen desktop/narrow search-evidence, artifact, and advisory
+acceptance checks pass with isolated backup smoke. Required CI remains the merge
+gate. Dashboard evidence: [checkpoint desktop](images/search-checkpoint-evidence-desktop.png),
+[checkpoint narrow](images/search-checkpoint-evidence-narrow.png),
+[incomplete comparison desktop](images/search-comparison-incomplete-desktop.png), and
+[incomplete comparison narrow](images/search-comparison-incomplete-narrow.png).
+
+After match evidence and ranking were added, a synthetic 20-work-item page measured
+10,907 bytes / 3,816 tokens for compact browsing versus 53,474 bytes / 13,649 tokens
+for full browsing. With query `Search context`, compact evidence measured 17,784
+bytes / 5,505 tokens versus 60,351 bytes / 15,338 tokens full. Measurements use
+compact JSON and `tiktoken 0.14.0`, `o200k_base`; UUID/token variation and authored
+text affect exact counts. The query page exceeds the initial 5,000-token target;
+required member/checkpoint provenance is retained. Ordinary excerpts use 160
+characters and prefer one field that proves the query, while exact phrases retain
+up to the shared 320-character budget. Eight artifact phrase cases additionally
+cover reversed-word and discarded-token decoys before an accented punctuation
+match, across dedicated/unified and quoted/phrase modes; 53 affected checks pass.
+
+
 ## Shared transcript normalization and conversation retrieval (0.58.0)
 
 Claude Code and Codex captures now normalize into one durable versioned manifest
