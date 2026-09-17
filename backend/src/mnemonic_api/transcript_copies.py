@@ -7,6 +7,7 @@ import os
 import stat
 from collections.abc import Iterator
 from dataclasses import dataclass, field, replace
+from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID
 
@@ -35,6 +36,7 @@ class TranscriptCopy:
     sha256: str
     size_bytes: int
     source_path: str | None = field(default=None, compare=False)
+    source_modified_at: datetime | None = field(default=None, compare=False)
 
 
 @dataclass(frozen=True)
@@ -53,15 +55,17 @@ def _transient(error: BaseException) -> bool:
 
 
 def _source_chunks(source: str, roots: list[Path], maximum: int,
-                   identity: dict | None = None) -> Iterator[bytes]:
+                   identity: dict | None = None,
+                   observation: dict | None = None) -> Iterator[bytes]:
     try:
-        yield from _read_source_chunks(source, roots, maximum, identity)
+        yield from _read_source_chunks(source, roots, maximum, identity, observation)
     except OSError as error:
         raise access_error(error, source) from None
 
 
 def _read_source_chunks(source: str, roots: list[Path], maximum: int,
-                        identity: dict | None = None) -> Iterator[bytes]:
+                        identity: dict | None = None,
+                        observation: dict | None = None) -> Iterator[bytes]:
     descriptor = _open_source(source, roots)
     with os.fdopen(descriptor, "rb") as content:
         before = os.fstat(content.fileno())
@@ -81,6 +85,8 @@ def _read_source_chunks(source: str, roots: list[Path], maximum: int,
             after.st_size, after.st_mtime_ns, after.st_ctime_ns
         ) or copied != before.st_size:
             raise ExtractionError("transcript_content_changed", retryable=True)
+        if observation is not None:
+            observation["source_modified_at"] = datetime.fromtimestamp(before.st_mtime, UTC)
 
 
 class TranscriptStorage(ArtifactStorage):
@@ -148,12 +154,15 @@ class TranscriptStorage(ArtifactStorage):
                 os.fsync(directory)
             return retained
         source = resolve_source(source, roots, source_identity)
+        observation: dict = {}
         staged = self.stage(transcript_id, snapshot_id, "transcript.jsonl",
-                            _source_chunks(source, roots, self.max_bytes, source_identity))
+                            _source_chunks(source, roots, self.max_bytes, source_identity,
+                                           observation))
         try:
             copied = self._publish_once(staged, expected)
             if (copied.sha256, copied.size_bytes) == (staged.sha256, staged.size_bytes):
-                copied = replace(copied, source_path=source)
+                copied = replace(copied, source_path=source,
+                                 source_modified_at=observation.get("source_modified_at"))
             return copied
         finally:
             self.discard(staged)

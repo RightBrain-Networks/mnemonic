@@ -23,6 +23,7 @@ from mnemonic_api.services.project_mutations import project_mutation
 from mnemonic_api.services.transcripts import transcript_project_id
 from mnemonic_api.transcript_copies import TranscriptCopy, TranscriptStorage
 from mnemonic_api.transcript_detection import detect_transcript_client
+from mnemonic_api.transcript_metadata import retained_time_bounds, time_bounds, timeline_metadata
 from mnemonic_api.transcript_normalization import (
     NormalizedConversation,
     conversation_text,
@@ -58,6 +59,8 @@ class TranscriptResult:
     sha256: str
     format: str
     mime_type: str
+    session_started_at: datetime | None = None
+    last_updated_at: datetime | None = None
 
 
 def _active_generation():
@@ -144,7 +147,9 @@ def _start_claim(database: Session, row, settings: Settings) -> TranscriptJob | 
                          min(maximum or settings.transcript_max_bytes,
                              settings.transcript_max_bytes), transcript.kind == "imported",
                          TranscriptCopy(transcript.storage_key, transcript.copy_sha256,
-                                        transcript.copy_size_bytes), now, transcript.snapshot_id)
+                                        transcript.copy_size_bytes,
+                                        source_modified_at=transcript.source_modified_at),
+                         now, transcript.snapshot_id)
 
 
 def claim_transcript_job(
@@ -245,6 +250,11 @@ def complete_transcript_job(
                 _save_result(record, result)
                 record.indexing_started_at = job.started_at
                 record.indexing_completed_at = datetime.now(UTC)
+                record.last_updated_at = result.last_updated_at or record.source_modified_at
+                record.extracted_metadata = timeline_metadata(record.extracted_metadata,
+                    started_at=result.session_started_at, updated_at=record.last_updated_at,
+                    source_modified_at=record.source_modified_at,
+                    indexed_at=record.indexing_completed_at)
             else:
                 raise ValueError("Transcript publication requires result or safe error")
             database.commit()
@@ -274,7 +284,12 @@ def index_next_transcript(
     if job is None:
         return False
     result, error, size, detected_client = None, None, None, None
-    source_details = {}
+    source_details = {
+        "last_updated_at": job.copy.source_modified_at,
+        "extracted_metadata": timeline_metadata({}, started_at=None,
+            updated_at=job.copy.source_modified_at, source_modified_at=job.copy.source_modified_at,
+            indexed_at=None),
+    }
     normalized = None
     try:
         if job.copy.size_bytes > job.maximum_bytes:
@@ -283,14 +298,21 @@ def index_next_transcript(
             normalized = load_normalization(database, job.transcript_id,
                                              job.snapshot_id, job.copy.sha256,
                                              settings.artifact_extraction_max_chars)
+            bounds = (retained_time_bounds(database, job.transcript_id, normalized.revision)
+                      if normalized is not None else (None, None))
         if normalized is None:
             storage = TranscriptStorage(settings.transcript_root, job.maximum_bytes)
             data = storage.read_copy(job.copy)
             detected_client = detect_transcript_client(io.BytesIO(data)) if job.imported else None
             normalized = normalize_transcript(data, detected_client or job.client, job.snapshot_id)
+            bounds = time_bounds(segment.timestamp for segment in normalized.segments)
         size = job.copy.size_bytes
         source_details.update(sha256=job.copy.sha256, format=normalized.format,
-            mime_type=normalized.mime_type, extracted_metadata=normalized.metadata)
+            mime_type=normalized.mime_type,
+            last_updated_at=bounds[1] or job.copy.source_modified_at,
+            extracted_metadata=timeline_metadata(normalized.metadata, started_at=bounds[0],
+                updated_at=bounds[1] or job.copy.source_modified_at,
+                source_modified_at=job.copy.source_modified_at, indexed_at=None))
         searchable, truncated = conversation_text(normalized.segments,
                                                    settings.artifact_extraction_max_chars)
         source_details["truncated"] = truncated or normalized.extraction_partial
@@ -302,7 +324,7 @@ def index_next_transcript(
         # enrich metadata, but may not rewrite boundaries in this structured text.
         result = TranscriptResult(ExtractedArtifact(
             searchable, metadata, truncated or normalized.extraction_partial,
-        ), size, job.copy.sha256, normalized.format, normalized.mime_type)
+        ), size, job.copy.sha256, normalized.format, normalized.mime_type, *bounds)
     except ExtractionError as failure:
         error = failure
     complete_transcript_job(factory, job, result, error, size, source_details, detected_client,

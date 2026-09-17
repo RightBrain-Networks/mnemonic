@@ -24,6 +24,7 @@ from mnemonic_api.transcript_indexing import (
     _lock_claim_candidate,
     _resolved_path_errors,
 )
+from mnemonic_api.transcript_metadata import timeline_metadata
 from mnemonic_api.transcript_recovery_sources import approved_copy_source
 from mnemonic_api.transcript_snapshots import empty_transcript_snapshot
 from mnemonic_jobs.ledger import JobContext
@@ -130,6 +131,9 @@ def _copy_success(record: Transcript, copy: TranscriptCopy, now: datetime) -> No
     record.copy_status = "ready"
     record.storage_key = copy.storage_key
     record.copy_source_path = copy.source_path
+    record.source_modified_at = copy.source_modified_at
+    if record.last_updated_at is None:
+        record.last_updated_at = copy.source_modified_at
     record.copy_sha256 = copy.sha256
     record.copy_size_bytes = copy.size_bytes
     record.copied_at = now
@@ -144,6 +148,9 @@ def _copy_success(record: Transcript, copy: TranscriptCopy, now: datetime) -> No
     # parser/Tika failures keep the captured bytes available for later rebuilds.
     for name, value in empty_transcript_snapshot().items():
         setattr(record, name, value)
+    record.extracted_metadata = timeline_metadata(record.extracted_metadata,
+        started_at=None, updated_at=record.last_updated_at,
+        source_modified_at=record.source_modified_at, indexed_at=None)
     record.status = "pending"
     record.error_code = None
     record.attempts = 0

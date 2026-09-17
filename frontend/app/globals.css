@@ -2555,3 +2555,8 @@ html[data-theme="dark"] .review-policy-summary, html[data-theme="dark"] .review-
 .transcript-health-path { display: block; margin-top: .35rem; white-space: pre-wrap; }
 .transcript-health-metadata { font-size: .85rem; opacity: .85; }
 .transcript-health-notice summary { cursor: pointer; }
+
+.work-transcript-links { padding: 8px 0; font-size: 11px; }
+.work-transcript-links a { color: var(--accent-deep); overflow-wrap: anywhere; }
+.work-transcript-links ul { display: grid; gap: 5px; padding-left: 16px; }
+.work-transcript-links small { color: var(--muted); }

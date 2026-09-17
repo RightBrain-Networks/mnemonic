@@ -180,6 +180,7 @@ export interface CanonicalWorkProjection {
 }
 
 export interface WorkItemDetailRead {
+  transcripts?: import("./work-transcripts.ts").WorkTranscriptLinks;
   readiness: Readiness;
   lease_settings: LeaseSettings;
   code_review_context?: CodeReviewContext;
@@ -486,6 +487,7 @@ export interface HumanGateResolutionInput extends ClientOperationInput {
 }
 
 export interface WorkContext {
+  transcripts?: import("./work-transcripts.ts").WorkTranscriptLinks;
   lease_settings: LeaseSettings;
   artifacts: import("./artifacts.ts").Artifact[];
   artifact_total: number;

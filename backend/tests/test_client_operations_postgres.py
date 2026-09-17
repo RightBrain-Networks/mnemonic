@@ -510,8 +510,9 @@ def test_invalid_completed_snapshot_fails_closed_without_domain_fallback(
         assert captured.value.detail == {
             "code": "client_operation_unavailable",
             "message": (
-                "Client operation safety is unavailable. Retry the same ID with the exact "
-                "same request."
+                "Mnemonic could not verify whether this change was saved. Retry the same pending "
+                "action using its original operation ID and unchanged request to avoid duplicate "
+                "changes. If retries keep failing, the server needs attention."
             ),
             "context": {},
         }

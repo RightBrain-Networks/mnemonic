@@ -89,6 +89,10 @@ def transcript_locations_payload(locations: SubagentTranscripts) -> list[dict[st
 
 
 class TranscriptNormalization(TranscriptModel):
+    last_updated_at: datetime | None = None
+    index_created_at: datetime | None = None
+    session_ids: list[str] = Field(default_factory=list, max_length=8)
+    models: list[str] = Field(default_factory=list, max_length=8)
     matched_fields: Annotated[list[Literal["metadata", "content"]], Field(max_length=2)] = Field(default_factory=list)
     snippet_omission_reason: Literal["matched_span_exceeds_budget"] | None = None
     rank: Annotated[StrictInt, Field(ge=1)] | None = None

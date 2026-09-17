@@ -83,8 +83,8 @@ git pull --ff-only origin main
 
 Use Semantic Versioning (`MAJOR.MINOR.PATCH`) for application releases. `MAJOR` version bumps are reserved and require explicit human approval. Increment `MINOR` for user-facing changes and `PATCH` for all other changes.
 
-The current application/API/MCP/dashboard release is `0.62.0`, Claude plugin
-`0.40.0`, and Alembic head `0043_transcript_source_identity`. The catalog is exactly
+The current application/API/MCP/dashboard release is `0.63.0`, Claude plugin
+`0.41.0`, and Alembic head `0044_transcript_metadata`. The catalog is exactly
 55 MCP tools, 17 receipt-protected MCP writes, 24 REST receipt kinds, 21 protected
 browser mutations, 24 work-event types, and three plugin skills. The suggestion
 POST is a safe read. Completion evidence and job completion reports are nested
@@ -181,7 +181,14 @@ Register sources transactionally; RabbitMQ workers copy raw bytes into the priva
 `MNEMONIC_TRANSCRIPT_DIR` bind, then index retained copies only after their lease
 generation leaves Active, including release or expiry. Client adapters persist a shared,
 versioned conversation manifest and typed segments before text indexing; search and bounded
-segment retrieval consume that common representation. Native copies remain immutable. `truncated` in transcript metadata denotes the
+segment retrieval consume that common representation. Native copies remain immutable. `last_updated_at` is retained session activity, with
+verified source mtime fallback; `index_created_at` records the current text index creation.
+Native `session_ids`/`models` are separate from the immutable reporting `session_id`.
+Exact work detail/context include bounded metadata-only transcript links; page the
+rest with `search_transcripts_content(work_item_id=...)`, and follow a transcript’s
+`project_id`/`work_item_id` with `get_work`. Transcript/work-only unified searches use
+a coherent read snapshot, never a project mutation lock or operation UUID.
+`truncated` in transcript metadata denotes the
 search-text character limit; `normalization_incomplete` separately denotes
 unsupported records or relationships. Do not conflate these with raw-copy loss.
 Rebuilds reuse persisted segments when capture and normalizer versions match. See

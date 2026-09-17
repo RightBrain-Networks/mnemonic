@@ -29,6 +29,10 @@ export interface Transcript extends TranscriptNormalization {
   copied_at: string | null;
   indexing_started_at: string | null;
   indexing_completed_at: string | null;
+  last_updated_at?: string | null;
+  index_created_at?: string | null;
+  session_ids?: string[];
+  models?: string[];
   error_code: string | null;
   size_bytes: number | null;
   mime_type: string | null;
@@ -103,6 +107,8 @@ export function decodeTranscript(value: unknown, projectId: string, transcriptId
     || !nullableText(row.copy_error_code, 200) || !(row.copied_at === null || timestamp(row.copied_at))
     || !(row.indexing_started_at === null || timestamp(row.indexing_started_at))
     || !(row.indexing_completed_at === null || timestamp(row.indexing_completed_at))
+    || ![row.last_updated_at, row.index_created_at].every((value) => value == null || timestamp(value))
+    || ![row.session_ids, row.models].every((value) => value === undefined || Array.isArray(value) && value.length <= 8 && value.every((item) => boundedText(item, 200)))
     || !nullableText(row.error_code, 200) || !(row.size_bytes === null || finiteInteger(row.size_bytes))
     || !nullableText(row.mime_type, 200) || !nullableText(row.format, 200)
     || !(row.sha256 === null || transcriptDigest(row.sha256))

@@ -412,6 +412,10 @@ def test_moved_work_transcript_follows_current_project_without_source_leakage(
     assert len(moved) == 1
     assert moved[0]["id"] == record["id"]
     assert moved[0]["project_id"] == target["id"]
+    for suffix in ("", "/context"):
+        linked = api.get(item_path(target, work) + suffix).json()["transcripts"]
+        assert linked["items"][0]["project_id"] == target["id"]
+        assert linked["items"][0]["id"] == record["id"]
     assert api.get(collection(target) + "/" + record["id"] + "/content").content == snapshot
 
 
@@ -630,7 +634,10 @@ def test_index_retry_reuses_copied_provenance_when_source_changes(
     assert current["sha256"] == first["sha256"]
     assert current["size_bytes"] == first["size_bytes"]
     assert current["format"] == first["format"] and current["mime_type"] == first["mime_type"]
-    assert current["metadata"] == first["metadata"] | {"dc:creator": ["Synthetic Author"]}
+    assert current["metadata"] == first["metadata"] | {
+        "dc:creator": ["Synthetic Author"],
+        "transcript:index_created_at": [current["index_created_at"]],
+    }
     assert current["text_sha256"] is not None
     assert not current["truncated"]
     page = api.get(

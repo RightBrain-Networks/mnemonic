@@ -50,8 +50,8 @@ def test_changing_source_is_retried_and_partial_stages_are_removed(tmp_path, mon
     chunks = transcript_copies._source_chunks
     mutated = []
 
-    def changing(path, roots, maximum, identity=None):
-        for chunk in chunks(path, roots, maximum, identity):
+    def changing(path, roots, maximum, identity=None, observation=None):
+        for chunk in chunks(path, roots, maximum, identity, observation):
             if not mutated:
                 with source.open("ab") as content:
                     content.write(b"later line\n")
