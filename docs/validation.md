@@ -9,13 +9,17 @@ No tool, protected write or plugin catalog count changes. Original assertions,
 receipts, native copies, normalization revisions and ready text are preserved.
 Explicit old 64-MiB operator/project settings remain explicit choices on upgrade.
 
-The complete isolated PostgreSQL/RabbitMQ backend suite passed **3,355 tests**.
+The complete isolated PostgreSQL/RabbitMQ backend suite passed **3,355 tests**;
+final backend CI passed **3,356 tests**.
 After removing the unused Tika dispatch interface, **638 transcript tests** passed.
 Final capacity tests passed **13 cases**, including actual unmodified REST replies
 through MCP in its separate environment. Final server sorting/storage tests passed
 **14 cases**, including copy-failed, index-failed, indexed and waiting states.
 The complete MCP suite passed **1,886 tests**; subsequent large-text and schema
-contract checks passed **75 affected cases**. Backend/MCP lint and type checks pass.
+contract checks passed **75 affected cases**. Two older shared search fixtures
+initially omitted the new sorting properties; all **190** compact, exact-query,
+exploration, normalization, transcript and schema checks pass after correcting
+the fixtures. Strict wire validation remains unchanged. Backend/MCP lint and type checks pass.
 The local plugin/repository verifier passed **71 tests** with one macOS-only skip.
 
 The full transcript acceptance run passed **24 desktop/narrow cases**, followed by

@@ -15,7 +15,7 @@ A later aggregate-only capacity check found **578,621,464 bytes** of indexed tex
 in the largest project (1,276 ready entries), within the search-serving API's configured
 **1,073,741,824-byte** content-search budget. The worker's unused search setting
 is 512 MiB; it does not govern API search admission. Across both projects, active canonical
-segments contained **685,617,649 text bytes before labels/separators**. The existing API search budget can admit that complete corpus.
+segments contained **685,617,649 text bytes before labels/separators**. The existing API budget admits those already captured conversations. A later measurement of the growing failed source produced **93,636,033 rendered text bytes**. Recovering its five enrollments adds approximately **468 MB**; the largest project then exceeds 1 GiB. The rollout therefore needs a **2 GiB API search budget**, independently of the per-file capture limit.
 
 | Finding | Cause | Correction |
 | --- | --- | --- |
@@ -128,7 +128,10 @@ Raise that explicit operator policy in both API and worker to `536870912` when
 512 MiB is intended; also raise any explicit project limit in Transcript indexing.
 The audited installation has no explicit capture override, so the new Compose
 default takes effect on recreation. Its API already has
-`MNEMONIC_TRANSCRIPT_SEARCH_MAX_BYTES=1073741824` (1 GiB); preserve that setting.
+`MNEMONIC_TRANSCRIPT_SEARCH_MAX_BYTES=1073741824` (1 GiB). Raise it to
+`2147483648` (2 GiB) for the measured complete corpus including all five recovered
+oversized entries. This is an explicit deployment policy change; the application
+does not silently override an existing operator budget.
 The search budget controls admitted content, not a disk quota or an exact
 process-memory ceiling. Eligible oversized failures recheck within five minutes. Historical truncated
 ready text refreshes automatically; verify progress and coverage rather than
