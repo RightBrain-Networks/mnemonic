@@ -12,14 +12,14 @@ five native-size failures, two missing sources, four nonregular paths, and 49
 retained files rejected as unsupported. Nineteen ready entries had limited text.
 Counts describe that observation, not a promise that every source is recoverable.
 A later aggregate-only capacity check found **578,621,464 bytes** of indexed text
-in the largest project (1,276 ready entries), already above its configured
-**536,870,912-byte** content-search budget. Across both projects, active canonical
-segments contained **685,617,649 text bytes before labels/separators**. Complete
-indexing must be paired with an adequate search budget for this installation.
+in the largest project (1,276 ready entries), within the search-serving API's configured
+**1,073,741,824-byte** content-search budget. The worker's unused search setting
+is 512 MiB; it does not govern API search admission. Across both projects, active canonical
+segments contained **685,617,649 text bytes before labels/separators**. The existing API search budget can admit that complete corpus.
 
 | Finding | Cause | Correction |
 | --- | --- | --- |
-| `Copy failed transcript_too_large` | The explicit operator maximum was 64 MiB. Five enrollments referenced one larger native session. Raising a cap alone would expose whole-file parser allocations. | Stream JSONL, use private disk-backed segment spools, and raise the default to 512 MiB with a 1 GiB ceiling. Recheck size failures after five minutes under normal lease/pause guards. Preserve explicit policies. |
+| `Copy failed transcript_too_large` | The effective operator maximum was the old Compose default of 64 MiB. Five enrollments referenced one larger native session. Raising a cap alone would expose whole-file parser allocations. | Stream JSONL, use private disk-backed segment spools, and raise the default to 512 MiB with a 1 GiB ceiling. Recheck size failures after five minutes under normal lease/pause guards. Preserve explicit policies. |
 | `Indexed · Search text limited` | Transcript indexing inherited the artifact extractor's 2,000,000-character budget despite retaining complete canonical segments. | Hash complete segment text incrementally and assemble that same ordered text in PostgreSQL during atomic publication. Remove Tika from transcript dispatch. Refresh historical truncated ready rows automatically. |
 | Accepted copies failed after lowering a size policy | Capture policy also restricted reads and crash adoption of already accepted immutable snapshots. | Apply the current limit to new capture; verify retained copies using their own pinned size/hash. |
 | Long transcript retrieval failed or allocated the entire body | Flat text, MCP validation and browser downloads carried unrelated 8-million-character/32-MiB limits. | SQL substring paging, coherent streamed downloads, matching flat-text bounds through 1 GiB, and streaming browser proxy validation. Keep the explicit 32-MiB base64 MCP download bound; larger conversations remain fully pageable. |
@@ -126,11 +126,11 @@ preserves explicit project settings and all existing content/receipts.
 **An existing `MNEMONIC_TRANSCRIPT_MAX_BYTES=67108864` remains 64 MiB after upgrade.**
 Raise that explicit operator policy in both API and worker to `536870912` when
 512 MiB is intended; also raise any explicit project limit in Transcript indexing.
-For the audited installation, also raise `MNEMONIC_TRANSCRIPT_SEARCH_MAX_BYTES`
-to `1073741824` (1 GiB) in the API: its largest project already exceeds the old
-512-MiB search budget. That budget controls admitted searchable content; it is
-not a disk quota or an exact process-memory ceiling. Eligible oversized failures
-recheck within five minutes. Historical truncated
+The audited installation has no explicit capture override, so the new Compose
+default takes effect on recreation. Its API already has
+`MNEMONIC_TRANSCRIPT_SEARCH_MAX_BYTES=1073741824` (1 GiB); preserve that setting.
+The search budget controls admitted content, not a disk quota or an exact
+process-memory ceiling. Eligible oversized failures recheck within five minutes. Historical truncated
 ready text refreshes automatically; verify progress and coverage rather than
 clearing its flag manually. Missing native sources, nonregular assertions and
 historical task journals require actual source restoration or
