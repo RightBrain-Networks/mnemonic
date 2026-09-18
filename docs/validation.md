@@ -12,7 +12,7 @@ with physical allocation below twice the latest source size, cross-path content,
 complete-prefix comparison, corruption during reads, crash receipt adoption,
 reclamation interrupted before/after commit, old-pointer readers, stale rows,
 dry-run nonmutation, exact reclaimed-byte estimates, migration preservation and
-unsafe downgrade refusal. Ten final reclamation/CLI/migration cases pass; the
+unsafe downgrade refusal. Eleven final reclamation/CLI/migration cases pass; the
 broader integration run passed 80 cases. Existing >200 MiB publication, cursor
 download, normalization, active-lease, RabbitMQ and backup tests use the new store.
 

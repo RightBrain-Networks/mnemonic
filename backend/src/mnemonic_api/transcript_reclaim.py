@@ -224,6 +224,10 @@ def _replace_legacy(storage: TranscriptStorage, row: ReclaimSnapshot) -> bool:
             size += len(chunk)
         if (digest.hexdigest(), size) != (row.sha256, row.size_bytes):
             raise ExtractionError('transcript_copy_integrity_failed')
+        if size == 0:
+            # An empty historical file has no redundant payload to reclaim.
+            # Preserve its old pointer without adding a larger reference file.
+            return False
         write_reference(storage, row.legacy_key, CopyReference(row.sha256, row.size_bytes))
     return True
 

@@ -30,6 +30,32 @@ from .test_transcript_lifecycle_postgres import claim
 pytestmark = pytest.mark.postgres
 
 
+def test_empty_historical_capture_keeps_its_zero_byte_legacy_reader(
+    api, project, work_payload, tmp_path, postgres_engine,
+):
+    work, _, _, _ = register(api, project, work_payload, tmp_path)
+    factory, settings = api.app.state.session_factory, api.app.state.settings
+    storage = TranscriptStorage(settings.transcript_root, settings.transcript_max_bytes)
+    expire_lease(postgres_engine, work['id'])
+    job = claim_transcript_copy(factory, settings)
+    assert job is not None
+    writer = ArtifactStorage(storage.root, settings.transcript_max_bytes)
+    staged = writer.stage(job.transcript_id, job.snapshot_id, 'transcript.jsonl', [])
+    writer.publish(staged)
+    complete_transcript_copy(factory, job,
+        TranscriptCopy(staged.relative_path, staged.sha256, staged.size_bytes), None)
+    rows = snapshots(factory)
+    report = plan_reclaim(storage, rows)
+    assert report['replacement_reference_bytes'] == 0
+    with storage.maintenance_lock(exclusive=True):
+        assert apply_reclaim(factory, storage, rows) == {
+            'rows_repointed': 1, 'legacy_files_reclaimed': 0}
+    assert (storage.root / rows[0].legacy_key).stat().st_size == 0
+    with storage.open_copy(rows[0].copy) as original:
+        assert original.read() == b''
+    assert plan_reclaim(storage, snapshots(factory))['rows_to_reclaim'] == 0
+
+
 def test_shared_migration_preserves_legacy_snapshots_and_refuses_unsafe_downgrade(
     api, project, work_payload, tmp_path, postgres_engine,
 ):

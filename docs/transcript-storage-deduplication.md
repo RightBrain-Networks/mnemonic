@@ -87,6 +87,7 @@ the row fence rather than deleting its old capture. Never manually delete native
 files to reclaim space; the command does not delete shared objects or base objects.
 Their references include dependent snapshot objects, not only database rows.
 Historical small references intentionally remain for readers and retained pointers.
+Empty historical files stay empty: they contain no redundant payload to reclaim.
 
 Back up the **complete native store**, including objects, base objects, receipts and
 references. A project-only directory selection is not a native backup: shared
