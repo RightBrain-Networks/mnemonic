@@ -169,6 +169,9 @@ def test_upgrade_backfills_session_times_without_touching_capture_or_jobs(
     expire_lease(postgres_engine, work["id"])
     assert run(api)
     before = read(api, project, row)
+    from .transcript_legacy import restore_legacy_native_layout
+
+    restore_legacy_native_layout(api)
     migrate(postgres_engine, "0043_transcript_source_identity", downgrade=True)
     with postgres_engine.begin() as connection:
         # Reproduce an old record with no derived timeline properties.
