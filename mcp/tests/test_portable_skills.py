@@ -169,5 +169,7 @@ def test_exported_transcript_guidance_keeps_verified_paths_and_frozen_retries(ex
         assert (exported / name / "reference/transcripts.md").read_text() == reference
     for guard in ("Do not construct Claude paths from the main checkout", "regular transcript file",
                   "task stdout `.output` path", "operator-approved source root", "explicit `null`",
-                  "client=codex", "never change frozen retry arguments"):
+                  "client=codex", "never change frozen retry arguments", "CODEX_THREAD_ID",
+                  "session_meta.payload.id", "A null assertion creates no transcript entry",
+                  "its own native ID and rollout", "without the artifact extractor"):
         assert guard in reference

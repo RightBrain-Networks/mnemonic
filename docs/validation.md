@@ -1,5 +1,24 @@
 # Mnemonic validation record
 
+## Large transcript publication and Codex setup (0.65.1)
+
+The production-sized publication probe exposed the interactive ten-second database
+transaction limit after successful capture/normalization. The follow-up stages
+canonical records independently, then activates them under existing ownership
+fences. Six real-PostgreSQL regressions cover slow staging with concurrent project
+edits and job heartbeats, staging rollback, activation crashes, generation changes,
+lost ledger ownership, and preserved Codex import identity after a crash.
+
+A seventh case captures and persists a >200 MiB session with 60,001 segments, searches
+its last message, pages beyond 80 million characters, and verifies the complete
+HTTP download length and SHA-256. The first run exposed quadratic download work;
+canonical cursor streaming reduced that case plus all six publication regressions
+to 36.31 seconds locally. Another 15 capacity/download tests passed, covering both
+native clients, bounded UTF-8 chunks, concurrent publication snapshots, legacy bytes,
+MCP response validation, Tika independence, retries and immutable-copy recovery.
+The portable exporter tests verify that every installed skill retains complete
+Codex path/identity guidance and resolves all bundled references after relocation.
+
 ## Complete transcript pipeline and controls (0.65.0)
 
 Application/API/MCP/dashboard 0.65.0 requires migration
