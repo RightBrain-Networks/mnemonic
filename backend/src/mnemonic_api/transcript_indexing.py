@@ -294,8 +294,7 @@ def index_next_transcript(
     try:
         with factory() as database:
             normalized = load_normalization(database, job.transcript_id,
-                                             job.snapshot_id, job.copy.sha256,
-                                             maximum_chars=None)
+                                             job.snapshot_id, job.copy.sha256)
             bounds = (retained_time_bounds(database, job.transcript_id, normalized.revision)
                       if normalized is not None else (None, None))
         if normalized is None:
