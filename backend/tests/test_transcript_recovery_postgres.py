@@ -33,7 +33,7 @@ from mnemonic_jobs.ledger import PermanentJobError, RetryJob, claim_job, finish_
 from .test_artifact_extraction_migration_postgres import migrate
 from .test_leases_postgres import create_work, expire_lease, item_path
 from .test_transcript_imports_postgres import import_folder, source
-from .test_transcript_indexing_postgres import Parser, collection, read, register, run
+from .test_transcript_indexing_postgres import collection, read, register, run
 from .test_transcript_lifecycle_postgres import claim
 from .test_work_item_moves_postgres import _move_payload, _project
 
@@ -114,7 +114,7 @@ def test_recovery_atomically_queues_only_identifiers_and_replays_after_guards_ch
     disposition = handle_transcript_copy(factory, settings, context)
     with factory.begin() as database:
         assert finish_job(database, context, result=disposition)
-    assert index_next_transcript(factory, settings, Parser())
+    assert index_next_transcript(factory, settings)
     ready = read(api, project, record)
     assert ready["source_path"] == request.original_source_path
     assert ready["sha256"] == request.expected_sha256 and ready["status"] == "ready"

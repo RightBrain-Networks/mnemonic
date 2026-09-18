@@ -9,8 +9,9 @@ import hashlib
 import json
 import re
 from collections import Counter
+from collections.abc import Sequence
 from dataclasses import asdict, dataclass, field
-from typing import Any, Literal
+from typing import Any, BinaryIO, Literal
 from uuid import UUID
 
 from mnemonic_api.artifact_tika import ExtractionError, normalize_extracted_text
@@ -32,6 +33,7 @@ from mnemonic_api.transcript_parsers import (
     _records,
     _validate_tool_input,
 )
+from mnemonic_api.transcript_spool import TranscriptSegments, discard_on_error
 
 SCHEMA_VERSION = 1
 NORMALIZER_VERSION = 2
@@ -76,7 +78,7 @@ class NormalizedConversation:
     format: str
     mime_type: str
     metadata: dict[str, list[str]]
-    segments: list[Segment]
+    segments: Sequence[Segment]
     incomplete: bool
     schema_version: int = SCHEMA_VERSION
     normalizer_version: int = NORMALIZER_VERSION
@@ -326,27 +328,30 @@ def _segment(revision: str, ordinal: int, number: int, path: str,
         **(block | {"dispositions": dispositions}))
 
 
-def _resolve_calls(segments: list[Segment]) -> list[Segment]:
+def _resolve_calls(segments: Sequence[Segment]) -> Sequence[Segment]:
     from dataclasses import replace
 
-    calls: dict[str, list[Segment]] = {}
+    calls: dict[str, list[str]] = {}
     for segment in segments:
         if segment.content_kind == "tool_call" and segment.call_id:
-            calls.setdefault(segment.call_id, []).append(segment)
-    result = []
-    preceding: dict[str, Segment] = {}
-    for segment in segments:
-        if segment.content_kind == "tool_call" and segment.call_id:
-            preceding[segment.call_id] = segment
-        if segment.content_kind == "tool_result" and segment.call_id:
-            candidates = calls.get(segment.call_id, [])
-            call = preceding.get(segment.call_id)
-            if call is None and len(candidates) == 1:
-                call = candidates[0]
-            segment = replace(segment, related_segment_id=call.segment_id if call else None,
-                dispositions=segment.dispositions
-                + ([] if call else ["call_reference_unresolved"]))
-        result.append(segment)
+            calls.setdefault(segment.call_id, []).append(segment.segment_id)
+    result = TranscriptSegments() if isinstance(segments, TranscriptSegments) else []
+    with discard_on_error(result):
+        preceding: dict[str, str] = {}
+        for segment in segments:
+            if segment.content_kind == "tool_call" and segment.call_id:
+                preceding[segment.call_id] = segment.segment_id
+            if segment.content_kind == "tool_result" and segment.call_id:
+                candidates = calls.get(segment.call_id, [])
+                call = preceding.get(segment.call_id)
+                if call is None and len(candidates) == 1:
+                    call = candidates[0]
+                segment = replace(segment, related_segment_id=call,
+                    dispositions=segment.dispositions
+                    + ([] if call else ["call_reference_unresolved"]))
+            result.append(segment)
+    if isinstance(segments, TranscriptSegments):
+        segments.close()
     return result
 
 
@@ -390,7 +395,7 @@ def _event_segments(row: dict, codex: bool, seen: set[bytes], stats: Counter):
         stats["bookkeeping_or_mirrored_event"] += 1
 
 
-def _coverage_metadata(segments: list[Segment], stats: Counter) -> dict[str, list[str]]:
+def _coverage_metadata(segments: Sequence[Segment], stats: Counter) -> dict[str, list[str]]:
     warnings: Counter = Counter()
     notes: Counter = Counter(stats)
     for segment in segments:
@@ -413,47 +418,64 @@ def _collect_parent_session(row: dict, parents: set[str]) -> None:
         parents.add(parent)
 
 
-def normalize_transcript(content: bytes, client: str, snapshot_id: UUID) -> NormalizedConversation:
+def _source_digest(content: bytes | BinaryIO) -> str:
+    if isinstance(content, bytes):
+        return hashlib.sha256(content).hexdigest()
+    digest = hashlib.sha256()
+    while chunk := content.read(1024 * 1024):
+        digest.update(chunk)
+    content.seek(0)
+    return digest.hexdigest()
+
+
+def normalize_transcript(content: bytes | BinaryIO, client: str,
+                         snapshot_id: UUID) -> NormalizedConversation:
+    source_sha256 = _source_digest(content)
     parser = TranscriptParserFactory.create(client)
     codex = isinstance(parser, CodexParser)
     rows, format_name, mime = ((_jsonl(content), "codex-jsonl", "application/x-ndjson")
                                if codex else _records(content))
-    source_sha256 = hashlib.sha256(content).hexdigest()
     revision = revision_for(snapshot_id, source_sha256)
-    segments: list[Segment] = []
-    sessions: set[str] = set()
-    models: set[str] = set()
-    parents: set[str] = set()
-    count = 0
-    seen: set[bytes] = set()
-    stats: Counter = Counter()
-    for number, row in enumerate(rows, start=1):
-        (_collect_codex_metadata if codex else _collect_metadata)(row, sessions, models)
-        _collect_parent_session(row, parents)
-        recognized = False
-        for path, native, role, block in _event_segments(row, codex, seen, stats):
-            recognized |= not {"unsupported_record", "unsupported_role",
-                               "unsupported_attachment"}.intersection(block.get("dispositions", []))
-            if len(segments) >= _SEGMENT_LIMIT:
-                raise ExtractionError("transcript_too_many_segments")
-            segments.append(_segment(revision, len(segments), number, path, role, native, block))
-        count += recognized
-    if not count:
-        raise ExtractionError("transcript_unsupported_format")
-    segments = _resolve_calls(segments)
-    metadata = {"transcript:message_count": [str(count)], **_coverage_metadata(segments, stats)}
-    if sessions:
-        metadata["transcript:session_id"] = sorted(sessions)
-    if models:
-        metadata["transcript:model"] = sorted(models)
-    if parents:
-        metadata["transcript:parent_session_id"] = sorted(parents)
-    digest = hashlib.sha256()
-    for segment in segments:
-        digest.update(canonical_json(asdict(segment)) + b"\n")
-    incomplete = any(set(segment.dispositions) - INFORMATIONAL_DISPOSITIONS for segment in segments)
-    return NormalizedConversation(revision, digest.hexdigest(), snapshot_id, source_sha256,
-                                  format_name, mime, metadata, segments, incomplete)
+    segments = [] if isinstance(content, bytes) else TranscriptSegments()
+    with discard_on_error(segments):
+        sessions: set[str] = set()
+        models: set[str] = set()
+        parents: set[str] = set()
+        count = 0
+        seen: set[bytes] = set()
+        stats: Counter = Counter()
+        for number, row in enumerate(rows, start=1):
+            (_collect_codex_metadata if codex else _collect_metadata)(row, sessions, models)
+            _collect_parent_session(row, parents)
+            recognized = False
+            for path, native, role, block in _event_segments(row, codex, seen, stats):
+                recognized |= not {"unsupported_record", "unsupported_role",
+                                   "unsupported_attachment"}.intersection(
+                                       block.get("dispositions", []))
+                if len(segments) >= _SEGMENT_LIMIT:
+                    raise ExtractionError("transcript_too_many_segments")
+                segments.append(_segment(revision, len(segments), number, path,
+                                         role, native, block))
+            count += recognized
+        if not count:
+            raise ExtractionError("transcript_unsupported_format")
+        segments = _resolve_calls(segments)
+        with discard_on_error(segments):
+            metadata = {"transcript:message_count": [str(count)],
+                        **_coverage_metadata(segments, stats)}
+            if sessions:
+                metadata["transcript:session_id"] = sorted(sessions)
+            if models:
+                metadata["transcript:model"] = sorted(models)
+            if parents:
+                metadata["transcript:parent_session_id"] = sorted(parents)
+            digest = hashlib.sha256()
+            for segment in segments:
+                digest.update(canonical_json(asdict(segment)) + b"\n")
+            incomplete = any(set(segment.dispositions) - INFORMATIONAL_DISPOSITIONS
+                             for segment in segments)
+            return NormalizedConversation(revision, digest.hexdigest(), snapshot_id, source_sha256,
+                                          format_name, mime, metadata, segments, incomplete)
 
 
 def segment_text(segment: Segment) -> str:
@@ -467,7 +489,7 @@ def segment_text(segment: Segment) -> str:
     return f"{label}: {segment.text}"
 
 
-def conversation_text(segments: list[Segment], maximum_chars: int) -> tuple[str, bool]:
+def conversation_text(segments: Sequence[Segment], maximum_chars: int) -> tuple[str, bool]:
     parts = []
     remaining = maximum_chars
     truncated = False

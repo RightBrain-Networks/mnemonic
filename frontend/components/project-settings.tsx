@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import WorkLeaseSettings from "@/components/work-lease-settings";
-import TranscriptSettingsPanel from "@/components/transcript-settings";
 import CodeReviewSettingsPanel from "@/components/code-review-settings";
 import ProjectBackupsPanel from "@/components/project-backups";
 import { api, ApiError, errorMessage } from "@/lib/api";
@@ -23,7 +22,6 @@ type Props = {
   backupMaximumBytes: number;
   backupRefreshSignal: number;
   onBackupPendingChange: (pending: boolean) => void;
-  onTranscriptPendingChange: (pending: boolean) => void;
   onPromptPendingChange: (pending: boolean) => void;
 };
 
@@ -58,7 +56,6 @@ export default function ProjectSettingsPanel({
   backupMaximumBytes,
   backupRefreshSignal,
   onBackupPendingChange,
-  onTranscriptPendingChange,
   onPromptPendingChange
 }: Props) {
   const [projectDetails, setProjectDetails] = useState(() => detailsFromProject(project));
@@ -241,7 +238,6 @@ export default function ProjectSettingsPanel({
         settings={settings} loading={loading} loadError={loadError}
         onSaved={onSaved} onRetry={onRetry} onNotice={onNotice} />
     </section>}
-    {section === "workspace" && <TranscriptSettingsPanel key={selectedProject.id} projectId={selectedProject.id} onPendingChange={onTranscriptPendingChange} />}
     {section === "prompts" && <PromptLibrary key={selectedProject.id} project={selectedProject} onNotice={onNotice} onPendingChange={onPromptPendingChange} />}
     {section === "backups" && <ProjectBackupsPanel key={selectedProject.id} project={selectedProject} maximumBytes={backupMaximumBytes} refreshSignal={backupRefreshSignal} onPendingChange={onBackupPendingChange} />}
   </div>;

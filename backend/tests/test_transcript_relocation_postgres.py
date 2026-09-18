@@ -18,7 +18,7 @@ from mnemonic_backup.archive import restore_project
 from .test_leases_postgres import create_work, expire_lease, item_path
 from .test_project_backup_archive import _export, _snapshot
 from .test_transcript_imports_postgres import import_folder
-from .test_transcript_indexing_postgres import Parser, collection, read
+from .test_transcript_indexing_postgres import collection, read
 from .test_transcript_lifecycle_postgres import claim
 
 pytestmark = pytest.mark.postgres
@@ -53,7 +53,7 @@ def test_move_after_claim_preserves_receipt_and_indexes_only_after_lease_ends(
     assert api.post(item_path(project, work) + "/claim", json=payload).json() == receipt
     expire_lease(postgres_engine, work["id"])
     assert copy_next_transcript(factory, settings)
-    assert index_next_transcript(factory, settings, Parser())
+    assert index_next_transcript(factory, settings)
     assert read(api, project, record)["status"] == "ready"
     with factory() as database:
         row = database.get(Transcript, UUID(record["id"]))
@@ -88,7 +88,7 @@ def test_ambiguous_move_warns_then_automatically_recovers_after_operator_fix(
         row = database.get(Transcript, UUID(record["id"]))
         row.copy_next_attempt_at = datetime.now(UTC) - timedelta(seconds=1)
     assert copy_next_transcript(factory, settings)
-    assert index_next_transcript(factory, settings, Parser())
+    assert index_next_transcript(factory, settings)
     assert read(api, project, record)["copy_status"] == "ready"
 
 
@@ -165,5 +165,5 @@ def test_new_approved_root_retries_only_with_enrollment_evidence(
         row = database.get(Transcript, UUID(record["id"]))
         row.copy_next_attempt_at = datetime.now(UTC) - timedelta(seconds=1)
     assert copy_next_transcript(factory, settings)
-    assert index_next_transcript(factory, settings, Parser())
+    assert index_next_transcript(factory, settings)
     assert read(api, project, record)["copy_status"] == "ready"

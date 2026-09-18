@@ -8,7 +8,9 @@ import { decodeTermDiagnostics, type TermDiagnostic } from "./search-diagnostics
 import { boundedText, exactKeys, finiteInteger, objectValue, sameUuid, validUuid } from "./wire-guards.ts";
 
 export const TRANSCRIPT_JSON_MAX_BYTES = 16 * 1024 * 1024;
-export const TRANSCRIPT_MAX_BYTES = 256 * 1024 * 1024;
+export const TRANSCRIPT_MAX_BYTES = 1024 * 1024 * 1024;
+export const TRANSCRIPT_SORT_FIELDS = ["name", "size", "session", "indexing", "updated"] as const;
+export type TranscriptSort = typeof TRANSCRIPT_SORT_FIELDS[number];
 export const TRANSCRIPT_PAGE_SIZE = 50;
 export const TRANSCRIPT_TEXT_PAGE_SIZE = 20000;
 export type TranscriptStatus = "waiting" | "pending" | "processing" | "ready" | "failed";

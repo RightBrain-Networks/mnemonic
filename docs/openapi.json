@@ -4409,7 +4409,7 @@
             "type": "string"
           },
           "truncated": {
-            "description": "Indexed text reached its character budget. Native copies and persisted conversation segments remain intact.",
+            "description": "Historical indexed text reached its character budget; automatically refreshed. Native copies and persisted conversation segments remain intact.",
             "title": "Truncated",
             "type": "boolean"
           },
@@ -6007,6 +6007,80 @@
           "actor"
         ],
         "title": "DashboardWorkPendingCreate",
+        "type": "object"
+      },
+      "DirectoryUsage": {
+        "properties": {
+          "bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bytes"
+          },
+          "checked_at": {
+            "format": "date-time",
+            "title": "Checked At",
+            "type": "string"
+          },
+          "complete": {
+            "default": false,
+            "title": "Complete",
+            "type": "boolean"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "free_bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Free Bytes"
+          },
+          "logical_bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Logical Bytes"
+          },
+          "total_bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Bytes"
+          }
+        },
+        "required": [
+          "checked_at"
+        ],
+        "title": "DirectoryUsage",
         "type": "object"
       },
       "DuplicateCandidateSummary": {
@@ -12153,6 +12227,16 @@
             "title": "Recheck Seconds",
             "type": "integer"
           },
+          "storage": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TranscriptUsage"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "warnings": {
             "items": {
               "$ref": "#/components/schemas/TranscriptWarning"
@@ -12342,6 +12426,33 @@
           },
           "semantic": {
             "$ref": "#/components/schemas/SemanticDisposition"
+          },
+          "sort_by": {
+            "anyOf": [
+              {
+                "enum": [
+                  "name",
+                  "size",
+                  "session",
+                  "indexing",
+                  "updated"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sort By"
+          },
+          "sort_direction": {
+            "default": "desc",
+            "enum": [
+              "asc",
+              "desc"
+            ],
+            "title": "Sort Direction",
+            "type": "string"
           },
           "term_diagnostics": {
             "items": {
@@ -12865,7 +12976,7 @@
             "title": "Text Sha256"
           },
           "truncated": {
-            "description": "Indexed text reached its character budget. Native copies and persisted conversation segments remain intact.",
+            "description": "Historical indexed text reached its character budget; automatically refreshed. Native copies and persisted conversation segments remain intact.",
             "title": "Truncated",
             "type": "boolean"
           },
@@ -13068,6 +13179,33 @@
             "title": "Query Mode",
             "type": "string"
           },
+          "sort_by": {
+            "anyOf": [
+              {
+                "enum": [
+                  "name",
+                  "size",
+                  "session",
+                  "indexing",
+                  "updated"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sort By"
+          },
+          "sort_direction": {
+            "default": "desc",
+            "enum": [
+              "asc",
+              "desc"
+            ],
+            "title": "Sort Direction",
+            "type": "string"
+          },
           "updated_after": {
             "anyOf": [
               {
@@ -13141,7 +13279,7 @@
             "type": "integer"
           },
           "max_file_size_bytes": {
-            "maximum": 268435456.0,
+            "maximum": 1073741824.0,
             "minimum": 1.0,
             "title": "Max File Size Bytes",
             "type": "integer"
@@ -13353,6 +13491,44 @@
           "text_sha256"
         ],
         "title": "TranscriptText",
+        "type": "object"
+      },
+      "TranscriptUsage": {
+        "properties": {
+          "database_bytes": {
+            "title": "Database Bytes",
+            "type": "integer"
+          },
+          "index": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DirectoryUsage"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "scope": {
+            "default": "all_projects",
+            "title": "Scope",
+            "type": "string"
+          },
+          "transcripts": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DirectoryUsage"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "database_bytes"
+        ],
+        "title": "TranscriptUsage",
         "type": "object"
       },
       "TranscriptWarning": {
@@ -17087,7 +17263,7 @@
   "info": {
     "description": "Durable project-scoped work with immutable agent checkpoints.",
     "title": "Mnemonic API",
-    "version": "0.64.0"
+    "version": "0.65.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -20739,6 +20915,43 @@
                 "literal"
               ],
               "title": "Query Mode",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort_by",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "name",
+                    "size",
+                    "session",
+                    "indexing",
+                    "updated"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Sort By"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort_direction",
+            "required": false,
+            "schema": {
+              "default": "desc",
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "title": "Sort Direction",
               "type": "string"
             }
           },

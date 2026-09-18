@@ -8,7 +8,7 @@ import io
 import json
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
-from typing import Protocol
+from typing import BinaryIO, Protocol
 
 from mnemonic_api.artifact_tika import ExtractionError, normalize_extracted_text
 
@@ -38,8 +38,8 @@ def _decode(content: bytes) -> object:
         raise ExtractionError("transcript_invalid_format") from error
 
 
-def _jsonl(content: bytes) -> Iterator[dict]:
-    stream = io.BytesIO(content)
+def _jsonl(content: bytes | BinaryIO) -> Iterator[dict]:
+    stream = io.BytesIO(content) if isinstance(content, bytes) else content
     count = 0
     while line := stream.readline(_RECORD_MAX_BYTES + 1):
         if len(line) > _RECORD_MAX_BYTES:
@@ -55,8 +55,12 @@ def _jsonl(content: bytes) -> Iterator[dict]:
         yield row
 
 
-def _records(content: bytes) -> tuple[Iterable[dict], str, str]:
-    first = content.lstrip(b"\xef\xbb\xbf \t\r\n")[:_RECORD_MAX_BYTES + 1].split(b"\n", 1)[0]
+def _records(content: bytes | BinaryIO) -> tuple[Iterable[dict], str, str]:
+    stream = io.BytesIO(content) if isinstance(content, bytes) else content
+    first = stream.readline(_RECORD_MAX_BYTES + 1)
+    while first and not first.strip():
+        first = stream.readline(_RECORD_MAX_BYTES + 1)
+    stream.seek(0)
     if len(first) > _RECORD_MAX_BYTES:
         raise ExtractionError("transcript_record_too_large")
     try:
@@ -64,10 +68,11 @@ def _records(content: bytes) -> tuple[Iterable[dict], str, str]:
     except ExtractionError:
         row = None
     if isinstance(row, dict) and not isinstance(row.get("messages"), list):
-        return _jsonl(content), "claude-code-jsonl", "application/x-ndjson"
-    if len(content) > _JSON_MAX_BYTES:
+        return _jsonl(stream), "claude-code-jsonl", "application/x-ndjson"
+    exported = stream.read(_JSON_MAX_BYTES + 1)
+    if len(exported) > _JSON_MAX_BYTES:
         raise ExtractionError("transcript_export_too_large")
-    value = _decode(content)
+    value = _decode(exported)
     if isinstance(value, dict) and isinstance(value.get("messages"), list):
         rows = value["messages"]
     else:

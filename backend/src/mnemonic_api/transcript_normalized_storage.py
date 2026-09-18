@@ -12,37 +12,35 @@ from mnemonic_api.transcript_normalization import (
     Segment,
     canonical_json,
     revision_for,
-    segment_text,
 )
+from mnemonic_api.transcript_spool import TranscriptSegments
 
 NORMALIZATIONS = TranscriptNormalization.__table__
 SEGMENTS = TranscriptSegment.__table__
 
 
 def load_normalization(database: Session, transcript_id: UUID, snapshot_id: UUID,
-                       source_sha256: str,
-                       maximum_chars: int = 8_000_000) -> NormalizedConversation | None:
+                       source_sha256: str) -> NormalizedConversation | None:
     revision = revision_for(snapshot_id, source_sha256)
     row = database.execute(select(NORMALIZATIONS).where(
         NORMALIZATIONS.c.transcript_id == transcript_id,
         NORMALIZATIONS.c.revision == revision)).mappings().first()
     if row is None:
         return None
-    # Tool payloads are already durable and irrelevant to text extraction. Stream
-    # one source block at a time and stop after the derived-text budget is met.
+    # Tool payloads are already durable. Complete indexing reads every block
+    # through the private spool, without a character budget or body-sized list.
     statement = (select(SEGMENTS.c.segment_data.op("-")("payload")).where(
         SEGMENTS.c.transcript_id == transcript_id, SEGMENTS.c.revision == revision)
         .order_by(SEGMENTS.c.ordinal).execution_options(yield_per=1))
-    segments, size = [], 0
+    segments = TranscriptSegments()
     rows = database.scalars(statement)
     try:
         for value in rows:
             segment = Segment(**value)
             segments.append(segment)
-            text = segment_text(segment)
-            size += len(text) + (2 if size else 0) if text else 0
-            if size > maximum_chars:
-                break
+    except BaseException:
+        segments.close()
+        raise
     finally:
         rows.close()
     return NormalizedConversation(revision, row["sha256"], snapshot_id, source_sha256,

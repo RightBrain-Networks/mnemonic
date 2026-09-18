@@ -313,7 +313,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
   const [backupPending, setBackupPending] = useState(false);
   const [promptPending, setPromptPending] = useState(false);
   const backupPendingRef = useRef(false);
-  const blockedNavigation = promptPending ? "Save or discard your prompt changes before leaving this page." : transcriptPending ? "Resolve the pending transcript rebuild before leaving this page." : artifactPending ? "Resolve the pending artifact action before leaving this page."
+  const blockedNavigation = promptPending ? "Save or discard your prompt changes before leaving this page." : transcriptPending ? "Resolve the pending transcript action before leaving this page." : artifactPending ? "Resolve the pending artifact action before leaving this page."
     : backupPending ? "Wait for the backup action to finish before leaving this page."
       : mutationRegistry.hasDispatched() ? "Resolve pending mutations before leaving this dashboard document." : null;
   const route = useDashboardRoute(blockedNavigation);
@@ -893,7 +893,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
 
   function chooseProject(id: string) {
     if (promptPending) { setNotice({ message: "Save or discard your prompt changes before switching projects.", error: true }); return; }
-    if (transcriptPending) { setNotice({ message: "Resolve the pending transcript rebuild before switching projects.", error: true }); return; }
+    if (transcriptPending) { setNotice({ message: "Resolve the pending transcript action before switching projects.", error: true }); return; }
     if (artifactPending) { setNotice({ message: "Resolve the pending artifact action before switching projects.", error: true }); return; }
     if (backupPending) { setNotice({ message: "Wait for the backup action to finish before switching projects.", error: true }); return; }
     if (
@@ -2912,7 +2912,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
         {view === "transcripts" ? <>
           <DashboardViewChrome eyebrow="AGENT SESSIONS THAT STAY WITH YOUR WORK" title="Transcripts" description={project ? `Find session history and subagent work in the “${project.name}” project.` : "Choose a project to open its transcripts."} />
           {projectsError && <ErrorNotice message={projectsError}><button className="button button-secondary" onClick={() => setProjectsRefresh((value) => value + 1)}>Try again</button></ErrorNotice>}
-          {project ? <TranscriptLibrary key={`${project.id}:${artifactRoute.workItemId ?? ""}`} projectId={project.id} refreshSignal={refresh} /> : <div className="loading-state" role="status">{projectsLoading ? "Opening your workspace…" : "Select or create a project to view transcripts."}</div>}
+          {project ? <TranscriptLibrary key={`${project.id}:${artifactRoute.workItemId ?? ""}`} projectId={project.id} refreshSignal={refresh} onPendingChange={setTranscriptPending} /> : <div className="loading-state" role="status">{projectsLoading ? "Opening your workspace…" : "Select or create a project to view transcripts."}</div>}
         </> : view === "artifacts" ? <>
           <DashboardViewChrome eyebrow="FILES THAT STAY WITH YOUR WORK — BUT OUT OF YOUR CODEBASE" title="Artifacts" description={project ? `Store documents, binaries and other files in the “${project.name}” project.` : "Choose a project to open its artifact library."} />
           {projectsError && <ErrorNotice message={projectsError}><button className="button button-secondary" onClick={() => setProjectsRefresh((value) => value + 1)}>Try again</button></ErrorNotice>}
@@ -2939,7 +2939,6 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
               backupMaximumBytes={backupMaxBytes}
               backupRefreshSignal={settingsRefresh}
               onBackupPendingChange={handleBackupPendingChange}
-              onTranscriptPendingChange={setTranscriptPending}
               onPromptPendingChange={setPromptPending}
             />}
         </> : view === "summaries" ? <>

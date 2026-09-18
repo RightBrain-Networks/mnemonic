@@ -37,7 +37,8 @@ def search_result(tool, detail, kinds):
         }]
     else:
         result = {"items": [record], "total": 1, "limit": 20, "offset": 0,
-                  "term_diagnostics": [], "indexing_incomplete": False}
+                  "term_diagnostics": [], "indexing_incomplete": False,
+                  "sort_by": None, "sort_direction": "desc"}
     add_ranking(result, "search" if tool == "search" else "transcripts", "needle")
     return {**result, "detail": detail, **search_disclosure(UUID(PROJECT_ID), "needle",
         fulltext=True, transcripts=TranscriptAppliedFilters(content_kinds=kinds)).model_dump(

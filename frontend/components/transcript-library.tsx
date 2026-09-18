@@ -1,21 +1,21 @@
 "use client";
 
 import { transcriptCoverageDetails, transcriptCoverageNotes } from "@/lib/transcript-coverage";
+import TranscriptSettingsPanel from "@/components/transcript-settings";
 import TranscriptHealthNotice from "@/components/transcript-health-notice";
 import TranscriptConversation from "@/components/transcript-conversation";
 import { TRANSCRIPT_CONTENT_KINDS, TRANSCRIPT_CONTENT_LABELS, type TranscriptContentKind } from "@/lib/transcript-segments";
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { artifactLocation, formatArtifactSize } from "@/lib/artifacts";
 import { transcriptSearchRead } from "@/lib/search-read";
-import { api, errorMessage } from "@/lib/api";
-import { decodeUnifiedTranscriptSearchPage, transcriptSearchRequest, unifiedSearchPath } from "@/lib/unified-search";
+import { errorMessage } from "@/lib/api";
 import { dashboardStorageKeys } from "@/lib/dashboard-preferences";
 import { dialogOpen, typingTarget } from "@/lib/keyboard-shortcuts";
 import { sameUuid, validUuid } from "@/lib/wire-guards";
 import { formatDateTime } from "@/components/work-item-card";
-import { decodeTranscript, decodeTranscriptText, transcriptContentPath, transcriptLibraryPath, transcriptPath, transcriptRequest, transcriptStatusLabel, transcriptClientLabel, TRANSCRIPT_PAGE_SIZE, TRANSCRIPT_TEXT_PAGE_SIZE, type Transcript, type TranscriptPage, type TranscriptText } from "@/lib/transcripts";
+import { decodeTranscriptPage, type TranscriptSort, decodeTranscript, decodeTranscriptText, transcriptContentPath, transcriptLibraryPath, transcriptPath, transcriptRequest, transcriptStatusLabel, transcriptClientLabel, TRANSCRIPT_PAGE_SIZE, TRANSCRIPT_TEXT_PAGE_SIZE, type Transcript, type TranscriptPage, type TranscriptText } from "@/lib/transcripts";
 
-export default function TranscriptLibrary({ projectId, refreshSignal }: { projectId: string; refreshSignal: number }) {
+export default function TranscriptLibrary({ projectId, refreshSignal, onPendingChange }: { projectId: string; refreshSignal: number; onPendingChange: (pending: boolean) => void }) {
   const [page, setPage] = useState<TranscriptPage | null>(null);
   const [query, setQuery] = useState("");
   const [search, setSearch] = useState("");
@@ -23,6 +23,8 @@ export default function TranscriptLibrary({ projectId, refreshSignal }: { projec
   const [contentKind, setContentKind] = useState<TranscriptContentKind | "">("");
   const [match, setMatch] = useState<Transcript | null>(null);
   const [workFilter, setWorkFilter] = useState("");
+  const [sortBy, setSortBy] = useState<TranscriptSort | null>(null);
+  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
   const [offset, setOffset] = useState(0);
   const [refresh, setRefresh] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -58,23 +60,37 @@ export default function TranscriptLibrary({ projectId, refreshSignal }: { projec
   }, []);
   useEffect(() => {
     const controller = new AbortController();
-    const scope = JSON.stringify([projectId, search, fulltext, offset, workFilter, contentKind]);
+    const scope = JSON.stringify([projectId, search, fulltext, offset, workFilter, contentKind, sortBy, sortDirection]);
     if (scopeRef.current !== scope) setPage(null);
     scopeRef.current = scope;
     setLoading(true); setError("");
     const contentKinds = fulltext && contentKind ? [contentKind] : undefined;
-    const body = transcriptSearchRequest(search, fulltext, offset, workFilter || undefined, contentKinds);
-    void transcriptSearchRead(() => api<unknown>(unifiedSearchPath(projectId), { method: "POST", body: JSON.stringify(body), signal: controller.signal }), controller.signal).then((value) => {
+    const params = new URLSearchParams({ fulltext: String(fulltext), detail: "full", offset: String(offset), limit: String(TRANSCRIPT_PAGE_SIZE), sort_direction: sortDirection });
+    if (search) params.set("query", search);
+    if (workFilter) params.set("work_item_id", workFilter);
+    if (contentKinds) params.set("content_kinds", contentKinds[0]);
+    if (sortBy) params.set("sort_by", sortBy);
+    void transcriptSearchRead(() => transcriptRequest(`${transcriptPath(projectId)}?${params}`, { signal: controller.signal }), controller.signal).then((value) => {
       if (controller.signal.aborted) return;
-      const result = decodeUnifiedTranscriptSearchPage(value, projectId, offset, fulltext, workFilter || undefined, search, contentKinds);
+      const result = decodeTranscriptPage(value, projectId, offset, fulltext, workFilter || undefined, contentKinds);
       setPage(result);
       setSelected((current) => current ? result.items.find((item) => sameUuid(item.id, current.id)) ?? current : null);
     }).catch((error) => { if (!controller.signal.aborted) { setPage(null); setError(errorMessage(error)); } })
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
-  }, [projectId, search, fulltext, offset, workFilter, contentKind, refresh, refreshSignal]);
+  }, [projectId, search, fulltext, offset, workFilter, contentKind, sortBy, sortDirection, refresh, refreshSignal]);
 
+  function sort(field: TranscriptSort) {
+    setSortDirection(sortBy === field && sortDirection === "asc" ? "desc" : "asc");
+    setSortBy(field); setOffset(0);
+  }
+  const columns: { label: string; field: TranscriptSort }[] = [
+    { label: "Name", field: "name" }, { label: "Size", field: "size" },
+    { label: "Session", field: "session" }, { label: "Indexing", field: "indexing" },
+    { label: "Last Updated", field: "updated" }
+  ];
   return <section className="artifact-library transcript-library" aria-label="Transcript library">
+    <TranscriptSettingsPanel projectId={projectId} onPendingChange={onPendingChange} />
     <TranscriptHealthNotice key={projectId} projectId={projectId} refreshSignal={refresh + refreshSignal} />
     <div className="artifact-search-panel">
       <label className="section-label" htmlFor="transcript-search">Find a transcript</label>
@@ -91,14 +107,14 @@ export default function TranscriptLibrary({ projectId, refreshSignal }: { projec
         <option value="">All content types</option>{TRANSCRIPT_CONTENT_KINDS.map((kind) => <option key={kind} value={kind}>{TRANSCRIPT_CONTENT_LABELS[kind]}</option>)}
       </select></label>
     </div>
-    <p className="artifact-filter-note">Session and subagent transcripts are copied and indexed automatically after work leaves Active. <a href="/settings/workspace">Index settings</a></p>
+    <p className="artifact-filter-note">Session and subagent transcripts are copied and indexed automatically after work leaves Active.</p>
     {workFilter && <p className="artifact-filter-note">Showing transcripts for work item <code>{workFilter}</code>. <button className="text-button" onClick={() => { setWorkFilter(""); setOffset(0); window.history.replaceState(null, "", transcriptLibraryPath(projectId)); }}>Show all project transcripts</button></p>}
     <div className="artifact-directory-heading"><h2>{search ? "Search results" : "Project transcripts"}{page && <span className="artifact-count">{page.total}</span>}</h2><button type="button" className="button button-secondary" disabled={loading} onClick={() => setRefresh((value) => value + 1)}>Refresh</button></div>
     {Boolean(page?.unsegmented_content_omitted) && <p className="artifact-filter-note" role="status">{page!.unsegmented_content_omitted} transcripts need conversation normalization before this exact or filtered content search can include them.</p>}
     {page?.indexing_incomplete && <div className="artifact-search-status" role="status"><p>Content results are incomplete. Some transcripts are waiting, copying, normalizing, indexing, failed, limited by the search-text budget, or contain unsupported session records. Available metadata remains searchable.</p></div>}
     {error ? <div className="error-notice" role="alert"><p>{error}</p><button className="button button-secondary" onClick={() => setRefresh((value) => value + 1)}>Retry loading transcripts</button></div> : <>
       <div className="artifact-table-scroll" aria-busy={loading} tabIndex={0} role="region" aria-label="Transcript directory">
-        <table className="artifact-table transcript-table"><thead><tr>{["Name", "Size", "Session", "Indexing", "Last Updated", "Actions"].map((label) => <th key={label} scope="col">{label}</th>)}</tr></thead><tbody>{page?.items.map((transcript) => <tr key={transcript.id}>
+        <table className="artifact-table transcript-table"><thead><tr>{columns.map(({ label, field }) => <th key={field} scope="col" aria-sort={(sortBy === field || !sortBy && !search && field === "updated") ? (sortDirection === "asc" ? "ascending" : "descending") : "none"}><button type="button" className="transcript-sort" onClick={() => sort(field)}>{label}<span aria-hidden="true">{sortBy === field ? sortDirection === "asc" ? " ↑" : " ↓" : " ↕"}</span></button></th>)}<th scope="col">Actions</th></tr></thead><tbody>{page?.items.map((transcript) => <tr key={transcript.id}>
           <td><button className="artifact-name" title={transcript.filename} aria-haspopup="dialog" onClick={() => setSelected(transcript)}><svg width="19" height="22" viewBox="0 0 20 24" fill="none" stroke="currentColor" aria-hidden="true"><path d="M3 1h8l6 6v16H3zM11 1v7h6M6 13h8M6 17h6" /></svg><span>{transcript.filename}</span></button><span className="artifact-type">{transcriptClientLabel(transcript.client)}{transcript.format ? ` · ${transcript.format}` : ""}</span>{transcript.snippet_omission_reason && <p className="artifact-filter-note">The matching passage is too long for a preview. Open match to read it.</p>}{transcript.snippet && <div className="artifact-search-excerpt"><p>{transcript.snippet}</p></div>}</td>
           <td>{transcript.size_bytes === null ? "Not recorded" : formatArtifactSize(transcript.size_bytes)}</td><td>{transcript.kind === "imported" ? "Imported" : transcript.kind === "primary" ? "Primary" : "Subagent"}</td><td><span className={`transcript-status transcript-status-${transcript.status}`}>{transcriptStatusLabel(transcript)}</span>{transcript.error_code && <span className="transcript-error">{transcript.error_code}</span>}</td><td>{transcript.last_updated_at ? <time dateTime={transcript.last_updated_at}>{formatDateTime(transcript.last_updated_at)}</time> : "—"}</td>
           <td><div className="artifact-actions">{transcript.segment_id && transcript.normalized_revision && <button className="button button-secondary" aria-label={`Open match in ${transcript.filename}`} onClick={() => setMatch(transcript)}>Open match</button>}{transcript.status === "ready" && transcript.text_sha256 && <><button className="button button-secondary" aria-label={`View ${transcript.filename}`} onClick={() => setPreview(transcript)}>View</button><a className="button button-secondary" href={transcriptContentPath(transcript)} download={`${transcript.filename}.txt`} aria-label={`Download ${transcript.filename}`}>Download text</a></>}</div></td>

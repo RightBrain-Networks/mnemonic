@@ -31,7 +31,7 @@ def test_transcript_search_budget_default_and_environment_override(monkeypatch):
     monkeypatch.setenv("MNEMONIC_TRANSCRIPT_SEARCH_MAX_BYTES", "1073741824")
     configured = settings()
     assert configured.transcript_search_max_bytes == 1_073_741_824
-    assert configured.transcript_max_bytes == 67_108_864
+    assert configured.transcript_max_bytes == 536_870_912
 
 
 @pytest.mark.parametrize("value", ["0", "-1", "2147483649", "invalid"])

@@ -1,6 +1,6 @@
 """Recover a published transcript through real RabbitMQ after its source disappears.
 
-Only text extraction is synthetic; copy storage, transcript handlers, scheduler,
+Native normalization, copy storage, transcript handlers, scheduler,
 database ownership checks, and broker delivery use their production implementations.
 """
 
@@ -27,7 +27,6 @@ from mnemonic_jobs.models import BackgroundJob
 from mnemonic_jobs.runtime import WorkerState, encode_message, run_worker
 
 from .test_background_jobs_rabbitmq import _cleanup, _event, _stop
-from .test_transcript_indexing_postgres import Parser
 from .test_transcript_recovery_postgres import _apply, _request_fixture
 
 pytestmark = pytest.mark.postgres
@@ -90,7 +89,6 @@ def test_disconnect_after_recovery_publication_adopts_pinned_copy_without_source
         api, project, work_payload, tmp_path, postgres_engine)
     _apply(api, request)
     factory, settings = api.app.state.session_factory, api.app.state.settings
-    parser = Parser()
     published, release = Event(), Event()
     captured, contexts, connections = [], [], []
     duplicate_marker, duplicates_processed = _observe_duplicates(monkeypatch)
@@ -122,7 +120,7 @@ def test_disconnect_after_recovery_publication_adopts_pinned_copy_without_source
             state = WorkerState()
             worker = asyncio.create_task(run_worker(factory, broker_url, {
                 "transcript_copy": copy,
-                "transcript_index": partial(handle_transcript_index, factory, settings, parser),
+                "transcript_index": partial(handle_transcript_index, factory, settings),
             }, partial(enqueue_transcript_jobs, settings=settings), state=state,
                 queue_name=queue_name, poll_seconds=0.05, lease_seconds=20))
             try:
@@ -148,7 +146,6 @@ def test_disconnect_after_recovery_publication_adopts_pinned_copy_without_source
                     ), routing_key=queue_name, mandatory=True)
                 await _event(duplicates_processed)
                 assert len(captured) == 2 and captured[0] == captured[1]
-                assert len(parser.calls) == 1
                 after_duplicates = await asyncio.to_thread(
                     _transcript_state, factory, request.transcript_id)
                 assert after_duplicates == (

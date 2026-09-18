@@ -11,7 +11,7 @@ from mnemonic_api.transcript_job_queue import enqueue_transcript_jobs
 from mnemonic_api.transcript_upgrades import refresh_outdated_normalizations
 
 from .test_leases_postgres import expire_lease
-from .test_transcript_indexing_postgres import Parser, collection, read, register, run
+from .test_transcript_indexing_postgres import collection, read, register, run
 
 pytestmark = pytest.mark.postgres
 
@@ -106,7 +106,7 @@ def test_failed_upgrade_keeps_search_and_does_not_restart_exhausted_attempts(
 
     monkeypatch.setattr(transcript_normalization, "NORMALIZER_VERSION", 3)
     assert refresh(api) == 1
-    assert run(api, Parser(error=ExtractionError("extraction_parse_failed")))
+    assert run(api, stage_error=ExtractionError("extraction_parse_failed"))
     failed = read(api, project, record)
     assert failed["status"] == "ready" and failed["index_status"] == "failed"
     assert failed["text_sha256"] == original["text_sha256"]

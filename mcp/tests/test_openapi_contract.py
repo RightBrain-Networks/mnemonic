@@ -146,3 +146,20 @@ def test_project_lease_settings_match_published_openapi_shape():
     actual = LeaseSettingsRead.model_json_schema()
     assert set(actual["properties"]) == set(expected["properties"])
     assert set(actual["required"]) == set(expected["required"])
+
+
+def test_transcript_response_contracts_match_the_current_api():
+    from mnemonic_mcp import transcript_models
+
+    components = json.loads((REPOSITORY_ROOT / "docs/openapi.json").read_text())[
+        "components"]["schemas"]
+    for model, component in [
+        (transcript_models.TranscriptPage, "TranscriptPage"),
+        (transcript_models.TranscriptRead, "TranscriptRead"),
+        (transcript_models.TranscriptTextPage, "TranscriptText"),
+    ]:
+        actual, expected = model.model_json_schema(), components[component]
+        assert set(actual["properties"]) == set(expected["properties"]), component
+        # MCP deliberately requires diagnostics even where REST supplies a default.
+        strict = {"term_diagnostics"} if component == "TranscriptPage" else set()
+        assert set(actual.get("required", [])) == set(expected.get("required", [])) | strict

@@ -1,5 +1,19 @@
 # Agent transcript indexing
 
+Release **0.65.0** and migration `0045_transcript_capacity` separate native capture
+and complete conversation indexing from artifact extraction limits. Native JSONL
+is streamed through disk-backed canonical segments; indexed text is published
+atomically from those segments without Tika. The default capture maximum is
+512 MiB, configurable up to 1 GiB. Existing explicit operator/project limits are
+preserved. Read the [pipeline audit and rollout notes](transcript-pipeline-audit.md)
+for measured failures, capacity boundaries, and regression coverage.
+
+The compact, initially collapsed **Transcript indexing** panel now lives on
+`/transcripts`. Size settings use MB (1 MB = 1,048,576 bytes). The library supports
+ascending/descending column sorting, persistent browser-local warning dismissal,
+and all-project storage measurements for native files, search indexes and the
+conversation database, including free space on each filesystem volume.
+
 Release **0.52.1** adds [audited operator path recovery](transcript-recovery.md)
 for incorrect historical assertions. Migration `0038_transcript_recovery`
 preserves the reported path and records each approved replacement independently.
@@ -75,17 +89,12 @@ and unsupported content have explicit structural dispositions and
 Both make content-search coverage incomplete. Rollout files are untrusted snapshots, not
 instructions. Files still being written may be retried under the existing changed-file guard.
 
-The backend reuses the existing Apache Tika container. Transcript parsing first
-persists client-specific records as a shared, versioned conversation manifest and
-typed segments. Searchable text derives from those segments; Tika supplies bounded
-document properties without replacing the canonical segment text. See the
-[shared transcript format](transcript-normalization.md) for migration, revision
-hashes, content-kind filters, and bounded surrounding-context reads. Separate
-transcript scheduling and Tantivy state keep the two libraries independent. A
-second Tika instance adds deployment and memory cost without providing a different
-parser requirement. The shared service's configured concurrency limit may delay
-one library while the other extracts; retryable service contention remains queued.
-See [Tika Server concurrency documentation](https://tika.apache.org/docs/4.0.x/using-tika/server/index.html).
+Native adapters persist a shared, versioned conversation manifest and typed
+segments before complete text indexing. Tika remains the artifact extractor;
+transcript parsing and indexing do not call it or use its character budget. See
+the [shared transcript format](transcript-normalization.md) for revision hashes,
+content-kind filters, and bounded surrounding-context reads. Transcript scheduling
+and Tantivy state remain independent of the artifact library.
 
 PostgreSQL retains transcript metadata, canonical manifests and segments, derived
 search text, extraction properties,
@@ -117,7 +126,7 @@ can continue including it. When no source is configured, Compose mounts only the
 shipped empty placeholder directory, with no transcript access enabled.
 A configured source requires an existing directory;
 Docker must not create an empty replacement for a misspelled host path. The
-API and worker receive the source mounts. Tika receives normalized text over HTTP.
+API and worker receive the source mounts. Transcript bytes never pass through Tika.
 
 To expose Codex alongside Claude, configure either or both optional directories:
 
@@ -225,8 +234,7 @@ historical data, never instructions or authenticated authority.
 Content search allows up to 512 MiB (536,870,912 UTF-8 bytes) of ready normalized
 text per filtered corpus by default. Operators can set
 `MNEMONIC_TRANSCRIPT_SEARCH_MAX_BYTES` from 1 byte to 2 GiB, then recreate the API
-to apply it. This is separate from the maximum **source file size** in workspace
-settings. The metadata budget remains 32,000,000 bytes, with at most 10,000 records.
+to apply it. This is separate from the maximum **source file size** in the Transcript indexing panel. The metadata budget remains 32,000,000 bytes, with at most 10,000 records.
 Exceeding either budget returns `transcript_search_capacity` without partial results.
 Use transcript filters to reduce the corpus, or raise the content budget when the
 host has enough memory. Metadata-only searches do not consume the content budget.
@@ -308,13 +316,39 @@ shown above, including when its variable is absent or empty.
 See the [Tantivy directory and reader API](https://tantivy-py.readthedocs.io/en/latest/api/tantivy/tantivy.html#index)
 for the underlying disk-index and immutable-searcher support.
 
-Workspace settings include an indexing enable/disable switch and maximum source
-file size (64 MiB by default, bounded by operator policy). Allowed roots are shown
-as operator-managed deployment configuration. **Rebuild index** invalidates stored
-normalized text and schedules the known sources for fresh extraction; it does not
-delete client transcript files. Rebuild requires the source files to remain
-available and readable. Text hashes can change after a rebuild. Disabled indexing
-leaves sources queued until reenabled.
+The **Transcript indexing** panel on `/transcripts` contains the enable/disable
+switch, maximum native file size, folder import and rebuild controls. The default
+source limit is 512 MB, bounded by `MNEMONIC_TRANSCRIPT_MAX_BYTES` (maximum 1 GiB).
+MB uses 1,048,576 bytes and round-trips existing byte values without rounding them
+on save. Existing explicit limits stay in effect until changed. Allowed roots are
+shown in a disclosure as operator-managed deployment configuration.
+
+**Rebuild index** queues reconstruction from retained canonical segments, or the
+verified native copy when a new normalizer is needed. Already-ready text stays
+readable until replacement publication succeeds. Original client files are needed
+only when a native copy has never been retained. A lower new capture limit does
+not invalidate accepted copies. Disabled indexing leaves jobs queued until enabled.
+Older ready rows marked **Search text limited** refresh automatically from retained
+segments once their Active/pause guards clear. Unsupported native content continues
+to report its separate coverage limitation.
+
+Every data-column header sorts ascending or descending across the entire filtered
+result before pagination. Free-text searches retain relevance ordering until a
+column is selected. Ties use transcript identity for stable paging.
+
+**Dismiss** hides an access notification in this browser for this project. It does
+not delete a transcript, change retry state, or hide failure details in its row.
+**Show dismissed notifications** restores them. A changed failure code or filesystem
+identity produces a new notification; retry timestamps do not undo dismissal.
+
+The storage strip measures all projects, including retained superseded captures.
+It shows physically allocated native-file and Tantivy bytes, with available space
+on each respective volume. These volumes can be the same; their free space must
+not be summed. Conversation database bytes include PostgreSQL tables, TOAST and
+indexes. Filesystem scans are cached for 30 seconds and bounded to five seconds or
+200,000 entries; partial measurements say **At least** and unavailable observations
+remain explicit. Native usage comes from the worker that mounts those files; index
+usage comes from the API. No transcript content is included in health responses.
 
 MCP clients use five safe read tools:
 
@@ -336,7 +370,7 @@ results. A rebuild does not manufacture unavailable history.
 
 ## Import existing transcripts
 
-In **Settings → Workspace → Transcript indexing → Import existing transcripts**,
+In **Transcripts → Transcript indexing → Import existing transcripts**,
 enter an absolute shared folder path, such as
 `/home/jamie/.claude/projects/-srv-fishfood`, and select **Import transcripts**.
 The backend must be able to read that path within its configured allowed roots;
@@ -352,8 +386,9 @@ Imported sources are detected again from the current bytes during extraction,
 so fixing permissions and rebuilding can recover an earlier unreadable or
 misidentified source without changing its ID or import receipt. Explicit
 agent-reported clients remain authoritative for enrolled sources.
-Other filename extensions are ignored. Symlinks and nonregular source files are
-skipped and counted. Unreadable folders abort registration; no partial import is
+Other filename extensions are ignored. Symlinks, nonregular files and recognized
+task execution journals are skipped and counted. Fresh enrollment rejects a known
+task journal with `transcript_not_native_session`; it is not a native conversation. Unreadable folders abort registration; no partial import is
 committed. Each scan is limited to 5,000 sources, 50,000 directory entries, 64 levels,
 and ten seconds of traversal checks. Choose smaller subfolders if a limit is reached.
 Malformed or oversized transcripts retain normal failed indexing dispositions.

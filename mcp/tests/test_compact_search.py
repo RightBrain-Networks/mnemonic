@@ -92,7 +92,8 @@ def response_page(tool, summary, *, q="needle", detail="compact"):
         scopes = {"artifacts": ArtifactAppliedFilters()}
     else:
         result = {"items": [session], "total": 1, "limit": 20, "offset": 0,
-                  "term_diagnostics": [], "indexing_incomplete": False}
+                  "term_diagnostics": [], "indexing_incomplete": False,
+                  "sort_by": None, "sort_direction": "desc"}
         scopes = {"transcripts": TranscriptAppliedFilters()}
     if tool == "search":
         result["tag_counts"] = None

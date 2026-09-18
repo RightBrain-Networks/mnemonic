@@ -17,7 +17,6 @@ from mnemonic_backup.archive import restore_project
 from .test_leases_postgres import create_work, expire_lease, item_path
 from .test_project_backup_archive import _export, _snapshot
 from .test_transcript_indexing_postgres import (
-    Parser,
     claim_transcript_job,
     collection,
     read,
@@ -446,7 +445,7 @@ def test_stale_import_result_does_not_publish_its_detected_client(
         assert api.post(collection(project) + "/rebuild",
                         json={"client_operation_id": str(uuid4())}).json()["queued"] == 1
 
-    assert run(api, Parser(callback=rebuild))
+    assert run(api, stage_callback=rebuild)
     pending = read(api, project, original)
     assert pending["status"] == "waiting" and pending["client"] == "claude_code"
     assert run(api)
@@ -464,3 +463,16 @@ def test_client_redetection_does_not_replace_explicit_agent_assertions(
     failed = read(api, project, record)
     assert failed["client"] == "claude-code"
     assert failed["status"] == "failed" and failed["error_code"] == "transcript_unsupported_format"
+
+
+def test_import_skips_known_task_journal_but_keeps_unknown_sources_visible(api, project, tmp_path):
+    api.app.state.settings.transcript_allowed_roots = [tmp_path]
+    source(tmp_path)
+    (tmp_path / "task.jsonl").write_text(
+        '{"type":"started","agentId":"worker","key":"task"}\n')
+    (tmp_path / "unknown.jsonl").write_text('{"unexpected":"record"}\n')
+    result = import_folder(api, project, tmp_path)
+    assert result.status_code == 200, result.text
+    assert result.json()["imported"] == 2 and result.json()["skipped"] == 1
+    rows = api.get(collection(project), params={"detail": "full"}).json()["items"]
+    assert {row["filename"] for row in rows} == {"old.jsonl", "unknown.jsonl"}

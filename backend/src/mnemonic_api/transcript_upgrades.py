@@ -18,6 +18,7 @@ def _outdated():
         .where(func.coalesce(TranscriptSettings.enabled, True), ~_active_generation(),
                Transcript.status == "ready", Transcript.copy_status == "ready",
                Transcript.reindex_status.is_(None), or_(
+                   Transcript.truncated,
                    Transcript.normalizer_version.is_(None),
                    Transcript.normalizer_version < normalization.NORMALIZER_VERSION,
                    Transcript.normalization_schema_version < normalization.SCHEMA_VERSION)))

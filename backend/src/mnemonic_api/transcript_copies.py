@@ -6,9 +6,11 @@ import hashlib
 import os
 import stat
 from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import BinaryIO
 from uuid import UUID
 
 from tenacity import Retrying, retry_if_exception, stop_after_attempt, wait_random_exponential
@@ -109,8 +111,6 @@ class TranscriptStorage(ArtifactStorage):
         with self.open(storage_key) as content:
             while chunk := content.read(_CHUNK_BYTES):
                 size += len(chunk)
-                if size > self.max_bytes:
-                    raise ExtractionError("transcript_too_large")
                 digest.update(chunk)
         return TranscriptCopy(storage_key, digest.hexdigest(), size)
 
@@ -189,14 +189,30 @@ class TranscriptStorage(ArtifactStorage):
             raise access_error(error, str(self.root), operation="write_storage") from None
         raise AssertionError("Copy retry policy completed without a disposition")
 
-    def read_copy(self, copy: TranscriptCopy) -> bytes:
+    @contextmanager
+    def open_copy(self, copy: TranscriptCopy) -> Iterator[BinaryIO]:
+        """Read verified retained bytes independently of the current capture limit."""
         try:
-            with self.open(copy.storage_key) as content:
-                data = content.read(self.max_bytes + 1)
+            content = self.open(copy.storage_key)
         except (OSError, ValueError) as error:
             raise ExtractionError("transcript_copy_unavailable", retryable=True) from error
-        if len(data) > self.max_bytes:
-            raise ExtractionError("transcript_too_large")
-        if len(data) != copy.size_bytes or hashlib.sha256(data).hexdigest() != copy.sha256:
-            raise ExtractionError("transcript_copy_integrity_failed")
-        return data
+        with content:
+            before = os.fstat(content.fileno())
+            if before.st_size != copy.size_bytes:
+                raise ExtractionError("transcript_copy_integrity_failed")
+            digest = hashlib.sha256()
+            while chunk := content.read(_CHUNK_BYTES):
+                digest.update(chunk)
+            if digest.hexdigest() != copy.sha256:
+                raise ExtractionError("transcript_copy_integrity_failed")
+            content.seek(0)
+            yield content
+            after = os.fstat(content.fileno())
+            if (before.st_size, before.st_mtime_ns, before.st_ctime_ns) != (
+                after.st_size, after.st_mtime_ns, after.st_ctime_ns
+            ):
+                raise ExtractionError("transcript_copy_integrity_failed")
+
+    def read_copy(self, copy: TranscriptCopy) -> bytes:
+        with self.open_copy(copy) as content:
+            return content.read()

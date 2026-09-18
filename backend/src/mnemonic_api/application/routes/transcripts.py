@@ -3,7 +3,9 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, Request, Response
+from fastapi import APIRouter, Depends, Query, Request
+from fastapi.responses import StreamingResponse
+from sqlalchemy import func, select
 
 from mnemonic_api.application.guards import (
     reject_empty_read_request,
@@ -99,7 +101,7 @@ def get_transcript(project_id: UUID, transcript_id: UUID, database: Database) ->
 
 def _text_record(database, project_id, transcript_id, expected_sha256) -> Transcript:
     record = transcripts.require_transcript(
-        database, project_id, transcript_id, include_text=True)
+        database, project_id, transcript_id)
     if record.status != "ready":
         raise ApplicationError(409, "transcript_not_indexed", "Transcript text is not indexed yet.")
     if expected_sha256 is not None and record.text_sha256 != expected_sha256:
@@ -131,11 +133,14 @@ def get_transcript_text(
         raise ApplicationError(422, "transcript_segment_required",
                                "Supply segment_id for normalized revision and surrounding context.")
     record = _text_record(database, project_id, transcript_id, expected_sha256)
-    value = record.normalized_text or ""
-    end = min(len(value), offset + limit)
+    value, total = database.execute(select(
+        func.substr(Transcript.normalized_text, offset + 1, limit),
+        func.length(Transcript.normalized_text)).where(Transcript.id == record.id)).one()
+    value, total = value or "", total or 0
+    end = min(total, offset + limit)
     return TranscriptText(transcript_id=transcript_id, project_id=project_id,
-        text=value[offset:end], total_chars=len(value), offset=offset, limit=limit,
-        next_offset=end if end < len(value) else None, status="ready",
+        text=value, total_chars=total, offset=offset, limit=limit,
+        next_offset=end if end < total else None, status="ready",
         truncated=record.truncated, text_sha256=record.text_sha256,
         normalized_revision=record.normalized_revision)
 
@@ -145,11 +150,21 @@ def get_transcript_text(
 def download_transcript(
     project_id: UUID, transcript_id: UUID, database: Database,
     expected_sha256: str | None = Query(default=None, pattern="^[0-9a-f]{64}$"),
-) -> Response:
+) -> StreamingResponse:
+    begin_coherent_read(database)
     record = _text_record(database, project_id, transcript_id, expected_sha256)
-    return Response(record.normalized_text or "", media_type="text/plain; charset=utf-8", headers={
+    chars, size = database.execute(select(func.length(Transcript.normalized_text),
+        func.octet_length(Transcript.normalized_text)).where(Transcript.id == record.id)).one()
+
+    def chunks():
+        for offset in range(0, chars or 0, 65_536):
+            value = database.scalar(select(func.substr(Transcript.normalized_text,
+                offset + 1, 65_536)).where(Transcript.id == record.id))
+            yield (value or "").encode("utf-8")
+
+    return StreamingResponse(chunks(), media_type="text/plain; charset=utf-8", headers={
         "Content-Disposition": f'attachment; filename="transcript-{transcript_id}.txt"',
-        "X-Content-SHA256": record.text_sha256 or "",
+        "Content-Length": str(size or 0), "X-Content-SHA256": record.text_sha256 or "",
         "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff",
     })
 

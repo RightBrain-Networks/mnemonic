@@ -32,7 +32,7 @@ from .transcript_segments import (
 
 TranscriptLimit = Annotated[StrictInt, Field(ge=1, le=100)]
 TranscriptOffset = Annotated[StrictInt, Field(ge=0, le=10_000)]
-TranscriptTextOffset = Annotated[StrictInt, Field(ge=0, le=8_000_000)]
+TranscriptTextOffset = Annotated[StrictInt, Field(ge=0, le=1_073_741_824)]
 TranscriptTextLimit = Annotated[StrictInt, Field(ge=1, le=20_000)]
 TranscriptHash = Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
 TranscriptQuery = Annotated[str, Field(min_length=1, max_length=200)]
@@ -193,6 +193,8 @@ class CompactTranscriptRead(TranscriptNormalization):
 
 
 class TranscriptPage(TranscriptModel, SearchDisclosure, SearchRanking):
+    sort_by: Literal["name", "size", "session", "indexing", "updated"] | None = None
+    sort_direction: Literal["asc", "desc"] = "desc"
     unsegmented_content_omitted: Annotated[StrictInt, Field(ge=0)] = 0
     detail: SearchDetail
     term_diagnostics: TermDiagnostics

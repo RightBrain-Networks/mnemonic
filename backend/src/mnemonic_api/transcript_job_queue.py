@@ -5,7 +5,6 @@ from uuid import UUID
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, sessionmaker
 
-from mnemonic_api.artifact_extraction import Extractor
 from mnemonic_api.artifact_tika import ExtractionError
 from mnemonic_api.config import Settings
 from mnemonic_api.models import Transcript, WorkItem
@@ -113,7 +112,7 @@ def handle_transcript_copy(factory: sessionmaker[Session], settings: Settings,
 
 
 def handle_transcript_index(factory: sessionmaker[Session], settings: Settings,
-                             extractor: Extractor, context: JobContext) -> dict:
-    processed = index_next_transcript(factory, settings, extractor,
+                            context: JobContext) -> dict:
+    processed = index_next_transcript(factory, settings,
         UUID(context.payload["transcript_id"]), context.payload["generation"], context)
     return _disposition(factory, context, processed)

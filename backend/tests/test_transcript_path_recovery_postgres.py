@@ -10,7 +10,7 @@ from mnemonic_api.models import Transcript, WorkLease
 from mnemonic_api.transcript_indexing import claim_transcript_job
 
 from .test_leases_postgres import expire_lease, item_path
-from .test_transcript_indexing_postgres import Parser, collection, read, register, run
+from .test_transcript_indexing_postgres import collection, read, register, run
 
 pytestmark = pytest.mark.postgres
 
@@ -128,11 +128,9 @@ def test_recovery_still_rejects_symlinks_and_does_not_loop(
     source.rename(target)
     source.symlink_to(target)
     api.app.state.settings.transcript_allowed_roots = [tmp_path]
-    parser = Parser()
-    assert run(api, parser)
+    assert run(api)
     assert read(api, project, record)["error_code"] == "transcript_symlink_rejected"
-    assert parser.calls == []
-    assert not run(api, parser)
+    assert not run(api)
 
 
 @pytest.mark.parametrize("error", ["transcript_io_error", "transcript_unsupported_format",
