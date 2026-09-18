@@ -131,7 +131,7 @@ services:
     environment:
       MNEMONIC_ARTIFACT_EXTRACTION_MAX_CHARS: ${MNEMONIC_ARTIFACT_EXTRACTION_MAX_CHARS:-2000000}
       MNEMONIC_ARTIFACT_EXTRACTION_TIMEOUT_SECONDS: ${MNEMONIC_ARTIFACT_EXTRACTION_TIMEOUT_SECONDS:-60}
-    # Shared artifact/transcript parser: no published port, source mount or database access.
+    # Artifact parser: no published port, source mount or database access.
     networks: [artifact_parser]
     dns: [127.0.0.1]
     logging:

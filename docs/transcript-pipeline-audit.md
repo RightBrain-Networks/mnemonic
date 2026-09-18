@@ -1,9 +1,10 @@
-# Transcript pipeline audit — 0.65.0
+# Transcript pipeline audit — 0.65.1
 
 The audit followed enrollment/import, immutable capture, native normalization,
 canonical persistence, durable jobs, search, text retrieval/download, dashboard
-controls, recovery, and backup contracts. Release 0.65.0 requires migration
-`0045_transcript_capacity`; the MCP tool/write catalogs and plugin release are unchanged.
+controls, recovery, and backup contracts. Release 0.65.1 retains migration
+`0045_transcript_capacity`; the MCP tool/write catalogs are unchanged. Plugin 0.42.1
+corrects shared transcript instructions for portable Codex installations.
 
 ## Observed failures and corrections
 
@@ -35,6 +36,53 @@ parser audit. At that point it contained **212,607,364 bytes** and produced
 Peak process RSS was **90.27 MiB**. Its body and path are not included here. The
 scratch copy was removed. This was a real-source parser measurement, not a full
 production reindex benchmark or a universal memory/time bound.
+
+## Publication and Codex follow-up
+
+Deploying 0.65.0 restored complete text for all 19 previously limited entries and
+captured the oversized native files, but the real large-session publication
+exposed a second capacity boundary: inserting roughly 45,000 canonical segments
+ran inside the ten-second interactive project mutation transaction. The database
+terminated it before publication. The worker was stopped to preserve retry budgets
+while this was corrected; dashboard/API access and existing ready indexes remained
+available. The operator-approved API search budget was raised to 2 GiB.
+
+Release 0.65.1 stages the immutable manifest and all segments in a separate bounded
+transaction. The project remains editable and the job heartbeat can renew during
+bulk persistence. Ownership is locked immediately before stage commit. Activation
+rechecks the snapshot, generation, native hash and both lease tokens under the
+project lock. A pre-commit crash rolls back the stage; a later crash or superseding
+rebuild can reuse the complete stage. Imported Codex identity is also recovered
+from the persisted native format after such a crash.
+
+The complete >200 MiB regression includes 60,001 segments, more than 80 million
+searchable characters, near-end paging/search and checksum-verified HTTP download.
+Its first run took 301 seconds and revealed repeated PostgreSQL decompression in
+the download loop. Canonical downloads now use one ordered server cursor and bounded
+byte chunks. A projection marker distinguishes this exact rendering from historical
+extractor output; legacy download bytes and hashes remain unchanged. The capacity
+case plus six ownership/crash cases then passed together in 36.31 seconds. Timing
+is a local observation, not a guaranteed service bound. A further large-Unicode
+regression demonstrated 77.5 MiB of Python heap from fetching 100 segments at once.
+Fetching one segment at a time passes the same regression below 24 MiB, while
+retaining constant query count, exact hashes and a coherent read snapshot. These
+heap measurements describe the regression fixture, not all process allocations.
+The same fixture exposed 126,056,872 bytes of heap during canonical persistence.
+Publication batches now stop at 100 rows or an 8 MiB encoded-data budget, whichever
+comes first, allowing one native record when it alone exceeds that budget. The
+measured publication case now passes below 64 MiB without changing canonical data.
+
+A metadata-only Fish Food audit found seven ready Codex entries (one primary and
+six children), all with September 12 native activity. Newer native rollouts existed
+without enrollment. Both native Codex roots were mounted and allowed, and Codex had
+the MCP connection, but no portable Mnemonic skills were installed. The project's
+AGENTS instructions referred to Claude-oriented workflow instructions. The corrected
+portable transcript reference explicitly covers native thread identity, verified
+rollout paths, separate children, null omissions, and delayed capture after lease
+completion. An [AGENTS example](../examples/codex-AGENTS.md) and
+[installation checks](mcp-clients.md#codex-transcript-setup) make that setup reviewable.
+A connection does not enroll sessions automatically; a mixed-project sessions root
+must never be imported wholesale into one project.
 
 ## Pipeline invariants
 

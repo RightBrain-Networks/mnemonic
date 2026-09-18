@@ -1,6 +1,6 @@
 # Agent transcript indexing
 
-Release **0.65.0** and migration `0045_transcript_capacity` separate native capture
+Release **0.65.1** and migration `0045_transcript_capacity` separate native capture
 and complete conversation indexing from artifact extraction limits. Native JSONL
 is streamed through disk-backed canonical segments; indexed text is published
 atomically from those segments without Tika. The default capture maximum is

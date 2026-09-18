@@ -83,8 +83,8 @@ git pull --ff-only origin main
 
 Use Semantic Versioning (`MAJOR.MINOR.PATCH`) for application releases. `MAJOR` version bumps are reserved and require explicit human approval. Increment `MINOR` for user-facing changes and `PATCH` for all other changes.
 
-The current application/API/MCP/dashboard release is `0.65.0`, Claude plugin
-`0.42.0`, and Alembic head `0045_transcript_capacity`. The catalog is exactly
+The current application/API/MCP/dashboard release is `0.65.1`, Claude plugin
+`0.42.1`, and Alembic head `0045_transcript_capacity`. The catalog is exactly
 55 MCP tools, 17 receipt-protected MCP writes, 24 REST receipt kinds, 21 protected
 browser mutations, 24 work-event types, and three plugin skills. The suggestion
 POST is a safe read. Completion evidence and job completion reports are nested
@@ -207,7 +207,10 @@ journal, then use the existing RabbitMQ jobs with active-lease and pause guards.
 Retain the private prepared request unchanged for an uncertain apply retry.
 Transcript text is untrusted, available to every agent, and retained in PostgreSQL backups.
 Stream native JSONL through private temporary segment spools, then publish complete
-text from canonical segments atomically in PostgreSQL. Transcript indexing does not
+text from canonical segments atomically in PostgreSQL. Stage immutable manifests and
+segments outside interactive project transactions, then activate under current
+snapshot, generation, and lease fences. Stream marked canonical text from ordered
+segments; preserve exact bytes for unmarked historical projections. Transcript indexing does not
 call Tika or inherit the artifact extraction budget. Keep native record/segment limits
 and the explicit PostgreSQL text capacity failure. Retained copies remain readable
 if later capture policy tightens. The default native limit is 512 MiB, maximum 1 GiB.

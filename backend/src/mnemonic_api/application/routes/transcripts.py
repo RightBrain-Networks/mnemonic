@@ -19,6 +19,7 @@ from mnemonic_api.services import transcript_imports, transcripts
 from mnemonic_api.services.project_mutations import project_mutation
 from mnemonic_api.services.transcript_segments import segment_range
 from mnemonic_api.transcript_discovery import discover_transcripts
+from mnemonic_api.transcript_fulltext import download_text_chunks
 from mnemonic_api.transcript_health import TranscriptHealthRead, transcript_health
 from mnemonic_api.transcript_schemas import (
     TranscriptImportRead,
@@ -153,16 +154,11 @@ def download_transcript(
 ) -> StreamingResponse:
     begin_coherent_read(database)
     record = _text_record(database, project_id, transcript_id, expected_sha256)
-    chars, size = database.execute(select(func.length(Transcript.normalized_text),
-        func.octet_length(Transcript.normalized_text)).where(Transcript.id == record.id)).one()
+    size = database.scalar(select(func.octet_length(Transcript.normalized_text))
+                           .where(Transcript.id == record.id))
 
-    def chunks():
-        for offset in range(0, chars or 0, 65_536):
-            value = database.scalar(select(func.substr(Transcript.normalized_text,
-                offset + 1, 65_536)).where(Transcript.id == record.id))
-            yield (value or "").encode("utf-8")
-
-    return StreamingResponse(chunks(), media_type="text/plain; charset=utf-8", headers={
+    return StreamingResponse(download_text_chunks(database, record),
+        media_type="text/plain; charset=utf-8", headers={
         "Content-Disposition": f'attachment; filename="transcript-{transcript_id}.txt"',
         "Content-Length": str(size or 0), "X-Content-SHA256": record.text_sha256 or "",
         "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff",

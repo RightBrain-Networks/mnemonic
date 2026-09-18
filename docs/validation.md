@@ -1,5 +1,33 @@
 # Mnemonic validation record
 
+## Large transcript publication and Codex setup (0.65.1)
+
+The production-sized publication probe exposed the interactive ten-second database
+transaction limit after successful capture/normalization. The follow-up stages
+canonical records independently, then activates them under existing ownership
+fences. Six real-PostgreSQL regressions cover slow staging with concurrent project
+edits and job heartbeats, staging rollback, activation crashes, generation changes,
+lost ledger ownership, and preserved Codex import identity after a crash.
+
+A seventh case captures and persists a >200 MiB session with 60,001 segments, searches
+its last message, pages beyond 80 million characters, and verifies the complete
+HTTP download length and SHA-256. The first run exposed quadratic download work;
+canonical cursor streaming reduced that case plus all six publication regressions
+to 36.31 seconds locally. Another 15 capacity/download tests passed, covering both
+native clients, bounded UTF-8 chunks, concurrent publication snapshots, legacy bytes,
+MCP response validation, Tika independence, retries and immutable-copy recovery.
+A large-Unicode download regression was observed failing at 81,231,698 bytes of
+Python heap before reducing the cursor batch to one segment; the corrected case
+passes below its 24 MiB limit. Measuring publication of the same large segments
+failed at 126,056,872 bytes; byte-bounded insert batches now pass below 64 MiB.
+Full backend CI passed 3,363 cases and exposed two old metadata assertions that
+needed to include the newly published text-projection marker; both were corrected
+without relaxing the retained provenance checks.
+The full MCP suite passed 1,889 tests, and the local
+plugin runtime suite passed 71 tests with its one macOS-only skip.
+The portable exporter tests verify that every installed skill retains complete
+Codex path/identity guidance and resolves all bundled references after relocation.
+
 ## Complete transcript pipeline and controls (0.65.0)
 
 Application/API/MCP/dashboard 0.65.0 requires migration
