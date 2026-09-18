@@ -11,6 +11,11 @@ A read-only installation audit on 2026-09-18 found 1,410 enrollments: 1,350 read
 five native-size failures, two missing sources, four nonregular paths, and 49
 retained files rejected as unsupported. Nineteen ready entries had limited text.
 Counts describe that observation, not a promise that every source is recoverable.
+A later aggregate-only capacity check found **578,621,464 bytes** of indexed text
+in the largest project (1,276 ready entries), already above its configured
+**536,870,912-byte** content-search budget. Across both projects, active canonical
+segments contained **685,617,649 text bytes before labels/separators**. Complete
+indexing must be paired with an adequate search budget for this installation.
 
 | Finding | Cause | Correction |
 | --- | --- | --- |
@@ -121,7 +126,11 @@ preserves explicit project settings and all existing content/receipts.
 **An existing `MNEMONIC_TRANSCRIPT_MAX_BYTES=67108864` remains 64 MiB after upgrade.**
 Raise that explicit operator policy in both API and worker to `536870912` when
 512 MiB is intended; also raise any explicit project limit in Transcript indexing.
-Eligible oversized failures recheck within five minutes. Historical truncated
+For the audited installation, also raise `MNEMONIC_TRANSCRIPT_SEARCH_MAX_BYTES`
+to `1073741824` (1 GiB) in the API: its largest project already exceeds the old
+512-MiB search budget. That budget controls admitted searchable content; it is
+not a disk quota or an exact process-memory ceiling. Eligible oversized failures
+recheck within five minutes. Historical truncated
 ready text refreshes automatically; verify progress and coverage rather than
 clearing its flag manually. Missing native sources, nonregular assertions and
 historical task journals require actual source restoration or
