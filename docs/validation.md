@@ -1,5 +1,69 @@
 # Mnemonic validation record
 
+## Large transcript publication and Codex setup (0.65.1)
+
+The production-sized publication probe exposed the interactive ten-second database
+transaction limit after successful capture/normalization. The follow-up stages
+canonical records independently, then activates them under existing ownership
+fences. Six real-PostgreSQL regressions cover slow staging with concurrent project
+edits and job heartbeats, staging rollback, activation crashes, generation changes,
+lost ledger ownership, and preserved Codex import identity after a crash.
+
+A seventh case captures and persists a >200 MiB session with 60,001 segments, searches
+its last message, pages beyond 80 million characters, and verifies the complete
+HTTP download length and SHA-256. The first run exposed quadratic download work;
+canonical cursor streaming reduced that case plus all six publication regressions
+to 36.31 seconds locally. Another 15 capacity/download tests passed, covering both
+native clients, bounded UTF-8 chunks, concurrent publication snapshots, legacy bytes,
+MCP response validation, Tika independence, retries and immutable-copy recovery.
+A large-Unicode download regression was observed failing at 81,231,698 bytes of
+Python heap before reducing the cursor batch to one segment; the corrected case
+passes below its 24 MiB limit. Measuring publication of the same large segments
+failed at 126,056,872 bytes; byte-bounded insert batches now pass below 64 MiB.
+Full backend CI passed 3,363 cases and exposed two old metadata assertions that
+needed to include the newly published text-projection marker; both were corrected
+without relaxing the retained provenance checks.
+The full MCP suite passed 1,889 tests, and the local
+plugin runtime suite passed 71 tests with its one macOS-only skip.
+The portable exporter tests verify that every installed skill retains complete
+Codex path/identity guidance and resolves all bundled references after relocation.
+
+## Complete transcript pipeline and controls (0.65.0)
+
+Application/API/MCP/dashboard 0.65.0 requires migration
+`0045_transcript_capacity`. The [pipeline audit](transcript-pipeline-audit.md)
+records observed causes, memory measurements, capacity boundaries and rollout.
+No tool, protected write or plugin catalog count changes. Original assertions,
+receipts, native copies, normalization revisions and ready text are preserved.
+Explicit old 64-MiB operator/project settings remain explicit choices on upgrade.
+
+The complete isolated PostgreSQL/RabbitMQ backend suite passed **3,355 tests**;
+final backend CI passed **3,356 tests**.
+After removing the unused Tika dispatch interface, **638 transcript tests** passed.
+Final capacity tests passed **13 cases**, including actual unmodified REST replies
+through MCP in its separate environment. Final server sorting/storage tests passed
+**14 cases**, including copy-failed, index-failed, indexed and waiting states.
+The complete MCP suite passed **1,886 tests**; subsequent large-text and schema
+contract checks passed **75 affected cases**. Two older shared search fixtures
+initially omitted the new sorting properties; all **190** compact, exact-query,
+exploration, normalization, transcript and schema checks pass after correcting
+the fixtures. Strict wire validation remains unchanged. Backend/MCP lint and type checks pass.
+The local plugin/repository verifier passed **71 tests** with one macOS-only skip.
+
+The full transcript acceptance run passed **24 desktop/narrow cases**, followed by
+**six final cases** for both native clients and polished controls. Isolated backup
+checks cover authentication, invalid paths, retention, concurrency, unavailable
+storage, corrupt uploads, project isolation and restore retry recovery. Dashboard
+screenshots linked from the audit use synthetic fixtures. The final frontend suite passed **494 tests**, TypeScript checks and a Node 24
+production build. Gitleaks passed. The aggregate Required checks result is
+recorded with the PR.
+
+A real failing native source measured **212,607,364 bytes**. Scratch normalization
+produced **44,507 segments** with no coverage warnings in **16.4 seconds**, at
+**90.27 MiB peak process RSS**. This verifies that source's parser behavior; it is
+not a production migration or a universal performance bound. No production data
+or deployment settings were changed by that read-only investigation.
+
 ## Semantic artifact passages and selected-project search (0.60.0)
 
 API/MCP/dashboard 0.60.0 and plugin 0.38.0 require migration

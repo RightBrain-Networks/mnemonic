@@ -28,7 +28,7 @@ from mnemonic_jobs.ledger import PermanentJobError, RetryJob, claim_job, finish_
 from .test_leases_postgres import create_work, expire_lease, item_path
 from .test_project_backup_archive import _export
 from .test_transcript_imports_postgres import import_folder, source
-from .test_transcript_indexing_postgres import Parser, collection, read, register, run
+from .test_transcript_indexing_postgres import collection, read, register, run
 from .test_transcript_lifecycle_postgres import claim
 
 pytestmark = pytest.mark.postgres
@@ -57,7 +57,7 @@ def test_crash_after_publish_recovers_copy_after_source_disappears(
         assert row.storage_key == copied.storage_key
         assert row.copy_sha256 == copied.sha256
         assert row.copy_status == "ready" and row.copy_attempts == 2
-    assert index_next_transcript(factory, settings, Parser())
+    assert index_next_transcript(factory, settings)
     assert read(api, project, record)["status"] == "ready"
 
 
@@ -85,20 +85,20 @@ def test_legacy_ready_backfill_retains_text_until_copy_success(
     assert copy_next_transcript(factory, settings)
     current = read(api, project, record)
     if source_change == "unchanged":
-        assert index_next_transcript(factory, settings, Parser())
+        assert index_next_transcript(factory, settings)
         assert read(api, project, record)["normalized_revision"] is not None
         assert not api.get(collection(project)).json()["indexing_incomplete"]
     elif source_change == "changed":
         assert current["status"] == "ready" and current["index_status"] == "pending"
         assert current["text_sha256"] == ready["text_sha256"]
-        assert index_next_transcript(factory, settings, Parser())
+        assert index_next_transcript(factory, settings)
         assert "newer copied" in api.get(collection(project) + "/" + record["id"]
                                          + "/content").text
     else:
         assert current["status"] == "ready"
         assert current["text_sha256"] == ready["text_sha256"]
         assert current["copy_status"] == ("failed" if source_change == "missing" else "ready")
-        assert not index_next_transcript(factory, settings, Parser())
+        assert not index_next_transcript(factory, settings)
         assert api.get(collection(project), params={"detail": "full"}).json()[
             "indexing_incomplete"
         ] == (source_change == "missing")
@@ -176,7 +176,7 @@ def test_queue_copy_then_index_and_rebuild_only_index_the_retained_file(
         assert enqueue_transcript_jobs(database, settings) == 1
     source_path.unlink()
     context = _queued_context(factory, "transcript_index")
-    result = handle_transcript_index(factory, settings, Parser(), context)
+    result = handle_transcript_index(factory, settings, context)
     with factory.begin() as database:
         assert finish_job(database, context, result=result)
     assert read(api, project, record)["status"] == "ready"
@@ -187,7 +187,7 @@ def test_queue_copy_then_index_and_rebuild_only_index_the_retained_file(
         assert len(database.scalars(select(BackgroundJob).where(
             BackgroundJob.kind == "transcript_copy")).all()) == 1
     context = _queued_context(factory, "transcript_index")
-    assert handle_transcript_index(factory, settings, Parser(), context)["disposition"] == "ready"
+    assert handle_transcript_index(factory, settings, context)["disposition"] == "ready"
 
 
 def test_queue_exhaustion_becomes_a_visible_copy_failure(
@@ -246,7 +246,7 @@ def test_allowlist_recovery_then_transient_retry_gets_a_fresh_queue_identity(
     assert handle_transcript_copy(factory, settings, retried) == {"disposition": "ready"}
 
 
-@pytest.mark.parametrize("failure", ["malformed", "tika"])
+@pytest.mark.parametrize("failure", ["malformed", "projection"])
 def test_changed_legacy_copy_failure_retains_complete_readable_extraction(
     api, project, work_payload, tmp_path, postgres_engine, failure,
 ):
@@ -264,9 +264,8 @@ def test_changed_legacy_copy_failure_retains_complete_readable_extraction(
     source_path.write_bytes(b'{"unfinished":' if failure == "malformed" else
                             b'{"role":"user","content":"changed source"}\n')
     assert copy_next_transcript(factory, settings)
-    parser = (Parser(error=ExtractionError("extraction_parse_failed"))
-              if failure == "tika" else Parser())
-    assert index_next_transcript(factory, settings, parser)
+    error = ExtractionError("transcript_projection_failed") if failure == "projection" else None
+    assert run(api, stage_error=error)
     after = read(api, project, record)
     assert after["index_status"] == "failed"
     for field in ("status", "sha256", "size_bytes", "text_sha256", "metadata", "format",
@@ -346,7 +345,7 @@ def test_queued_retained_reindex_defers_pause_without_losing_its_job(
     assert api.patch(endpoint, json={"enabled": False, "expected_revision": 1,
                                     "max_file_size_bytes": 1024}).status_code == 200
     with pytest.raises(RetryJob) as deferred:
-        handle_transcript_index(factory, settings, Parser(), context)
+        handle_transcript_index(factory, settings, context)
     assert not deferred.value.consume_attempt
     with factory.begin() as database:
         assert finish_job(database, context, error=deferred.value)
@@ -358,7 +357,7 @@ def test_queued_retained_reindex_defers_pause_without_losing_its_job(
                                     "max_file_size_bytes": 1024}).status_code == 200
     resumed = _queued_context(factory, "transcript_index")
     assert resumed.job_id == context.job_id
-    assert handle_transcript_index(factory, settings, Parser(), resumed) == {"disposition": "ready"}
+    assert handle_transcript_index(factory, settings, resumed) == {"disposition": "ready"}
 
 
 @pytest.mark.parametrize("phase", ["copy", "index"])

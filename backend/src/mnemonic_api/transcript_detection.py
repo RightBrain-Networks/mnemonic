@@ -3,8 +3,21 @@
 import json
 from typing import BinaryIO
 
+from mnemonic_api.artifact_tika import ExtractionError
+
 MAX_SIGNATURE_BYTES = 8_388_608
 MAX_SIGNATURE_RECORDS = 16
+
+
+def is_task_journal(prefix: bytes) -> bool:
+    """Recognize the task execution journal mistakenly supplied as a session."""
+    try:
+        row = json.loads(prefix.split(b"\n", 1)[0].decode("utf-8-sig"))
+    except (UnicodeDecodeError, ValueError, RecursionError):
+        return False
+    return (isinstance(row, dict) and set(row) == {"agentId", "key", "type"}
+            and row["type"] == "started" and isinstance(row["agentId"], str)
+            and isinstance(row["key"], str))
 
 
 def _record_client(line: bytes) -> str | None:
@@ -25,6 +38,8 @@ def detect_transcript_client(content: BinaryIO) -> str:
         if not line or len(line) > remaining:
             break
         remaining -= len(line)
+        if is_task_journal(line):
+            raise ExtractionError("transcript_not_native_session")
         client = _record_client(line)
         if client is not None:
             return client

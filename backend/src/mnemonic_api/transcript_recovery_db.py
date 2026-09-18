@@ -32,7 +32,7 @@ def recovery_elements() -> list:
                            name="generation_valid"),
         sa.CheckConstraint("expected_snapshot_id <> resulting_snapshot_id", name="snapshot_valid"),
         sa.CheckConstraint("expected_sha256 ~ '^[0-9a-f]{64}$' AND "
-                           "expected_size_bytes BETWEEN 0 AND 268435456", name="content_valid"),
+                           "expected_size_bytes BETWEEN 0 AND 1073741824", name="content_valid"),
         sa.CheckConstraint("left(original_source_path, 1) = '/' AND "
                            "left(replacement_path, 1) = '/'", name="paths_absolute"),
         sa.CheckConstraint("length(btrim(reason)) > 0 AND length(btrim(evidence)) > 0",

@@ -62,18 +62,26 @@ def _candidate(entry: os.DirEntry, descriptor: int, directory: Path,
             or any(ord(char) < 32 or 0xD800 <= ord(char) <= 0xDFFF for char in path)):
         scan.skipped += 1
         return
+    client = _source_client(entry.name, descriptor)
+    if client is None:
+        scan.skipped += 1
+        return
     scan.paths.append(path)
-    scan.clients[path] = _source_client(entry.name, descriptor)
+    scan.clients[path] = client
     scan.check(0)
 
 
-def _source_client(name: str, directory_descriptor: int) -> str:
+def _source_client(name: str, directory_descriptor: int) -> str | None:
     try:
         descriptor = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK,
                              dir_fd=directory_descriptor)
         with os.fdopen(descriptor, "rb") as content:
             if stat.S_ISREG(os.fstat(content.fileno()).st_mode):
                 return detect_transcript_client(content)
+    except ExtractionError as error:
+        if error.code == "transcript_not_native_session":
+            return None
+        raise
     except OSError:
         pass
     return "claude_code"
@@ -92,9 +100,12 @@ def discover_transcripts(directory: str, roots: list[Path], *,
         finally:
             os.close(descriptor)
     except ExtractionError as error:
-        raise ApplicationError(422, "transcript_import_path_not_allowed",
-                               "Choose a folder within the configured shared transcript folders.") \
-            from error
+        if error.code == "transcript_path_not_allowed":
+            raise ApplicationError(422, "transcript_import_path_not_allowed",
+                "Choose a folder within the configured shared transcript folders.") from None
+        raise ApplicationError(422, "transcript_import_scan_failed",
+            "The folder could not be read. Check its path, permissions and shared filesystem "
+            "mount. See transcript access warnings for source-root problems.") from None
     except OSError as error:
         raise ApplicationError(422, "transcript_import_scan_failed",
                                "The folder could not be read. Check its path, permissions and "

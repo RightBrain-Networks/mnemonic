@@ -40,7 +40,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
-HEAD = "0041_artifact_passages"
+HEAD = "0045_transcript_capacity"
 MAX_MANIFEST_BYTES = 8 * 1024 * 1024
 
 

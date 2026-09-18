@@ -6,8 +6,11 @@ import hashlib
 import os
 import stat
 from collections.abc import Iterator
-from dataclasses import dataclass
+from contextlib import contextmanager
+from dataclasses import dataclass, field, replace
+from datetime import UTC, datetime
 from pathlib import Path
+from typing import BinaryIO
 from uuid import UUID
 
 from tenacity import Retrying, retry_if_exception, stop_after_attempt, wait_random_exponential
@@ -19,11 +22,14 @@ from mnemonic_api.artifact_storage import (
     StagedArtifact,
 )
 from mnemonic_api.artifact_tika import ExtractionError
+from mnemonic_api.transcript_access import TranscriptAccessError, access_error
+from mnemonic_api.transcript_relocation import resolve_source
+from mnemonic_api.transcript_source_identity import require_identity
 from mnemonic_api.transcript_storage import _open_source
 
 _CHUNK_BYTES = 1024 * 1024
 _TRANSIENT_ERRNOS = {errno.EAGAIN, errno.EINTR, errno.EIO, errno.ESTALE, errno.ETIMEDOUT,
-                     errno.ENOENT, errno.ENOSPC, errno.EDQUOT, errno.EMFILE, errno.ENFILE}
+                     errno.EMFILE, errno.ENFILE}
 
 
 @dataclass(frozen=True)
@@ -31,6 +37,8 @@ class TranscriptCopy:
     storage_key: str
     sha256: str
     size_bytes: int
+    source_path: str | None = field(default=None, compare=False)
+    source_modified_at: datetime | None = field(default=None, compare=False)
 
 
 @dataclass(frozen=True)
@@ -48,10 +56,22 @@ def _transient(error: BaseException) -> bool:
             or (isinstance(error, ExtractionError) and error.retryable))
 
 
-def _source_chunks(source: str, roots: list[Path], maximum: int) -> Iterator[bytes]:
+def _source_chunks(source: str, roots: list[Path], maximum: int,
+                   identity: dict | None = None,
+                   observation: dict | None = None) -> Iterator[bytes]:
+    try:
+        yield from _read_source_chunks(source, roots, maximum, identity, observation)
+    except OSError as error:
+        raise access_error(error, source) from None
+
+
+def _read_source_chunks(source: str, roots: list[Path], maximum: int,
+                        identity: dict | None = None,
+                        observation: dict | None = None) -> Iterator[bytes]:
     descriptor = _open_source(source, roots)
     with os.fdopen(descriptor, "rb") as content:
         before = os.fstat(content.fileno())
+        require_identity(content.fileno(), source, identity)
         if not stat.S_ISREG(before.st_mode):
             raise ExtractionError("transcript_not_regular_file")
         if before.st_size > maximum:
@@ -67,6 +87,8 @@ def _source_chunks(source: str, roots: list[Path], maximum: int) -> Iterator[byt
             after.st_size, after.st_mtime_ns, after.st_ctime_ns
         ) or copied != before.st_size:
             raise ExtractionError("transcript_content_changed", retryable=True)
+        if observation is not None:
+            observation["source_modified_at"] = datetime.fromtimestamp(before.st_mtime, UTC)
 
 
 class TranscriptStorage(ArtifactStorage):
@@ -89,8 +111,6 @@ class TranscriptStorage(ArtifactStorage):
         with self.open(storage_key) as content:
             while chunk := content.read(_CHUNK_BYTES):
                 size += len(chunk)
-                if size > self.max_bytes:
-                    raise ExtractionError("transcript_too_large")
                 digest.update(chunk)
         return TranscriptCopy(storage_key, digest.hexdigest(), size)
 
@@ -120,7 +140,8 @@ class TranscriptStorage(ArtifactStorage):
 
     def _capture_once(self, transcript_id: UUID, snapshot_id: UUID,
                       source: str, roots: list[Path],
-                      expected: TranscriptCopyPin | None = None) -> TranscriptCopy:
+                      expected: TranscriptCopyPin | None = None,
+                      source_identity: dict | None = None) -> TranscriptCopy:
         key = self.key(transcript_id, snapshot_id)
         try:
             retained = self.describe(key)
@@ -132,39 +153,66 @@ class TranscriptStorage(ArtifactStorage):
             with self._directory(str(transcript_id), str(snapshot_id)) as directory:
                 os.fsync(directory)
             return retained
+        source = resolve_source(source, roots, source_identity)
+        observation: dict = {}
         staged = self.stage(transcript_id, snapshot_id, "transcript.jsonl",
-                            _source_chunks(source, roots, self.max_bytes))
+                            _source_chunks(source, roots, self.max_bytes, source_identity,
+                                           observation))
         try:
-            return self._publish_once(staged, expected)
+            copied = self._publish_once(staged, expected)
+            if (copied.sha256, copied.size_bytes) == (staged.sha256, staged.size_bytes):
+                copied = replace(copied, source_path=source,
+                                 source_modified_at=observation.get("source_modified_at"))
+            return copied
         finally:
             self.discard(staged)
 
     def capture(self, transcript_id: UUID, snapshot_id: UUID,
                 source: str, roots: list[Path], *,
-                expected: TranscriptCopyPin | None = None) -> TranscriptCopy:
+                expected: TranscriptCopyPin | None = None,
+                source_identity: dict | None = None) -> TranscriptCopy:
+        if expected is not None:
+            source_identity = None  # Audited full-file pins never permit automatic relocation.
         try:
             for attempt in Retrying(stop=stop_after_attempt(3),
                                     wait=wait_random_exponential(multiplier=0.1, max=1),
                                     retry=retry_if_exception(_transient), reraise=True):
                 with attempt:
-                    return self._capture_once(transcript_id, snapshot_id, source, roots, expected)
+                    return self._capture_once(transcript_id, snapshot_id, source, roots, expected,
+                                              source_identity)
         except ArtifactTooLarge as error:
             raise ExtractionError("transcript_too_large") from error
         except ArtifactContentUnavailable as error:
-            raise ExtractionError("transcript_copy_unavailable") from error
+            raise TranscriptAccessError("transcript_copy_unavailable", str(self.root),
+                                        operation="write_storage") from error
         except OSError as error:
-            retryable = _transient(error) or error.errno in {errno.EACCES, errno.EPERM}
-            raise ExtractionError("transcript_io_error", retryable=retryable) from error
+            raise access_error(error, str(self.root), operation="write_storage") from None
         raise AssertionError("Copy retry policy completed without a disposition")
 
-    def read_copy(self, copy: TranscriptCopy) -> bytes:
+    @contextmanager
+    def open_copy(self, copy: TranscriptCopy) -> Iterator[BinaryIO]:
+        """Read verified retained bytes independently of the current capture limit."""
         try:
-            with self.open(copy.storage_key) as content:
-                data = content.read(self.max_bytes + 1)
+            content = self.open(copy.storage_key)
         except (OSError, ValueError) as error:
             raise ExtractionError("transcript_copy_unavailable", retryable=True) from error
-        if len(data) > self.max_bytes:
-            raise ExtractionError("transcript_too_large")
-        if len(data) != copy.size_bytes or hashlib.sha256(data).hexdigest() != copy.sha256:
-            raise ExtractionError("transcript_copy_integrity_failed")
-        return data
+        with content:
+            before = os.fstat(content.fileno())
+            if before.st_size != copy.size_bytes:
+                raise ExtractionError("transcript_copy_integrity_failed")
+            digest = hashlib.sha256()
+            while chunk := content.read(_CHUNK_BYTES):
+                digest.update(chunk)
+            if digest.hexdigest() != copy.sha256:
+                raise ExtractionError("transcript_copy_integrity_failed")
+            content.seek(0)
+            yield content
+            after = os.fstat(content.fileno())
+            if (before.st_size, before.st_mtime_ns, before.st_ctime_ns) != (
+                after.st_size, after.st_mtime_ns, after.st_ctime_ns
+            ):
+                raise ExtractionError("transcript_copy_integrity_failed")
+
+    def read_copy(self, copy: TranscriptCopy) -> bytes:
+        with self.open_copy(copy) as content:
+            return content.read()

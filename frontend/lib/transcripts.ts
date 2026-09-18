@@ -1,3 +1,4 @@
+import { transcriptCoverageLabel } from "./transcript-coverage.ts";
 import type { QueryMode } from "./search-evidence.ts";
 import { validateSourceRanking, decodeSearchRanking, decodeHitRanking, validScoreType, type SearchRanking, type ScoreType } from "./search-ranking.ts";
 import { validTranscriptNormalization, type TranscriptNormalization, type TranscriptContentKind } from "./transcript-segments.ts";
@@ -7,7 +8,9 @@ import { decodeTermDiagnostics, type TermDiagnostic } from "./search-diagnostics
 import { boundedText, exactKeys, finiteInteger, objectValue, sameUuid, validUuid } from "./wire-guards.ts";
 
 export const TRANSCRIPT_JSON_MAX_BYTES = 16 * 1024 * 1024;
-export const TRANSCRIPT_MAX_BYTES = 256 * 1024 * 1024;
+export const TRANSCRIPT_MAX_BYTES = 1024 * 1024 * 1024;
+export const TRANSCRIPT_SORT_FIELDS = ["name", "size", "session", "indexing", "updated"] as const;
+export type TranscriptSort = typeof TRANSCRIPT_SORT_FIELDS[number];
 export const TRANSCRIPT_PAGE_SIZE = 50;
 export const TRANSCRIPT_TEXT_PAGE_SIZE = 20000;
 export type TranscriptStatus = "waiting" | "pending" | "processing" | "ready" | "failed";
@@ -29,6 +32,10 @@ export interface Transcript extends TranscriptNormalization {
   copied_at: string | null;
   indexing_started_at: string | null;
   indexing_completed_at: string | null;
+  last_updated_at?: string | null;
+  index_created_at?: string | null;
+  session_ids?: string[];
+  models?: string[];
   error_code: string | null;
   size_bytes: number | null;
   mime_type: string | null;
@@ -103,6 +110,8 @@ export function decodeTranscript(value: unknown, projectId: string, transcriptId
     || !nullableText(row.copy_error_code, 200) || !(row.copied_at === null || timestamp(row.copied_at))
     || !(row.indexing_started_at === null || timestamp(row.indexing_started_at))
     || !(row.indexing_completed_at === null || timestamp(row.indexing_completed_at))
+    || ![row.last_updated_at, row.index_created_at].every((value) => value == null || timestamp(value))
+    || ![row.session_ids, row.models].every((value) => value === undefined || Array.isArray(value) && value.length <= 8 && value.every((item) => boundedText(item, 200)))
     || !nullableText(row.error_code, 200) || !(row.size_bytes === null || finiteInteger(row.size_bytes))
     || !nullableText(row.mime_type, 200) || !nullableText(row.format, 200)
     || !(row.sha256 === null || transcriptDigest(row.sha256))
@@ -205,7 +214,10 @@ export function transcriptStatusLabel(transcript: Transcript): string {
     return `Indexed · ${replacement[transcript.index_status]}`;
   }
   const labels = { waiting: transcript.kind === "imported" ? "Queued" : "Waiting for work to leave Active", pending: "Queued", processing: "Indexing", ready: "Indexed", failed: "Failed" };
-  return `${labels[transcript.status]}${transcript.truncated ? " · Truncated" : ""}`;
+  const notes = [transcript.truncated ? "Search text limited" : "",
+    transcriptCoverageLabel(transcript),
+    transcript.metadata["transcript:metadata_limited"]?.includes("true") ? "Metadata limited" : ""].filter(Boolean);
+  return [labels[transcript.status], ...notes].join(" · ");
 }
 
 // Only these exact proxy-owned responses prove a fresh request was never dispatched.

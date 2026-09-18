@@ -27,6 +27,10 @@ TranscriptStatus = Literal["waiting", "pending", "processing", "ready", "failed"
 
 
 class TranscriptNormalizationRead(BaseModel):
+    last_updated_at: datetime | None = None
+    index_created_at: datetime | None = None
+    session_ids: list[str] = Field(default_factory=list, max_length=8)
+    models: list[str] = Field(default_factory=list, max_length=8)
     rank: int | None = Field(default=None, ge=1)
     score_type: ScoreType = "none"
     normalization_status: Literal["pending", "processing", "ready", "failed"] = "pending"
@@ -37,7 +41,9 @@ class TranscriptNormalizationRead(BaseModel):
     normalized_size_bytes: Nonnegative | None = None
     normalizer_version: Positive | None = None
     segment_count: Nonnegative = 0
-    normalization_incomplete: bool = False
+    normalization_incomplete: bool = Field(default=False,
+        description="Native records or relationships could not be represented; independent of "
+                    "search-text length and retained native-copy completeness.")
     segment_id: SegmentIdentity | None = None
     content_kind: ContentKind | None = None
     snippet_omission_reason: Literal["matched_span_exceeds_budget"] | None = None
@@ -69,7 +75,9 @@ class TranscriptRead(TranscriptNormalizationRead):
     sha256: Digest | None
     text_sha256: Digest | None
     metadata: dict[str, list[str]]
-    truncated: bool
+    truncated: bool = Field(description="Historical indexed text reached its character budget; "
+                           "automatically refreshed. "
+                           "Native copies and persisted conversation segments remain intact.")
     created_at: datetime
     snippet: str | None = None
     score: float | None = None
@@ -87,15 +95,22 @@ class CompactTranscriptRead(TranscriptNormalizationRead):
     status: TranscriptStatus
     index_status: TranscriptStatus
     copy_status: Literal["pending", "processing", "ready", "failed"]
-    truncated: bool
+    truncated: bool = Field(description="Historical indexed text reached its character budget; "
+                           "automatically refreshed. "
+                           "Native copies and persisted conversation segments remain intact.")
     snippet: str | None = None
     score: float | None = None
+
+
+TranscriptSort = Literal["name", "size", "session", "indexing", "updated"]
 
 
 class TranscriptSearch(SearchOptions):
     model_config = ConfigDict(extra="forbid")
     query: str | None = Field(default=None, max_length=1000)
     query_mode: QueryMode = "terms"
+    sort_by: TranscriptSort | None = None
+    sort_direction: Literal["asc", "desc"] = "desc"
     fulltext: bool = False
     detail: Literal["compact", "full"] = "compact"
     content_kinds: list[ContentKind] | None = Field(default=None, min_length=1, max_length=8)
@@ -115,6 +130,8 @@ class TranscriptSearch(SearchOptions):
 
 
 class TranscriptPage(SearchDisclosure, SearchRanking):
+    sort_by: TranscriptSort | None = None
+    sort_direction: Literal["asc", "desc"] = "desc"
     detail: Literal["compact", "full"]
     term_diagnostics: TermDiagnostics = Field(default_factory=list)
     items: list[TranscriptRead | CompactTranscriptRead]
@@ -209,7 +226,7 @@ class TranscriptSettingsRead(BaseModel):
 class TranscriptSettingsPatch(BaseModel):
     model_config = ConfigDict(extra="forbid")
     enabled: bool
-    max_file_size_bytes: int = Field(ge=1, le=268_435_456)
+    max_file_size_bytes: int = Field(ge=1, le=1_073_741_824)
     expected_revision: int = Field(ge=1)
 
 

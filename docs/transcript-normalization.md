@@ -32,16 +32,33 @@ in the existing transcript/work/lease tables.
 Content kinds are `human_text`, `assistant_text`, `tool_call`, `tool_result`,
 `system_text`, `reasoning`, `summary`, and `unsupported`. Role and content kind are
 independent: Claude tool results can occur in user-role messages. Unsupported
-binary/encrypted blocks have explicit dispositions and do not become searchable
-text. Missing timestamps are explicit without inventing times. Missing call
+binary and encrypted blocks have explicit dispositions and do not become searchable
+text. Expected provider encryption is informational; missing readable content is a warning. Missing timestamps are explicit without inventing times. Missing call
 references are reported as incomplete structural coverage. Codex completed UI
 mirrors are omitted; durable Plan and FunctionCallOutput exceptions remain.
 
-Native-source record/export and nesting limits remain enforced. The search text
-extraction limit does **not** limit persisted canonical content. `truncated` reports
-bounded search text; `normalization_incomplete` separately reports omitted or
+Native-source record/export and nesting limits remain enforced. Since 0.65.0,
+complete text is derived from all canonical segments independently of the artifact
+extraction budget. Existing `truncated` rows refresh automatically and retain that
+flag until complete text is published; `normalization_incomplete` separately reports omitted or
 unsupported structure. Canonical rows contain untrusted content, just like native
 transcripts and derived text.
+
+Before 0.62.0 the indexer incorrectly combined normalization warnings with the
+`truncated` flag, so even a short conversation containing session bookkeeping
+could be labeled Truncated. The corrected status distinguishes **Search text
+limited**, specific native-content coverage warnings, and **Metadata limited**. Unsupported native
+record types, binary content and unresolved relationships still report
+coverage limitations; they do not imply the raw source copy was shortened. Text
+preview/download limits apply to indexed text. Segment-window responses retain
+their separate structural-coverage `truncated` flag and per-block `text_truncated`
+pagination marker. Extracted property limits use `transcript:metadata_limited`.
+
+Migration 0043 queues idle, ready, copied transcripts with the old flag for normal
+reindexing from retained segments. It neither clears lease tokens nor queues work
+with an Active lease. Existing in-flight jobs finish under the new indexer; jobs
+still respect project pauses. Ready text remains readable during refresh. Normalizer upgrades now reconcile deferred Active/paused records automatically
+after their guards clear.
 
 ## Ingestion, rebuilds, and migration
 
@@ -59,8 +76,11 @@ become readable while text extraction is pending. A stale worker cannot attach a
 former capture's normalized revision to an enrolled transcript.
 
 Rebuilds reuse persisted normalization when snapshot, source hash and versions
-match. They stream segment text under the extraction budget without loading tool
-payloads or rerunning native adapters. A normalizer/schema version change selects
+match. They stream all segment text without loading tool payloads or rerunning
+native adapters. Text hashing uses bounded process memory; PostgreSQL assembles
+the same ordered text inside the publication transaction. Text must remain below
+PostgreSQL's 1 GiB value limit; oversized output fails explicitly with
+`transcript_text_too_large` rather than publishing an apparently complete prefix. A normalizer/schema version change selects
 a new revision generated from the retained native copy. Interrupted work resumes
 through existing expiry/retry/rebuild controls; a normalization error preserves
 prior ready search text and reports incomplete coverage.
@@ -79,8 +99,7 @@ continue to address text pinned by `text_sha256`.
 For structured context, call the existing text endpoint with `segment_id` and
 `expected_normalized_revision`. Optional `before` and `after` select up to 20
 surrounding blocks in total. `offset` addresses characters within the selected
-block and supports values through 1,073,741,824, independently of the search
-extraction cap. `limit` is 1–200,000 and bounds returned text plus retained payload
+block and supports values through 1,073,741,824, for both flat text and structured reads. `limit` is 1–200,000 and bounds returned text plus retained payload
 bytes. The response has typed `segments` with generated 24-hex-character identities,
 zero-based ordinals, one-based source record numbers, content kinds, native metadata,
 text fragments and their `text_offset`/`text_truncated` state. Native optional fields
@@ -131,3 +150,55 @@ body to a content-kind-filtered search. Coverage reports that omission.
 When restoring a database backup, Mnemonic verifies segment order, content/hash
 consistency, manifest identity, and the active revision's captured source witness.
 Restore retains structured revisions and advances only transient job generations.
+
+
+## Native-format repair and upgrades (0.64.0)
+
+Normalizer 1 treated common Claude bookkeeping and context attachments as unknown
+roles, tool discovery references as unsupported content, and Codex encrypted state
+and telemetry as parser failures. It also omitted readable replacement history
+at compaction and resolved tool results only against calls appearing earlier in
+the file. Separating these warnings from the search-text length flag in 0.62.0
+exposed the parser gaps; it did not repair them. The earlier regression fixtures
+covered simple authored messages and a small set of bookkeeping records, leaving
+these native variants untested. Rebuilding with the same normalizer version reused
+the persisted incomplete representation instead of adapting the native file again.
+
+Normalizer 2 recognizes explicitly enumerated bookkeeping records and retains
+readable Claude context attachments (instructions, prompts, hooks, file excerpts,
+tool definitions and runtime diagnostics) as system segments with typed payloads.
+Codex web search extensions retain their actions and results. Compaction retains
+new readable context with native roles and source locations, deduplicating only
+exact replayed context; ordinary repeated authored messages remain distinct.
+Tool results can resolve a unique later call without inventing absent references.
+
+Warnings in `transcript:normalization_warnings` use `code=count` entries. Images,
+documents and other binary bodies retain specific search-coverage warnings. Notes
+in `transcript:normalization_notes` disclose expected encrypted state, ignored
+bookkeeping/mirrors, and recovered/deduplicated compaction context. Unknown future
+records, blocks and attachments continue to warn; native bytes remain immutable.
+The dashboard names each remaining limitation and shows affected block counts.
+
+The worker automatically schedules old ready normalizations in bounded batches,
+using a separate project-scoped transaction and the existing durable job ledger.
+It rechecks project pause and active lease generation after acquiring the normal
+project/work/lease/transcript locks. Sessions active or paused during deployment
+become eligible later. Old search text remains available until replacement text
+publishes, and an already pending or failed refresh is not repeatedly reset.
+Existing bounded retry and explicit rebuild controls handle failed refreshes.
+No migration, source-path rewrite, permission widening or recopy is required.
+Reading an already-private retained copy no longer performs redundant `chmod`
+writes, so verification and recovery can read correctly secured read-only mounts.
+
+Run a read-only audit inside the worker, which can access the native-copy bind:
+
+```sh
+docker compose exec -T worker python /app/scripts/audit_transcript_normalization.py --verify-native
+```
+
+The audit reports aggregate states and warning counts, validates native hashes,
+and verifies both persisted segment hashes and recomputed current-version canonical hashes. It emits no paths or transcript
+bodies and never repairs filesystem permissions; unsafe directories are reported
+as unreadable. Non-transcript captures are reported separately; a journal/stdout file
+cannot be repaired by pretending it is a native session. Use the audited recovery
+workflow when a historical assertion identified the wrong file.

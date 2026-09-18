@@ -28,6 +28,7 @@ HASH = hashlib.sha256(TEXT.encode()).hexdigest()
 def transcript(**changes):
     return {
         "matched_fields": [], "snippet_omission_reason": None, "rank": None, "score_type": "none",
+        "last_updated_at": NOW, "index_created_at": NOW, "session_ids": [], "models": [],
         "id": TRANSCRIPT_ID, "project_id": PROJECT_ID, "work_item_id": WORK_ID,
         "lease_generation_id": CLIENT_OPERATION_ID, "client": "claude_code",
         "session_id": "independent-session", "source_path": LOCATION["path"],
@@ -47,7 +48,8 @@ def transcript(**changes):
 
 
 def page(**changes):
-    return {"term_diagnostics": [], "items": [transcript()], "total": 1, "limit": 50, "offset": 0,
+    return {"sort_by": None, "sort_direction": "desc",
+            "term_diagnostics": [], "items": [transcript()], "total": 1, "limit": 50, "offset": 0,
             "indexing_incomplete": False, **changes}
 
 
@@ -467,3 +469,25 @@ async def test_imported_transcript_reads_have_no_fabricated_work_provenance(sett
         await call(settings, "list_transcripts", {
             "project_id": PROJECT_ID, "work_item_id": WORK_ID,
         }, lambda request: httpx.Response(200, json=page(items=[imported])))
+
+
+@pytest.mark.parametrize("offset,total", [(8_000_001, 9_000_000), (1_073_741_812, 1_073_741_824)])
+async def test_complete_text_paging_accepts_offsets_beyond_legacy_artifact_limit(
+    settings, offset, total,
+):
+    result = {"project_id": PROJECT_ID, "transcript_id": TRANSCRIPT_ID, "text_sha256": HASH,
+              "text": TEXT[:12], "total_chars": total, "offset": offset, "limit": 12,
+              "next_offset": offset + 12 if offset + 12 < total else None,
+              "status": "ready", "truncated": False,
+              "normalized_revision": None, "segments": None, "segment_window": None,
+              "next_segment_id": None, "next_segment_offset": None, "next_segment_after": None}
+
+    def handler(request):
+        assert request.url.params["offset"] == str(offset)
+        return httpx.Response(200, json=result)
+
+    actual = await call(settings, "get_transcript_text", {
+        "project_id": PROJECT_ID, "transcript_id": TRANSCRIPT_ID,
+        "expected_sha256": HASH, "offset": offset, "limit": 12,
+    }, handler)
+    assert actual["text"] == TEXT[:12] and actual["total_chars"] == total

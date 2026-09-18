@@ -32,7 +32,7 @@ def test_every_symlink_component_is_rejected(tmp_path, kind):
     link = tmp_path / "link"
     link.symlink_to(path if kind == "file" else source)
     chosen = link if kind == "file" else link / "session.jsonl"
-    with pytest.raises(ExtractionError, match="transcript_io_error"):
+    with pytest.raises(ExtractionError, match="transcript_symlink_rejected"):
         read_transcript(str(chosen), [link if kind == "root" else tmp_path], 100)
 
 
@@ -70,7 +70,7 @@ def test_configured_source_is_checked_without_reading_transcripts(tmp_path):
 @pytest.mark.parametrize("missing_field", [
     "transcript_source_dir", "codex_transcript_source_dir", "codex_archived_transcript_source_dir",
 ])
-def test_startup_rejects_any_unavailable_configured_source(tmp_path, missing_field):
+def test_startup_preserves_dashboard_when_source_is_unavailable(tmp_path, missing_field):
     sources = {field: tmp_path / field for field in (
         "transcript_source_dir", "codex_transcript_source_dir",
         "codex_archived_transcript_source_dir",
@@ -82,8 +82,35 @@ def test_startup_rejects_any_unavailable_configured_source(tmp_path, missing_fie
                       api_key="synthetic-test-key" * 3, artifact_max_bytes=0, **sources)
     engine = create_engine("sqlite://")
     try:
-        with pytest.raises(RuntimeError, match=f"Configured transcript source.*{missing_field}"):
-            with TestClient(create_app(settings=config, engine=engine)):
-                pytest.fail("Startup accepted an unavailable transcript source")
+        with TestClient(create_app(settings=config, engine=engine)) as client:
+            assert client.get("/healthz").status_code == 200
+        from mnemonic_api.transcript_health import environment_report
+        issues = environment_report(config, worker=False)["issues"]
+        assert any(item["details"]["path"] == str(sources[missing_field]) for item in issues)
+    finally:
+        engine.dispose()
+
+
+def test_index_outage_preserves_dashboard_and_reports_the_directory(tmp_path):
+    from mnemonic_api.artifact_index import ArtifactSearchIndex
+    from mnemonic_api.transcript_health import index_warnings
+
+    missing = tmp_path / "missing-index"
+    config = Settings(database_url="postgresql+psycopg://test:test@localhost/test",
+                      api_key="synthetic-test-key" * 3, artifact_max_bytes=0,
+                      transcript_index_dir=missing)
+    engine = create_engine("sqlite://")
+    try:
+        with TestClient(create_app(settings=config, engine=engine)) as client:
+            assert client.get("/healthz").status_code == 200
+        warnings = index_warnings(None, config)
+        assert len(warnings) == 1 and warnings[0].path == str(missing)
+        assert "0700" in warnings[0].action
+        missing.mkdir(mode=0o700)
+        index = ArtifactSearchIndex(missing)
+        try:
+            assert index_warnings(index, config) == []
+        finally:
+            index.close()
     finally:
         engine.dispose()

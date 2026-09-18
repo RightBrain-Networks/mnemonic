@@ -2,7 +2,7 @@ import { ranking, hitRanking, unifiedRanking, semanticDisposition, evidence } fr
 import { disclosure } from "./search-disclosure-fixtures.mjs";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { decodeTranscriptProxyRejection, decodeTranscript, decodeTranscriptPage, decodeTranscriptSettings, decodeTranscriptText, transcriptContentPath, transcriptLibraryPath, transcriptRequest, transcriptClientLabel, TRANSCRIPT_JSON_MAX_BYTES, TRANSCRIPT_MAX_BYTES } from "../lib/transcripts.ts";
+import { decodeTranscriptProxyRejection, decodeTranscript, decodeTranscriptPage, decodeTranscriptSettings, decodeTranscriptText, transcriptContentPath, transcriptLibraryPath, transcriptRequest, transcriptStatusLabel, transcriptClientLabel, TRANSCRIPT_JSON_MAX_BYTES, TRANSCRIPT_MAX_BYTES } from "../lib/transcripts.ts";
 import { proxyTranscript, readTranscriptMutationBody, transcriptRoute, validTranscriptQuery } from "../lib/transcript-proxy.ts";
 const project = "7a5dc555-0a6d-4f92-9678-1647524827c8";
 const id = "e36a7e53-938f-4c8a-b75a-af9c7331711a";
@@ -261,4 +261,51 @@ test("valid escaped Unicode segment windows fit the browser text transport budge
     async () => new Response(encoded, { headers: { "Content-Type": "application/json" } }));
   assert.equal(response.status, 200);
   assert.equal((await response.json()).text, text);
+});
+
+
+test("transcript status distinguishes search limits from normalization and metadata warnings", () => {
+  assert.equal(transcriptStatusLabel(row), "Indexed");
+  assert.equal(transcriptStatusLabel({ ...row, normalization_incomplete: true }), "Indexed · Coverage incomplete");
+  assert.equal(transcriptStatusLabel({ ...row, truncated: true }), "Indexed · Search text limited");
+  assert.equal(transcriptStatusLabel({ ...row, truncated: true, normalization_incomplete: true }), "Indexed · Search text limited · Coverage incomplete");
+  assert.equal(transcriptStatusLabel({ ...row, metadata: { "transcript:metadata_limited": ["true"] } }), "Indexed · Metadata limited");
+});
+
+test("native session metadata validates independently of reporting provenance", () => {
+  const metadata = { ...row, last_updated_at: "2026-02-01T14:30:00Z", index_created_at: row.indexing_completed_at, session_ids: ["native-child"], models: ["fixture-model"] };
+  assert.equal(decodeTranscript(metadata, project).session_ids[0], "native-child");
+  assert.equal(decodeTranscript(metadata, project).session_id, "session-1");
+  for (const change of [{last_updated_at: "yesterday"}, {index_created_at: "tomorrow"}, {models: Array(9).fill("model")}, {session_ids: [null]}]) assert.throws(() => decodeTranscript({...metadata,...change}, project));
+});
+
+test("transcript downloads stream beyond 32 MiB without buffering the complete response", async () => {
+  const chunks = 600, chunkSize = 65536;
+  let produced = 0;
+  const body = new ReadableStream({ pull(controller) {
+    if (produced === chunks) { controller.close(); return; }
+    produced += 1;
+    controller.enqueue(new Uint8Array(chunkSize).fill(97));
+  } });
+  const result = await proxyTranscript(request(`${root}/${id}/content`), [...root.split("/"), id, "content"], environment,
+    async () => new Response(body, { headers: { "content-length": String(chunks * chunkSize) } }));
+  assert.equal(result.status, 200);
+  assert.ok(produced < chunks, "The proxy must return before consuming all upstream content");
+  let received = 0;
+  for await (const chunk of result.body) received += chunk.byteLength;
+  assert.equal(received, chunks * chunkSize);
+});
+
+test("streamed transcript downloads reject truncated, oversized, and absent bodies", async () => {
+  const path = [...root.split("/"), id, "content"];
+  for (const length of [2, 4]) {
+    const result = await proxyTranscript(request(`${root}/${id}/content`), path, environment,
+      async () => new Response("abc", { headers: { "content-length": String(length) } }));
+    await assert.rejects(() => result.arrayBuffer(), /exceeded|incomplete/);
+  }
+  for (const [body, length] of [[null, "10"], ["x", "1073741825"]]) {
+    const result = await proxyTranscript(request(`${root}/${id}/content`), path, environment,
+      async () => new Response(body, { headers: { "content-length": length } }));
+    assert.equal(result.status, 502);
+  }
 });

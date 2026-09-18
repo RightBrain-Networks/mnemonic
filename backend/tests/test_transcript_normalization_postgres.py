@@ -13,7 +13,7 @@ from mnemonic_api.transcript_normalized_storage import NORMALIZATIONS, SEGMENTS
 
 from .test_leases_postgres import expire_lease
 from .test_project_backup_archive import _export, _snapshot
-from .test_transcript_indexing_postgres import Parser, collection, read, register, run
+from .test_transcript_indexing_postgres import collection, read, register, run
 
 pytestmark = pytest.mark.postgres
 
@@ -87,7 +87,7 @@ def test_index_failure_preserves_normalized_stage_and_retry_uses_it(
 ):
     work, _, record, _ = register(api, project, work_payload, tmp_path)
     expire_lease(postgres_engine, work["id"])
-    assert run(api, Parser(error=ExtractionError("extraction_unavailable", True)))
+    assert run(api, stage_error=ExtractionError("extraction_unavailable", True))
     failed = read(api, project, record)
     assert failed["normalization_status"] == "ready" and failed["status"] == "pending"
     with api.app.state.session_factory.begin() as database:
@@ -99,7 +99,7 @@ def test_index_failure_preserves_normalized_stage_and_retry_uses_it(
     assert read(api, project, record)["normalized_revision"] == failed["normalized_revision"]
 
 
-def test_search_text_budget_does_not_truncate_segments_or_backup(
+def test_artifact_text_budget_does_not_truncate_transcripts_or_backup(
     api, project, work_payload, tmp_path, postgres_engine,
 ):
     work, _, record, source = register(api, project, work_payload, tmp_path)
@@ -108,11 +108,11 @@ def test_search_text_budget_does_not_truncate_segments_or_backup(
     expire_lease(postgres_engine, work["id"])
     assert run(api)
     ready = read(api, project, record)
-    assert ready["truncated"] and not ready["normalization_incomplete"]
+    assert not ready["truncated"] and not ready["normalization_incomplete"]
     snapshot = _snapshot(postgres_engine, project)
     segment = snapshot["transcript_segments"][0]
     assert segment["text"].endswith("late evidence")
-    assert len(snapshot["transcripts"][0]["normalized_text"]) == 100
+    assert snapshot["transcripts"][0]["normalized_text"].endswith(" late evidence")
     assert _export(postgres_engine, project)
     path = collection(project) + "/" + record["id"] + "/text"
     first = api.get(path, params={"segment_id": segment["segment_id"],
@@ -136,16 +136,16 @@ def test_failed_normalizer_upgrade_keeps_indexed_revision_and_locators_coherent(
     assert run(api)
     ready = read(api, project, record)
     normalize = transcript_normalization.normalize_transcript
-    monkeypatch.setattr(transcript_normalization, "NORMALIZER_VERSION", 2)
+    monkeypatch.setattr(transcript_normalization, "NORMALIZER_VERSION", 3)
 
     def revised(*args):
         result = normalize(*args)
-        return replace(result, normalizer_version=2)
+        return replace(result, normalizer_version=3)
 
     monkeypatch.setattr("mnemonic_api.transcript_indexing.normalize_transcript", revised)
     assert api.post(collection(project) + "/rebuild",
                     json={"client_operation_id": str(uuid4())}).status_code == 200
-    assert run(api, Parser(error=ExtractionError("extraction_unavailable", True)))
+    assert run(api, stage_error=ExtractionError("extraction_unavailable", True))
     failed = read(api, project, record)
     assert failed["normalized_revision"] == ready["normalized_revision"]
     assert failed["text_sha256"] == ready["text_sha256"]
@@ -236,7 +236,7 @@ def test_normalizer_failure_retains_last_ready_text_and_active_revision(
     expire_lease(postgres_engine, work["id"])
     assert run(api)
     original = read(api, project, record)
-    monkeypatch.setattr("mnemonic_api.transcript_normalization.NORMALIZER_VERSION", 2)
+    monkeypatch.setattr("mnemonic_api.transcript_normalization.NORMALIZER_VERSION", 3)
 
     def unsupported(*_args):
         raise ExtractionError("transcript_unsupported_format")
@@ -327,3 +327,105 @@ def test_backup_rejects_active_normalization_projection_drift(
     snapshot["transcripts"][0][field] = value
     with pytest.raises(BackupError, match="does not match its captured source"):
         validate_normalized_transcripts(snapshot)
+
+
+def test_normalization_warnings_do_not_mean_search_text_was_truncated(
+    api, project, work_payload, tmp_path, postgres_engine,
+):
+    work, _, record, source = register(api, project, work_payload, tmp_path)
+    with source.open("a") as output:
+        output.write('\n{"type":"future-unknown-record","state":"synthetic bookkeeping"}\n')
+    expire_lease(postgres_engine, work["id"])
+
+    assert run(api)
+    ready = read(api, project, record)
+    assert ready["normalization_incomplete"] and not ready["truncated"]
+    assert ready["metadata"].get("transcript:metadata_limited") is None
+    assert api.get(collection(project)).json()["indexing_incomplete"]
+    page = api.get(collection(project) + "/" + record["id"] + "/text", params={
+        "expected_sha256": ready["text_sha256"],
+    }).json()
+    assert not page["truncated"] and "rare needle" in page["text"]
+
+
+def test_migration_recomputes_old_truncation_flags_from_retained_segments(
+    api, project, work_payload, tmp_path, postgres_engine, monkeypatch,
+):
+    from sqlalchemy import text
+
+    from .test_artifact_extraction_migration_postgres import migrate
+
+    work, _, record, source = register(api, project, work_payload, tmp_path)
+    with source.open("a") as output:
+        output.write('\n{"type":"future-unknown-record","state":"synthetic bookkeeping"}\n')
+    expire_lease(postgres_engine, work["id"])
+    assert run(api)
+    original = read(api, project, record)
+    migrate(postgres_engine, "0042_transcript_health", downgrade=True)
+    with postgres_engine.begin() as connection:
+        connection.execute(text("UPDATE transcripts SET truncated=true"))
+    migrate(postgres_engine, "head")
+    queued = read(api, project, record)
+    assert queued["status"] == "ready" and queued["index_status"] == "pending"
+    assert queued["copy_status"] == "ready" and queued["text_sha256"] == original["text_sha256"]
+    source.unlink()
+    monkeypatch.setattr("mnemonic_api.transcript_indexing.normalize_transcript",
+                        lambda *_: pytest.fail("Persisted normalization should be reused"))
+    assert run(api)
+    ready = read(api, project, record)
+    assert ready["normalization_incomplete"] and not ready["truncated"]
+    assert ready["normalized_revision"] == original["normalized_revision"]
+    assert ready["text_sha256"] == original["text_sha256"]
+
+
+def test_coverage_refresh_does_not_alter_an_active_work_lease(
+    api, project, work_payload, tmp_path, postgres_engine,
+):
+    from sqlalchemy import text
+
+    from .test_artifact_extraction_migration_postgres import migrate
+
+    work, _, record, _ = register(api, project, work_payload, tmp_path)
+    expire_lease(postgres_engine, work["id"])
+    assert run(api)
+    migrate(postgres_engine, "0042_transcript_health", downgrade=True)
+    with postgres_engine.begin() as connection:
+        connection.execute(text("UPDATE transcripts SET truncated=true"))
+        connection.execute(text("UPDATE work_leases SET expires_at=clock_timestamp() "
+                                "+ interval '10 minutes' WHERE work_item_id=:id"),
+                           {"id": work["id"]})
+        before = connection.execute(text("SELECT * FROM work_leases WHERE work_item_id=:id"),
+                                    {"id": work["id"]}).mappings().one()
+        generation = connection.scalar(text("SELECT generation FROM transcripts"))
+    migrate(postgres_engine, "head")
+    with postgres_engine.connect() as connection:
+        after = connection.execute(text("SELECT * FROM work_leases WHERE work_item_id=:id"),
+                                   {"id": work["id"]}).mappings().one()
+        assert after == before
+        assert connection.scalar(text("SELECT generation FROM transcripts")) == generation
+    assert read(api, project, record)["index_status"] == "ready"
+
+
+@pytest.mark.parametrize("spare_characters", [0, 1])
+def test_rebuild_at_exact_text_budget_does_not_invent_truncation_from_trailing_records(
+    api, project, work_payload, tmp_path, postgres_engine, spare_characters,
+):
+    from uuid import uuid4
+
+    work, _, record, source = register(api, project, work_payload, tmp_path)
+    with source.open("a") as output:
+        output.write('\n{"type":"future-unknown-record","state":"synthetic bookkeeping"}\n')
+    api.app.state.settings.artifact_extraction_max_chars = (
+        len("user: rare needle in transcript") + spare_characters)
+    expire_lease(postgres_engine, work["id"])
+    assert run(api)
+    before = read(api, project, record)
+    assert not before["truncated"] and before["normalization_incomplete"]
+    assert api.post(collection(project) + "/rebuild", json={
+        "client_operation_id": str(uuid4()),
+    }).status_code == 200
+    source.unlink()
+    assert run(api)
+    rebuilt = read(api, project, record)
+    assert not rebuilt["truncated"] and rebuilt["normalization_incomplete"]
+    assert rebuilt["text_sha256"] == before["text_sha256"]

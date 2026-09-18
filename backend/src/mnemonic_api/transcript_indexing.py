@@ -1,9 +1,7 @@
-"""Persisted, expiring transcript jobs; no database lock spans filesystem or Tika IO."""
+"""Persisted, expiring transcript jobs; no database lock spans filesystem IO."""
 
 import asyncio
 import hashlib
-import io
-import json
 import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -14,27 +12,43 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 from starlette.concurrency import run_in_threadpool
 
-from mnemonic_api.artifact_extraction import Extractor
 from mnemonic_api.artifact_tika import ExtractedArtifact, ExtractionError
 from mnemonic_api.config import Settings
 from mnemonic_api.errors import ApplicationError
 from mnemonic_api.models import Transcript, TranscriptSettings, WorkItem, WorkLease
 from mnemonic_api.services.project_mutations import project_mutation
 from mnemonic_api.services.transcripts import transcript_project_id
+from mnemonic_api.transcript_access import RECHECK_SECONDS, access_error
 from mnemonic_api.transcript_copies import TranscriptCopy, TranscriptStorage
 from mnemonic_api.transcript_detection import detect_transcript_client
+from mnemonic_api.transcript_fulltext import (
+    TEXT_PROJECTION_KEY,
+    TEXT_PROJECTION_VERSION,
+    publish_complete_text,
+    text_digest,
+)
+from mnemonic_api.transcript_metadata import retained_time_bounds, time_bounds, timeline_metadata
 from mnemonic_api.transcript_normalization import (
     NormalizedConversation,
-    conversation_text,
     normalize_transcript,
 )
 from mnemonic_api.transcript_normalized_storage import load_normalization, publish_normalization
+from mnemonic_api.transcript_publication import (
+    INDEX_LEASE_SECONDS,
+    index_claim_filter,
+    stage_normalization,
+)
 from mnemonic_api.transcript_recovery_sources import effective_copy_path
 from mnemonic_api.transcript_snapshots import empty_transcript_snapshot
+from mnemonic_api.transcript_spool import TranscriptSegments
 from mnemonic_api.transcript_storage import canonical_source_path
 from mnemonic_jobs.ledger import JobContext
 
 logger = logging.getLogger(__name__)
+RECOVERABLE_INDEX_ERRORS = (
+    "transcript_copy_unavailable", "transcript_storage_full", "transcript_storage_read_only",
+    "transcript_io_error", "transcript_permission_denied", "transcript_source_missing",
+)
 
 
 @dataclass(frozen=True)
@@ -58,6 +72,9 @@ class TranscriptResult:
     sha256: str
     format: str
     mime_type: str
+    session_started_at: datetime | None = None
+    last_updated_at: datetime | None = None
+    complete_text_sha256: str | None = None
 
 
 def _active_generation():
@@ -95,6 +112,10 @@ def _claimable_transcripts(settings: Settings):
             (Transcript.status.in_(["waiting", "pending"])
              | (Transcript.reindex_status == "pending"))
             & (Transcript.next_attempt_at <= func.clock_timestamp()),
+            ((Transcript.status == "failed") | (Transcript.reindex_status == "failed"))
+            & func.coalesce(Transcript.reindex_error_code, Transcript.error_code).in_(
+                RECOVERABLE_INDEX_ERRORS)
+            & (Transcript.next_attempt_at <= func.clock_timestamp()),
             ((Transcript.status == "processing") | (Transcript.reindex_status == "processing"))
             & (Transcript.lease_expires_at <= func.clock_timestamp()),
         )))
@@ -120,6 +141,8 @@ def _lock_claim_candidate(database: Session, candidate, settings: Settings, stat
 def _start_claim(database: Session, row, settings: Settings) -> TranscriptJob | None:
     transcript, maximum = row
     now = database.execute(select(func.clock_timestamp())).scalar_one()
+    if (transcript.reindex_status or transcript.status) == "failed":
+        transcript.attempts = 0
     if transcript.attempts >= 3:
         transcript.lease_token = transcript.lease_expires_at = None
         _index_failure(transcript, ExtractionError("transcript_attempts_exhausted"), None, None)
@@ -134,8 +157,7 @@ def _start_claim(database: Session, row, settings: Settings) -> TranscriptJob | 
         transcript.indexing_started_at = transcript.indexing_started_at or now
         transcript.indexing_completed_at = None
     transcript.lease_token = uuid4()
-    transcript.lease_expires_at = now + timedelta(
-        seconds=settings.artifact_extraction_timeout_seconds * 2 + 300)
+    transcript.lease_expires_at = now + timedelta(seconds=INDEX_LEASE_SECONDS)
     transcript.attempts += 1
     assert transcript.storage_key is not None and transcript.copy_sha256 is not None
     assert transcript.copy_size_bytes is not None
@@ -144,7 +166,9 @@ def _start_claim(database: Session, row, settings: Settings) -> TranscriptJob | 
                          min(maximum or settings.transcript_max_bytes,
                              settings.transcript_max_bytes), transcript.kind == "imported",
                          TranscriptCopy(transcript.storage_key, transcript.copy_sha256,
-                                        transcript.copy_size_bytes), now, transcript.snapshot_id)
+                                        transcript.copy_size_bytes,
+                                        source_modified_at=transcript.source_modified_at),
+                         now, transcript.snapshot_id)
 
 
 def claim_transcript_job(
@@ -177,7 +201,8 @@ def _save_result(record: Transcript, result: TranscriptResult) -> None:
     record.error_code = None
     record.reindex_status = record.reindex_error_code = None
     record.normalized_text = result.extracted.text
-    record.text_sha256 = hashlib.sha256(result.extracted.text.encode("utf-8")).hexdigest()
+    record.text_sha256 = (result.complete_text_sha256
+                          or hashlib.sha256(result.extracted.text.encode("utf-8")).hexdigest())
     record.extracted_metadata = result.extracted.metadata
     record.truncated = result.extracted.truncated
     record.size_bytes = result.size_bytes
@@ -190,7 +215,9 @@ def _index_failure(record: Transcript, error: ExtractionError,
                     source_size: int | None, source_details: dict | None) -> None:
     retry = error.retryable and record.attempts < 3
     state = "pending" if retry else "failed"
-    record.next_attempt_at = datetime.now(UTC) + timedelta(seconds=30 * record.attempts)
+    delay = RECHECK_SECONDS if not retry and error.code in RECOVERABLE_INDEX_ERRORS else (
+        30 * record.attempts)
+    record.next_attempt_at = datetime.now(UTC) + timedelta(seconds=delay)
     if record.status == "ready":
         record.reindex_status, record.reindex_error_code = state, error.code
         return
@@ -202,6 +229,20 @@ def _index_failure(record: Transcript, error: ExtractionError,
     record.indexing_completed_at = None if retry else datetime.now(UTC)
 
 
+def _publish_success(database: Session, record: Transcript, job: TranscriptJob,
+                     result: TranscriptResult) -> None:
+    _save_result(record, result)
+    if result.complete_text_sha256 is not None:
+        publish_complete_text(database, record)
+    record.indexing_started_at = job.started_at
+    record.indexing_completed_at = datetime.now(UTC)
+    record.last_updated_at = result.last_updated_at or record.source_modified_at
+    record.extracted_metadata = timeline_metadata(record.extracted_metadata,
+        started_at=result.session_started_at, updated_at=record.last_updated_at,
+        source_modified_at=record.source_modified_at,
+        indexed_at=record.indexing_completed_at)
+
+
 def complete_transcript_job(
     factory: sessionmaker[Session], job: TranscriptJob,
     result: TranscriptResult | None, error: ExtractionError | None,
@@ -210,6 +251,8 @@ def complete_transcript_job(
     context: JobContext | None = None,
     normalized: NormalizedConversation | None = None,
 ) -> None:
+    if normalized is not None and not stage_normalization(factory, job, normalized, context):
+        return
     with factory() as database:
         project_id = database.scalar(select(transcript_project_id()).select_from(Transcript)
             .outerjoin(WorkItem, Transcript.work_item_id == WorkItem.id)
@@ -220,11 +263,7 @@ def complete_transcript_job(
             if context is not None:
                 context.assert_owned(database)
             record = database.scalar(select(Transcript).where(
-                Transcript.id == job.transcript_id, Transcript.generation == job.generation,
-                Transcript.snapshot_id == job.snapshot_id,
-                Transcript.copy_sha256 == job.copy.sha256,
-                (Transcript.status == "processing") | (Transcript.reindex_status == "processing"),
-                Transcript.lease_token == job.lease_token,
+                *index_claim_filter(job),
             ).with_for_update())
             if record is None:
                 return
@@ -242,28 +281,14 @@ def complete_transcript_job(
             if error is not None:
                 _index_failure(record, error, source_size, source_details)
             elif result is not None:
-                _save_result(record, result)
-                record.indexing_started_at = job.started_at
-                record.indexing_completed_at = datetime.now(UTC)
+                _publish_success(database, record, job, result)
             else:
                 raise ValueError("Transcript publication requires result or safe error")
             database.commit()
 
 
-def _combined_metadata(extracted: ExtractedArtifact, parsed_metadata: dict) -> tuple[dict, bool]:
-    metadata = dict(parsed_metadata)
-    truncated = False
-    for key, value in extracted.metadata.items():
-        candidate = metadata | {key: value}
-        if len(candidate) > 64 or len(json.dumps(candidate, ensure_ascii=True).encode()) > 8192:
-            truncated = True
-        else:
-            metadata = candidate
-    return metadata, truncated
-
-
 def index_next_transcript(
-    factory: sessionmaker[Session], settings: Settings, extractor: Extractor,
+    factory: sessionmaker[Session], settings: Settings,
     transcript_id: UUID | None = None, generation: int | None = None,
     context: JobContext | None = None,
 ) -> bool:
@@ -271,49 +296,67 @@ def index_next_transcript(
     if job is None:
         return False
     result, error, size, detected_client = None, None, None, None
-    source_details = {}
+    source_details = {
+        "last_updated_at": job.copy.source_modified_at,
+        "extracted_metadata": timeline_metadata({}, started_at=None,
+            updated_at=job.copy.source_modified_at, source_modified_at=job.copy.source_modified_at,
+            indexed_at=None),
+    }
     normalized = None
     try:
-        if job.copy.size_bytes > job.maximum_bytes:
-            raise ExtractionError("transcript_too_large")
         with factory() as database:
             normalized = load_normalization(database, job.transcript_id,
-                                             job.snapshot_id, job.copy.sha256,
-                                             settings.artifact_extraction_max_chars)
+                                             job.snapshot_id, job.copy.sha256)
+            bounds = (retained_time_bounds(database, job.transcript_id, normalized.revision)
+                      if normalized is not None else (None, None))
         if normalized is None:
             storage = TranscriptStorage(settings.transcript_root, job.maximum_bytes)
-            data = storage.read_copy(job.copy)
-            detected_client = detect_transcript_client(io.BytesIO(data)) if job.imported else None
-            normalized = normalize_transcript(data, detected_client or job.client, job.snapshot_id)
+            with storage.open_copy(job.copy) as content:
+                detected_client = detect_transcript_client(content) if job.imported else None
+                content.seek(0)
+                normalized = normalize_transcript(content, detected_client or job.client,
+                                                  job.snapshot_id)
+            bounds = time_bounds(segment.timestamp for segment in normalized.segments)
+        if job.imported:
+            detected_client = {"codex-jsonl": "codex", "claude-code-jsonl": "claude_code",
+                               "claude-code-json": "claude_code"}.get(normalized.format)
         size = job.copy.size_bytes
         source_details.update(sha256=job.copy.sha256, format=normalized.format,
-            mime_type=normalized.mime_type, extracted_metadata=normalized.metadata,
-            truncated=normalized.incomplete)
-        searchable, truncated = conversation_text(normalized.segments,
-                                                   settings.artifact_extraction_max_chars)
-        data = searchable.encode("utf-8")
-        extracted = extractor.extract(io.BytesIO(data), filename="transcript.txt",
-                                      size_bytes=len(data))
-        metadata, metadata_truncated = _combined_metadata(extracted, normalized.metadata)
-        # Search and segment offsets have one authoritative extractor. Tika may
-        # enrich metadata, but may not rewrite boundaries in this structured text.
-        result = TranscriptResult(ExtractedArtifact(
-            searchable, metadata, truncated or normalized.extraction_partial
-            or normalized.incomplete or metadata_truncated,
-        ), size, job.copy.sha256, normalized.format, normalized.mime_type)
+            mime_type=normalized.mime_type,
+            last_updated_at=bounds[1] or job.copy.source_modified_at,
+            extracted_metadata=timeline_metadata(normalized.metadata, started_at=bounds[0],
+                updated_at=bounds[1] or job.copy.source_modified_at,
+                source_modified_at=job.copy.source_modified_at, indexed_at=None))
+        # Native adapters already produce normalized text. Sending it through an
+        # artifact extractor imposed its unrelated two-million-character limit and
+        # made structured conversations depend on Tika availability.
+        result = TranscriptResult(ExtractedArtifact("", normalized.metadata | {
+            TEXT_PROJECTION_KEY: [TEXT_PROJECTION_VERSION]}, False),
+            size, job.copy.sha256, normalized.format, normalized.mime_type, *bounds,
+            complete_text_sha256=text_digest(normalized.segments))
     except ExtractionError as failure:
         error = failure
-    complete_transcript_job(factory, job, result, error, size, source_details, detected_client,
-                            context, normalized)
+        if failure.code == "transcript_copy_integrity_failed" and normalized is not None:
+            if isinstance(normalized.segments, TranscriptSegments):
+                normalized.segments.close()
+            normalized = None
+    except OSError as failure:
+        error = access_error(failure, str(settings.transcript_root), operation="write_storage")
+    try:
+        complete_transcript_job(factory, job, result, error, size, source_details, detected_client,
+                                context, normalized)
+    finally:
+        if normalized is not None and isinstance(normalized.segments, TranscriptSegments):
+            normalized.segments.close()
     return True
 
 
 async def transcript_indexing_loop(
-    factory: sessionmaker[Session], settings: Settings, extractor: Extractor,
+    factory: sessionmaker[Session], settings: Settings,
 ) -> None:
     while True:
         try:
-            processed = await run_in_threadpool(index_next_transcript, factory, settings, extractor)
+            processed = await run_in_threadpool(index_next_transcript, factory, settings)
         except (SQLAlchemyError, OSError, ApplicationError) as error:
             logger.warning("Transcript indexing unavailable (%s)", type(error).__name__)
             processed = False

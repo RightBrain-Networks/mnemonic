@@ -8,17 +8,24 @@ future blocks are explicit dispositions, never guessed conversation text.
 import hashlib
 import json
 import re
+from collections import Counter
+from collections.abc import Sequence
 from dataclasses import asdict, dataclass, field
-from typing import Any, Literal
+from typing import Any, BinaryIO, Literal
 from uuid import UUID
 
 from mnemonic_api.artifact_tika import ExtractionError, normalize_extracted_text
+from mnemonic_api.transcript_claude_context import (
+    BOOKKEEPING_RECORDS,
+    CONTEXT_ATTACHMENTS,
+    SYSTEM_RECORDS,
+    context_payload,
+)
+from mnemonic_api.transcript_native_content import INFORMATIONAL_DISPOSITIONS, native_content
 from mnemonic_api.transcript_parsers import (
     _CODEX_MIRRORED_ITEMS,
     CodexParser,
     TranscriptParserFactory,
-    _block_text,
-    _codex_block_text,
     _collect_codex_metadata,
     _collect_metadata,
     _encoded_tool_input,
@@ -26,11 +33,10 @@ from mnemonic_api.transcript_parsers import (
     _records,
     _validate_tool_input,
 )
+from mnemonic_api.transcript_spool import TranscriptSegments, discard_on_error
 
 SCHEMA_VERSION = 1
-NORMALIZER_VERSION = 1
-# Larger than the operator maximum input; this is not the search extraction cap.
-_NATIVE_TEXT_BOUND = 1_073_741_824
+NORMALIZER_VERSION = 2
 _SEGMENT_LIMIT = 250_000
 _PG_STRING_INVALID = re.compile("[\x00\ud800-\udfff]")
 ContentKind = Literal[
@@ -72,7 +78,7 @@ class NormalizedConversation:
     format: str
     mime_type: str
     metadata: dict[str, list[str]]
-    segments: list[Segment]
+    segments: Sequence[Segment]
     incomplete: bool
     schema_version: int = SCHEMA_VERSION
     normalizer_version: int = NORMALIZER_VERSION
@@ -152,14 +158,15 @@ def _text_block(block: Any, role: str | None, *, codex: bool = False) -> dict:
     kind = block.get("type") if isinstance(block, dict) else None
     if isinstance(kind, str) and kind in {"tool_use", "function_call", "custom_tool_call"}:
         return _call_block(block)
-    extractor = _codex_block_text if codex else _block_text
-    fragment = extractor(block, _NATIVE_TEXT_BOUND)
+    if kind == "fallback":
+        return _context_block(block)
+    fragment = native_content(block, codex=codex)
     content_kind = _authored_kind(role)
     if kind in ("thinking", "reasoning_text", "summary_text"):
         content_kind = "reasoning"
     return {"content_kind": content_kind if fragment.text else "unsupported",
             "text": fragment.text,
-            "dispositions": ["unsupported_content"] if fragment.truncated else []}
+            "dispositions": list(fragment.dispositions)}
 
 
 def _output_content(content: Any, *, codex: bool = False) -> dict:
@@ -167,10 +174,9 @@ def _output_content(content: Any, *, codex: bool = False) -> dict:
         payload = _structured_arguments(content)
         return {"text": "".join(_encoded_tool_input(payload)), "payload": payload,
                 "dispositions": []}
-    extractor = _codex_block_text if codex else _block_text
-    fragment = extractor(content, _NATIVE_TEXT_BOUND)
+    fragment = native_content(content, codex=codex)
     return {"text": fragment.text,
-            "dispositions": ["unsupported_content"] if fragment.truncated else []}
+            "dispositions": list(fragment.dispositions)}
 
 
 def _blocks(content: Any, role: str | None, *, codex: bool = False):
@@ -191,6 +197,15 @@ def _unsupported_event(role: str | None = None, disposition: str = "unsupported_
                          "dispositions": [disposition]})]
 
 
+def _context_block(value: dict) -> dict:
+    _structured_arguments(value)
+    codes: set[str] = set()
+    payload = context_payload(value, codes)
+    return {"content_kind": "system_text", "payload": payload,
+            "text": normalize_extracted_text(json.dumps(payload, ensure_ascii=False, indent=2)),
+            "dispositions": sorted(codes)}
+
+
 def _claude_event(row: dict) -> tuple[str | None, list[tuple[str, dict]]] | None:
     message = row.get("message", row)
     if not isinstance(message, dict):
@@ -198,11 +213,25 @@ def _claude_event(row: dict) -> tuple[str | None, list[tuple[str, dict]]] | None
     role = _string(message.get("role", row.get("type")))
     if role in {"user", "assistant", "system"} and message.get("content") is not None:
         return role, list(_blocks(message["content"], role))
-    if row.get("type") == "summary" and isinstance(row.get("summary"), str):
+    return _claude_context(row, role)
+
+
+def _claude_context(row: dict, role: str | None):
+    kind = row.get("type")
+    if kind == "summary" and isinstance(row.get("summary"), str):
         return None, [("0", {"content_kind": "summary",
                              "text": normalize_extracted_text(row["summary"])})]
-    if row.get("type") in ("queue-operation", "file-history-snapshot", "progress"):
+    if isinstance(kind, str) and kind in BOOKKEEPING_RECORDS:
         return None
+    if kind == "attachment":
+        attachment = row.get("attachment")
+        if (isinstance(attachment, dict) and isinstance(attachment.get("type"), str)
+                and attachment["type"] in CONTEXT_ATTACHMENTS):
+            return "system", [("attachment", _context_block(attachment))]
+        return _unsupported_event(disposition="unsupported_attachment")
+    if (kind == "system" and isinstance(row.get("subtype"), str)
+            and row["subtype"] in SYSTEM_RECORDS):
+        return "system", [("0", _context_block(row))]
     if role is not None or "message" in row:
         return _unsupported_event(role, "unsupported_role")
     return _unsupported_event(disposition="unsupported_record")
@@ -225,12 +254,13 @@ def _codex_response(payload: dict) -> tuple[str | None, list[tuple[str, dict]]] 
         return "assistant", [("0", _call_block(payload))]
     if kind in ("function_call_output", "custom_tool_call_output"):
         return "tool", [("0", _codex_output(payload))]
-    if kind == "reasoning":
-        fragment = _codex_block_text([payload.get("summary"), payload.get("content")],
-                                    _NATIVE_TEXT_BOUND)
-        incomplete = fragment.truncated or bool(payload.get("encrypted_content"))
+    if kind in ("reasoning", "compaction"):
+        fragment = native_content([payload.get("summary"), payload.get("content")], codex=True)
+        codes = list(fragment.dispositions)
+        if payload.get("encrypted_content"):
+            codes.append("encrypted_content_omitted")
         return "assistant", [("0", {"content_kind": "reasoning", "text": fragment.text,
-            "dispositions": ["unsupported_content"] if incomplete else []})]
+                                    "dispositions": codes})]
     return _unsupported_event()
 
 
@@ -243,6 +273,10 @@ def _codex_completed(payload: dict) -> tuple[str | None, list[tuple[str, dict]]]
         if kind == "Plan" and isinstance(item.get("text"), str):
             return "assistant", [("0", {"content_kind": "summary",
                 "text": normalize_extracted_text(item["text"])})]
+        if kind == "Extension" and item.get("kind") == "web.search":
+            block = _context_block(item)
+            return "tool", [("0", block | {"content_kind": "tool_result",
+                                          "tool_name": "web.search"})]
         if kind == "FunctionCallOutput":
             return "tool", [("0", _codex_output(item))]
     return _unsupported_event()
@@ -257,12 +291,21 @@ def _codex_event(row: dict) -> tuple[str | None, list[tuple[str, dict]]] | None:
     if row.get("type") == "compacted":
         text = payload.get("message")
         return None, [("0", {"content_kind": "summary",
-            "text": normalize_extracted_text(text) if isinstance(text, str) else "",
-            "dispositions": ["replacement_history_omitted"]
-            if not text and payload.get("replacement_history") else []})]
-    if row.get("type") == "event_msg" and payload.get("type") == "item_completed":
+            "text": normalize_extracted_text(text) if isinstance(text, str) else ""})]
+    if row.get("type") == "event_msg":
+        return _codex_notification(payload)
+    if row.get("type") in ("session_meta", "turn_context", "world_state",
+                           "inter_agent_communication_metadata", "token_usage_record"):
+        return None
+    return _unsupported_event(disposition="unsupported_record")
+
+
+def _codex_notification(payload: dict):
+    kind = payload.get("type")
+    if kind == "item_completed":
         return _codex_completed(payload)
-    if row.get("type") in ("session_meta", "turn_context", "event_msg", "world_state"):
+    if kind in ("token_count", "task_started", "task_complete", "thread_settings_applied",
+                "user_message", "agent_message", "context_compacted", "turn_aborted"):
         return None
     return _unsupported_event(disposition="unsupported_record")
 
@@ -285,21 +328,82 @@ def _segment(revision: str, ordinal: int, number: int, path: str,
         **(block | {"dispositions": dispositions}))
 
 
-def _resolve_calls(segments: list[Segment]) -> list[Segment]:
+def _resolve_calls(segments: Sequence[Segment]) -> Sequence[Segment]:
     from dataclasses import replace
 
-    calls = {}
-    result = []
+    calls: dict[str, list[str]] = {}
     for segment in segments:
         if segment.content_kind == "tool_call" and segment.call_id:
-            calls[segment.call_id] = segment.segment_id
-        if segment.content_kind == "tool_result" and segment.call_id:
-            related = calls.get(segment.call_id)
-            segment = replace(segment, related_segment_id=related,
-                dispositions=segment.dispositions
-                + ([] if related else ["call_reference_unresolved"]))
-        result.append(segment)
+            calls.setdefault(segment.call_id, []).append(segment.segment_id)
+    result = TranscriptSegments() if isinstance(segments, TranscriptSegments) else []
+    with discard_on_error(result):
+        preceding: dict[str, str] = {}
+        for segment in segments:
+            if segment.content_kind == "tool_call" and segment.call_id:
+                preceding[segment.call_id] = segment.segment_id
+            if segment.content_kind == "tool_result" and segment.call_id:
+                candidates = calls.get(segment.call_id, [])
+                call = preceding.get(segment.call_id)
+                if call is None and len(candidates) == 1:
+                    call = candidates[0]
+                segment = replace(segment, related_segment_id=call,
+                    dispositions=segment.dispositions
+                    + ([] if call else ["call_reference_unresolved"]))
+            result.append(segment)
+    if isinstance(segments, TranscriptSegments):
+        segments.close()
     return result
+
+
+def _events(row: dict, codex: bool):
+    event = (_codex_event if codex else _claude_event)(row)
+    if event is not None:
+        yield "", row, event
+    if not codex or row.get("type") != "compacted":
+        return
+    payload = row.get("payload")
+    if not isinstance(payload, dict):
+        return
+    history = payload.get("replacement_history")
+    if history is None:
+        return
+    if not isinstance(history, list):
+        yield "replacement_history.", row, _unsupported_event()
+        return
+    for index, payload in enumerate(history):
+        native = row | {"type": "response_item", "payload": payload}
+        event = _codex_event(native)
+        if event is not None:
+            yield f"replacement_history.{index}.", native, event
+
+
+def _event_segments(row: dict, codex: bool, seen: set[bytes], stats: Counter):
+    found = False
+    for prefix, native, (role, blocks) in _events(row, codex):
+        found = True
+        for path, block in blocks:
+            fingerprint = hashlib.sha256(canonical_json([role, block])).digest()
+            if prefix and fingerprint in seen:
+                stats["compaction_replay_deduplicated"] += 1
+                continue
+            seen.add(fingerprint)
+            if prefix:
+                block = block | {"dispositions": block.get("dispositions", [])
+                                 + ["compaction_context"]}
+            yield prefix + path, native, role, block
+    if not found:
+        stats["bookkeeping_or_mirrored_event"] += 1
+
+
+def _coverage_metadata(segments: Sequence[Segment], stats: Counter) -> dict[str, list[str]]:
+    warnings: Counter = Counter()
+    notes: Counter = Counter(stats)
+    for segment in segments:
+        for code in segment.dispositions:
+            (notes if code in INFORMATIONAL_DISPOSITIONS else warnings)[code] += 1
+    return {key: [f"{code}={count}" for code, count in sorted(values.items())]
+            for key, values in (("transcript:normalization_warnings", warnings),
+                                ("transcript:normalization_notes", notes)) if values}
 
 
 def _collect_parent_session(row: dict, parents: set[str]) -> None:
@@ -314,47 +418,64 @@ def _collect_parent_session(row: dict, parents: set[str]) -> None:
         parents.add(parent)
 
 
-def normalize_transcript(content: bytes, client: str, snapshot_id: UUID) -> NormalizedConversation:
+def _source_digest(content: bytes | BinaryIO) -> str:
+    if isinstance(content, bytes):
+        return hashlib.sha256(content).hexdigest()
+    digest = hashlib.sha256()
+    while chunk := content.read(1024 * 1024):
+        digest.update(chunk)
+    content.seek(0)
+    return digest.hexdigest()
+
+
+def normalize_transcript(content: bytes | BinaryIO, client: str,
+                         snapshot_id: UUID) -> NormalizedConversation:
+    source_sha256 = _source_digest(content)
     parser = TranscriptParserFactory.create(client)
     codex = isinstance(parser, CodexParser)
     rows, format_name, mime = ((_jsonl(content), "codex-jsonl", "application/x-ndjson")
                                if codex else _records(content))
-    source_sha256 = hashlib.sha256(content).hexdigest()
     revision = revision_for(snapshot_id, source_sha256)
-    segments: list[Segment] = []
-    sessions: set[str] = set()
-    models: set[str] = set()
-    parents: set[str] = set()
-    count = 0
-    for number, row in enumerate(rows, start=1):
-        (_collect_codex_metadata if codex else _collect_metadata)(row, sessions, models)
-        _collect_parent_session(row, parents)
-        event = (_codex_event if codex else _claude_event)(row)
-        if event is None:
-            continue
-        role, blocks = event
-        count += any(not {"unsupported_record", "unsupported_role"}.intersection(
-            block.get("dispositions", [])) for _, block in blocks)
-        for path, block in blocks:
-            if len(segments) >= _SEGMENT_LIMIT:
-                raise ExtractionError("transcript_too_many_segments")
-            segments.append(_segment(revision, len(segments), number, path, role, row, block))
-    if not count:
-        raise ExtractionError("transcript_unsupported_format")
-    segments = _resolve_calls(segments)
-    metadata = {"transcript:message_count": [str(count)]}
-    if sessions:
-        metadata["transcript:session_id"] = sorted(sessions)
-    if models:
-        metadata["transcript:model"] = sorted(models)
-    if parents:
-        metadata["transcript:parent_session_id"] = sorted(parents)
-    digest = hashlib.sha256()
-    for segment in segments:
-        digest.update(canonical_json(asdict(segment)) + b"\n")
-    incomplete = any(set(segment.dispositions) - {"timestamp_unavailable"} for segment in segments)
-    return NormalizedConversation(revision, digest.hexdigest(), snapshot_id, source_sha256,
-                                  format_name, mime, metadata, segments, incomplete)
+    segments = [] if isinstance(content, bytes) else TranscriptSegments()
+    with discard_on_error(segments):
+        sessions: set[str] = set()
+        models: set[str] = set()
+        parents: set[str] = set()
+        count = 0
+        seen: set[bytes] = set()
+        stats: Counter = Counter()
+        for number, row in enumerate(rows, start=1):
+            (_collect_codex_metadata if codex else _collect_metadata)(row, sessions, models)
+            _collect_parent_session(row, parents)
+            recognized = False
+            for path, native, role, block in _event_segments(row, codex, seen, stats):
+                recognized |= not {"unsupported_record", "unsupported_role",
+                                   "unsupported_attachment"}.intersection(
+                                       block.get("dispositions", []))
+                if len(segments) >= _SEGMENT_LIMIT:
+                    raise ExtractionError("transcript_too_many_segments")
+                segments.append(_segment(revision, len(segments), number, path,
+                                         role, native, block))
+            count += recognized
+        if not count:
+            raise ExtractionError("transcript_unsupported_format")
+        segments = _resolve_calls(segments)
+        with discard_on_error(segments):
+            metadata = {"transcript:message_count": [str(count)],
+                        **_coverage_metadata(segments, stats)}
+            if sessions:
+                metadata["transcript:session_id"] = sorted(sessions)
+            if models:
+                metadata["transcript:model"] = sorted(models)
+            if parents:
+                metadata["transcript:parent_session_id"] = sorted(parents)
+            digest = hashlib.sha256()
+            for segment in segments:
+                digest.update(canonical_json(asdict(segment)) + b"\n")
+            incomplete = any(set(segment.dispositions) - INFORMATIONAL_DISPOSITIONS
+                             for segment in segments)
+            return NormalizedConversation(revision, digest.hexdigest(), snapshot_id, source_sha256,
+                                          format_name, mime, metadata, segments, incomplete)
 
 
 def segment_text(segment: Segment) -> str:
@@ -368,7 +489,7 @@ def segment_text(segment: Segment) -> str:
     return f"{label}: {segment.text}"
 
 
-def conversation_text(segments: list[Segment], maximum_chars: int) -> tuple[str, bool]:
+def conversation_text(segments: Sequence[Segment], maximum_chars: int) -> tuple[str, bool]:
     parts = []
     remaining = maximum_chars
     truncated = False

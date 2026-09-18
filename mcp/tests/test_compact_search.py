@@ -55,6 +55,7 @@ def transcript_pointer():
         "normalized_sha256", "normalization_schema_version", "normalizer_version",
         "normalized_size_bytes", "segment_count", "normalization_incomplete", "segment_id",
         "content_kind", "matched_fields", "snippet_omission_reason", "rank", "score_type",
+        "last_updated_at", "index_created_at", "session_ids", "models",
     )}
 
 
@@ -91,7 +92,8 @@ def response_page(tool, summary, *, q="needle", detail="compact"):
         scopes = {"artifacts": ArtifactAppliedFilters()}
     else:
         result = {"items": [session], "total": 1, "limit": 20, "offset": 0,
-                  "term_diagnostics": [], "indexing_incomplete": False}
+                  "term_diagnostics": [], "indexing_incomplete": False,
+                  "sort_by": None, "sort_direction": "desc"}
         scopes = {"transcripts": TranscriptAppliedFilters()}
     if tool == "search":
         result["tag_counts"] = None

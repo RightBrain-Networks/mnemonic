@@ -4142,6 +4142,18 @@
             "title": "Id",
             "type": "string"
           },
+          "index_created_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Index Created At"
+          },
           "index_status": {
             "enum": [
               "waiting",
@@ -4162,6 +4174,18 @@
             "title": "Kind",
             "type": "string"
           },
+          "last_updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Updated At"
+          },
           "matched_fields": {
             "items": {
               "enum": [
@@ -4172,6 +4196,14 @@
             },
             "maxItems": 2,
             "title": "Matched Fields",
+            "type": "array"
+          },
+          "models": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 8,
+            "title": "Models",
             "type": "array"
           },
           "normalization_error_code": {
@@ -4187,6 +4219,7 @@
           },
           "normalization_incomplete": {
             "default": false,
+            "description": "Native records or relationships could not be represented; independent of search-text length and retained native-copy completeness.",
             "title": "Normalization Incomplete",
             "type": "boolean"
           },
@@ -4333,6 +4366,14 @@
             ],
             "title": "Session Id"
           },
+          "session_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 8,
+            "title": "Session Ids",
+            "type": "array"
+          },
           "snippet": {
             "anyOf": [
               {
@@ -4368,6 +4409,7 @@
             "type": "string"
           },
           "truncated": {
+            "description": "Historical indexed text reached its character budget; automatically refreshed. Native copies and persisted conversation segments remain intact.",
             "title": "Truncated",
             "type": "boolean"
           },
@@ -5965,6 +6007,80 @@
           "actor"
         ],
         "title": "DashboardWorkPendingCreate",
+        "type": "object"
+      },
+      "DirectoryUsage": {
+        "properties": {
+          "bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bytes"
+          },
+          "checked_at": {
+            "format": "date-time",
+            "title": "Checked At",
+            "type": "string"
+          },
+          "complete": {
+            "default": false,
+            "title": "Complete",
+            "type": "boolean"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "free_bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Free Bytes"
+          },
+          "logical_bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Logical Bytes"
+          },
+          "total_bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Bytes"
+          }
+        },
+        "required": [
+          "checked_at"
+        ],
+        "title": "DirectoryUsage",
         "type": "object"
       },
       "DuplicateCandidateSummary": {
@@ -12090,6 +12206,72 @@
         "title": "TranscriptFacetHit",
         "type": "object"
       },
+      "TranscriptHealthRead": {
+        "properties": {
+          "affected_transcripts": {
+            "title": "Affected Transcripts",
+            "type": "integer"
+          },
+          "checked_at": {
+            "format": "date-time",
+            "title": "Checked At",
+            "type": "string"
+          },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "recheck_seconds": {
+            "default": 300,
+            "title": "Recheck Seconds",
+            "type": "integer"
+          },
+          "storage": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TranscriptUsage"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "warnings": {
+            "items": {
+              "$ref": "#/components/schemas/TranscriptWarning"
+            },
+            "title": "Warnings",
+            "type": "array"
+          },
+          "warnings_omitted": {
+            "title": "Warnings Omitted",
+            "type": "integer"
+          },
+          "worker_checked_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Worker Checked At"
+          }
+        },
+        "required": [
+          "project_id",
+          "checked_at",
+          "worker_checked_at",
+          "warnings",
+          "warnings_omitted",
+          "affected_transcripts"
+        ],
+        "title": "TranscriptHealthRead",
+        "type": "object"
+      },
       "TranscriptImportRead": {
         "properties": {
           "client_operation_id": {
@@ -12245,6 +12427,33 @@
           "semantic": {
             "$ref": "#/components/schemas/SemanticDisposition"
           },
+          "sort_by": {
+            "anyOf": [
+              {
+                "enum": [
+                  "name",
+                  "size",
+                  "session",
+                  "indexing",
+                  "updated"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sort By"
+          },
+          "sort_direction": {
+            "default": "desc",
+            "enum": [
+              "asc",
+              "desc"
+            ],
+            "title": "Sort Direction",
+            "type": "string"
+          },
           "term_diagnostics": {
             "items": {
               "$ref": "#/components/schemas/TermDiagnostic"
@@ -12393,6 +12602,18 @@
             "title": "Id",
             "type": "string"
           },
+          "index_created_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Index Created At"
+          },
           "index_error_code": {
             "anyOf": [
               {
@@ -12448,6 +12669,18 @@
             "title": "Kind",
             "type": "string"
           },
+          "last_updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Updated At"
+          },
           "lease_generation_id": {
             "anyOf": [
               {
@@ -12493,6 +12726,14 @@
             ],
             "title": "Mime Type"
           },
+          "models": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 8,
+            "title": "Models",
+            "type": "array"
+          },
           "normalization_error_code": {
             "anyOf": [
               {
@@ -12506,6 +12747,7 @@
           },
           "normalization_incomplete": {
             "default": false,
+            "description": "Native records or relationships could not be represented; independent of search-text length and retained native-copy completeness.",
             "title": "Normalization Incomplete",
             "type": "boolean"
           },
@@ -12652,6 +12894,14 @@
             ],
             "title": "Session Id"
           },
+          "session_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 8,
+            "title": "Session Ids",
+            "type": "array"
+          },
           "sha256": {
             "anyOf": [
               {
@@ -12726,6 +12976,7 @@
             "title": "Text Sha256"
           },
           "truncated": {
+            "description": "Historical indexed text reached its character budget; automatically refreshed. Native copies and persisted conversation segments remain intact.",
             "title": "Truncated",
             "type": "boolean"
           },
@@ -12928,6 +13179,33 @@
             "title": "Query Mode",
             "type": "string"
           },
+          "sort_by": {
+            "anyOf": [
+              {
+                "enum": [
+                  "name",
+                  "size",
+                  "session",
+                  "indexing",
+                  "updated"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sort By"
+          },
+          "sort_direction": {
+            "default": "desc",
+            "enum": [
+              "asc",
+              "desc"
+            ],
+            "title": "Sort Direction",
+            "type": "string"
+          },
           "updated_after": {
             "anyOf": [
               {
@@ -13001,7 +13279,7 @@
             "type": "integer"
           },
           "max_file_size_bytes": {
-            "maximum": 268435456.0,
+            "maximum": 1073741824.0,
             "minimum": 1.0,
             "title": "Max File Size Bytes",
             "type": "integer"
@@ -13213,6 +13491,155 @@
           "text_sha256"
         ],
         "title": "TranscriptText",
+        "type": "object"
+      },
+      "TranscriptUsage": {
+        "properties": {
+          "database_bytes": {
+            "title": "Database Bytes",
+            "type": "integer"
+          },
+          "index": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DirectoryUsage"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "scope": {
+            "default": "all_projects",
+            "title": "Scope",
+            "type": "string"
+          },
+          "transcripts": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DirectoryUsage"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "database_bytes"
+        ],
+        "title": "TranscriptUsage",
+        "type": "object"
+      },
+      "TranscriptWarning": {
+        "properties": {
+          "action": {
+            "title": "Action",
+            "type": "string"
+          },
+          "affected": {
+            "default": 0,
+            "title": "Affected",
+            "type": "integer"
+          },
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "gid": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gid"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mode"
+          },
+          "owner_gid": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner Gid"
+          },
+          "owner_uid": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner Uid"
+          },
+          "path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Path"
+          },
+          "retry_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retry At"
+          },
+          "service": {
+            "title": "Service",
+            "type": "string"
+          },
+          "uid": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Uid"
+          }
+        },
+        "required": [
+          "code",
+          "service",
+          "message",
+          "action"
+        ],
+        "title": "TranscriptWarning",
         "type": "object"
       },
       "ValidationError": {
@@ -13961,6 +14388,10 @@
           "resolved_gate_total": {
             "title": "Resolved Gate Total",
             "type": "integer"
+          },
+          "transcripts": {
+            "$ref": "#/components/schemas/WorkTranscriptLinks",
+            "title": "Transcripts"
           },
           "undirected_relationships": {
             "items": {
@@ -15185,6 +15616,10 @@
           },
           "readiness": {
             "$ref": "#/components/schemas/Readiness"
+          },
+          "transcripts": {
+            "$ref": "#/components/schemas/WorkTranscriptLinks",
+            "title": "Transcripts"
           },
           "work_item": {
             "$ref": "#/components/schemas/WorkItemRead"
@@ -16586,6 +17021,129 @@
         "title": "WorkSummaryMinimal",
         "type": "object"
       },
+      "WorkTranscriptLink": {
+        "additionalProperties": false,
+        "properties": {
+          "client": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Client",
+            "type": "string"
+          },
+          "filename": {
+            "maxLength": 4096,
+            "minLength": 1,
+            "title": "Filename",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "primary",
+              "subagent"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "last_updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Updated At"
+          },
+          "models": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 8,
+            "title": "Models",
+            "type": "array"
+          },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "session_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 8,
+            "title": "Session Ids",
+            "type": "array"
+          },
+          "status": {
+            "enum": [
+              "waiting",
+              "pending",
+              "processing",
+              "ready",
+              "failed"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "work_item_id": {
+            "format": "uuid",
+            "title": "Work Item Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "project_id",
+          "work_item_id",
+          "filename",
+          "client",
+          "kind",
+          "status",
+          "last_updated_at",
+          "session_ids",
+          "models"
+        ],
+        "title": "WorkTranscriptLink",
+        "type": "object"
+      },
+      "WorkTranscriptLinks": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/WorkTranscriptLink"
+            },
+            "maxItems": 20,
+            "title": "Items",
+            "type": "array"
+          },
+          "omitted_count": {
+            "minimum": 0.0,
+            "title": "Omitted Count",
+            "type": "integer"
+          },
+          "total": {
+            "minimum": 0.0,
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "omitted_count"
+        ],
+        "title": "WorkTranscriptLinks",
+        "type": "object"
+      },
       "WorkUpdateRead": {
         "additionalProperties": false,
         "properties": {
@@ -16705,7 +17263,7 @@
   "info": {
     "description": "Durable project-scoped work with immutable agent checkpoints.",
     "title": "Mnemonic API",
-    "version": "0.60.0"
+    "version": "0.65.1"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -20362,6 +20920,43 @@
           },
           {
             "in": "query",
+            "name": "sort_by",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "name",
+                    "size",
+                    "session",
+                    "indexing",
+                    "updated"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Sort By"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort_direction",
+            "required": false,
+            "schema": {
+              "default": "desc",
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "title": "Sort Direction",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
             "name": "fulltext",
             "required": false,
             "schema": {
@@ -20485,6 +21080,51 @@
           }
         ],
         "summary": "List Transcripts"
+      }
+    },
+    "/api/v1/projects/{project_id}/transcripts/health": {
+      "get": {
+        "operationId": "get_transcript_health_api_v1_projects__project_id__transcripts_health_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TranscriptHealthRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Transcript Health"
       }
     },
     "/api/v1/projects/{project_id}/transcripts/import": {

@@ -40,8 +40,11 @@ from mnemonic_api.artifact_passage_db import (
     passage_index_elements,
 )
 from mnemonic_api.background_job_db import job_elements
+from mnemonic_api.transcript_health_db import diagnostic_columns, worker_health_elements
+from mnemonic_api.transcript_metadata_db import metadata_columns
 from mnemonic_api.transcript_normalization_db import normalization_elements, segment_elements
 from mnemonic_api.transcript_recovery_db import recovery_elements
+from mnemonic_api.transcript_source_db import source_elements
 
 # The work lifecycle vocabulary. WorkItem's status_valid check constraint is the
 # database guard for the same five values.
@@ -2139,7 +2142,8 @@ class ArtifactAccessApproval(Base):
 class Transcript(Base):
     """A source file assertion and its durable normalized indexing snapshot."""
 
-    __table__ = Table("transcripts", Base.metadata, *transcripts.transcript_elements())
+    __table__ = Table("transcripts", Base.metadata, *transcripts.transcript_elements(),
+                      *diagnostic_columns(), *source_elements(), *metadata_columns())
 
     id: Mapped[UUID]
     work_item_id: Mapped[UUID | None]
@@ -2154,6 +2158,8 @@ class Transcript(Base):
     attempts: Mapped[int]
     indexing_started_at: Mapped[datetime | None]
     indexing_completed_at: Mapped[datetime | None]
+    last_updated_at: Mapped[datetime | None]
+    source_modified_at: Mapped[datetime | None]
     error_code: Mapped[str | None]
     size_bytes: Mapped[int | None]
     mime_type: Mapped[str | None]
@@ -2174,6 +2180,9 @@ class Transcript(Base):
     copy_size_bytes: Mapped[int | None]
     copied_at: Mapped[datetime | None]
     copy_error_code: Mapped[str | None]
+    source_identity: Mapped[dict | None]
+    copy_source_path: Mapped[str | None]
+    copy_error_details: Mapped[dict | None]
     copy_attempts: Mapped[int]
     copy_next_attempt_at: Mapped[datetime]
     copy_lease_token: Mapped[UUID | None]
@@ -2277,3 +2286,11 @@ class ArtifactPassageIndex(Base):
 
 class ArtifactPassage(Base):
     __table__ = Table("artifact_passages", Base.metadata, *passage_elements())
+
+
+class TranscriptWorkerHealth(Base):
+    __table__ = Table("transcript_worker_health", Base.metadata, *worker_health_elements())
+
+    worker_id: Mapped[UUID]
+    checked_at: Mapped[datetime]
+    report: Mapped[dict]

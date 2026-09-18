@@ -89,7 +89,7 @@ def test_updated_date_is_primary_with_a_query(api, project, mixed):
     })
     assert response.status_code == 200, response.text
     result = search(api, project, q="needle", fulltext=True, sort={"by": "updated_at"})
-    assert identities(result) == [first["id"], transcript["id"], work["id"], artifact["id"]]
+    assert identities(result) == [first["id"], work["id"], transcript["id"], artifact["id"]]
 
 
 def test_facet_groups_have_independent_sorts_and_page_boundary(api, project, mixed):

@@ -66,6 +66,7 @@ from .search_diagnostics import TermDiagnostics
 from .search_disclosure import SearchDetail, SearchDisclosure
 from .search_query import WorkMatchEvidence
 from .search_ranking import SearchHitRanking, SearchRanking, SemanticDisposition
+from .transcript_work_models import WorkTranscriptLinks
 
 Status = Literal["pending", "deferred", "done", "wont-do", "promoted"]
 EventStatus = Literal["open", "pending", "deferred", "done", "wont-do", "promoted"]
@@ -2139,6 +2140,16 @@ class WorkStatusRead(CanonicalResponse):
 
 
 class WorkItemDetailRead(CanonicalResponse):
+    transcripts: WorkTranscriptLinks | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
+
+    @model_validator(mode="after")
+    def transcript_scope(self) -> Self:
+        if self.transcripts is not None:
+            self.transcripts.require_scope(self.work_item.project_id, self.work_item.id)
+        return self
+
     work_item: WorkItemRead
     readiness: Readiness
     lease_settings: LeaseSettingsRead
@@ -3035,6 +3046,16 @@ class WorkEventPage(CanonicalResponse):
 
 
 class WorkContext(CanonicalResponse):
+    transcripts: WorkTranscriptLinks | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
+
+    @model_validator(mode="after")
+    def transcript_scope(self) -> Self:
+        if self.transcripts is not None:
+            self.transcripts.require_scope(self.work_item.project_id, self.work_item.id)
+        return self
+
     artifacts: list[ArtifactRead] | SkipJsonSchema[None] = Field(
         default=None, exclude_if=lambda value: value is None, max_length=20,
     )

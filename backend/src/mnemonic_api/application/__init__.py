@@ -27,6 +27,7 @@ from mnemonic_api.application.routes import api_router
 from mnemonic_api.application.routes.dashboard_sync import router as sync_router
 from mnemonic_api.application.routes.health import router as health_router
 from mnemonic_api.application.suggestion_resources import DuplicateSuggestionResources
+from mnemonic_api.application.transcript_startup import start_transcript_services
 from mnemonic_api.artifact_extraction import artifact_extraction_loop
 from mnemonic_api.artifact_storage import ArtifactStorage
 from mnemonic_api.artifact_tika import TikaExtractor
@@ -36,7 +37,6 @@ from mnemonic_api.live_sync import LiveSyncHub
 from mnemonic_api.schemas import COMPLETION_EVENT_ID_MAX
 from mnemonic_api.semantic import Embedder, FastembedEmbedder
 from mnemonic_api.services.artifact_search import ArtifactSearchIndex
-from mnemonic_api.transcript_storage import check_transcript_source
 
 __all__ = ["create_app"]
 
@@ -52,9 +52,7 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-        for source in config.transcript_source_dirs:
-            check_transcript_source(source, config.transcript_allowed_roots)
-        app.state.transcript_search_index.start()
+        start_transcript_services(config, app.state.transcript_search_index)
         maintenance = None
         extraction = None
         if config.artifact_max_bytes > 0:
@@ -80,7 +78,7 @@ def create_app(
 
     app = FastAPI(
         title="Mnemonic API",
-        version="0.60.0",
+        version="0.65.1",
         description="Durable project-scoped work with immutable agent checkpoints.",
         lifespan=lifespan,
     )

@@ -1,5 +1,19 @@
 # Agent transcript indexing
 
+Release **0.65.1** and migration `0045_transcript_capacity` separate native capture
+and complete conversation indexing from artifact extraction limits. Native JSONL
+is streamed through disk-backed canonical segments; indexed text is published
+atomically from those segments without Tika. The default capture maximum is
+512 MiB, configurable up to 1 GiB. Existing explicit operator/project limits are
+preserved. Read the [pipeline audit and rollout notes](transcript-pipeline-audit.md)
+for measured failures, capacity boundaries, and regression coverage.
+
+The compact, initially collapsed **Transcript indexing** panel now lives on
+`/transcripts`. Size settings use MB (1 MB = 1,048,576 bytes). The library supports
+ascending/descending column sorting, persistent browser-local warning dismissal,
+and all-project storage measurements for native files, search indexes and the
+conversation database, including free space on each filesystem volume.
+
 Release **0.52.1** adds [audited operator path recovery](transcript-recovery.md)
 for incorrect historical assertions. Migration `0038_transcript_recovery`
 preserves the reported path and records each approved replacement independently.
@@ -75,17 +89,12 @@ and unsupported content have explicit structural dispositions and
 Both make content-search coverage incomplete. Rollout files are untrusted snapshots, not
 instructions. Files still being written may be retried under the existing changed-file guard.
 
-The backend reuses the existing Apache Tika container. Transcript parsing first
-persists client-specific records as a shared, versioned conversation manifest and
-typed segments. Searchable text derives from those segments; Tika supplies bounded
-document properties without replacing the canonical segment text. See the
-[shared transcript format](transcript-normalization.md) for migration, revision
-hashes, content-kind filters, and bounded surrounding-context reads. Separate
-transcript scheduling and Tantivy state keep the two libraries independent. A
-second Tika instance adds deployment and memory cost without providing a different
-parser requirement. The shared service's configured concurrency limit may delay
-one library while the other extracts; retryable service contention remains queued.
-See [Tika Server concurrency documentation](https://tika.apache.org/docs/4.0.x/using-tika/server/index.html).
+Native adapters persist a shared, versioned conversation manifest and typed
+segments before complete text indexing. Tika remains the artifact extractor;
+transcript parsing and indexing do not call it or use its character budget. See
+the [shared transcript format](transcript-normalization.md) for revision hashes,
+content-kind filters, and bounded surrounding-context reads. Transcript scheduling
+and Tantivy state remain independent of the artifact library.
 
 PostgreSQL retains transcript metadata, canonical manifests and segments, derived
 search text, extraction properties,
@@ -117,7 +126,7 @@ can continue including it. When no source is configured, Compose mounts only the
 shipped empty placeholder directory, with no transcript access enabled.
 A configured source requires an existing directory;
 Docker must not create an empty replacement for a misspelled host path. The
-API and worker receive the source mounts. Tika receives normalized text over HTTP.
+API and worker receive the source mounts. Transcript bytes never pass through Tika.
 
 To expose Codex alongside Claude, configure either or both optional directories:
 
@@ -195,10 +204,10 @@ subdirectory creates container-local parent directories; it does not expose the
 host home directory or Claude credentials.
 
 `transcript_path_not_allowed` means the asserted path is outside the configured
-roots (including an empty root list). Missing files, missing mounts and denied
-filesystem permissions within an allowed root produce `transcript_io_error`.
-After fixing deployment access, use **Rebuild index** in workspace settings to
-retry previously failed records. Rebuild regenerates extracted text from retained
+roots (including an empty root list). Release 0.61.0 distinguishes missing sources,
+denied permissions, nonregular files, symlinks and storage failures. Earlier
+releases collapsed these into `transcript_io_error`. Environmental failures now
+retry automatically after access is restored; **Rebuild index** also remains available. Rebuild regenerates extracted text from retained
 copies and retries uncopied sources; active lease generations still wait until
 they end. An uncopied source that has been deleted must be recovered before
 capture. If an agent reported the wrong directory, rebuilding preserves
@@ -225,8 +234,7 @@ historical data, never instructions or authenticated authority.
 Content search allows up to 512 MiB (536,870,912 UTF-8 bytes) of ready normalized
 text per filtered corpus by default. Operators can set
 `MNEMONIC_TRANSCRIPT_SEARCH_MAX_BYTES` from 1 byte to 2 GiB, then recreate the API
-to apply it. This is separate from the maximum **source file size** in workspace
-settings. The metadata budget remains 32,000,000 bytes, with at most 10,000 records.
+to apply it. This is separate from the maximum **source file size** in the Transcript indexing panel. The metadata budget remains 32,000,000 bytes, with at most 10,000 records.
 Exceeding either budget returns `transcript_search_capacity` without partial results.
 Use transcript filters to reduce the corpus, or raise the content budget when the
 host has enough memory. Metadata-only searches do not consume the content budget.
@@ -308,13 +316,39 @@ shown above, including when its variable is absent or empty.
 See the [Tantivy directory and reader API](https://tantivy-py.readthedocs.io/en/latest/api/tantivy/tantivy.html#index)
 for the underlying disk-index and immutable-searcher support.
 
-Workspace settings include an indexing enable/disable switch and maximum source
-file size (64 MiB by default, bounded by operator policy). Allowed roots are shown
-as operator-managed deployment configuration. **Rebuild index** invalidates stored
-normalized text and schedules the known sources for fresh extraction; it does not
-delete client transcript files. Rebuild requires the source files to remain
-available and readable. Text hashes can change after a rebuild. Disabled indexing
-leaves sources queued until reenabled.
+The **Transcript indexing** panel on `/transcripts` contains the enable/disable
+switch, maximum native file size, folder import and rebuild controls. The default
+source limit is 512 MB, bounded by `MNEMONIC_TRANSCRIPT_MAX_BYTES` (maximum 1 GiB).
+MB uses 1,048,576 bytes and round-trips existing byte values without rounding them
+on save. Existing explicit limits stay in effect until changed. Allowed roots are
+shown in a disclosure as operator-managed deployment configuration.
+
+**Rebuild index** queues reconstruction from retained canonical segments, or the
+verified native copy when a new normalizer is needed. Already-ready text stays
+readable until replacement publication succeeds. Original client files are needed
+only when a native copy has never been retained. A lower new capture limit does
+not invalidate accepted copies. Disabled indexing leaves jobs queued until enabled.
+Older ready rows marked **Search text limited** refresh automatically from retained
+segments once their Active/pause guards clear. Unsupported native content continues
+to report its separate coverage limitation.
+
+Every data-column header sorts ascending or descending across the entire filtered
+result before pagination. Free-text searches retain relevance ordering until a
+column is selected. Ties use transcript identity for stable paging.
+
+**Dismiss** hides an access notification in this browser for this project. It does
+not delete a transcript, change retry state, or hide failure details in its row.
+**Show dismissed notifications** restores them. A changed failure code or filesystem
+identity produces a new notification; retry timestamps do not undo dismissal.
+
+The storage strip measures all projects, including retained superseded captures.
+It shows physically allocated native-file and Tantivy bytes, with available space
+on each respective volume. These volumes can be the same; their free space must
+not be summed. Conversation database bytes include PostgreSQL tables, TOAST and
+indexes. Filesystem scans are cached for 30 seconds and bounded to five seconds or
+200,000 entries; partial measurements say **At least** and unavailable observations
+remain explicit. Native usage comes from the worker that mounts those files; index
+usage comes from the API. No transcript content is included in health responses.
 
 MCP clients use five safe read tools:
 
@@ -336,7 +370,7 @@ results. A rebuild does not manufacture unavailable history.
 
 ## Import existing transcripts
 
-In **Settings → Workspace → Transcript indexing → Import existing transcripts**,
+In **Transcripts → Transcript indexing → Import existing transcripts**,
 enter an absolute shared folder path, such as
 `/home/jamie/.claude/projects/-srv-fishfood`, and select **Import transcripts**.
 The backend must be able to read that path within its configured allowed roots;
@@ -352,8 +386,9 @@ Imported sources are detected again from the current bytes during extraction,
 so fixing permissions and rebuilding can recover an earlier unreadable or
 misidentified source without changing its ID or import receipt. Explicit
 agent-reported clients remain authoritative for enrolled sources.
-Other filename extensions are ignored. Symlinks and nonregular source files are
-skipped and counted. Unreadable folders abort registration; no partial import is
+Other filename extensions are ignored. Symlinks, nonregular files and recognized
+task execution journals are skipped and counted. Fresh enrollment rejects a known
+task journal with `transcript_not_native_session`; it is not a native conversation. Unreadable folders abort registration; no partial import is
 committed. Each scan is limited to 5,000 sources, 50,000 directory entries, 64 levels,
 and ten seconds of traversal checks. Choose smaller subfolders if a limit is reached.
 Malformed or oversized transcripts retain normal failed indexing dispositions.
@@ -392,3 +427,166 @@ Stop older processes before applying migration 0033 and upgrading the API, MCP,
 dashboard and backup service together. Existing 0032 sources and receipts are preserved.
 Backups include imported text and import receipts; populated import state prevents a
 lossy downgrade. The source mount and operator roots remain the deployment boundary.
+
+## Access diagnostics and resilient recovery (0.61.0)
+
+See the [transcript reliability RCA](transcript-reliability-rca.md) for the observed
+production causes and coordinated upgrade procedure. `/transcripts` now shows
+project-wide warnings above search, including the exact path, needed permissions,
+actual worker identity, storage problems, mismatched API/worker settings and stale
+worker reports. Search filters do not hide these warnings. A failed health request
+also remains visible. Diagnostics contain metadata, never transcript bodies.
+
+Fresh claims and closeouts now verify readable native `.jsonl`/`.json` files under
+approved roots before accepting assertions. Invalid assertions reject the fresh
+transaction; use explicit null if the actual file cannot be established. Existing
+successful receipt replays remain independent of current filesystem access.
+Historical bad paths still require audited recovery rather than a different retry.
+
+Missing files, denied permissions, full/read-only storage and earlier generic I/O
+failures are rechecked every five minutes. No rebuild is needed after access to the
+same file is restored. Active leases and paused projects still wait. Parser and
+integrity failures retain their own explicit dispositions. Configured source outages
+allow the dashboard to start so operators can see the warning; inconsistent explicit
+allowlists remain configuration errors.
+
+For a new local installation, choose source roots explicitly (omit absent roots):
+
+```sh
+python scripts/setup.py --transcript-source /home/your-user/.claude/projects \
+  --codex-source /home/your-user/.codex/sessions
+```
+
+Setup selects the chosen source owner's numeric UID/GID for both service images
+and prints matching private-storage creation commands. Existing `.env` files are
+left unchanged. Use `--service-uid` and `--service-gid` for an explicit identity;
+multiple owners need an operator-managed access arrangement. A default ACL or
+supplementary group does not override a client's explicit creation of mode 0600
+files. Do not make transcripts world-readable to accommodate a mismatched container.
+
+After configuring mounts/storage and building the images, verify access before
+startup, then verify running services:
+
+```sh
+python scripts/check_transcript_access.py --one-off
+python scripts/check_transcript_access.py
+```
+
+The checker uses each service's own settings, mounts and unprivileged identity.
+It opens/closes a bounded sample (default 100 files, at most 1,000), reports incomplete
+sampling, and exercises worker storage. It does not change source permissions or
+print credentials/content. Run the check again after moving sources, changing users,
+restoring backups or altering Docker mounts. Owner-only files from another user,
+SELinux/ACL restrictions, rootless UID mappings and Docker Desktop file sharing may
+need host-specific intervention; use the actual in-container probe as the evidence.
+A remote Docker daemon cannot mount a path from the client computer without an
+explicit filesystem share. Both services need the same exact absolute source paths.
+
+
+## Verified relocation after enrollment (0.62.0)
+
+Claude Code can move a session's transcript when entering or leaving a worktree;
+Codex sessions may also move to an approved archive root. A valid claim-time path
+can disappear before the lease ends. See [Claude Code's worktree resume behavior](https://code.claude.com/docs/en/worktrees#resume-a-worktree-session).
+
+For new assertions, the API now hashes the first at most 65,536 bytes through its
+verified no-follow file descriptor. It stores only the hash, byte count, filename
+and version. A file shorter than 256 bytes has no relocation evidence. This bounded
+server read never returns transcript content to the claiming agent; agent-side
+path verification still needs only filesystem metadata. Existing records are not
+backfilled with evidence inferred after enrollment.
+
+The worker first reuses an already-published private snapshot. Otherwise it checks
+the original path and prefix. If that file has moved, changed identity, or falls
+outside corrected roots, a bounded scan searches only current approved roots for
+the exact filename. Only one verified matching regular file, after a complete scan,
+is eligible. Overlapping roots are deduplicated, links are never followed, and the
+prefix is rechecked on the same descriptor that streams the private copy. Source
+appends are allowed; prefix replacement is not. The original `source_path` remains
+unchanged; `copy_source_path` records the actual read location when known. A crash
+that preserves bytes but loses the source-location observation leaves it unknown.
+
+Scans stop at 100,000 entries, 10,000 directories, depth 64 or five seconds checked
+between filesystem operations. Slow or unavailable filesystems can still delay an
+individual OS call. A limit, unreadable directory or concurrent disappearance
+prevents selection from an incomplete scan. Ambiguous matches and changed identity
+have explicit warnings at the top of `/transcripts` and are rechecked every five
+minutes. Use dedicated source roots or audited recovery when a complete scan is
+impractical. Never expand roots to include unrelated files or temporary stdout.
+
+Lease and pause guards still apply. Permanent receipts replay unchanged even when
+the original path has moved. Operator recovery keeps its stronger full-file hash
+and size pin; automatic relocation never relaxes that approval. If the approved
+file changes, wait for writes to finish and prepare a new recovery. Rebuilding
+cannot choose a replacement or rewrite a historical assertion.
+
+Migration `0043_transcript_source_identity` adds nullable enrollment evidence and
+capture provenance, shape constraints and a guard against changing enrolled
+identity evidence (including adding it to old unproven records). Import-to-session
+enrollment establishes fresh evidence. Project backups retain both new columns;
+restores fence jobs as before. Stop old processes for the coordinated upgrade.
+A downgrade refuses to discard captured enrollment evidence.
+
+
+## Session metadata and work navigation (0.63.0)
+
+The dashboard **Last Updated** column and transcript `updated_after` / `updated_before`
+filters use the latest valid timestamp in the retained native conversation. A verified
+source-file modification time is the fallback when no native timestamp exists; unknown
+historical times stay null. Sorting and date filters use enrollment time only for records
+whose activity time is unknown, while the activity field still reports null. Rebuilding
+the search index does not advance session activity.
+`index_created_at` identifies the current successful index build, not session completion.
+These times are stored in transcript metadata alongside native session IDs, models,
+message counts and parent-session references when supplied by the client. `session_id`
+remains the exact original reporting-session provenance; `session_ids` contains native
+identities, which can differ for subagents and are also available for imported sessions.
+
+Work detail and context return `transcripts={items,total,omitted_count}` with at most
+20 metadata-only links. Follow a link using `get_transcript(project_id, transcript_id)`;
+page additional links with `search_transcripts_content(work_item_id=...)`. Each transcript
+retains its originating work ID and current project ID for `get_work`. The dashboard
+links in both directions and can open a specific transcript from a work item.
+
+Transcript/work-only unified search uses a read-only repeatable-read snapshot rather
+than a project write lock. Artifact searches retain sensitivity serialization and audit
+behavior. Search congestion is reported as a search failure with instructions to retry
+that read; it never requires an operation ID. Actual writes still require identical
+same-operation retries when their outcome is uncertain.
+
+
+### Search failure root cause and upgrade verification
+
+Before 0.63.0, unified search entered the receipt-protected project mutation scope.
+It held a project row write lock through corpus loading, index construction, ranking,
+and result hydration. The scope allowed a 120-second search, but another request
+could wait only two seconds for its project lock. Corpus loading can exceed that wait,
+so overlapping searches or project writes could fail normally and be mislabeled as unavailable
+"client operation safety", even though a search has no operation ID or write receipt.
+A regression reproduces the cause by holding the project row in an independent
+writer transaction while searching transcripts. Repairing or deleting operation
+receipts would not address this lock contention.
+
+Transcript/work-only search now uses one read-only repeatable-read snapshot with
+bounded server deadlines. It does not acquire project row locks. Artifact-inclusive
+search keeps its existing sensitivity and audit serialization; contention, exhausted
+deadlines and lost database connections return `search_temporarily_unavailable` with
+instructions to search again. The dashboard separately retries short-lived
+`transcript_search_busy` index admission failures with bounded, cancellable backoff.
+It does not automatically repeat writes or potentially expensive timed-out searches.
+Actual uncertain writes retain permanent receipt protection and now explain how to
+retry the pending action without duplicating it.
+
+Migration `0044_transcript_metadata` derives timestamps only from retained current
+normalized segments and records the current successful index creation time. It does
+not infer historical source-file modification times. Migration regression tests and a
+private upgrade rehearsal verify that source assertions, retained-content hashes, snapshot IDs, transcript statuses, leases,
+receipt rows and background jobs remain unchanged. The fresh-install migration chain
+and project backup schema catalog also include the new nullable timestamp columns. Upgrade API, worker, MCP and dashboard
+together, with old writers stopped during the migration.
+
+Regression coverage includes a transcript search during an independently held project
+write lock, artifact sensitivity lock contention, real PostgreSQL statement timeout
+and disconnected-session recovery, native timestamps beyond the searchable prefix,
+index rebuilds, unavailable native timestamps, project moves, bounded work links,
+and browser retry/navigation on desktop and narrow screens for both native formats.

@@ -56,7 +56,7 @@ export function artifactSearchRequest(q: string, fulltext: boolean, includeDelet
 }
 
 export function transcriptSearchRequest(q: string, fulltext: boolean, offset: number, workItemId?: string, contentKinds?: TranscriptContentKind[]): SearchRequest {
-  return { q, detail: "full", facets: ["transcripts"], fulltext, filters: { transcripts: { ...(contentKinds ? { content_kinds: contentKinds } : {}), ...(workItemId ? { work_item_id: workItemId } : {}) } }, sort: { by: q ? "relevance" : "created_at", direction: "desc" }, limit: TRANSCRIPT_PAGE_SIZE, offset };
+  return { q, detail: "full", facets: ["transcripts"], fulltext, filters: { transcripts: { ...(contentKinds ? { content_kinds: contentKinds } : {}), ...(workItemId ? { work_item_id: workItemId } : {}) } }, sort: { by: q ? "relevance" : "updated_at", direction: "desc" }, limit: TRANSCRIPT_PAGE_SIZE, offset };
 }
 
 function facetPage(value: unknown, projectId: string, facet: SearchFacet, limit: number, offset: number) {

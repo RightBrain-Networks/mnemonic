@@ -116,6 +116,7 @@ def test_create_search_get_and_bounded_context_contract(api, project, work_paylo
 
     detail = api.get(item_path(project, work_item)).json()
     assert detail == {
+        "transcripts": {"items": [], "total": 0, "omitted_count": 0},
         "readiness": expected_readiness,
         "lease_settings": {"default_minutes": 15, "minimum_minutes": 10, "maximum_minutes": 120},
         "work_item": work_item,

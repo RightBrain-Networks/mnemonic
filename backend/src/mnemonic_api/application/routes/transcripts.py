@@ -3,7 +3,9 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, Request, Response
+from fastapi import APIRouter, Depends, Query, Request
+from fastapi.responses import StreamingResponse
+from sqlalchemy import func, select
 
 from mnemonic_api.application.guards import (
     reject_empty_read_request,
@@ -17,6 +19,8 @@ from mnemonic_api.services import transcript_imports, transcripts
 from mnemonic_api.services.project_mutations import project_mutation
 from mnemonic_api.services.transcript_segments import segment_range
 from mnemonic_api.transcript_discovery import discover_transcripts
+from mnemonic_api.transcript_fulltext import download_text_chunks
+from mnemonic_api.transcript_health import TranscriptHealthRead, transcript_health
 from mnemonic_api.transcript_schemas import (
     TranscriptImportRead,
     TranscriptImportRequest,
@@ -81,6 +85,14 @@ def import_transcripts(project_id: UUID, payload: TranscriptImportRequest,
     return result
 
 
+@router.get(_collection + "/health", response_model=TranscriptHealthRead,
+            dependencies=[Depends(reject_empty_read_request)])
+def get_transcript_health(project_id: UUID, database: Database,
+                          request: Request) -> TranscriptHealthRead:
+    return transcript_health(database, project_id, settings_of(request),
+                             request.app.state.transcript_search_index)
+
+
 @router.get(_collection + "/{transcript_id}", response_model=TranscriptRead,
             dependencies=[Depends(reject_empty_read_request)])
 def get_transcript(project_id: UUID, transcript_id: UUID, database: Database) -> TranscriptRead:
@@ -90,7 +102,7 @@ def get_transcript(project_id: UUID, transcript_id: UUID, database: Database) ->
 
 def _text_record(database, project_id, transcript_id, expected_sha256) -> Transcript:
     record = transcripts.require_transcript(
-        database, project_id, transcript_id, include_text=True)
+        database, project_id, transcript_id)
     if record.status != "ready":
         raise ApplicationError(409, "transcript_not_indexed", "Transcript text is not indexed yet.")
     if expected_sha256 is not None and record.text_sha256 != expected_sha256:
@@ -122,11 +134,14 @@ def get_transcript_text(
         raise ApplicationError(422, "transcript_segment_required",
                                "Supply segment_id for normalized revision and surrounding context.")
     record = _text_record(database, project_id, transcript_id, expected_sha256)
-    value = record.normalized_text or ""
-    end = min(len(value), offset + limit)
+    value, total = database.execute(select(
+        func.substr(Transcript.normalized_text, offset + 1, limit),
+        func.length(Transcript.normalized_text)).where(Transcript.id == record.id)).one()
+    value, total = value or "", total or 0
+    end = min(total, offset + limit)
     return TranscriptText(transcript_id=transcript_id, project_id=project_id,
-        text=value[offset:end], total_chars=len(value), offset=offset, limit=limit,
-        next_offset=end if end < len(value) else None, status="ready",
+        text=value, total_chars=total, offset=offset, limit=limit,
+        next_offset=end if end < total else None, status="ready",
         truncated=record.truncated, text_sha256=record.text_sha256,
         normalized_revision=record.normalized_revision)
 
@@ -136,11 +151,16 @@ def get_transcript_text(
 def download_transcript(
     project_id: UUID, transcript_id: UUID, database: Database,
     expected_sha256: str | None = Query(default=None, pattern="^[0-9a-f]{64}$"),
-) -> Response:
+) -> StreamingResponse:
+    begin_coherent_read(database)
     record = _text_record(database, project_id, transcript_id, expected_sha256)
-    return Response(record.normalized_text or "", media_type="text/plain; charset=utf-8", headers={
+    size = database.scalar(select(func.octet_length(Transcript.normalized_text))
+                           .where(Transcript.id == record.id))
+
+    return StreamingResponse(download_text_chunks(database, record),
+        media_type="text/plain; charset=utf-8", headers={
         "Content-Disposition": f'attachment; filename="transcript-{transcript_id}.txt"',
-        "X-Content-SHA256": record.text_sha256 or "",
+        "Content-Length": str(size or 0), "X-Content-SHA256": record.text_sha256 or "",
         "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff",
     })
 

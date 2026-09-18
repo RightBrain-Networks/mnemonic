@@ -5,7 +5,6 @@ from uuid import UUID
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, sessionmaker
 
-from mnemonic_api.artifact_extraction import Extractor
 from mnemonic_api.artifact_tika import ExtractionError
 from mnemonic_api.config import Settings
 from mnemonic_api.models import Transcript, WorkItem
@@ -69,7 +68,7 @@ def enqueue_transcript_jobs(database: Session, settings: Settings) -> int:
     ):
         rows = database.execute(statement.with_only_columns(
             Transcript.id, Transcript.generation, attempts, due_at,
-        ).order_by(Transcript.created_at, Transcript.id).limit(100)).all()
+        ).order_by(due_at, Transcript.id).limit(100)).all()
         for identity, generation, attempt, due in rows:
             # Recovery can reset its bounded attempt budget. The committed due
             # time distinguishes that new retry from a completed earlier attempt.
@@ -113,7 +112,7 @@ def handle_transcript_copy(factory: sessionmaker[Session], settings: Settings,
 
 
 def handle_transcript_index(factory: sessionmaker[Session], settings: Settings,
-                             extractor: Extractor, context: JobContext) -> dict:
-    processed = index_next_transcript(factory, settings, extractor,
+                            context: JobContext) -> dict:
+    processed = index_next_transcript(factory, settings,
         UUID(context.payload["transcript_id"]), context.payload["generation"], context)
     return _disposition(factory, context, processed)

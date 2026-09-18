@@ -116,6 +116,32 @@ not the repository working directory. The repository helper requires Bash and Gi
 where unavailable, inspect repository facts directly and preserve uncertainty.
 No helper output proves correctness or grants authority.
 
+## Codex transcript setup
+
+Install all three exported folders in the current Codex discovery location,
+`~/.agents/skills` (user scope) or `.agents/skills` (repository scope). Connecting
+the MCP server does not install skills. Check that the three `SKILL.md` files
+and each bundled `reference/transcripts.md` are present and readable. Codex can
+rediscover skills; restart the session if they do not appear.
+
+The [Codex AGENTS example](../examples/codex-AGENTS.md) provides concise registration
+guidance for a user's `~/.codex/AGENTS.md` or the target repository's `AGENTS.md`.
+Review and merge it with existing instructions; never overwrite a user's file.
+Repository Claude instructions can show `client=claude_code` and Claude plugin
+names, so explicitly retain the Codex identity and portable skill equivalents.
+Codex reads its AGENTS instruction chain when a run starts; start a new session
+after changing these instructions.
+
+The bundled transcript reference describes native thread ID verification, separate
+child rollouts, explicit null assertions, and status checks. Registration occurs
+on claims and child closeouts, not merely because a session connects to Mnemonic.
+Do not import a global Codex sessions folder into a project: it can contain several
+projects. Use verified, project-specific enrollment or an appropriately scoped import.
+
+See the official [skill discovery](https://learn.chatgpt.com/docs/build-skills#where-codex-loads-local-skills)
+and [AGENTS discovery](https://learn.chatgpt.com/docs/agent-configuration/agents-md#how-codex-discovers-guidance)
+rules for current client behavior.
+
 ## Identity and coordination
 
 Use the [stable per-agent identity contract](agents.md#create-or-continue-work).

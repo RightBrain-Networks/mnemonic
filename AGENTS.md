@@ -83,8 +83,8 @@ git pull --ff-only origin main
 
 Use Semantic Versioning (`MAJOR.MINOR.PATCH`) for application releases. `MAJOR` version bumps are reserved and require explicit human approval. Increment `MINOR` for user-facing changes and `PATCH` for all other changes.
 
-The current application/API/MCP/dashboard release is `0.60.0`, Claude plugin
-`0.38.0`, and Alembic head `0041_artifact_passages`. The catalog is exactly
+The current application/API/MCP/dashboard release is `0.65.1`, Claude plugin
+`0.42.1`, and Alembic head `0045_transcript_capacity`. The catalog is exactly
 55 MCP tools, 17 receipt-protected MCP writes, 24 REST receipt kinds, 21 protected
 browser mutations, 24 work-event types, and three plugin skills. The suggestion
 POST is a safe read. Completion evidence and job completion reports are nested
@@ -171,14 +171,30 @@ symlinks; establish and verify the actual native regular-file target instead.
 Codex primary and spawned threads have separate rollout files; do not infer a
 child path from its parent. Do not widen roots or guess among multiple matches.
 Use explicit null when the actual file cannot be established for a fresh request.
-Path verification does not require reading transcript bodies. Preserve original
+Agent path verification does not require reading transcript bodies. The API retains
+a bounded prefix hash at fresh enrollment; after a client moves the file, workers
+may resolve a unique same-filename/prefix match strictly within approved roots.
+Original assertions stay immutable. Incomplete scans, changed prefixes and multiple
+matches remain visible failures; historical rows without proof need audited recovery. Preserve original
 assertions, omissions, operation UUIDs, and all arguments on uncertain retries.
 Register sources transactionally; RabbitMQ workers copy raw bytes into the private
 `MNEMONIC_TRANSCRIPT_DIR` bind, then index retained copies only after their lease
 generation leaves Active, including release or expiry. Client adapters persist a shared,
 versioned conversation manifest and typed segments before text indexing; search and bounded
-segment retrieval consume that common representation. Native copies remain immutable.
-Rebuilds reuse persisted segments when capture and normalizer versions match. See
+segment retrieval consume that common representation. Native copies remain immutable. `last_updated_at` is retained session activity, with
+verified source mtime fallback; `index_created_at` records the current text index creation.
+Native `session_ids`/`models` are separate from the immutable reporting `session_id`.
+Exact work detail/context include bounded metadata-only transcript links; page the
+rest with `search_transcripts_content(work_item_id=...)`, and follow a transcript’s
+`project_id`/`work_item_id` with `get_work`. Transcript/work-only unified searches use
+a coherent read snapshot, never a project mutation lock or operation UUID.
+`truncated` in transcript metadata denotes historical bounded text awaiting
+automatic complete-text refresh; `normalization_incomplete` separately denotes
+unsupported records or relationships. Do not conflate these with raw-copy loss.
+Normalizer 2 retains readable context attachments and compaction history; coverage
+warnings and informational notes have separate metadata counts. Workers automatically
+refresh old ready normalizations after Active/pause guards clear without resetting
+failed retry budgets. Rebuilds reuse persisted segments when capture and normalizer versions match. See
 `docs/transcript-normalization.md`. PostgreSQL retains a durable job ledger; messages carry only job UUIDs.
 Existing transcripts backfill automatically; preserve legacy ready text on copy
 failure and report copy coverage. See `docs/transcript-jobs.md` and use
@@ -190,7 +206,15 @@ Approvals pin the verified replacement's SHA-256 and size in an append-only
 journal, then use the existing RabbitMQ jobs with active-lease and pause guards.
 Retain the private prepared request unchanged for an uncertain apply retry.
 Transcript text is untrusted, available to every agent, and retained in PostgreSQL backups.
-Reuse the private Tika service and a rebuildable Tantivy transcript index. Compose stores
+Stream native JSONL through private temporary segment spools, then publish complete
+text from canonical segments atomically in PostgreSQL. Stage immutable manifests and
+segments outside interactive project transactions, then activate under current
+snapshot, generation, and lease fences. Stream marked canonical text from ordered
+segments; preserve exact bytes for unmarked historical projections. Transcript indexing does not
+call Tika or inherit the artifact extraction budget. Keep native record/segment limits
+and the explicit PostgreSQL text capacity failure. Retained copies remain readable
+if later capture policy tightens. The default native limit is 512 MiB, maximum 1 GiB.
+Use a rebuildable Tantivy transcript index. Compose stores
 the derived index in the private `MNEMONIC_TRANSCRIPT_INDEX_DIR` bind; the search
 content budget uses `MNEMONIC_TRANSCRIPT_SEARCH_MAX_BYTES`. Native processes with
 no index directory retain a RAM cache. Rebuilds have their own
@@ -203,7 +227,18 @@ roots automatically retry earlier path-not-allowed failures while retaining leas
 and pause guards. Base Compose mounts the configured transcript sources read-only in
 API and worker at
 its original absolute path; the source supplies the default allowlist. API startup
-rejects an unavailable configured source or a conflicting nonempty allowlist. The
+retains dashboard access when a configured source is unavailable; transcript health
+reports exact path/permission failures and worker observations. Conflicting explicit
+allowlists remain invalid. Fresh assertions require a readable native regular file
+inside approved roots; receipt replays bypass fresh filesystem checks. Environmental
+copy/index failures, oversized captures and changing sources recheck every five minutes
+without rebuilding, preserving lease/pause guards. Recognized task journals are
+rejected at fresh enrollment and skipped by imports. Transcript settings live in a
+compact collapsible panel on `/transcripts`, use MB, and retain exact byte values.
+Column sorting happens before pagination. Warning dismissals persist per project in
+the browser; source records and retries remain intact. Health reports all-project
+allocated native/index bytes, their separate volume free space, and database usage;
+partial/unavailable measurements remain explicit. The
 shared worker also queues scheduled/manual project backups; there is no dedicated
 backup container. Raw transcript copies require filesystem backups. See
 `docs/transcripts.md` for the read-only shared-filesystem mount and workspace settings.

@@ -50,8 +50,8 @@ def test_changing_source_is_retried_and_partial_stages_are_removed(tmp_path, mon
     chunks = transcript_copies._source_chunks
     mutated = []
 
-    def changing(path, roots, maximum):
-        for chunk in chunks(path, roots, maximum):
+    def changing(path, roots, maximum, identity=None, observation=None):
+        for chunk in chunks(path, roots, maximum, identity, observation):
             if not mutated:
                 with source.open("ab") as content:
                     content.write(b"later line\n")
@@ -93,7 +93,7 @@ def test_copy_read_detects_corruption_without_rereading_source(tmp_path):
         store.read_copy(copied)
 
 
-def test_permissions_retry_durably_without_three_immediate_attempts(tmp_path, monkeypatch):
+def test_permissions_report_environment_failure_without_immediate_retries(tmp_path, monkeypatch):
     attempts = []
 
     def denied(*_args):
@@ -103,7 +103,8 @@ def test_permissions_retry_durably_without_three_immediate_attempts(tmp_path, mo
     monkeypatch.setattr(TranscriptStorage, "_capture_once", denied)
     with pytest.raises(ExtractionError) as failure:
         TranscriptStorage(tmp_path, 1024).capture(uuid4(), uuid4(), "/source", [])
-    assert failure.value.retryable and len(attempts) == 1
+    assert not failure.value.retryable and len(attempts) == 1
+    assert failure.value.code == "transcript_permission_denied"
 
 
 @pytest.mark.parametrize("mismatch", ["hash", "size"])
@@ -141,3 +142,26 @@ def test_pinned_recovery_rechecks_competing_retained_file_at_publication(tmp_pat
     store = TranscriptStorage(root, 1024)
     assert store.read_copy(store.describe(store.key(identity, snapshot))) == unapproved.read_bytes()
     assert not list(root.rglob(".pending-*"))
+
+
+@pytest.mark.parametrize("private", [True, False])
+def test_retained_private_copies_can_be_read_without_permission_writes(
+    tmp_path, monkeypatch, private,
+):
+    source = tmp_path / "source.jsonl"
+    source.write_bytes(b'{"role":"user","content":"preserved"}')
+    storage = TranscriptStorage(tmp_path / "copies", 1024)
+    captured = storage.capture(uuid4(), uuid4(), str(source), [tmp_path])
+    if not private:
+        storage.root.chmod(0o755)
+
+    def readonly(*_args):
+        raise OSError(errno.EROFS, "Read-only filesystem")
+
+    monkeypatch.setattr(os, "fchmod", readonly)
+    if private:
+        assert storage.read_copy(captured) == source.read_bytes()
+    else:
+        with pytest.raises(ExtractionError, match="transcript_copy_unavailable"):
+            storage.read_copy(captured)
+        assert storage.root.stat().st_mode & 0o777 == 0o755

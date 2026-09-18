@@ -130,7 +130,7 @@ def test_project_activity_audit_accepts_review_events_and_checks_review_facts(
     close_work(api, project, question_work, checkpoint_fields, review=False)
     report = _audit(postgres_engine)
     assert report["result"] == "pass", report["blocking_findings"]
-    assert report["expected_head"] == "0041_artifact_passages"
+    assert report["expected_head"] == "0045_transcript_capacity"
 
 
 def test_project_and_review_audits_keep_supported_0024_boundary(postgres_engine: Engine):
@@ -156,6 +156,7 @@ def test_project_and_review_audits_keep_supported_0024_boundary(postgres_engine:
 
 @pytest.mark.parametrize("head", [
     "0035_prompt_library", "0036_transcript_copies", "0037_background_jobs",
+    "0041_artifact_passages",
 ])
 def test_advancing_head_retains_prompt_library_and_review_audits(postgres_engine: Engine, head):
     reset_disposable_schema(postgres_engine)
