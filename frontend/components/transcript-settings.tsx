@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { transcriptBytes, transcriptMegabytes } from "@/lib/transcript-settings";
 import { errorMessage } from "@/lib/api";
 import { readBoundedJson } from "@/lib/bounded-json";
 import { finiteInteger, objectValue, sameUuid } from "@/lib/wire-guards";
@@ -8,6 +9,7 @@ import { decodeTranscriptImport, decodeTranscriptImportRejection, validTranscrip
 
 type TranscriptIntent = Readonly<{ body: string; operationId: string; action: "rebuild" | "import"; directory?: string }>;
 export default function TranscriptSettingsPanel({ projectId, onPendingChange }: { projectId: string; onPendingChange: (pending: boolean) => void }) {
+  const [expanded, setExpanded] = useState(false);
   const [settings, setSettings] = useState<TranscriptSettings | null>(null);
   const [enabled, setEnabled] = useState(true);
   const [maximum, setMaximum] = useState("");
@@ -28,7 +30,7 @@ export default function TranscriptSettingsPanel({ projectId, onPendingChange }: 
     setLoading(true); setError("");
     void transcriptRequest(transcriptSettingsPath(projectId), { signal: controller.signal }).then((value) => {
       const saved = decodeTranscriptSettings(value);
-      if (!controller.signal.aborted) { setSettings(saved); setEnabled(saved.enabled); setMaximum(String(saved.max_file_size_bytes)); setUncertainSave(false); }
+      if (!controller.signal.aborted) { setSettings(saved); setEnabled(saved.enabled); setMaximum(transcriptMegabytes(saved.max_file_size_bytes)); setUncertainSave(false); }
     }).catch((error) => { if (!controller.signal.aborted) setError(errorMessage(error)); }).finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
   }, [projectId, refresh]);
@@ -44,7 +46,7 @@ export default function TranscriptSettingsPanel({ projectId, onPendingChange }: 
     busyRef.current = true;
     setBusy(true); setError(""); setNotice("");
     try {
-      const response = await fetch(transcriptSettingsPath(projectId), { method: "PATCH", cache: "no-store", signal: AbortSignal.timeout(65000), headers: { "Content-Type": "application/json" }, body: JSON.stringify({ enabled, max_file_size_bytes: Number(maximum), expected_revision: settings.revision }) });
+      const response = await fetch(transcriptSettingsPath(projectId), { method: "PATCH", cache: "no-store", signal: AbortSignal.timeout(65000), headers: { "Content-Type": "application/json" }, body: JSON.stringify({ enabled, max_file_size_bytes: transcriptBytes(maximum), expected_revision: settings.revision }) });
       const value = await readBoundedJson(response, 128 * 1024);
       if (!response.ok) {
         if (response.status === 409 || response.status >= 500) setUncertainSave(true);
@@ -53,7 +55,7 @@ export default function TranscriptSettingsPanel({ projectId, onPendingChange }: 
       }
       const saved = decodeTranscriptSettings(value);
       if (!mounted.current) return;
-      setSettings(saved); setEnabled(saved.enabled); setMaximum(String(saved.max_file_size_bytes)); setNotice("Transcript settings saved.");
+      setSettings(saved); setEnabled(saved.enabled); setMaximum(transcriptMegabytes(saved.max_file_size_bytes)); setNotice("Transcript settings saved.");
     } catch (error) { if (mounted.current) { setError(errorMessage(error)); setUncertainSave(true); } }
     finally { busyRef.current = false; if (mounted.current) setBusy(false); }
   }
@@ -93,37 +95,38 @@ export default function TranscriptSettingsPanel({ projectId, onPendingChange }: 
     } catch (error) { if (mounted.current) setError(errorMessage(error)); }
     finally { busyRef.current = false; if (mounted.current) setBusy(false); }
   }
-  const validMaximum = /^\d+$/.test(maximum) && finiteInteger(Number(maximum), 1, settings?.operator_max_file_size_bytes ?? TRANSCRIPT_MAX_BYTES);
-  const dirty = Boolean(settings && (enabled !== settings.enabled || Number(maximum) !== settings.max_file_size_bytes));
-  return <section className="settings-card" aria-labelledby="transcript-settings-title">
-    <div className="settings-card-heading"><div><span className="section-label">AGENT TRANSCRIPTS</span><h2 id="transcript-settings-title">Transcript indexing</h2></div><span className="settings-state">{loading ? "Loading…" : settings?.enabled ? "Enabled" : settings ? "Paused" : "Unavailable"}</span></div>
-    <p className="settings-intro">Index the primary session and subagent transcripts reported for this project after work leaves Active, or import existing sessions from a shared folder. Indexed transcripts are available to every agent and the dashboard.</p>
-    {loading && <p role="status">Loading transcript settings…</p>}
-    {error && <div className="error-notice" role="alert"><p>{error}</p></div>}
-    {notice && <p role="status">{notice}</p>}
-    {!loading && !settings && <button className="button button-secondary" onClick={() => setRefresh((value) => value + 1)}>Retry transcript settings</button>}
-    {settings && <>
-      <label className="transcript-enabled"><input type="checkbox" checked={enabled} disabled={loading || busy || Boolean(pending) || uncertainSave} onChange={(event) => setEnabled(event.target.checked)} /> Enable transcript indexing</label>
-      <p className="field-hint">Pausing preserves indexed text and metadata. New transcripts wait until indexing is enabled again.</p>
-      <label className="field transcript-limit" htmlFor="transcript-max-bytes">Maximum transcript size (bytes)<input id="transcript-max-bytes" type="number" min={1} max={settings.operator_max_file_size_bytes} step={1} value={maximum} disabled={loading || busy || Boolean(pending) || uncertainSave} onChange={(event) => setMaximum(event.target.value)} /><span className="field-hint">Per source file; up to {settings.operator_max_file_size_bytes.toLocaleString("en-US")} bytes, as configured by your operator. Larger files retain a failed indexing record.</span></label>
-      {uncertainSave && <div className="error-notice"><p>Reload the saved values before making another change.</p><button className="button button-secondary" disabled={busy || Boolean(pending)} onClick={() => setRefresh((value) => value + 1)}>Reload transcript settings</button></div>}
-      <div className="settings-actions"><button className="button button-primary" disabled={loading || busy || Boolean(pending) || uncertainSave || !dirty || !validMaximum} onClick={() => void save()}>{busy && !pending ? "Saving…" : "Save transcript settings"}</button></div>
-      <div className="transcript-roots"><h3>Shared transcript folders</h3><p className="field-hint">An operator configures the folders Mnemonic can read. Agents must report paths within these shared folders.</p>{settings.allowed_roots.length ? <ul>{settings.allowed_roots.map((root) => <li className="mono break-all" key={root}>{root}</li>)}</ul> : <p>No shared folders are configured. Indexing will report unavailable source paths.</p>}</div>
-      <form className="transcript-import" onSubmit={(event) => {
-        event.preventDefault();
-        if (loading || busy || pending || dirty || uncertainSave || !settings.allowed_roots.length || !validTranscriptDirectory(directory)) return;
-        const operationId = crypto.randomUUID();
-        void runOperation(Object.freeze({ action: "import", operationId, directory, body: JSON.stringify({ client_operation_id: operationId, directory }) }));
-      }}>
-        <h3>Import existing transcripts</h3>
-        <p className="settings-intro">Import Claude Code and OpenAI Codex .jsonl files from a shared folder, including subfolders and subagent sessions. Sources already registered for this project are skipped.</p>
-        <label className="field" htmlFor="transcript-import-directory">Transcript folder<input id="transcript-import-directory" type="text" value={directory} placeholder="/home/jamie/.claude/projects/-srv-fishfood" autoComplete="off" spellCheck={false} disabled={loading || busy || Boolean(pending) || !settings.allowed_roots.length} onChange={(event) => setDirectory(event.target.value)} /><span className="field-hint">Use the absolute path in one of the shared folders above. Up to 5,000 transcript files per import.</span></label>
-        <button type="submit" className="button button-secondary" disabled={loading || busy || Boolean(pending) || dirty || uncertainSave || !settings.allowed_roots.length || !validTranscriptDirectory(directory)}>Import transcripts</button>
-        {!settings.allowed_roots.length && <p className="field-hint">Configure a shared transcript folder before importing.</p>}
-        {!settings.enabled && <p className="field-hint">Imported transcripts will wait until indexing is enabled.</p>}
-      </form>
-      <div className="transcript-rebuild"><h3>Rebuild index</h3><p className="settings-intro">Rebuild searchable text from retained conversation blocks, or normalize retained source copies when needed. Existing indexed text stays available while rebuilding. Active sessions wait until work leaves Active.</p><button className="button button-secondary" disabled={loading || busy || Boolean(pending) || !settings.enabled || dirty || uncertainSave} onClick={() => { const operationId = crypto.randomUUID(); void runOperation(Object.freeze({ action: "rebuild", operationId, body: JSON.stringify({ client_operation_id: operationId }) })); }}>Rebuild index</button>{!settings.enabled && <p className="field-hint">Enable indexing before rebuilding.</p>}</div>
-    </>}
-    {pending && <div className="error-notice" role="alert"><p>{busy ? (pending.action === "import" ? "Importing transcripts…" : "Requesting index rebuild…") : `Keep this page open until the ${pending.action} request is confirmed. Your exact request is preserved.`}</p><p>Operation: <code>{pending.operationId}</code></p><button className="button button-secondary" disabled={busy} onClick={() => void runOperation(pending)}>Retry pending {pending.action}</button></div>}
+  const bytes = transcriptBytes(maximum);
+  const validMaximum = bytes !== null && finiteInteger(bytes, 1, settings?.operator_max_file_size_bytes ?? TRANSCRIPT_MAX_BYTES);
+  const dirty = Boolean(settings && (enabled !== settings.enabled || bytes !== settings.max_file_size_bytes));
+  return <section className={`transcript-tools ${expanded ? "is-open" : ""}`} aria-label="Transcript indexing">
+    <div className="transcript-tools-heading"><button className="text-button" type="button" aria-expanded={expanded} aria-controls="transcript-settings-panel" disabled={Boolean(pending)} onClick={() => setExpanded(!expanded)}>Transcript indexing <span className="library-tools-chevron" aria-hidden="true"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><path d="m6 15 6-6 6 6" /></svg></span></button><span className="settings-state">{loading ? "Loading…" : settings?.enabled ? "Enabled" : settings ? "Paused" : "Unavailable"}</span></div>
+    <div className="library-tools-region" id="transcript-settings-panel" aria-hidden={!expanded} inert={!expanded}><div className="library-tools-clip"><div className="transcript-tools-content">
+      {error && <div className="error-notice" role="alert"><p>{error}</p></div>}
+      {notice && <p role="status">{notice}</p>}
+      {!loading && !settings && <button className="button button-secondary" onClick={() => setRefresh((value) => value + 1)}>Retry transcript settings</button>}
+      {settings && <>
+        <div className="transcript-settings-row">
+          <label className="transcript-enabled"><input type="checkbox" aria-label="Enable transcript indexing" checked={enabled} disabled={loading || busy || Boolean(pending) || uncertainSave} onChange={(event) => setEnabled(event.target.checked)} /> Enable indexing</label>
+          <label className="field" htmlFor="transcript-max-mb">Maximum transcript size (MB)<input id="transcript-max-mb" type="number" min={0} max={Number(transcriptMegabytes(settings.operator_max_file_size_bytes))} step={1} value={maximum} disabled={loading || busy || Boolean(pending) || uncertainSave} onChange={(event) => setMaximum(event.target.value)} /></label>
+          <button className="button button-primary" aria-label="Save transcript settings" disabled={loading || busy || Boolean(pending) || uncertainSave || !dirty || !validMaximum} onClick={() => void save()}>{busy && !pending ? "Saving…" : "Save settings"}</button>
+        </div>
+        <p className="field-hint">Sizes use binary megabytes (1 MB = 1,048,576 bytes). Operator maximum: {transcriptMegabytes(settings.operator_max_file_size_bytes)} MB. Larger files retry after the limit is raised. Pausing preserves indexed conversations.</p>
+        {uncertainSave && <div className="error-notice"><p>Reload the saved values before making another change.</p><button className="button button-secondary" disabled={busy || Boolean(pending)} onClick={() => setRefresh((value) => value + 1)}>Reload transcript settings</button></div>}
+        <div className="transcript-maintenance">
+          <form className="transcript-import" onSubmit={(event) => {
+            event.preventDefault();
+            if (loading || busy || pending || dirty || uncertainSave || !settings.allowed_roots.length || !validTranscriptDirectory(directory)) return;
+            const operationId = crypto.randomUUID();
+            void runOperation(Object.freeze({ action: "import", operationId, directory, body: JSON.stringify({ client_operation_id: operationId, directory }) }));
+          }}>
+            <label className="field" htmlFor="transcript-import-directory">Import existing sessions<input id="transcript-import-directory" aria-label="Transcript folder" type="text" value={directory} placeholder="Absolute path to a shared transcript folder" autoComplete="off" spellCheck={false} disabled={loading || busy || Boolean(pending) || !settings.allowed_roots.length} onChange={(event) => setDirectory(event.target.value)} /></label>
+            <button type="submit" className="button button-secondary" disabled={loading || busy || Boolean(pending) || dirty || uncertainSave || !settings.allowed_roots.length || !validTranscriptDirectory(directory)}>Import transcripts</button>
+          </form>
+          <div><button className="button button-secondary" disabled={loading || busy || Boolean(pending) || !settings.enabled || dirty || uncertainSave} onClick={() => { const operationId = crypto.randomUUID(); void runOperation(Object.freeze({ action: "rebuild", operationId, body: JSON.stringify({ client_operation_id: operationId }) })); }}>Rebuild index</button><p className="field-hint">Rebuilds from retained conversations. Existing text stays available; active sessions wait.</p></div>
+        </div>
+        <details className="transcript-roots"><summary>Shared transcript folders ({settings.allowed_roots.length})</summary>{settings.allowed_roots.length ? <ul>{settings.allowed_roots.map((root) => <li className="mono break-all" key={root}>{root}</li>)}</ul> : <p>No shared folders are configured. Configure a source before importing.</p>}</details>
+      </>}
+      {pending && <div className="error-notice" role="alert"><p>{busy ? (pending.action === "import" ? "Importing transcripts…" : "Requesting index rebuild…") : `Keep this page open until the ${pending.action} request is confirmed. Your exact request is preserved.`}</p><p>Operation: <code>{pending.operationId}</code></p><button className="button button-secondary" disabled={busy} onClick={() => void runOperation(pending)}>Retry pending {pending.action}</button></div>}
+    </div></div></div>
   </section>;
 }

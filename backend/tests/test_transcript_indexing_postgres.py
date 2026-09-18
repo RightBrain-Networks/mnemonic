@@ -8,12 +8,13 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import suppress
 from datetime import UTC, datetime, timedelta
 from threading import Event
+from unittest.mock import patch
 from uuid import UUID, uuid4
 
 import pytest
 from sqlalchemy import event, select, text, update
 
-from mnemonic_api.artifact_tika import ExtractedArtifact, ExtractionError
+from mnemonic_api.artifact_tika import ExtractionError
 from mnemonic_api.models import Transcript, WorkItem, WorkLease
 from mnemonic_api.services import transcripts as transcript_service
 from mnemonic_api.services.leases import renew_lease_record
@@ -37,28 +38,13 @@ from .test_work_item_moves_postgres import _move_payload
 pytestmark = pytest.mark.postgres
 
 
-class Parser:
-    def __init__(self, callback=None, error=None):
-        self.calls = []
-        self.callback = callback
-        self.error = error
-
-    def extract(self, content, *, filename, size_bytes):
-        data = content.read()
-        self.calls.append((data, filename, size_bytes))
-        if self.callback:
-            self.callback()
-        if self.error:
-            raise self.error
-        return ExtractedArtifact(data.decode(), {"dc:creator": ["Synthetic Author"]}, False)
-
-
 def collection(project):
     return f"/api/v1/projects/{project['id']}/transcripts"
 
 
-def register(api, project, work_payload, tmp_path, *, client="claude-code"):
-    source = tmp_path / "session.jsonl"
+def register(api, project, work_payload, tmp_path, *, client="claude-code",
+             filename="session.jsonl"):
+    source = tmp_path / filename
     source.write_text(json.dumps({"type": "user", "sessionId": "synthetic-session",
                                  "message": {"role": "user",
                                              "content": "rare needle in transcript"}})
@@ -72,10 +58,19 @@ def register(api, project, work_payload, tmp_path, *, client="claude-code"):
     return work, receipt, response.json()["items"][0], source
 
 
-def run(api, parser=None):
+def run(api, *, stage_error=None, stage_callback=None):
+    from mnemonic_api.transcript_fulltext import text_digest
+
+    def project(segments):
+        if stage_callback is not None:
+            stage_callback()
+        if stage_error is not None:
+            raise stage_error
+        return text_digest(segments)
+
     copied = copy_next_transcript(api.app.state.session_factory, api.app.state.settings)
-    indexed = index_next_transcript(api.app.state.session_factory, api.app.state.settings,
-                                    parser or Parser())
+    with patch("mnemonic_api.transcript_indexing.text_digest", side_effect=project):
+        indexed = index_next_transcript(api.app.state.session_factory, api.app.state.settings)
     return copied or indexed
 
 
@@ -94,12 +89,11 @@ def test_generation_waits_for_expiry_and_publishes_complete_snapshot(
     api, project, work_payload, tmp_path, postgres_engine,
 ):
     work, _, record, source = register(api, project, work_payload, tmp_path)
-    parser = Parser()
     assert record["status"] == "waiting"
-    assert not run(api, parser)
+    assert not run(api)
     expire_lease(postgres_engine, work["id"])
-    assert run(api, parser)
-    assert not run(api, parser)
+    assert run(api)
+    assert not run(api)
     ready = read(api, project, record)
     assert ready["status"] == "ready"
     assert ready["indexing_started_at"] <= ready["indexing_completed_at"]
@@ -107,7 +101,6 @@ def test_generation_waits_for_expiry_and_publishes_complete_snapshot(
     assert ready["size_bytes"] == source.stat().st_size
     assert ready["sha256"] == hashlib.sha256(source.read_bytes()).hexdigest()
     assert "normalized_text" not in ready
-    assert parser.calls[0][1] == "transcript.txt"
     path = collection(project) + "/" + ready["id"]
     text = api.get(path + "/text", params={"limit": 12}).json()
     assert text["next_offset"] == 12
@@ -128,7 +121,7 @@ def test_metadata_search_opt_in_fulltext_and_project_isolation(
     assert run(api)
     path = collection(project)
     assert api.get(path, params={"query": "needle"}).json()["total"] == 0
-    assert api.get(path, params={"query": "Synthetic Author"}).json()["total"] == 1
+    assert api.get(path, params={"query": "synthetic-session"}).json()["total"] == 1
     page = api.post(path + "/search-content", json={"query": "needle", "fulltext": True}).json()
     assert page["total"] == 1
     assert "needle" in page["items"][0]["snippet"]
@@ -162,7 +155,7 @@ def test_rebuild_receipt_retries_do_not_reset_inflight_or_publish_old_claim(
     assert not run(api)
 
 
-def test_rebuild_during_tika_call_discards_result_and_retains_old_search(
+def test_rebuild_during_text_projection_discards_result_and_retains_old_search(
     api, project, work_payload, tmp_path, postgres_engine,
 ):
     work, _, record, _ = register(api, project, work_payload, tmp_path)
@@ -178,7 +171,7 @@ def test_rebuild_during_tika_call_discards_result_and_retains_old_search(
         return api.post(collection(project) + "/rebuild",
                         json={"client_operation_id": str(uuid4())})
     assert rebuild().status_code == 200
-    assert run(api, Parser(callback=rebuild))
+    assert run(api, stage_callback=rebuild)
     current = read(api, project, record)
     assert current["status"] == "ready" and current["index_status"] == "pending"
     assert (
@@ -193,7 +186,7 @@ def test_rebuild_during_tika_call_discards_result_and_retains_old_search(
     ("missing", "transcript_source_missing"),
     ("client", "transcript_unsupported_client"),
     ("format", "transcript_invalid_format"),
-    ("tika", "extraction_parse_failed"),
+    ("projection", "transcript_projection_failed"),
 ])
 def test_failures_have_terminal_metadata_and_do_not_poison_queue(
     api, project, work_payload, tmp_path, postgres_engine, failure, code,
@@ -205,8 +198,8 @@ def test_failures_have_terminal_metadata_and_do_not_poison_queue(
     if failure == "format":
         source.write_text("broken json")
     expire_lease(postgres_engine, work["id"])
-    parser = Parser(error=ExtractionError("extraction_parse_failed")) if failure == "tika" else None
-    assert run(api, parser)
+    error = ExtractionError("transcript_projection_failed") if failure == "projection" else None
+    assert run(api, stage_error=error)
     failed = read(api, project, record)
     if failure == "missing":
         while failed["copy_status"] == "pending":
@@ -214,7 +207,7 @@ def test_failures_have_terminal_metadata_and_do_not_poison_queue(
                 database.execute(update(Transcript).values(
                     copy_next_attempt_at=datetime.now(UTC) - timedelta(seconds=1)))
                 database.commit()
-            assert run(api, parser)
+            assert run(api)
             failed = read(api, project, record)
     assert failed["status"] == "failed"
     assert failed["error_code"] == code
@@ -242,7 +235,8 @@ def test_settings_pause_claims_revision_guard_and_effective_operator_limit(
     payload.update(enabled=True, expected_revision=2)
     assert api.patch(path, json=payload).status_code == 200
     assert run(api)
-    payload.update(expected_revision=3, max_file_size_bytes=268435456)
+    payload.update(expected_revision=3,
+                   max_file_size_bytes=api.app.state.settings.transcript_max_bytes + 1)
     assert api.patch(path, json=payload).status_code == 422
 
 
@@ -258,13 +252,13 @@ def test_worker_reclaims_expired_jobs_and_bounds_transient_retries(
         row = database.get(Transcript, UUID(record["id"]))
         row.lease_expires_at = datetime.now(UTC) - timedelta(seconds=1)
         database.commit()
-    assert run(api, Parser(error=ExtractionError("extraction_unavailable", True)))
+    assert run(api, stage_error=ExtractionError("extraction_unavailable", True))
     assert read(api, project, record)["status"] == "pending"
     with factory() as database:
         row = database.scalar(select(Transcript))
         row.next_attempt_at = datetime.now(UTC) - timedelta(seconds=1)
         database.commit()
-    assert run(api, Parser(error=ExtractionError("extraction_unavailable", True)))
+    assert run(api, stage_error=ExtractionError("extraction_unavailable", True))
     assert read(api, project, record)["status"] == "failed"
     complete_transcript_job(factory, abandoned, None, ExtractionError("stale_claim"))
     assert read(api, project, record)["error_code"] == "extraction_unavailable"
@@ -489,7 +483,7 @@ def test_actual_background_loop_survives_bad_tool_input_and_indexes_following_wo
 
     async def exercise():
         task = asyncio.create_task(transcript_indexing_loop(
-            factory, api.app.state.settings, Parser()))
+            factory, api.app.state.settings))
         try:
             async with asyncio.timeout(5):
                 while True:
@@ -615,7 +609,7 @@ def test_index_retry_reuses_copied_provenance_when_source_changes(
     source.write_text(json.dumps({"type": "user", "sessionId": "obsoleteprovenancetoken",
                                  "message": {"role": "user", "content": "first source"}}))
     expire_lease(postgres_engine, work["id"])
-    assert run(api, Parser(error=ExtractionError("extraction_unavailable", True)))
+    assert run(api, stage_error=ExtractionError("extraction_unavailable", True))
     first = read(api, project, record)
     assert first["status"] == "pending"
     assert first["metadata"]["transcript:session_id"] == ["obsoleteprovenancetoken"]
@@ -635,7 +629,6 @@ def test_index_retry_reuses_copied_provenance_when_source_changes(
     assert current["size_bytes"] == first["size_bytes"]
     assert current["format"] == first["format"] and current["mime_type"] == first["mime_type"]
     assert current["metadata"] == first["metadata"] | {
-        "dc:creator": ["Synthetic Author"],
         "transcript:index_created_at": [current["index_created_at"]],
     }
     assert current["text_sha256"] is not None
@@ -652,7 +645,7 @@ def test_new_attempt_and_rebuild_clear_all_previous_snapshot_fields(
 ):
     work, _, record, _ = register(api, project, work_payload, tmp_path)
     expire_lease(postgres_engine, work["id"])
-    assert run(api, Parser(error=ExtractionError("extraction_unavailable", True)))
+    assert run(api, stage_error=ExtractionError("extraction_unavailable", True))
     with api.app.state.session_factory() as database:
         database.execute(update(Transcript).where(Transcript.id == UUID(record["id"])).values(
             next_attempt_at=datetime.now(UTC) - timedelta(seconds=1)))

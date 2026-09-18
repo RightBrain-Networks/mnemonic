@@ -16,7 +16,6 @@ from mnemonic_api.artifact_passage_jobs import (
     enqueue_artifact_passage_jobs,
     handle_artifact_embedding,
 )
-from mnemonic_api.artifact_tika import TikaExtractor
 from mnemonic_api.artifact_tokenizer import passage_tokenizer
 from mnemonic_api.config import Settings
 from mnemonic_api.database import build_engine, build_session_factory
@@ -104,7 +103,7 @@ def create_app() -> FastAPI:
             factory, worker.rabbitmq_url.get_secret_value(), {
                 "transcript_copy": partial(handle_transcript_copy, factory, settings),
                 "transcript_index": partial(
-                    handle_transcript_index, factory, settings, TikaExtractor(settings),
+                    handle_transcript_index, factory, settings,
                 ),
                 "backup_create": app.state.backup_service.handle_job,
                 "artifact_embed": partial(

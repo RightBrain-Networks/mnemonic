@@ -66,6 +66,7 @@ def _page_matches(
     )
     return (
         page.detail == detail and page.limit == limit and page.offset == offset
+        and page.sort_by is None and page.sort_direction == "desc"
         and all(isinstance(item, CompactTranscriptRead) == (detail == "compact")
                 for item in page.items)
         and ranking_matches(page, query, query_mode)
@@ -194,7 +195,7 @@ def _text_matches(
         return False
     if page.status != "ready":
         return page.text is None and page.total_chars is None and page.next_offset is None
-    if page.text is None or page.total_chars is None or page.total_chars > 8_000_000:
+    if page.text is None or page.total_chars is None or page.total_chars > 1_073_741_824:
         return False
     length = min(limit, max(0, page.total_chars - offset))
     next_offset = offset + length if offset + length < page.total_chars else None
@@ -229,9 +230,9 @@ def _text_params(
     if segment_id is None:
         if revision is not None or before or after:
             raise ToolError("Mnemonic rejected the input. Supply segment_id for structured context.")
-        if expected_sha256 is None or offset > 8_000_000:
+        if expected_sha256 is None or offset > 1_073_741_824:
             raise ToolError("Mnemonic rejected the input. Flat text requires expected_sha256 "
-                            "and offset at most 8000000.")
+                            "and offset at most 1073741824.")
     else:
         if revision is None or before + after > 20 or (before and offset):
             raise ToolError("Mnemonic rejected the input. Segment reads require "

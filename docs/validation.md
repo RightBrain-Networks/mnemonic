@@ -1,5 +1,37 @@
 # Mnemonic validation record
 
+## Complete transcript pipeline and controls (0.65.0)
+
+Application/API/MCP/dashboard 0.65.0 requires migration
+`0045_transcript_capacity`. The [pipeline audit](transcript-pipeline-audit.md)
+records observed causes, memory measurements, capacity boundaries and rollout.
+No tool, protected write or plugin catalog count changes. Original assertions,
+receipts, native copies, normalization revisions and ready text are preserved.
+Explicit old 64-MiB operator/project settings remain explicit choices on upgrade.
+
+The complete isolated PostgreSQL/RabbitMQ backend suite passed **3,355 tests**.
+After removing the unused Tika dispatch interface, **638 transcript tests** passed.
+Final capacity tests passed **13 cases**, including actual unmodified REST replies
+through MCP in its separate environment. Final server sorting/storage tests passed
+**14 cases**, including copy-failed, index-failed, indexed and waiting states.
+The complete MCP suite passed **1,886 tests**; subsequent large-text and schema
+contract checks passed **75 affected cases**. Backend/MCP lint and type checks pass.
+The local plugin/repository verifier passed **71 tests** with one macOS-only skip.
+
+The full transcript acceptance run passed **24 desktop/narrow cases**, followed by
+**six final cases** for both native clients and polished controls. Isolated backup
+checks cover authentication, invalid paths, retention, concurrency, unavailable
+storage, corrupt uploads, project isolation and restore retry recovery. Dashboard
+screenshots linked from the audit use synthetic fixtures. The final frontend suite passed **494 tests**, TypeScript checks and a Node 24
+production build. Gitleaks passed. The aggregate Required checks result is
+recorded with the PR.
+
+A real failing native source measured **212,607,364 bytes**. Scratch normalization
+produced **44,507 segments** with no coverage warnings in **16.4 seconds**, at
+**90.27 MiB peak process RSS**. This verifies that source's parser behavior; it is
+not a production migration or a universal performance bound. No production data
+or deployment settings were changed by that read-only investigation.
+
 ## Semantic artifact passages and selected-project search (0.60.0)
 
 API/MCP/dashboard 0.60.0 and plugin 0.38.0 require migration

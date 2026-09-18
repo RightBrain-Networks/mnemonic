@@ -50,6 +50,7 @@ from mnemonic_api.transcript_schemas import (
 )
 from mnemonic_api.transcript_segment_search import filtered_documents, matching_segment
 from mnemonic_api.transcript_snapshots import empty_transcript_snapshot
+from mnemonic_api.transcript_sorting import transcript_order
 from mnemonic_api.transcript_storage import validate_transcript_assertion
 
 # The admission slot covers corpus preflight, loading, Tantivy building and
@@ -303,10 +304,10 @@ def list_transcripts(database: Session, project_id: UUID, filters: TranscriptSea
                               maximum_content_bytes, legacy_omitted)
     total = database.scalar(select(func.count()).select_from(statement.subquery())) or 0
     records = database.scalars(statement.options(defer(Transcript.normalized_text))
-        .order_by(func.coalesce(Transcript.last_updated_at, Transcript.created_at).desc(),
-                  Transcript.id).offset(filters.offset)
+        .order_by(*transcript_order(filters.sort_by, filters.sort_direction)).offset(filters.offset)
         .limit(filters.limit))
-    return TranscriptPage(**search_ranking(filters.query, filters.query_mode).model_dump(),
+    return TranscriptPage(sort_by=filters.sort_by, sort_direction=filters.sort_direction,
+                          **search_ranking(filters.query, filters.query_mode).model_dump(),
                           **search_disclosure(
                               project_id, filters.query, fulltext=filters.fulltext,
                               query_mode=filters.query_mode,
@@ -344,12 +345,20 @@ def _searched_page_locked(database, project_id, filters, index, statement, incom
                              maximum_content_bytes, filters.content_kinds, filters.query_mode,
                              filters.diagnostics)
     by_id = {str(record.id): record for record in records}
+    hits = result.hits
+    if filters.sort_by is not None:
+        by_hit = {hit.identity: hit for hit in hits}
+        ordered = database.scalars(select(Transcript.id).where(
+            Transcript.id.in_([UUID(identity) for identity in by_hit]))
+            .order_by(*transcript_order(filters.sort_by, filters.sort_direction)))
+        hits = [by_hit[str(identity)] for identity in ordered]
     items = [_search_read(database, project_id, by_id[hit.identity], hit, filters.query,
                           index, result.searcher, filters.content_kinds, detail=filters.detail,
                           query_mode=filters.query_mode, rank=rank)
              for rank, hit in enumerate(
-                 result.hits[filters.offset:filters.offset + filters.limit], filters.offset + 1)]
-    return TranscriptPage(**search_ranking(filters.query, filters.query_mode).model_dump(),
+                 hits[filters.offset:filters.offset + filters.limit], filters.offset + 1)]
+    return TranscriptPage(sort_by=filters.sort_by, sort_direction=filters.sort_direction,
+                          **search_ranking(filters.query, filters.query_mode).model_dump(),
                           **search_disclosure(
                               project_id, filters.query, fulltext=filters.fulltext,
                               query_mode=filters.query_mode,

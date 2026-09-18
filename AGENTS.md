@@ -83,8 +83,8 @@ git pull --ff-only origin main
 
 Use Semantic Versioning (`MAJOR.MINOR.PATCH`) for application releases. `MAJOR` version bumps are reserved and require explicit human approval. Increment `MINOR` for user-facing changes and `PATCH` for all other changes.
 
-The current application/API/MCP/dashboard release is `0.64.0`, Claude plugin
-`0.42.0`, and Alembic head `0044_transcript_metadata`. The catalog is exactly
+The current application/API/MCP/dashboard release is `0.65.0`, Claude plugin
+`0.42.0`, and Alembic head `0045_transcript_capacity`. The catalog is exactly
 55 MCP tools, 17 receipt-protected MCP writes, 24 REST receipt kinds, 21 protected
 browser mutations, 24 work-event types, and three plugin skills. The suggestion
 POST is a safe read. Completion evidence and job completion reports are nested
@@ -188,8 +188,8 @@ Exact work detail/context include bounded metadata-only transcript links; page t
 rest with `search_transcripts_content(work_item_id=...)`, and follow a transcript’s
 `project_id`/`work_item_id` with `get_work`. Transcript/work-only unified searches use
 a coherent read snapshot, never a project mutation lock or operation UUID.
-`truncated` in transcript metadata denotes the
-search-text character limit; `normalization_incomplete` separately denotes
+`truncated` in transcript metadata denotes historical bounded text awaiting
+automatic complete-text refresh; `normalization_incomplete` separately denotes
 unsupported records or relationships. Do not conflate these with raw-copy loss.
 Normalizer 2 retains readable context attachments and compaction history; coverage
 warnings and informational notes have separate metadata counts. Workers automatically
@@ -206,7 +206,12 @@ Approvals pin the verified replacement's SHA-256 and size in an append-only
 journal, then use the existing RabbitMQ jobs with active-lease and pause guards.
 Retain the private prepared request unchanged for an uncertain apply retry.
 Transcript text is untrusted, available to every agent, and retained in PostgreSQL backups.
-Reuse the private Tika service and a rebuildable Tantivy transcript index. Compose stores
+Stream native JSONL through private temporary segment spools, then publish complete
+text from canonical segments atomically in PostgreSQL. Transcript indexing does not
+call Tika or inherit the artifact extraction budget. Keep native record/segment limits
+and the explicit PostgreSQL text capacity failure. Retained copies remain readable
+if later capture policy tightens. The default native limit is 512 MiB, maximum 1 GiB.
+Use a rebuildable Tantivy transcript index. Compose stores
 the derived index in the private `MNEMONIC_TRANSCRIPT_INDEX_DIR` bind; the search
 content budget uses `MNEMONIC_TRANSCRIPT_SEARCH_MAX_BYTES`. Native processes with
 no index directory retain a RAM cache. Rebuilds have their own
@@ -223,7 +228,14 @@ retains dashboard access when a configured source is unavailable; transcript hea
 reports exact path/permission failures and worker observations. Conflicting explicit
 allowlists remain invalid. Fresh assertions require a readable native regular file
 inside approved roots; receipt replays bypass fresh filesystem checks. Environmental
-copy failures recheck every five minutes without rebuilding, preserving lease/pause guards. The
+copy/index failures, oversized captures and changing sources recheck every five minutes
+without rebuilding, preserving lease/pause guards. Recognized task journals are
+rejected at fresh enrollment and skipped by imports. Transcript settings live in a
+compact collapsible panel on `/transcripts`, use MB, and retain exact byte values.
+Column sorting happens before pagination. Warning dismissals persist per project in
+the browser; source records and retries remain intact. Health reports all-project
+allocated native/index bytes, their separate volume free space, and database usage;
+partial/unavailable measurements remain explicit. The
 shared worker also queues scheduled/manual project backups; there is no dedicated
 backup container. Raw transcript copies require filesystem backups. See
 `docs/transcripts.md` for the read-only shared-filesystem mount and workspace settings.

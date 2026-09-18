@@ -9,10 +9,11 @@ from mnemonic_api.artifact_tika import ExtractionError
 # These conditions can change outside the application. Recheck slowly even after
 # the short transient retry budget, without asking users to rebuild ready text.
 RECOVERABLE_COPY_ERRORS = (
-    "transcript_source_missing", "transcript_permission_denied", "transcript_storage_full",
+    "transcript_too_large", "transcript_source_missing", "transcript_permission_denied",
+    "transcript_storage_full",
     "transcript_storage_read_only", "transcript_io_error", "transcript_copy_unavailable",
     "transcript_source_identity_changed", "transcript_relocation_ambiguous",
-    "transcript_relocation_scan_limit",
+    "transcript_relocation_scan_limit", "transcript_content_changed",
 )
 RECHECK_SECONDS = 300
 
@@ -71,6 +72,10 @@ def access_instruction(code: str, details: dict) -> str:
     if code == "transcript_permission_denied":
         return permission_instruction(details)
     instructions = {
+        "transcript_too_large": "This native file exceeds the current capture limit. "
+            "Increase the maximum transcript size in Transcript indexing settings "
+            "(and MNEMONIC_TRANSCRIPT_MAX_BYTES for both services if needed). "
+            "Capture will retry automatically; retained conversations remain readable.",
         "transcript_recovery_content_changed": "The file changed after operator approval. "
             "Wait for the session to stop writing, verify the replacement again, then prepare "
             "a new audited recovery with its current SHA-256 and size. The existing approval "
@@ -103,6 +108,10 @@ def access_instruction(code: str, details: dict) -> str:
             "the worker. Source transcript mounts should remain read-only.",
         "transcript_copy_unavailable": "Check that private transcript storage is mounted "
             "and owned by the worker UID, with directories mode 0700 and files mode 0600.",
+        "transcript_not_native_session": "This file is a task execution journal, not a native "
+            "conversation. Verify the actual Claude session or Codex rollout file. Use explicit "
+            "null on a fresh request when it cannot be established; historical assertions "
+            "require audited path recovery.",
         "transcript_native_path_required": "Report a verified native .jsonl or .json file, "
             "not a workflow directory or temporary .output path. Use explicit null on a "
             "fresh request if the native file cannot be established.",

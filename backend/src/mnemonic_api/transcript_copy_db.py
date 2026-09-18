@@ -34,7 +34,7 @@ COPY_CHECKS = {
     "copy_snapshot_valid": "(copy_status = 'ready' AND storage_key IS NOT NULL "
         "AND storage_key = id::text || '/' || snapshot_id::text || '/transcript.jsonl' "
         "AND copy_sha256 IS NOT NULL AND copy_sha256 ~ '^[0-9a-f]{64}$' "
-        "AND copy_size_bytes IS NOT NULL AND copy_size_bytes BETWEEN 0 AND 268435456 "
+        "AND copy_size_bytes IS NOT NULL AND copy_size_bytes BETWEEN 0 AND 1073741824 "
         "AND copied_at IS NOT NULL) OR (copy_status <> 'ready' AND storage_key IS NULL "
         "AND copy_sha256 IS NULL AND copy_size_bytes IS NULL AND copied_at IS NULL)",
 }

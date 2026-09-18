@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 
 from mnemonic_api.transcript_access import TranscriptAccessError, access_error
+from mnemonic_api.transcript_detection import is_task_journal
 from mnemonic_api.transcript_storage import _open_source
 
 PREFIX_BYTES = 65536
@@ -17,6 +18,8 @@ def capture_identity(descriptor: int, source: str) -> dict | None:
         prefix = os.pread(descriptor, PREFIX_BYTES, 0)
     except OSError as error:
         raise access_error(error, source) from None
+    if is_task_journal(prefix):
+        raise TranscriptAccessError("transcript_not_native_session", source)
     if len(prefix) < MINIMUM_PREFIX_BYTES:
         return None
     return {"version": 1, "filename": Path(source).name, "prefix_size": len(prefix),

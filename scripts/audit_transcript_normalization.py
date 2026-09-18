@@ -17,6 +17,7 @@ from mnemonic_api.transcript_normalization import (
     canonical_json,
     normalize_transcript,
 )
+from mnemonic_api.transcript_spool import TranscriptSegments
 from sqlalchemy import text
 
 
@@ -31,11 +32,14 @@ class ReadOnlyTranscriptStorage(TranscriptStorage):
 def verify_capture(row, storage, counts):
     try:
         with storage.open(row["storage_key"]) as source:
-            content = source.read()
-        if hashlib.sha256(content).hexdigest() != row["copy_sha256"]:
-            counts["native_hash_mismatch"] += 1
-            return
-        normalized = normalize_transcript(content, row["client"], row["snapshot_id"])
+            digest = hashlib.sha256()
+            while chunk := source.read(1024 * 1024):
+                digest.update(chunk)
+            if digest.hexdigest() != row["copy_sha256"]:
+                counts["native_hash_mismatch"] += 1
+                return
+            source.seek(0)
+            normalized = normalize_transcript(source, row["client"], row["snapshot_id"])
     except ExtractionError as error:
         prefix = "ready_parse_failure" if row["status"] == "ready" else "rejected_source"
         counts[f"{prefix}:{error.code}"] += 1
@@ -52,6 +56,8 @@ def verify_capture(row, storage, counts):
     for code in normalized.metadata.get("transcript:normalization_warnings", []):
         name, value = code.rsplit("=", 1)
         counts[f"coverage:{name}"] += int(value)
+    if isinstance(normalized.segments, TranscriptSegments):
+        normalized.segments.close()
 
 
 

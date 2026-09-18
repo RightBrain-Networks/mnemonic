@@ -278,3 +278,34 @@ test("native session metadata validates independently of reporting provenance", 
   assert.equal(decodeTranscript(metadata, project).session_id, "session-1");
   for (const change of [{last_updated_at: "yesterday"}, {index_created_at: "tomorrow"}, {models: Array(9).fill("model")}, {session_ids: [null]}]) assert.throws(() => decodeTranscript({...metadata,...change}, project));
 });
+
+test("transcript downloads stream beyond 32 MiB without buffering the complete response", async () => {
+  const chunks = 600, chunkSize = 65536;
+  let produced = 0;
+  const body = new ReadableStream({ pull(controller) {
+    if (produced === chunks) { controller.close(); return; }
+    produced += 1;
+    controller.enqueue(new Uint8Array(chunkSize).fill(97));
+  } });
+  const result = await proxyTranscript(request(`${root}/${id}/content`), [...root.split("/"), id, "content"], environment,
+    async () => new Response(body, { headers: { "content-length": String(chunks * chunkSize) } }));
+  assert.equal(result.status, 200);
+  assert.ok(produced < chunks, "The proxy must return before consuming all upstream content");
+  let received = 0;
+  for await (const chunk of result.body) received += chunk.byteLength;
+  assert.equal(received, chunks * chunkSize);
+});
+
+test("streamed transcript downloads reject truncated, oversized, and absent bodies", async () => {
+  const path = [...root.split("/"), id, "content"];
+  for (const length of [2, 4]) {
+    const result = await proxyTranscript(request(`${root}/${id}/content`), path, environment,
+      async () => new Response("abc", { headers: { "content-length": String(length) } }));
+    await assert.rejects(() => result.arrayBuffer(), /exceeded|incomplete/);
+  }
+  for (const [body, length] of [[null, "10"], ["x", "1073741825"]]) {
+    const result = await proxyTranscript(request(`${root}/${id}/content`), path, environment,
+      async () => new Response(body, { headers: { "content-length": length } }));
+    assert.equal(result.status, 502);
+  }
+});

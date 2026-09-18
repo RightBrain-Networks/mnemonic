@@ -26,6 +26,7 @@ from mnemonic_api.transcript_access import (
 )
 from mnemonic_api.transcript_recovery_sources import effective_copy_path
 from mnemonic_api.transcript_storage import _open_source
+from mnemonic_api.transcript_usage import TranscriptUsage, database_usage, directory_usage
 
 MAX_WARNINGS = 50
 HEALTH_INTERVAL_SECONDS = 30
@@ -55,6 +56,7 @@ class TranscriptHealthRead(BaseModel):
     warnings_omitted: int
     affected_transcripts: int
     recheck_seconds: int = RECHECK_SECONDS
+    storage: TranscriptUsage | None = None
 
 
 def warning_for(code: str, details: dict, service: str, *, affected: int = 0,
@@ -131,6 +133,7 @@ class TranscriptHealthReporter:
         if monotonic() < self.next_check:
             return
         report = environment_report(settings, worker=True)
+        report["native_storage"] = directory_usage(settings.transcript_root).model_dump(mode="json")
         now = database.execute(select(func.clock_timestamp())).scalar_one()
         statement = insert(TranscriptWorkerHealth).values(
             worker_id=self.worker_id, checked_at=now, report=report)
@@ -204,10 +207,17 @@ def transcript_health(database: Session, project_id: UUID,
     warnings.extend(index_warnings(index, settings))
     # Deduplicate identical findings from multiple workers, not distinct paths.
     unique = {item.model_dump_json(): item for item in [*warnings, *workers, *copies]}
+    worker = database.scalar(select(TranscriptWorkerHealth).order_by(
+        TranscriptWorkerHealth.checked_at.desc()).limit(1))
+    storage = TranscriptUsage(
+        transcripts=worker.report.get("native_storage") if worker else None,
+        index=directory_usage(settings.transcript_index_dir)
+            if settings.transcript_index_dir is not None else None,
+        database_bytes=database_usage(database))
     return TranscriptHealthRead(project_id=project_id, checked_at=now, worker_checked_at=checked,
         warnings=list(unique.values())[:MAX_WARNINGS],
         warnings_omitted=omitted + max(0, len(unique) - MAX_WARNINGS),
-        affected_transcripts=affected)
+        affected_transcripts=affected, storage=storage)
 
 
 def index_warnings(index: ArtifactSearchIndex | None,

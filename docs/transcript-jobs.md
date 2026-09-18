@@ -50,12 +50,23 @@ snapshot. Tenacity applies bounded exponential backoff with jitter to transient
 copy failures; the durable job layer handles retries across process restarts.
 Policy failures such as an outside-root source are recorded explicitly.
 
-Indexing opens the retained copy and verifies its integrity. Rebuilding an index
+Indexing opens the retained copy and verifies its integrity before and after
+streamed normalization. Private temporary segment spools bound worker memory and
+close on success or failure. Complete text is derived from canonical segments
+without Tika or the artifact extraction budget. Rebuilding an index
 reuses that copy even if the client deletes, moves, or modifies its source.
 Converting an imported transcript into a new agent enrollment establishes a new
 capture identity so subsequent work can capture the finished session. Active
 lease generations and paused projects retain their existing eligibility guards.
 There is no continuous tailing.
+
+Capture size and changed-source failures recheck every five minutes, respecting
+active-lease and pause guards. Increasing an explicit project/operator size limit
+therefore does not require rebuilding the project. Index filesystem failures also
+recheck after the temporary problem clears. Malformed sources, integrity failures
+and unsupported formats retain terminal dispositions until repaired or rebuilt.
+Historical truncated ready text refreshes through the same guarded job reconciler;
+failed normalizer upgrades do not have their retry budget silently reset.
 
 Worker startup removes abandoned unlocked partial files older than 24 hours.
 Final snapshots from superseded enrollment attempts remain retained; include this
@@ -91,7 +102,7 @@ reconstructed from normalized text; recover the original bytes if available.
 5. Stop the old API, MCP, web, and backup processes before applying the new schema.
    Start the new stack with `docker compose up --build -d --wait --remove-orphans`.
    API startup applies the migrations; the worker starts only after API, RabbitMQ,
-   and Tika are healthy. Never run the old backup process against the new schema.
+   are healthy. Tika serves artifact extraction separately. Never run the old backup process against the new schema.
 6. Run the content-free backfill report and checksum verification:
 
    ```sh

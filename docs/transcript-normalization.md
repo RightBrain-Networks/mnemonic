@@ -37,9 +37,10 @@ text. Expected provider encryption is informational; missing readable content is
 references are reported as incomplete structural coverage. Codex completed UI
 mirrors are omitted; durable Plan and FunctionCallOutput exceptions remain.
 
-Native-source record/export and nesting limits remain enforced. The search text
-extraction limit does **not** limit persisted canonical content. `truncated` reports
-bounded search text; `normalization_incomplete` separately reports omitted or
+Native-source record/export and nesting limits remain enforced. Since 0.65.0,
+complete text is derived from all canonical segments independently of the artifact
+extraction budget. Existing `truncated` rows refresh automatically and retain that
+flag until complete text is published; `normalization_incomplete` separately reports omitted or
 unsupported structure. Canonical rows contain untrusted content, just like native
 transcripts and derived text.
 
@@ -75,8 +76,11 @@ become readable while text extraction is pending. A stale worker cannot attach a
 former capture's normalized revision to an enrolled transcript.
 
 Rebuilds reuse persisted normalization when snapshot, source hash and versions
-match. They stream segment text under the extraction budget without loading tool
-payloads or rerunning native adapters. A normalizer/schema version change selects
+match. They stream all segment text without loading tool payloads or rerunning
+native adapters. Text hashing uses bounded process memory; PostgreSQL assembles
+the same ordered text inside the publication transaction. Text must remain below
+PostgreSQL's 1 GiB value limit; oversized output fails explicitly with
+`transcript_text_too_large` rather than publishing an apparently complete prefix. A normalizer/schema version change selects
 a new revision generated from the retained native copy. Interrupted work resumes
 through existing expiry/retry/rebuild controls; a normalization error preserves
 prior ready search text and reports incomplete coverage.
@@ -95,8 +99,7 @@ continue to address text pinned by `text_sha256`.
 For structured context, call the existing text endpoint with `segment_id` and
 `expected_normalized_revision`. Optional `before` and `after` select up to 20
 surrounding blocks in total. `offset` addresses characters within the selected
-block and supports values through 1,073,741,824, independently of the search
-extraction cap. `limit` is 1–200,000 and bounds returned text plus retained payload
+block and supports values through 1,073,741,824, for both flat text and structured reads. `limit` is 1–200,000 and bounds returned text plus retained payload
 bytes. The response has typed `segments` with generated 24-hex-character identities,
 zero-based ordinals, one-based source record numbers, content kinds, native metadata,
 text fragments and their `text_offset`/`text_truncated` state. Native optional fields

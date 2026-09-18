@@ -12,7 +12,7 @@ from mnemonic_api.services.transcripts import rebuild_transcripts
 from mnemonic_api.transcript_indexing import index_next_transcript
 
 from .test_leases_postgres import expire_lease
-from .test_transcript_indexing_postgres import Parser, read, register, run
+from .test_transcript_indexing_postgres import read, register, run
 
 pytestmark = pytest.mark.postgres
 
@@ -58,7 +58,7 @@ def test_native_timeline_models_and_sessions_survive_rebuild(
     with factory() as database:
         rebuild_transcripts(database, UUID(project["id"]), uuid4())
         database.commit()
-    assert index_next_transcript(factory, api.app.state.settings, Parser())
+    assert index_next_transcript(factory, api.app.state.settings)
     rebuilt = read(api, project, row)
     assert rebuilt["last_updated_at"] == first["last_updated_at"]
     assert rebuilt["index_created_at"] > first["index_created_at"]
@@ -114,7 +114,7 @@ def test_native_activity_beyond_search_prefix_is_retained_on_rebuild(
     expire_lease(postgres_engine, work["id"])
     assert run(api)
     first = read(api, project, row)
-    assert first["truncated"] and first["last_updated_at"] == "2026-02-02T00:00:00Z"
+    assert not first["truncated"] and first["last_updated_at"] == "2026-02-02T00:00:00Z"
     with api.app.state.session_factory() as database:
         database.execute(
             update(Transcript)

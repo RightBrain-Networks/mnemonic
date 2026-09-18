@@ -13,7 +13,7 @@ from mnemonic_api.transcript_normalized_storage import NORMALIZATIONS, SEGMENTS
 
 from .test_leases_postgres import expire_lease
 from .test_project_backup_archive import _export, _snapshot
-from .test_transcript_indexing_postgres import Parser, collection, read, register, run
+from .test_transcript_indexing_postgres import collection, read, register, run
 
 pytestmark = pytest.mark.postgres
 
@@ -87,7 +87,7 @@ def test_index_failure_preserves_normalized_stage_and_retry_uses_it(
 ):
     work, _, record, _ = register(api, project, work_payload, tmp_path)
     expire_lease(postgres_engine, work["id"])
-    assert run(api, Parser(error=ExtractionError("extraction_unavailable", True)))
+    assert run(api, stage_error=ExtractionError("extraction_unavailable", True))
     failed = read(api, project, record)
     assert failed["normalization_status"] == "ready" and failed["status"] == "pending"
     with api.app.state.session_factory.begin() as database:
@@ -99,7 +99,7 @@ def test_index_failure_preserves_normalized_stage_and_retry_uses_it(
     assert read(api, project, record)["normalized_revision"] == failed["normalized_revision"]
 
 
-def test_search_text_budget_does_not_truncate_segments_or_backup(
+def test_artifact_text_budget_does_not_truncate_transcripts_or_backup(
     api, project, work_payload, tmp_path, postgres_engine,
 ):
     work, _, record, source = register(api, project, work_payload, tmp_path)
@@ -108,11 +108,11 @@ def test_search_text_budget_does_not_truncate_segments_or_backup(
     expire_lease(postgres_engine, work["id"])
     assert run(api)
     ready = read(api, project, record)
-    assert ready["truncated"] and not ready["normalization_incomplete"]
+    assert not ready["truncated"] and not ready["normalization_incomplete"]
     snapshot = _snapshot(postgres_engine, project)
     segment = snapshot["transcript_segments"][0]
     assert segment["text"].endswith("late evidence")
-    assert len(snapshot["transcripts"][0]["normalized_text"]) == 100
+    assert snapshot["transcripts"][0]["normalized_text"].endswith(" late evidence")
     assert _export(postgres_engine, project)
     path = collection(project) + "/" + record["id"] + "/text"
     first = api.get(path, params={"segment_id": segment["segment_id"],
@@ -145,7 +145,7 @@ def test_failed_normalizer_upgrade_keeps_indexed_revision_and_locators_coherent(
     monkeypatch.setattr("mnemonic_api.transcript_indexing.normalize_transcript", revised)
     assert api.post(collection(project) + "/rebuild",
                     json={"client_operation_id": str(uuid4())}).status_code == 200
-    assert run(api, Parser(error=ExtractionError("extraction_unavailable", True)))
+    assert run(api, stage_error=ExtractionError("extraction_unavailable", True))
     failed = read(api, project, record)
     assert failed["normalized_revision"] == ready["normalized_revision"]
     assert failed["text_sha256"] == ready["text_sha256"]
@@ -329,27 +329,18 @@ def test_backup_rejects_active_normalization_projection_drift(
         validate_normalized_transcripts(snapshot)
 
 
-@pytest.mark.parametrize("limited_metadata", [False, True])
 def test_normalization_warnings_do_not_mean_search_text_was_truncated(
-    api, project, work_payload, tmp_path, postgres_engine, limited_metadata,
+    api, project, work_payload, tmp_path, postgres_engine,
 ):
-    from mnemonic_api.artifact_tika import ExtractedArtifact
-
     work, _, record, source = register(api, project, work_payload, tmp_path)
     with source.open("a") as output:
         output.write('\n{"type":"future-unknown-record","state":"synthetic bookkeeping"}\n')
     expire_lease(postgres_engine, work["id"])
 
-    class MetadataParser(Parser):
-        def extract(self, content, **kwargs):
-            result = super().extract(content, **kwargs)
-            metadata = {f"property-{i}": ["x" * 300] for i in range(64)}
-            return ExtractedArtifact(result.text, metadata if limited_metadata else {}, False)
-
-    assert run(api, MetadataParser())
+    assert run(api)
     ready = read(api, project, record)
     assert ready["normalization_incomplete"] and not ready["truncated"]
-    assert (ready["metadata"].get("transcript:metadata_limited") == ["true"]) == limited_metadata
+    assert ready["metadata"].get("transcript:metadata_limited") is None
     assert api.get(collection(project)).json()["indexing_incomplete"]
     page = api.get(collection(project) + "/" + record["id"] + "/text", params={
         "expected_sha256": ready["text_sha256"],

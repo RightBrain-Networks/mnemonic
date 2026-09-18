@@ -177,7 +177,7 @@ def test_human_review_decision_releases_transcript_lease_and_preserves_done_work
 ):
     from .code_review_fixtures import mandatory
     from .test_review_decisions_postgres import decide
-    from .test_transcript_indexing_postgres import Parser, run
+    from .test_transcript_indexing_postgres import run
 
     completion, _ = mandatory(api, project, work_payload, checkpoint_fields)
     work, review = completion["work_item"], completion["code_review_request"]
@@ -192,7 +192,7 @@ def test_human_review_decision_releases_transcript_lease_and_preserves_done_work
         "session_transcript": {"client": "claude-code", "path": str(source)},
     })
     assert claimed.status_code == 200, claimed.text
-    assert not run(api, Parser())
+    assert not run(api)
     before = api.get(path + "/checkpoints").json()
     changed, payload = decide(api, project, work, review, 0, decision)
     assert changed.status_code == 200, changed.text
@@ -200,7 +200,7 @@ def test_human_review_decision_releases_transcript_lease_and_preserves_done_work
     assert changed.json()["review_decision"]["status"] == decision
     assert api.get(path + "/checkpoints").json() == before
     assert api.patch(path, json=payload).json() == changed.json()
-    assert run(api, Parser())
+    assert run(api)
     records = transcripts(postgres_engine, work["id"])
     assert len(records) == 1
     assert records[0][0] == "primary" and records[0][3] == "ready"

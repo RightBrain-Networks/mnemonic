@@ -42,7 +42,7 @@ class TranscriptRecoveryRequest(BaseModel):
     expected_generation: Annotated[int, Field(gt=0, lt=2147483647)]
     expected_snapshot_id: UUID
     expected_sha256: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
-    expected_size_bytes: Annotated[int, Field(ge=0, le=268435456)]
+    expected_size_bytes: Annotated[int, Field(ge=0, le=1073741824)]
     reason: Annotated[str, StringConstraints(min_length=1, max_length=2000)]
     evidence: Annotated[str, StringConstraints(min_length=1, max_length=8000)]
 

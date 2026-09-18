@@ -45,7 +45,7 @@ def transcript_elements(*, include_imports: bool = True, include_copies: bool = 
         sa.CheckConstraint("status IN ('waiting','pending','processing','ready','failed')",
                            name="status_valid"),
         sa.CheckConstraint("generation > 0 AND attempts >= 0", name="counters_valid"),
-        sa.CheckConstraint("size_bytes IS NULL OR size_bytes BETWEEN 0 AND 268435456",
+        sa.CheckConstraint("size_bytes IS NULL OR size_bytes BETWEEN 0 AND 1073741824",
                            name="size_valid"),
         sa.CheckConstraint("left(source_path, 1) = '/'", name="path_absolute"),
         sa.CheckConstraint(INDEX_LEASE_CHECK if include_imports and include_copies else
@@ -54,7 +54,7 @@ def transcript_elements(*, include_imports: bool = True, include_copies: bool = 
                            "(status <> 'processing' AND lease_token IS NULL "
                            "AND lease_expires_at IS NULL)", name="lease_valid"),
         sa.CheckConstraint("normalized_text IS NULL OR (status = 'ready' "
-                           "AND char_length(normalized_text) <= 8000000)", name="text_valid"),
+                           "AND octet_length(normalized_text) < 1073741824)", name="text_valid"),
         sa.CheckConstraint("jsonb_typeof(extracted_metadata) = 'object' "
                            "AND octet_length(extracted_metadata::text) <= 16384",
                            name="metadata_valid"),
@@ -119,10 +119,10 @@ def settings_elements() -> list:
         sa.Column("project_id", UUID, sa.ForeignKey("projects.id", ondelete="RESTRICT"),
                   primary_key=True),
         sa.Column("enabled", sa.Boolean, nullable=False, server_default="true"),
-        sa.Column("max_file_size_bytes", sa.BigInteger, nullable=False, server_default="67108864"),
+        sa.Column("max_file_size_bytes", sa.BigInteger, nullable=False, server_default="536870912"),
         sa.Column("revision", sa.BigInteger, nullable=False, server_default="1"),
         sa.CheckConstraint("revision > 0", name="revision_positive"),
-        sa.CheckConstraint("max_file_size_bytes BETWEEN 1 AND 268435456", name="size_valid"),
+        sa.CheckConstraint("max_file_size_bytes BETWEEN 1 AND 1073741824", name="size_valid"),
     ]
 
 
