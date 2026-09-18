@@ -83,7 +83,7 @@ def download_text_chunks(database: Session, record: Transcript) -> Iterator[byte
     rows = database.scalars(select(_rendered_segment()).where(
         SEGMENTS.c.transcript_id == record.id,
         SEGMENTS.c.revision == record.normalized_revision, SEGMENTS.c.text != "")
-        .order_by(SEGMENTS.c.ordinal).execution_options(yield_per=100))
+        .order_by(SEGMENTS.c.ordinal).execution_options(yield_per=1))
     pending = bytearray()
     separator = b""
     try:

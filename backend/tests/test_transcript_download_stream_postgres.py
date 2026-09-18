@@ -1,6 +1,7 @@
 """Complete downloads stay linear, bounded, and faithful to the published snapshot."""
 
 import hashlib
+import tracemalloc
 from uuid import UUID
 
 import pytest
@@ -22,7 +23,7 @@ def test_large_unicode_download_uses_bounded_chunks_and_one_snapshot(
     import json
 
     work, _, record, source = register(api, project, work_payload, tmp_path)
-    text = 'naïve 🦊 ' * 30_000
+    text = 'naïve 🦊 ' * 200_000
     source.write_text('\n'.join(json.dumps({'role': 'user', 'content': text})
                                for _ in range(12)) + '\n')
     expire_lease(postgres_engine, work['id'])
@@ -37,6 +38,7 @@ def test_large_unicode_download_uses_bounded_chunks_and_one_snapshot(
     engine = api.app.state.session_factory.kw['bind']
     event.listen(engine, 'before_cursor_execute', count)
     digest, count_chunks, maximum = hashlib.sha256(), 0, 0
+    tracemalloc.start()
     try:
         with api.app.state.session_factory() as database:
             begin_coherent_read(database)
@@ -52,9 +54,12 @@ def test_large_unicode_download_uses_bounded_chunks_and_one_snapshot(
                 maximum = max(maximum, len(chunk))
                 count_chunks += 1
     finally:
+        _, peak = tracemalloc.get_traced_memory()
+        tracemalloc.stop()
         event.remove(engine, 'before_cursor_execute', count)
     assert count_chunks > 50 and maximum <= 65_536
     assert digest.hexdigest() == ready['text_sha256']
+    assert peak < 24 * 1024 * 1024, 'Download must not buffer a batch of large segments'
     assert len(queries) <= 4, 'A download must not re-read compressed text for every chunk'
 
 

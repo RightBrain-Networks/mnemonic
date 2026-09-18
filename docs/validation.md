@@ -16,6 +16,10 @@ canonical cursor streaming reduced that case plus all six publication regression
 to 36.31 seconds locally. Another 15 capacity/download tests passed, covering both
 native clients, bounded UTF-8 chunks, concurrent publication snapshots, legacy bytes,
 MCP response validation, Tika independence, retries and immutable-copy recovery.
+A large-Unicode download regression was observed failing at 81,231,698 bytes of
+Python heap before reducing the cursor batch to one segment; the corrected case
+passes below its 24 MiB limit. The full MCP suite passed 1,889 tests, and the local
+plugin runtime suite passed 71 tests with its one macOS-only skip.
 The portable exporter tests verify that every installed skill retains complete
 Codex path/identity guidance and resolves all bundled references after relocation.
 

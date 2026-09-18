@@ -62,7 +62,11 @@ the download loop. Canonical downloads now use one ordered server cursor and bou
 byte chunks. A projection marker distinguishes this exact rendering from historical
 extractor output; legacy download bytes and hashes remain unchanged. The capacity
 case plus six ownership/crash cases then passed together in 36.31 seconds. Timing
-is a local observation, not a guaranteed service bound.
+is a local observation, not a guaranteed service bound. A further large-Unicode
+regression demonstrated 77.5 MiB of Python heap from fetching 100 segments at once.
+Fetching one segment at a time passes the same regression below 24 MiB, while
+retaining constant query count, exact hashes and a coherent read snapshot. These
+heap measurements describe the regression fixture, not all process allocations.
 
 A metadata-only Fish Food audit found seven ready Codex entries (one primary and
 six children), all with September 12 native activity. Newer native rollouts existed
