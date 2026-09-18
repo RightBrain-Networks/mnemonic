@@ -18,7 +18,12 @@ native clients, bounded UTF-8 chunks, concurrent publication snapshots, legacy b
 MCP response validation, Tika independence, retries and immutable-copy recovery.
 A large-Unicode download regression was observed failing at 81,231,698 bytes of
 Python heap before reducing the cursor batch to one segment; the corrected case
-passes below its 24 MiB limit. The full MCP suite passed 1,889 tests, and the local
+passes below its 24 MiB limit. Measuring publication of the same large segments
+failed at 126,056,872 bytes; byte-bounded insert batches now pass below 64 MiB.
+Full backend CI passed 3,363 cases and exposed two old metadata assertions that
+needed to include the newly published text-projection marker; both were corrected
+without relaxing the retained provenance checks.
+The full MCP suite passed 1,889 tests, and the local
 plugin runtime suite passed 71 tests with its one macOS-only skip.
 The portable exporter tests verify that every installed skill retains complete
 Codex path/identity guidance and resolves all bundled references after relocation.

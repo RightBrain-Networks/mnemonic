@@ -630,6 +630,7 @@ def test_index_retry_reuses_copied_provenance_when_source_changes(
     assert current["format"] == first["format"] and current["mime_type"] == first["mime_type"]
     assert current["metadata"] == first["metadata"] | {
         "transcript:index_created_at": [current["index_created_at"]],
+        "transcript:text_projection": ["canonical-v1"],
     }
     assert current["text_sha256"] is not None
     assert not current["truncated"]

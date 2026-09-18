@@ -7,6 +7,7 @@ from uuid import UUID
 import pytest
 from sqlalchemy import event, update
 
+from mnemonic_api import transcript_publication
 from mnemonic_api.database import begin_coherent_read
 from mnemonic_api.models import Transcript
 from mnemonic_api.transcript_fulltext import TEXT_PROJECTION_KEY, download_text_chunks
@@ -18,7 +19,7 @@ pytestmark = pytest.mark.postgres
 
 
 def test_large_unicode_download_uses_bounded_chunks_and_one_snapshot(
-    api, project, work_payload, tmp_path, postgres_engine,
+    api, project, work_payload, tmp_path, postgres_engine, monkeypatch,
 ):
     import json
 
@@ -27,7 +28,21 @@ def test_large_unicode_download_uses_bounded_chunks_and_one_snapshot(
     source.write_text('\n'.join(json.dumps({'role': 'user', 'content': text})
                                for _ in range(12)) + '\n')
     expire_lease(postgres_engine, work['id'])
+    persist = transcript_publication.persist_normalization
+    persistence_peaks = []
+
+    def measured_persistence(*args):
+        tracemalloc.start()
+        try:
+            persist(*args)
+        finally:
+            _, peak = tracemalloc.get_traced_memory()
+            tracemalloc.stop()
+            persistence_peaks.append(peak)
+
+    monkeypatch.setattr(transcript_publication, 'persist_normalization', measured_persistence)
     assert run(api)
+    assert max(persistence_peaks) < 64 * 1024 * 1024, 'Publication must bound segment batch bytes'
     ready = read(api, project, record)
     queries = []
 

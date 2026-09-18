@@ -67,6 +67,10 @@ regression demonstrated 77.5 MiB of Python heap from fetching 100 segments at on
 Fetching one segment at a time passes the same regression below 24 MiB, while
 retaining constant query count, exact hashes and a coherent read snapshot. These
 heap measurements describe the regression fixture, not all process allocations.
+The same fixture exposed 126,056,872 bytes of heap during canonical persistence.
+Publication batches now stop at 100 rows or an 8 MiB encoded-data budget, whichever
+comes first, allowing one native record when it alone exceeds that budget. The
+measured publication case now passes below 64 MiB without changing canonical data.
 
 A metadata-only Fish Food audit found seven ready Codex entries (one primary and
 six children), all with September 12 native activity. Newer native rollouts existed

@@ -72,13 +72,24 @@ def persist_normalization(database: Session, transcript_id: UUID,
         if digest != value.sha256:
             raise ValueError("An immutable normalized revision has conflicting content")
         return
-    for offset in range(0, len(value.segments), 100):
-        database.execute(insert(SEGMENTS), [{
+    batch, charged = [], 0
+    for segment in value.segments:
+        data = asdict(segment)
+        size = len(canonical_json(data)) + len(segment.text.encode("utf-8"))
+        # A row count alone can hydrate an entire large conversation. Keep fast
+        # batches for ordinary messages, bounded by bytes plus one native record.
+        if batch and (len(batch) >= 100 or charged + size > 8 * 1024 * 1024):
+            database.execute(insert(SEGMENTS), batch)
+            batch, charged = [], 0
+        batch.append({
             "transcript_id": transcript_id, "revision": value.revision,
             "ordinal": segment.ordinal, "segment_id": segment.segment_id,
             "content_kind": segment.content_kind, "text": segment.text,
-            "segment_data": asdict(segment),
-        } for segment in value.segments[offset:offset + 100]])
+            "segment_data": data,
+        })
+        charged += size
+    if batch:
+        database.execute(insert(SEGMENTS), batch)
 
 
 def publish_normalization(database: Session, record: Transcript,
