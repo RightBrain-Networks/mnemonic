@@ -361,6 +361,9 @@ def test_migration_recomputes_old_truncation_flags_from_retained_segments(
     expire_lease(postgres_engine, work["id"])
     assert run(api)
     original = read(api, project, record)
+    from .transcript_legacy import restore_legacy_native_layout
+
+    restore_legacy_native_layout(api)
     migrate(postgres_engine, "0042_transcript_health", downgrade=True)
     with postgres_engine.begin() as connection:
         connection.execute(text("UPDATE transcripts SET truncated=true"))
@@ -388,6 +391,9 @@ def test_coverage_refresh_does_not_alter_an_active_work_lease(
     work, _, record, _ = register(api, project, work_payload, tmp_path)
     expire_lease(postgres_engine, work["id"])
     assert run(api)
+    from .transcript_legacy import restore_legacy_native_layout
+
+    restore_legacy_native_layout(api)
     migrate(postgres_engine, "0042_transcript_health", downgrade=True)
     with postgres_engine.begin() as connection:
         connection.execute(text("UPDATE transcripts SET truncated=true"))

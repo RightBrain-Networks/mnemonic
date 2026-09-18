@@ -196,9 +196,22 @@ def copy_next_transcript(factory: sessionmaker[Session], settings: Settings,
     job = claim_transcript_copy(factory, settings, transcript_id, generation)
     if job is None:
         return False
+    storage = TranscriptStorage(settings.transcript_root, job.maximum_bytes)
+    try:
+        with storage.maintenance_lock():
+            _capture_and_complete(factory, settings, storage, job, context)
+    except OSError as failure:
+        complete_transcript_copy(factory, job, None,
+            access_error(failure, str(storage.root), operation="write_storage"), context)
+    return True
+
+
+def _capture_and_complete(factory: sessionmaker[Session], settings: Settings,
+                          storage: TranscriptStorage, job: TranscriptCopyJob,
+                          context: JobContext | None) -> None:
     copy, error = None, None
     try:
-        copy = TranscriptStorage(settings.transcript_root, job.maximum_bytes).capture(
+        copy = storage.capture(
             job.transcript_id, job.snapshot_id, job.source_path, settings.transcript_allowed_roots,
             expected=job.expected, source_identity=job.source_identity)
     except ExtractionError as failure:
@@ -206,4 +219,3 @@ def copy_next_transcript(factory: sessionmaker[Session], settings: Settings,
     except OSError as failure:
         error = access_error(failure, str(settings.transcript_root), operation="write_storage")
     complete_transcript_copy(factory, job, copy, error, context)
-    return True

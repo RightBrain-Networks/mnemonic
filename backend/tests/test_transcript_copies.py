@@ -140,7 +140,9 @@ def test_pinned_recovery_rechecks_competing_retained_file_at_publication(tmp_pat
         CompetingStorage(root, 1024).capture(identity, snapshot, str(approved), [tmp_path],
                                             expected=pin)
     store = TranscriptStorage(root, 1024)
-    assert store.read_copy(store.describe(store.key(identity, snapshot))) == unapproved.read_bytes()
+    retained = store.retained(identity, snapshot)
+    assert retained is not None
+    assert store.read_copy(retained) == unapproved.read_bytes()
     assert not list(root.rglob(".pending-*"))
 
 

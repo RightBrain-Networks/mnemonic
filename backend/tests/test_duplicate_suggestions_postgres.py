@@ -1329,5 +1329,5 @@ def test_title_key_function_and_partial_expression_index_are_frozen(postgres_eng
                 """
             )
         ).one()
-        assert head == "0045_transcript_capacity"
+        assert head == "0046_shared_transcript_copies"
         assert capacity == 64

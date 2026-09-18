@@ -1,5 +1,10 @@
 # Agent transcript indexing
 
+Release **0.65.2** and migration `0046_shared_transcript_copies` share identical native
+snapshots and verified prefixes of growing sessions, while retaining every enrollment
+and its exact historical bytes. Existing full copies are reclaimed through the
+verified [dry-run/apply management command](transcript-storage-deduplication.md).
+
 Release **0.65.1** and migration `0045_transcript_capacity` separate native capture
 and complete conversation indexing from artifact extraction limits. Native JSONL
 is streamed through disk-backed canonical segments; indexed text is published

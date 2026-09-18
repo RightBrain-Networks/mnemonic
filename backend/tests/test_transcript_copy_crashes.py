@@ -11,6 +11,7 @@ from uuid import UUID, uuid4
 
 from mnemonic_api import transcript_copies
 from mnemonic_api.transcript_copies import TranscriptStorage
+from mnemonic_api.transcript_objects import object_key
 
 _CONTENT = (b'{"role":"user","content":"synthetic first line"}\r\n'
             b'{"role":"assistant","content":"synthetic retained evidence"}\n')
@@ -85,7 +86,7 @@ def test_abrupt_exit_after_atomic_publication_recovers_without_original_source(t
     store = TranscriptStorage(root, 1024)
     recovered = store.capture(UUID(persisted["transcript_id"]), UUID(persisted["snapshot_id"]),
                               str(source), [tmp_path])
-    assert recovered.storage_key == store.key(identity, snapshot)
+    assert recovered.storage_key == object_key(hashlib.sha256(_CONTENT).hexdigest())
     assert recovered.size_bytes == len(_CONTENT)
     assert recovered.sha256 == hashlib.sha256(_CONTENT).hexdigest()
     assert store.read_copy(recovered) == _CONTENT

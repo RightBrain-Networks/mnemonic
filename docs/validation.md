@@ -1,5 +1,28 @@
 # Mnemonic validation record
 
+## Shared native transcript copies (0.65.2)
+
+The full isolated PostgreSQL/RabbitMQ backend run passed **3,383 tests**; MCP
+passed **1,889**, and the Node 24 frontend passed **494**, type checking and its
+production image build. Backend/MCP Ruff and type checks passed. The plugin
+runtime passed 71 cases with its one macOS-only skip. Gitleaks passed.
+
+New regressions exercise concurrent identical captures, sixteen growing snapshots
+with physical allocation below twice the latest source size, cross-path content,
+complete-prefix comparison, corruption during reads, crash receipt adoption,
+reclamation interrupted before/after commit, old-pointer readers, stale rows,
+dry-run nonmutation, exact reclaimed-byte estimates, migration preservation and
+unsafe downgrade refusal. Ten final reclamation/CLI/migration cases pass; the
+broader integration run passed 80 cases. Existing >200 MiB publication, cursor
+download, normalization, active-lease, RabbitMQ and backup tests use the new store.
+
+A read-only production dry run verified every one of **1,409** ready native
+snapshots (4,090,818,493 logical bytes; 1,388 distinct contents). It estimated
+**2,287,435,747 bytes** recoverable, including all new object headers, receipts,
+source hints and legacy references but excluding filesystem allocation rounding.
+That observation did not reclaim or migrate production. The architecture and
+rollout procedure are in [shared native storage](transcript-storage-deduplication.md).
+
 ## Large transcript publication and Codex setup (0.65.1)
 
 The production-sized publication probe exposed the interactive ten-second database

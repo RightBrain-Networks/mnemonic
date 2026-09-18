@@ -1,14 +1,11 @@
 """Wait for the resumable worker backfill; optionally verify retained raw bytes.
 
-Run inside the shared worker after upgrading to 0045_transcript_capacity.
+Run inside the shared worker after upgrading to 0046_shared_transcript_copies.
 This command never reads transcript bodies into its output or rewrites provenance.
 """
 
 import argparse
-import hashlib
 import json
-import os
-import stat
 import time
 
 from mnemonic_api.artifact_tika import ExtractionError
@@ -16,8 +13,9 @@ from mnemonic_api.config import Settings
 from mnemonic_api.database import build_engine
 from mnemonic_api.models import Transcript, TranscriptSettings, WorkItem
 from mnemonic_api.services.transcripts import transcript_project_id
+from mnemonic_api.transcript_copies import TranscriptCopy, TranscriptStorage
 from mnemonic_api.transcript_indexing import _active_generation
-from mnemonic_api.transcript_storage import _open_source
+from mnemonic_api.transcript_objects import MAX_NATIVE_BYTES
 from mnemonic_backup.archive_schema import HEAD
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
@@ -61,19 +59,9 @@ def report(database: Session) -> dict:
 
 def verify_file(settings: Settings, key: str, expected_size: int, expected_sha: str) -> bool:
     try:
-        descriptor = _open_source(str(settings.transcript_root / key), [settings.transcript_root])
-        with os.fdopen(descriptor, "rb") as source:
-            info = os.fstat(source.fileno())
-            if not stat.S_ISREG(info.st_mode) or info.st_size != expected_size:
-                return False
-            digest = hashlib.sha256()
-            size = 0
-            while chunk := source.read(1024 * 1024):
-                size += len(chunk)
-                if size > expected_size:
-                    return False
-                digest.update(chunk)
-        return size == expected_size and digest.hexdigest() == expected_sha
+        storage = TranscriptStorage(settings.transcript_root, MAX_NATIVE_BYTES)
+        with storage.open_copy(TranscriptCopy(key, expected_sha, expected_size)):
+            return True
     except (OSError, ValueError, ExtractionError):
         return False
 

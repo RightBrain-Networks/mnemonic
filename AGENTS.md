@@ -83,8 +83,8 @@ git pull --ff-only origin main
 
 Use Semantic Versioning (`MAJOR.MINOR.PATCH`) for application releases. `MAJOR` version bumps are reserved and require explicit human approval. Increment `MINOR` for user-facing changes and `PATCH` for all other changes.
 
-The current application/API/MCP/dashboard release is `0.65.1`, Claude plugin
-`0.42.1`, and Alembic head `0045_transcript_capacity`. The catalog is exactly
+The current application/API/MCP/dashboard release is `0.65.2`, Claude plugin
+`0.42.1`, and Alembic head `0046_shared_transcript_copies`. The catalog is exactly
 55 MCP tools, 17 receipt-protected MCP writes, 24 REST receipt kinds, 21 protected
 browser mutations, 24 work-event types, and three plugin skills. The suggestion
 POST is a safe read. Completion evidence and job completion reports are nested
@@ -181,7 +181,14 @@ Register sources transactionally; RabbitMQ workers copy raw bytes into the priva
 `MNEMONIC_TRANSCRIPT_DIR` bind, then index retained copies only after their lease
 generation leaves Active, including release or expiry. Client adapters persist a shared,
 versioned conversation manifest and typed segments before text indexing; search and bounded
-segment retrieval consume that common representation. Native copies remain immutable. `last_updated_at` is retained session activity, with
+segment retrieval consume that common representation. Native snapshot bytes remain
+immutable. Content-addressed objects share identical snapshots and verified complete
+prefixes; enrollment/work/lease identities remain separate. Use
+`scripts/reclaim_transcript_copies.py --dry-run` before its resumable `--apply` mode
+to reclaim old full copies. Never unlink shared objects or their base objects;
+filesystem backups require the complete native store. Small legacy references keep
+old readers/pointers readable. See `docs/transcript-storage-deduplication.md`.
+`last_updated_at` is retained session activity, with
 verified source mtime fallback; `index_created_at` records the current text index creation.
 Native `session_ids`/`models` are separate from the immutable reporting `session_id`.
 Exact work detail/context include bounded metadata-only transcript links; page the

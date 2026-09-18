@@ -16,11 +16,13 @@ SCRIPT = runpy.run_path(str(Path(__file__).parents[2] / "scripts/migrate_transcr
 
 @pytest.mark.parametrize("change", ["none", "content", "size", "missing", "symlink", "traversal"])
 def test_copy_verification_reports_tampering_without_reading_outside_root(tmp_path, change):
-    source = tmp_path / "copy.jsonl"
+    source = tmp_path / str(uuid4()) / str(uuid4()) / "transcript.jsonl"
+    source.parent.mkdir(parents=True, mode=0o700)
+    source.parent.parent.chmod(0o700)
     source.write_bytes(b"private synthetic transcript")
     expected_size = source.stat().st_size
     expected_hash = hashlib.sha256(source.read_bytes()).hexdigest()
-    key = source.name
+    key = str(source.relative_to(tmp_path))
     if change == "content":
         source.write_bytes(b"X" * expected_size)
     elif change == "size":
