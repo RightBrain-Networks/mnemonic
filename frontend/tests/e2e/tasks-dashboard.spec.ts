@@ -1,56 +1,11 @@
-import { expect, request, test, type APIRequestContext, type Page } from "@playwright/test";
-import { reportForFixture } from "./job-report-fixture";
+import { expect, request, test, type Page } from "@playwright/test";
+import { createProject, createWork, createReview, claim, openProject } from "./task-fixtures";
 
 async function capturePage(page: Page, path: string) {
   const viewport = page.viewportSize()!;
   await page.setViewportSize({ ...viewport, height: viewport.width > 800 ? 1100 : 1700 });
   await page.screenshot({ path, fullPage: true, animations: "disabled" });
   await page.setViewportSize(viewport);
-}
-
-async function createProject(api: APIRequestContext) {
-  const response = await api.post("/api/v1/projects", { data: { name: "Agent workspace", slug: `task-dashboard-${crypto.randomUUID()}` } });
-  expect(response.ok(), await response.text()).toBe(true);
-  return await response.json() as { id: string; name: string };
-}
-
-async function createWork(api: APIRequestContext, projectId: string, title: string) {
-  const response = await api.post(`/api/v1/projects/${projectId}/work-items`, { data: {
-    title, summary: "Preserve agent context across sessions and verify the completed changes.",
-    initial_checkpoint: { prompt: "Implement and validate the requested change.", source_client: "codex", source_session_id: "task-author" }
-  } });
-  expect(response.ok(), await response.text()).toBe(true);
-  return (await response.json()).work_item as { id: string; version: number };
-}
-
-async function createReview(api: APIRequestContext, projectId: string, title: string) {
-  const work = await createWork(api, projectId, title);
-  const response = await api.post(`/api/v1/projects/${projectId}/work-items/${work.id}/complete`, { data: {
-    expected_version: work.version, client_operation_id: crypto.randomUUID(), subagent_transcripts: null,
-    checkpoint: { prompt: "Completed the change and verified its behavior.", source_client: "codex", source_session_id: "task-author" },
-    job_completion_report: await reportForFixture(api, projectId),
-    code_review_handoff: {
-      scope: { repositories: [{ repository_key: "main", checkout_path: "/srv/example", object_format: "sha1", base_commit: "a".repeat(40), head_commit: "b".repeat(40) }] },
-      handoff: { change_summary: "Improve context handoffs.", decisions: [], focus_areas: ["Concurrent updates"], traps: [], validation_summary: "Unit tests passed." }
-    }
-  } });
-  expect(response.ok(), await response.text()).toBe(true);
-  return (await response.json()).code_review_request as { id: string; work_item_id: string };
-}
-
-async function claim(api: APIRequestContext, projectId: string, workId: string, reviewId?: string) {
-  const response = await api.post(`/api/v1/projects/${projectId}/work-items/${workId}/claim`, { data: {
-    holder_client: "codex", holder_session_id: reviewId ? "review-session" : "implementation-session",
-    claim_request_id: crypto.randomUUID(), session_transcript: null,
-    ...(reviewId ? { purpose: "code_review", code_review_id: reviewId, mode: "cold" } : {})
-  } });
-  expect(response.ok(), await response.text()).toBe(true);
-}
-
-async function openProject(page: Page, projectId: string) {
-  await page.goto("/");
-  await page.locator("#project-select").selectOption(projectId);
-  await expect(page.getByRole("heading", { name: "Dashboard.", exact: true })).toBeVisible();
 }
 
 test("task dashboard separates counts, combines active cards and links to exact task details", async ({ page }, testInfo) => {
@@ -92,9 +47,9 @@ test("task dashboard separates counts, combines active cards and links to exact 
     await page.reload();
     await expect(page.locator(".task-detail-heading h2")).toHaveText("Review the completed navigation changes");
     await page.getByRole("link", { name: "← Back to code reviews" }).click();
-    await expect(page.locator(".task-card h3")).toHaveText("Review waiting in the backlog");
+    await expect(page.locator(".code-review-library .queue-card-title")).toHaveText("Review waiting in the backlog");
     await page.getByRole("group", { name: "Filter code reviews" }).getByRole("button", { name: "Active", exact: true }).click();
-    await expect(page.locator(".task-card h3")).toHaveText("Review the completed navigation changes");
+    await expect(page.locator(".code-review-library .queue-card-title")).toHaveText("Review the completed navigation changes");
     await capturePage(page, testInfo.outputPath("code-reviews.png"));
     await page.locator(".tasks-nav").getByRole("link", { name: "Work items", exact: true }).click();
     await page.getByRole("group", { name: "Filter work items" }).getByRole("button", { name: "Done", exact: true }).click();

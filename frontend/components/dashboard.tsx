@@ -2954,7 +2954,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
               : !project ? <section className="empty-state onboarding"><h2>Create your first project.</h2><p>Keep your work items and code reviews together in a project.</p><button className="button button-primary" onClick={() => setProjectDialog(true)}>Create your first project</button></section>
                 : activityReadyProjectId !== project.id ? <div className="loading-state" role="status">Loading tasks…</div>
                   : view === "dashboard" ? <TaskDashboard key={project.id} projectId={project.id} refreshSignal={refresh} onNavigate={blockNavigationWhilePending} />
-                    : <CodeReviewLibrary key={project.id} projectId={project.id} refreshSignal={refresh} workId={searchParams.get("work")} reviewId={searchParams.get("review")} onNavigate={blockNavigationWhilePending} />}
+                    : <CodeReviewLibrary key={project.id} projectId={project.id} refreshSignal={refresh} workId={searchParams.get("work")} reviewId={searchParams.get("review")} onNavigate={blockNavigationWhilePending} onNotice={(message, error) => setNotice({ message, error })} onChanged={() => { setRefresh((value) => value + 1); setReportRefresh((value) => value + 1); }} />}
         </> : view === "transcripts" ? <>
           <DashboardViewChrome eyebrow="AGENT SESSIONS THAT STAY WITH YOUR WORK" title="Transcripts" description={project ? `Find session history and subagent work in the “${project.name}” project.` : "Choose a project to open its transcripts."} />
           {projectsError && <ErrorNotice message={projectsError}><button className="button button-secondary" onClick={() => setProjectsRefresh((value) => value + 1)}>Try again</button></ErrorNotice>}

@@ -2674,3 +2674,16 @@ html:not([data-hide-nemo="false"]) .sidebar-note { display: none; }
   .sidebar nav { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .sidebar nav .tasks-nav { grid-column: span 1; }
 }
+
+.code-review-library { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.code-review-library > .status-filters { flex: none; }
+.review-detail-content { padding: 24px 28px; }
+.review-detail-actions { display: flex; margin-bottom: 22px; }
+.review-detail-actions .queue-card-actions { margin-left: 0; }
+.review-detail-content > .review-record { margin-bottom: 22px; }
+.code-review-surface .task-pagination { flex: none; gap: 8px; padding: 8px 2px; margin-top: 0; flex-wrap: wrap; justify-content: space-between; }
+.code-review-surface .task-pagination .button { padding: 6px 9px; font-size: 11px; }
+@media (max-width: 900px) {
+  .code-review-library { flex: none; }
+  .review-detail-content { padding: 22px 20px; }
+}

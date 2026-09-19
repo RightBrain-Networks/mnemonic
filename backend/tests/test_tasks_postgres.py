@@ -38,6 +38,12 @@ def test_tasks_separate_completed_work_from_active_review(
     assert page["code_reviews"] == {"active": 1, "pending": 0}
     assert {item["kind"] for item in page["items"]} == {"work_item", "code_review"}
     assert {item["id"] for item in page["items"]} == {active["id"], review["id"]}
+    assert {item["kind"]: item["review_state"] for item in page["items"]} == {
+        "work_item": None, "code_review": "requested",
+    }
+    for item in page["items"]:
+        context = api.get(f"{base}/work-items/{item['work_item_id']}/context").json()
+        assert item["work_version"] == context["work_item"]["version"]
     assert "lease_token" not in response.text
     assert api.get(base + "/tasks", params={"kind": "work_item", "status": "pending"}).json()[
         "items"
@@ -104,5 +110,6 @@ def test_review_dispositions_change_only_the_review_task(
         assert states == {"work_item": "done", "code_review": (
             "pending" if status == "to-review" else status
         )}
+        assert all(row["work_version"] == work["version"] for row in page["items"])
         assert page["work_items"] == {"active": 0, "pending": 0}
         assert page["code_reviews"] == {"active": 0, "pending": int(status == "to-review")}

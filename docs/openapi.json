@@ -12001,6 +12001,22 @@
             "title": "Project Id",
             "type": "string"
           },
+          "review_state": {
+            "anyOf": [
+              {
+                "enum": [
+                  "requested",
+                  "completed",
+                  "superseded"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review State"
+          },
           "status": {
             "enum": [
               "pending",
@@ -12032,6 +12048,11 @@
             "format": "uuid",
             "title": "Work Item Id",
             "type": "string"
+          },
+          "work_version": {
+            "minimum": 1.0,
+            "title": "Work Version",
+            "type": "integer"
           }
         },
         "required": [
@@ -12039,9 +12060,11 @@
           "kind",
           "project_id",
           "work_item_id",
+          "work_version",
           "title",
           "summary",
           "status",
+          "review_state",
           "updated_at",
           "lease"
         ],
@@ -17431,7 +17454,7 @@
   "info": {
     "description": "Durable project-scoped work with immutable agent checkpoints.",
     "title": "Mnemonic API",
-    "version": "0.66.0"
+    "version": "0.67.0"
   },
   "openapi": "3.1.0",
   "paths": {

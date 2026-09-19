@@ -32,9 +32,11 @@ class TaskSummary(APIModel):
     kind: TaskKind
     project_id: UUID
     work_item_id: UUID
+    work_version: int = Field(ge=1)
     title: str
     summary: str
     status: TaskStatus
+    review_state: Literal["requested", "completed", "superseded"] | None
     updated_at: datetime
     lease: LeasePublic | None
 
