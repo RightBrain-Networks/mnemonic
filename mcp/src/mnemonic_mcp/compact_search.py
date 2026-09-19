@@ -8,12 +8,15 @@ from .models import CompactHierarchyHit, CompactWorkHit, DuplicateScope, SearchS
 def compact_work_matches(
     item: CompactWorkHit, project_id: UUID, *, status: SearchStatus,
     duplicate_scope: DuplicateScope, canonical_work_item_id: UUID | None, blank_query: bool,
+    status_scope: str = "effective",
 ) -> bool:
+    effective = (item.status if status_scope == "work_item" and item.status != "pending"
+                 else item.search_status)
     duplicate = item.id != item.canonical_work_item_id
     check_status = not isinstance(item, CompactHierarchyHit) or item.self_matches_filter
     return (
         item.project_id == project_id
-        and (not check_status or status == "all" or item.search_status == status)
+        and (not check_status or status == "all" or effective == status)
         and (duplicate_scope != "canonical" or not duplicate)
         and (duplicate_scope != "aliases" or duplicate)
         and (canonical_work_item_id is None

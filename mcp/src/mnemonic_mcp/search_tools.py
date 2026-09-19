@@ -75,7 +75,9 @@ def _validate_request(request: SearchRequest) -> None:
         raise ToolError("Search text cannot contain controls or invalid Unicode.")
 
 
-def _work_status_matches(summary: WorkSummary, status: SearchStatus) -> bool:
+def _work_status_matches(
+    summary: WorkSummary, status: SearchStatus, status_scope: str = "effective",
+) -> bool:
     readiness = summary.readiness
     lifecycle = summary.work_item.status
     if status == "all":
@@ -88,7 +90,8 @@ def _work_status_matches(summary: WorkSummary, status: SearchStatus) -> bool:
         return lifecycle == "pending" and not (
             readiness.has_active_lease or readiness.has_dropped_lease
         )
-    return (readiness.review_status or lifecycle) == status
+    effective = lifecycle if status_scope == "work_item" else readiness.review_status or lifecycle
+    return effective == status
 
 
 def _work_matches(
@@ -102,12 +105,12 @@ def _work_matches(
             and compact_work_matches(pointer, project_id, status=filters.status,
                                      duplicate_scope=filters.duplicate_scope,
                                      canonical_work_item_id=filters.canonical_work_item_id,
-                                     blank_query=blank_query)
+                                     blank_query=blank_query, status_scope=filters.status_scope)
         )
     summary = hit.work_item.summary
     work = summary.work_item
     readiness = summary.readiness
-    if not _work_status_matches(summary, filters.status):
+    if not _work_status_matches(summary, filters.status, filters.status_scope):
         return False
     if (work.project_id, work.id, work.created_at, work.updated_at) != (
         project_id, hit.id, hit.created_at, hit.updated_at,

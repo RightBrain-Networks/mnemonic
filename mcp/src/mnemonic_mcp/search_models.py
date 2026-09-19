@@ -84,6 +84,9 @@ SearchFacetOrder = Annotated[
 
 
 class WorkSearchFilters(DateBounds, SearchModel):
+    status_scope: Literal["effective", "work_item"] = Field(
+        default="effective", exclude_if=lambda value: value == "effective",
+    )
     work_fields: WorkFields = Field(default_factory=lambda: list(WORK_FIELDS))
     status: SearchStatus = "all"
     tag: Annotated[str, Field(min_length=1, max_length=50)] | None = None

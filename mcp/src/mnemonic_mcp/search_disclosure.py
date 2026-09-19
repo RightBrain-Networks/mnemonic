@@ -20,6 +20,9 @@ class DisclosureModel(BaseModel):
 
 
 class WorkAppliedFilters(EchoedDateBounds, DisclosureModel):
+    status_scope: Literal["effective", "work_item"] = Field(
+        default="effective", exclude_if=lambda value: value == "effective",
+    )
     work_fields: WorkFields = Field(default_factory=lambda: list(WORK_FIELDS))
     @field_validator("work_fields", mode="before")
     @classmethod
@@ -168,4 +171,6 @@ def disclosure_matches(actual: SearchDisclosure, expected: SearchDisclosure) -> 
 
 
 def _optional_filters(source) -> set[str]:
+    if isinstance(source, WorkAppliedFilters) and source.status_scope == "effective":
+        return {"status_scope"}
     return {"semantic"} if isinstance(source, ArtifactAppliedFilters) and not source.semantic else set()
