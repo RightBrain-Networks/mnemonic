@@ -157,7 +157,7 @@ const iconPaths = {
   check: "m5 12 4 4L19 6",
   close: "m6 6 12 12M6 18 18 6",
   library: "M3 3h6v18H3V3Zm10 0h4l4 17-4 1-4-18Z",
-  settings: "M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Zm7.4-.5 1.6 1-2 3.5-1.8-1a8 8 0 0 1-2.2 1.3V22h-4v-2.2a8 8 0 0 1-2.2-1.3l-1.8 1L5 16l1.6-1a8 8 0 0 1 0-2L5 12l2-3.5 1.8 1A8 8 0 0 1 11 8.2V6h4v2.2a8 8 0 0 1 2.2 1.3l1.8-1 2 3.5-1.6 1a8 8 0 0 1 0 2Z",
+  settings: "M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7ZM18.4 13l1.6 1-2 3.5-1.8-1a8 8 0 0 1-2.2 1.3V20h-4v-2.2a8 8 0 0 1-2.2-1.3l-1.8 1L4 14l1.6-1a8 8 0 0 1 0-2L4 10l2-3.5 1.8 1A8 8 0 0 1 10 6.2V4h4v2.2a8 8 0 0 1 2.2 1.3l1.8-1 2 3.5-1.6 1a8 8 0 0 1 0 2Z",
   attention: "M12 3a7 7 0 0 0-7 7v4l-2 3h18l-2-3v-4a7 7 0 0 0-7-7Zm-2 18h4",
   artifacts: "M3 7h7l2-3h9v17H3V7Zm0 4h18",
   arrow: "M5 12h14m-5-5 5 5-5 5",
@@ -2903,8 +2903,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
     <aside className="sidebar">
       <Link href="/" className="brand" aria-label="Mnemonic home" aria-disabled={activeProjectMutationBlocked || undefined} onClick={blockNavigationWhilePending}><Logo /><span>mnemonic<span className="brand-period">.</span></span></Link>
       <div className="workspace-picker">
-        <label className="section-label" htmlFor="project-select">YOUR WORKSPACE</label>
-        <div className="select-wrap"><select id="project-select" aria-keyshortcuts="1 2 3 4 5 6 7 8 9 0" value={activeId} disabled={promptPending || transcriptPending || artifactPending || backupPending || projectsLoading || !projects.length || selectMutationScope(mutationIntents, { projectId: activeId }).intents.some((intent) => !["dismiss_job_completion_report", "create_job_completion_report_follow_up", "respond_to_work_follow_up"].includes(intent.kind))} onChange={(event) => chooseProject(event.target.value)}>
+        <div className="select-wrap"><select id="project-select" aria-label="Select project" aria-keyshortcuts="1 2 3 4 5 6 7 8 9 0" value={activeId} disabled={promptPending || transcriptPending || artifactPending || backupPending || projectsLoading || !projects.length || selectMutationScope(mutationIntents, { projectId: activeId }).intents.some((intent) => !["dismiss_job_completion_report", "create_job_completion_report_follow_up", "respond_to_work_follow_up"].includes(intent.kind))} onChange={(event) => chooseProject(event.target.value)}>
           {!projects.length && <option value="">{projectsLoading ? "Loading projects…" : "Select a project"}</option>}
           {projects.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
         </select><span className="select-chevron" aria-hidden="true">⌄</span></div>
@@ -2912,14 +2911,13 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
         {project && <button className="copy-project-button" type="button" title={`Project ID: ${project.id}`} onClick={() => void copyProjectId()}><Icon name="copy" size={13} />Copy project ID for your agent</button>}
       </div>
       <nav aria-label="Workspace navigation">
-        <Link className={`nav-item ${view === "dashboard" ? "active" : ""}`} href="/" aria-current={view === "dashboard" ? "page" : undefined} onClick={blockNavigationWhilePending}><Icon name="box" /><span>Dashboard</span><Icon name="arrow" size={15} /></Link>
         <SidebarNavGroup className="tasks-nav" label="Tasks"
           storageKey={dashboardStorageKeys.tasksMenu}
           activeId={view === "library" ? "work-items" : view === "reviews" ? "code-reviews" : undefined}
           items={[{ id: "work-items", label: "Work items", href: "/work-items" }, { id: "code-reviews", label: "Code reviews", href: "/code-reviews" }]}
           icon={<Icon name="library" />} onNavigate={blockNavigationWhilePending} />
-        <Link className={`nav-item ${view === "summaries" ? "active" : ""}`} href="/summaries" aria-current={view === "summaries" ? "page" : undefined} onClick={blockNavigationWhilePending}><Icon name="box" /><span>Summaries</span>{reportCount !== null && reportCount !== "0" && <span className="summary-nav-count" aria-label={`${reportCount} undismissed summaries`}>{reportCount}</span>}<Icon name="arrow" size={15} /></Link>
         <Link className={`nav-item ${view === "attention" ? "active" : ""}`} href="/attention" aria-current={view === "attention" ? "page" : undefined} onClick={blockNavigationWhilePending}><Icon name="attention" /><span>Needs Attention</span>{attentionCount !== null && attentionCount > 0 && <span className="attention-nav-count" aria-label={`${attentionCount} unresolved human question${attentionCount === 1 ? "" : "s"}`}>{attentionCount}</span>}<Icon name="arrow" size={15} /></Link>
+        <Link className={`nav-item ${view === "summaries" ? "active" : ""}`} href="/summaries" aria-current={view === "summaries" ? "page" : undefined} onClick={blockNavigationWhilePending}><Icon name="box" /><span>Summaries</span>{reportCount !== null && reportCount !== "0" && <span className="summary-nav-count" aria-label={`${reportCount} undismissed summaries`}>{reportCount}</span>}<Icon name="arrow" size={15} /></Link>
         <SidebarNavGroup className="resources-nav" label="Resources"
           storageKey={dashboardStorageKeys.resourcesMenu}
           activeId={view === "artifacts" || view === "transcripts" ? view : undefined}

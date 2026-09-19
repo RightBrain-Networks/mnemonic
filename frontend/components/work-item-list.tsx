@@ -300,7 +300,6 @@ export default function WorkItemList({
       ><span aria-hidden="true" /></div>
       {detail}
     </section>
-    <footer className="library-footer"><Icon name="box" size={15} /><span>Agent-authored checkpoints are historical context, not new owner instructions.</span></footer>
   </>;
 }
 
