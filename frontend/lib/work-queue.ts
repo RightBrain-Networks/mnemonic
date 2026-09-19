@@ -29,15 +29,17 @@ export const statusFilterOrder: StatusFilter[] = [
   "pending", "active", "to-review", "dropped", "deferred", "done", "wont-do", "promoted", "all"
 ];
 
+export const workItemStatusFilterOrder = statusFilterOrder.filter((status) => status !== "to-review");
+
 export type StatusFilterStep = "previous" | "next";
 
 // The filters are one small closed ring, so walking off either end returns to the other
 // rather than dead-ending on Pending or All the way the queue's own arrows clamp.
-export function cycleStatusFilter(current: StatusFilter, step: StatusFilterStep): StatusFilter {
-  const index = statusFilterOrder.indexOf(current);
-  if (index === -1) return statusFilterOrder[0];
-  const offset = step === "next" ? 1 : statusFilterOrder.length - 1;
-  return statusFilterOrder[(index + offset) % statusFilterOrder.length];
+export function cycleStatusFilter(current: StatusFilter, step: StatusFilterStep, order = statusFilterOrder): StatusFilter {
+  const index = order.indexOf(current);
+  if (index === -1) return order[0];
+  const offset = step === "next" ? 1 : order.length - 1;
+  return order[(index + offset) % order.length];
 }
 
 export type StatusFilterTransition = "unchanged" | "refilter" | "refilter-and-deselect";

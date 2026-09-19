@@ -18,6 +18,9 @@ class DisclosureModel(BaseModel):
 
 
 class WorkAppliedFilters(DisclosureModel, DateBounds):
+    status_scope: Literal["effective", "work_item"] = Field(
+        default="effective", exclude_if=lambda value: value == "effective",
+    )
     work_fields: WorkFields = Field(default_factory=lambda: list(WORK_FIELDS))
     status: Literal[
         "pending", "active", "to-review", "dropped", "deferred", "done",

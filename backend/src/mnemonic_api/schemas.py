@@ -4280,6 +4280,7 @@ class WorkSearchPage(APIModel, SearchDisclosure, SearchRanking):
 
 
 class WorkItemListQuery(APIModel, SearchOptions):
+    status_scope: Literal["effective", "work_item"] = "effective"
     query_mode: QueryMode = "terms"
     work_fields: WorkFields = Field(default_factory=lambda: list(WORK_FIELDS))
     external_url: ExternalURL | None = None
@@ -4342,6 +4343,7 @@ class RelationshipListQuery(APIModel):
 
 
 class ChildrenListQuery(APIModel):
+    status_scope: Literal["effective", "work_item"] = "effective"
     status: Literal[
         "pending", "active", "to-review", "dropped", "deferred", "done",
         "wont-do", "promoted", "all"

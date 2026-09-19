@@ -100,6 +100,7 @@ export function useWorkQueuePages({
   ): Promise<Page<WorkQueueItem>> => {
     const options = {
       status,
+      statusScope: "work_item" as const,
       sort,
       limit: WORK_PAGE_SIZE,
       offset,
@@ -120,11 +121,11 @@ export function useWorkQueuePages({
         canonicalWorkItemId: canonicalWorkItemId || undefined,
         query: search,
         semantic: Boolean(search.trim() && semantic),
-        expectedFilters: { status, tag: tag.trim() || null, source_client: sourceClient.trim() || null, source_session_id: sourceSessionId.trim() || null },
+        expectedFilters: { status_scope: "work_item", status, tag: tag.trim() || null, source_client: sourceClient.trim() || null, source_session_id: sourceSessionId.trim() || null },
         expectedLimit: WORK_PAGE_SIZE,
         expectedOffset: offset
       })
-      : decodeHierarchySearchPage(value, projectId, WORK_PAGE_SIZE, offset, { status, tag: tag.trim() || null, source_client: sourceClient.trim() || null, source_session_id: sourceSessionId.trim() || null });
+      : decodeHierarchySearchPage(value, projectId, WORK_PAGE_SIZE, offset, { status_scope: "work_item", status, tag: tag.trim() || null, source_client: sourceClient.trim() || null, source_session_id: sourceSessionId.trim() || null });
   }, [
     canonicalWorkItemId,
     duplicateScope,

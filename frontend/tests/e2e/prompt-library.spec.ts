@@ -134,7 +134,7 @@ test("project prompt edits drive both clipboard actions, preserve unknown macros
     await drawer.getByRole("button", { name: "Save", exact: true }).click();
     await expect(drawer.getByRole("button", { name: "Save", exact: true })).toBeDisabled();
     await drawer.getByRole("button", { name: "Close prompt" }).click();
-    await page.getByRole("link", { name: "Work library", exact: true }).click();
+    await page.getByRole("link", { name: "Work items", exact: true }).click();
     const expected = `${selected.name}\n${work.id}: Prompt clipboard acceptance\nA literal $PROJECT_ID in a work summary.\n$UNKNOWN_MACRO`;
     await workCard(page, "Prompt clipboard acceptance").getByRole("button", { name: /Copy recall pointer/ }).click();
     await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(expected);
@@ -208,7 +208,7 @@ test("report instructions initialize during typing and changed instructions stil
       await promptReady;
       await route.continue();
     });
-    await page.goto("/");
+    await page.goto("/work-items");
     await page.locator("#project-select").selectOption(selected.id);
     const pane = await selectWork(page, "Report prompt initialization");
     await pane.getByLabel(/^Checkpoint text/).fill("The report prompt initialization has been checked.");

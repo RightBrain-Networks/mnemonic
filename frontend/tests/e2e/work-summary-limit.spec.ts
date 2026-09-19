@@ -12,7 +12,7 @@ test.beforeAll(async () => {
 
 test("configurable work summary limit preserves Unicode and validates creation and editing", async ({ page }, testInfo) => {
   const title = `Summary limit ${testInfo.project.name} ${state.runId.slice(0, 8)}`;
-  await page.goto("/");
+  await page.goto("/work-items");
   await page.locator("#project-select").selectOption(state.projectId);
   await page.locator(".topbar").getByRole("button", { name: "New work" }).click();
   const dialog = page.getByRole("dialog", { name: "Create durable work" });

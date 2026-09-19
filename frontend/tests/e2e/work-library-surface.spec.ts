@@ -209,7 +209,7 @@ async function mergeDirect(
 }
 
 async function openDashboard(page: Page, projectId = state.projectId): Promise<void> {
-  await page.goto("/");
+  await page.goto("/work-items");
   await page.locator("#project-select").selectOption(projectId);
   await expect(page.locator(".sync-status")).toHaveText("Live Updates");
 }
@@ -782,6 +782,7 @@ test("the summary-card Defer split moves deferred work without opening it premat
     }).click();
 
     await expect(page.locator("#project-select")).toHaveValue(targetProject.id);
+    await expect(page).toHaveURL(new RegExp(`[?&]project=${targetProject.id}(?:&|$)`));
     await expect(page).toHaveURL(new RegExp(`[?&]work=${work.id}(?:&|$)`));
 
     const pane = workPane(page);
@@ -989,6 +990,7 @@ test("the Defer menu moves linked deferred work without severing its relationshi
     await target.click();
 
     await expect(page.locator("#project-select")).toHaveValue(targetProject.id);
+    await expect(page).toHaveURL(new RegExp(`[?&]project=${targetProject.id}(?:&|$)`));
     await expect(page).toHaveURL(new RegExp(`[?&]work=${work.id}(?:&|$)`));
     await expect(pane).toHaveClass(/is-open/);
     await expect(pane.locator(".detail-id code")).toHaveText(work.id);
@@ -1103,7 +1105,7 @@ test("an externally moved open item follows its verified project without losing 
     // Keep recovery deterministic by exercising the activity catch-up path rather than
     // depending on websocket delivery timing.
     await page.routeWebSocket(/\/api\/mnemonic\/sync$/, () => {});
-    await page.goto("/");
+    await page.goto("/work-items");
     await page.locator("#project-select").selectOption(sourceProject.id);
     await searchFor(page, token, 1);
     const pane = await selectWork(page, title);
@@ -1141,6 +1143,7 @@ test("an externally moved open item follows its verified project without losing 
       `moved to “${targetProjectName}” in another session`
     );
     await expect(page.locator("#project-select")).toHaveValue(targetProject.id);
+    await expect(page).toHaveURL(new RegExp(`[?&]project=${targetProject.id}(?:&|$)`));
     await expect(page).toHaveURL(new RegExp(`[?&]work=${work.id}(?:&|$)`));
     await expect(pane.locator(".detail-title")).toHaveText(title);
     await expect(pane.locator(".detail-identity > .status-badge")).toHaveText("Pending");
@@ -1345,6 +1348,7 @@ test("Move retries keep every draft and follow an item that moves again", async 
     );
     expect(intercepted).toBe(true);
     await expect(page.locator("#project-select")).toHaveValue(final.id);
+    await expect(page).toHaveURL(new RegExp(`[?&]project=${final.id}(?:&|$)`));
     await expect(page).toHaveURL(new RegExp(`[?&]work=${work.id}(?:&|$)`));
     await expect(pane.locator(".detail-title")).toHaveText(title);
     await expect(pane.locator(".detail-identity > .status-badge")).toHaveText("Pending");
@@ -1481,7 +1485,7 @@ test("More filters collapses on demand and auto-opens when a canonical group for
     await expect(panel).toHaveCount(0);
 
     // With the panel closed, viewing a duplicate group forces it open again.
-    await page.goto(`/?work=${source.id}`);
+    await page.goto(`/work-items?work=${source.id}`);
     await expect(page.locator("#project-select")).toHaveValue(state.projectId);
     const pane = workPane(page);
     await expect(pane.locator(".detail-title")).toHaveText(sourceTitle);
@@ -1826,7 +1830,7 @@ test("the horizontal arrows walk the lifecycle filters", async ({ page }, testIn
     "The stacked layout below 900px has no divider for the same keys to yield to."
   );
   // The rendered order of the filter row, which the arrows follow.
-  const order = ["Pending", "Active", "To review", "Dropped", "Deferred", "Done", "Won’t do", "Promoted", "All"];
+  const order = ["Pending", "Active", "Dropped", "Deferred", "Done", "Won’t do", "Promoted", "All"];
   const filter = (name: string) => page.getByRole("button", { name, exact: true });
   const pressed = async (name: string) => {
     for (const label of order) {

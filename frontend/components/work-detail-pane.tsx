@@ -988,7 +988,7 @@ function OpenedPane({ opened, props }: { opened: WorkSummary; props: WorkDetailP
       {props.notice}
       <div className="detail-identity">
         <button type="button" className="icon-button detail-back" aria-label="Back to work queue" disabled={props.backDisabled} onClick={props.onBack}><Icon name="back" /></button>
-        <StatusBadge status={work.status} readiness={readiness} />
+        <StatusBadge workItem status={work.status} readiness={readiness} />
         <OperationalBadge readiness={readiness} />
         <span className="detail-version" title="Work item version">v{work.version}</span>
         <span className="detail-id"><code>{work.id}</code><button type="button" className={`icon-button detail-copy-id ${idCopied ? "is-copied" : ""}`} aria-label="Copy work item ID" title={idCopied ? "Copied" : "Copy work item ID"} onClick={() => props.onCopy(work.id, idKey, `Work item ID copied: ${work.id}`)}><Icon name={idCopied ? "check" : "copy"} size={13} /></button></span>

@@ -18,13 +18,14 @@ function validFilters(value: unknown): boolean {
   return Object.entries(filters).every(([facet, value]) => {
     const filter = objectValue(value);
     if (!filter) return false;
-    const keys = facet === "work_items" ? ["work_fields", "status", "tag", "source_client", "source_session_id", "duplicate_scope", "canonical_work_item_id", "external_url", "semantic"]
+    const keys = facet === "work_items" ? ["status_scope", "work_fields", "status", "tag", "source_client", "source_session_id", "duplicate_scope", "canonical_work_item_id", "external_url", "semantic"]
       : facet === "artifacts" ? ["semantic", "work_item_id", "artifact_id", "include_deleted", "sensitive", "mime_type", "created_by_agent_session_id"]
         : ["work_item_id", "agent_session_id", "client", "kind", "status", "content_kinds"];
     if (!allowed(filter, [...keys, ...SEARCH_DATE_FIELDS]) || !validDateBounds(filter)) return false;
     return Object.entries(filter).every(([key, value]) => {
       if (SEARCH_DATE_FIELDS.includes(key as typeof SEARCH_DATE_FIELDS[number])) return true;
-      if (value === null) return !["work_fields", "semantic", "include_deleted", "duplicate_scope"].includes(key) && !(facet === "work_items" && key === "status");
+      if (value === null) return !["status_scope", "work_fields", "semantic", "include_deleted", "duplicate_scope"].includes(key) && !(facet === "work_items" && key === "status");
+      if (key === "status_scope") return value === "effective" || value === "work_item";
       if (key === "work_fields") return validWorkFields(value);
       if (key === "content_kinds") return validContentKinds(value);
       if (["work_item_id", "artifact_id", "canonical_work_item_id"].includes(key)) return validUuid(value);

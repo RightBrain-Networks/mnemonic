@@ -123,11 +123,11 @@ async function open(
   title: string,
   status = "Pending",
 ) {
-  await page.goto("/");
+  await page.goto("/work-items");
   await page.locator("#project-select").selectOption(projectId);
   await page
     .getByRole("group", { name: "Filter work items" })
-    .getByRole("button", { name: status, exact: true })
+    .getByRole("button", { name: status === "To review" ? "Done" : status, exact: true })
     .click();
   return selectWork(page, title);
 }
@@ -350,7 +350,7 @@ test("both Done paths collect mandatory scope and preserve cold isolation, warm 
       .click();
     await expect(dialog).toBeHidden();
     await expect(pane.locator(".detail-identity > .status-badge")).toHaveText(
-      "To review",
+      "Done",
     );
     await expect(
       pane.getByRole("button", { name: "Copy cold review prompt" }),
@@ -419,7 +419,7 @@ test("both Done paths collect mandatory scope and preserve cold isolation, warm 
       .click();
     await expect(dialog).toBeHidden();
     await expect(pane.locator(".detail-identity > .status-badge")).toHaveText(
-      "To review",
+      "Done",
     );
     await expect(
       pane.getByRole("button", { name: "Copy cold review prompt" }),
@@ -429,7 +429,7 @@ test("both Done paths collect mandatory scope and preserve cold isolation, warm 
   }
 });
 
-test("To review uses the work lifecycle, search, and detail surfaces", async ({ page }, testInfo) => {
+test("completed work stays Done while its code review progresses", async ({ page }, testInfo) => {
   const api = await client();
   try {
     const p = await project(api);
@@ -437,7 +437,7 @@ test("To review uses the work lifecycle, search, and detail surfaces", async ({ 
     const work = await create(api, p.id, "Review the cache invalidation change");
     const completion = await completeApi(api, p.id, work);
     const pane = await open(page, p.id, work.title, "To review");
-    await expect(pane.locator(".detail-identity > .status-badge")).toHaveText("To review");
+    await expect(pane.locator(".detail-identity > .status-badge")).toHaveText("Done");
     await expect(pane.getByRole("tab", { name: /^Code review/ })).toHaveAttribute("aria-selected", "true");
     await expect(pane.getByRole("button", { name: "Copy cold review prompt" })).toBeVisible();
     await closeDetail(page);
@@ -447,21 +447,21 @@ test("To review uses the work lifecycle, search, and detail surfaces", async ({ 
     );
     expect(horizontalScroll).toEqual([0, 0]);
     expect(await filters.getByRole("button").allTextContents()).toEqual([
-      "Pending", "Active", "To review", "Dropped", "Deferred", "Done", "Won’t do", "Promoted", "All"
+      "Pending", "Active", "Dropped", "Deferred", "Done", "Won’t do", "Promoted", "All"
     ]);
     await expect(page.getByText("Code review queue and unanswered recommendations", { exact: true })).toHaveCount(0);
-    await expect(workCard(page, work.title).locator(".status-badge")).toHaveText("To review");
+    await expect(workCard(page, work.title).locator(".status-badge")).toHaveText("Done");
     await captureReviewScreen(page, testInfo.outputPath("to-review-lifecycle.png"));
     await page.reload();
     await closeDetail(page);
-    await expect(filters.getByRole("button", { name: "To review", exact: true })).toHaveAttribute("aria-pressed", "true");
+    await expect(filters.getByRole("button", { name: "Done", exact: true })).toHaveAttribute("aria-pressed", "true");
     await filters.getByRole("button", { name: "Done", exact: true }).click();
-    await expect(workCard(page, work.title)).toHaveCount(0);
-    await filters.getByRole("button", { name: "To review", exact: true }).click();
+    await expect(workCard(page, work.title).locator(".status-badge")).toHaveText("Done");
+    await filters.getByRole("button", { name: "Done", exact: true }).click();
     await page.getByRole("searchbox", { name: "Search work items" }).fill("cache invalidation");
     await expect(workCard(page, work.title)).toBeVisible();
     await reviewApi(api, completion.code_review_request!, 0);
-    await expect(workCard(page, work.title)).toHaveCount(0);
+    await expect(workCard(page, work.title).locator(".status-badge")).toHaveText("Done");
     await filters.getByRole("button", { name: "Done", exact: true }).click();
     await expect(workCard(page, work.title).locator(".status-badge")).toHaveText("Done");
     await selectWork(page, work.title);
@@ -866,7 +866,7 @@ test("human review actions work on summary and detail cards without reopening im
     await page.screenshot({ path: testInfo.outputPath("review-summary-actions.png"), fullPage: true });
     await page.keyboard.press("Escape");
     await card.getByRole("button", { name: `Defer ${work.title}` }).click();
-    await expect(card.locator(".status-badge")).toHaveText("Deferred");
+    await expect(card.locator(".status-badge")).toHaveText("Done");
     const pane = await selectWork(page, work.title);
     for (const [action, label] of [
       ["To review", "To review"], ["Won’t Do", "Won’t do"], ["To review", "To review"],
@@ -878,15 +878,15 @@ test("human review actions work on summary and detail cards without reopening im
       await expect(menu.getByRole("menuitem", { name: `Pending ${work.title}` })).toHaveCount(0);
       await expect(menu.getByRole("menuitem", { name: `Active ${work.title}` })).toHaveCount(0);
       await menu.getByRole("menuitem", { name: `${action} ${work.title}`, exact: true }).click();
-      await expect(pane.locator(".detail-identity > .status-badge")).toHaveText(label);
-      await expect(card.locator(".status-badge")).toHaveText(label);
+      await expect(pane.locator(".detail-identity > .status-badge")).toHaveText("Done");
+      await expect(card.locator(".status-badge")).toHaveText("Done");
     }
     await pane.getByRole("button", { name: `Choose an action for ${work.title}` }).click();
     await expect(pane.getByRole("menuitem", { name: `Move ${work.title} to another project` })).toHaveAttribute("aria-disabled", "true");
     await page.screenshot({ path: testInfo.outputPath("review-detail-actions.png"), fullPage: true });
     await page.keyboard.press("Escape");
     await pane.getByRole("button", { name: `Defer ${work.title}` }).click();
-    await expect(pane.locator(".detail-identity > .status-badge")).toHaveText("Deferred");
+    await expect(pane.locator(".detail-identity > .status-badge")).toHaveText("Done");
     const context = await (await api.get(`/api/v1/projects/${p.id}/work-items/${work.id}/context`)).json();
     expect(context.work_item.status).toBe("done");
     expect(context.code_review_context.current_review.id).toBe(completed.code_review_request?.id);
@@ -928,7 +928,7 @@ test("human Review queues Done immediately and earmarks unfinished work", async 
     pane = await selectWork(page, pending.title);
     await expect(pane.getByText(/Code review requested by a human operator\. It will enter/)).toBeVisible();
     await manualDone(pane, pending.title);
-    await expect(pane.locator(".detail-identity > .status-badge")).toHaveText("To review");
+    await expect(pane.locator(".detail-identity > .status-badge")).toHaveText("Done");
     await expect(page.getByRole("dialog")).toHaveCount(0);
     pane = await open(page, p.id, pending.title, "To review");
     await openTab(pane, "Code review");

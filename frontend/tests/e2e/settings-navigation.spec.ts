@@ -4,7 +4,7 @@ import { statePath, type E2EState } from "./global.setup";
 
 const preferenceKey = "mnemonic.settings-menu";
 const sections = [
-  { label: "Workspace", path: "/settings/workspace", cards: ["Project details", "Transcript indexing"] },
+  { label: "Workspace", path: "/settings/workspace", cards: ["Project details"] },
   { label: "Prompts", path: "/settings/prompts", cards: ["Project prompts", "Macro glossary"] },
   { label: "Code reviews", path: "/settings/code-reviews", cards: ["Code reviews"] },
   { label: "Backups", path: "/settings/backups", cards: ["Project backups"] }
@@ -16,7 +16,7 @@ test.beforeAll(async () => {
 });
 
 test("settings menu links show only their dedicated cards in the requested order", async ({ page }, testInfo) => {
-  await page.goto("/");
+  await page.goto("/work-items");
   await page.locator("#project-select").selectOption(state.projectId);
   const navigation = page.getByRole("navigation", { name: "Workspace navigation" });
   const toggle = navigation.getByRole("button", { name: "Project settings" });
@@ -25,7 +25,7 @@ test("settings menu links show only their dedicated cards in the requested order
   await expect(page.locator(".settings-nav .nav-group-chevron")).toBeVisible();
   await expect(page.locator(".settings-nav .nav-group-leaves a")).toHaveText(sections.map(({ label }) => label));
   for (const section of sections) {
-    await navigation.getByRole("link", { name: section.label, exact: true }).click();
+    await navigation.locator(".settings-nav").getByRole("link", { name: section.label, exact: true }).click();
     await expect(page).toHaveURL(section.path);
     await expect(page.locator("h1")).toHaveText(`${section.label}.`);
     await expect(page.locator(section.label === "Prompts" ? ".prompt-library h2, .prompt-library h3" : ".settings-card h2")).toHaveText(section.cards.map((name) => name === "Project prompts" ? "Project prompts7" : name));
@@ -66,13 +66,14 @@ test("settings menu preserves both disclosure states and supports keyboard navig
   await page.reload();
   await expect(group).toHaveAttribute("data-ready", "true");
   await expect(toggle).toHaveAttribute("aria-expanded", "true");
-  await page.getByRole("link", { name: "Work library", exact: true }).click();
+  if (await page.getByRole("button", { name: "Tasks", exact: true }).getAttribute("aria-expanded") === "false") await page.getByRole("button", { name: "Tasks", exact: true }).click();
+  await page.locator(".tasks-nav").getByRole("link", { name: "Work items", exact: true }).click();
   await expect(toggle).toHaveAttribute("aria-expanded", "true");
 });
 
 test("settings menu uses Expo easing in each direction and respects reduced motion", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "no-preference" });
-  await page.goto("/");
+  await page.goto("/work-items");
   const toggle = page.getByRole("button", { name: "Project settings" });
   const collapse = page.locator(".settings-nav .nav-group-collapse");
   await expect(page.locator(".settings-nav")).toHaveAttribute("data-ready", "true");
@@ -96,7 +97,7 @@ test("settings menu remains usable when localStorage is unavailable", async ({ p
     Storage.prototype.getItem = () => { throw new DOMException("Storage unavailable", "SecurityError"); };
     Storage.prototype.setItem = () => { throw new DOMException("Storage unavailable", "SecurityError"); };
   });
-  await page.goto("/");
+  await page.goto("/work-items");
   const toggle = page.getByRole("button", { name: "Project settings" });
   await expect(page.locator(".settings-nav")).toHaveAttribute("data-ready", "true");
   await toggle.click();

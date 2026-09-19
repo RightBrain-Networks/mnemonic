@@ -4,13 +4,13 @@ const preferenceKey = "mnemonic.resources-menu";
 
 test("resources menu groups its leaves below Needs Attention and opens the Transcripts library", async ({ page }, testInfo) => {
   if ((page.viewportSize()?.width ?? 0) > 800) await page.setViewportSize({ width: 1280, height: 1000 });
-  await page.goto("/");
+  await page.goto("/work-items");
   const navigation = page.getByRole("navigation", { name: "Workspace navigation" });
   const resources = navigation.locator(".resources-nav");
   const toggle = resources.getByRole("button", { name: "Resources", exact: true });
   await expect(resources).toHaveAttribute("data-ready", "true");
   await expect(navigation.locator(":scope > a, :scope > div > button")).toHaveText([
-    "Work library", /^Summaries/, /^Needs Attention/, "Resources", "Project settings"
+    "Dashboard", "Tasks", /^Summaries/, /^Needs Attention/, "Resources", "Project settings"
   ]);
   await expect(toggle).toHaveAttribute("aria-expanded", "false");
   await toggle.click();

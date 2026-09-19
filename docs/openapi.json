@@ -11889,6 +11889,165 @@
         "title": "TagCountPage",
         "type": "object"
       },
+      "TaskCounts": {
+        "additionalProperties": false,
+        "properties": {
+          "active": {
+            "minimum": 0.0,
+            "title": "Active",
+            "type": "integer"
+          },
+          "pending": {
+            "minimum": 0.0,
+            "title": "Pending",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "active",
+          "pending"
+        ],
+        "title": "TaskCounts",
+        "type": "object"
+      },
+      "TaskPage": {
+        "additionalProperties": false,
+        "properties": {
+          "code_reviews": {
+            "$ref": "#/components/schemas/TaskCounts"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/TaskSummary"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "next_lease_expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Lease Expires At"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "total": {
+            "minimum": 0.0,
+            "title": "Total",
+            "type": "integer"
+          },
+          "work_items": {
+            "$ref": "#/components/schemas/TaskCounts"
+          }
+        },
+        "required": [
+          "project_id",
+          "work_items",
+          "code_reviews",
+          "next_lease_expires_at",
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "TaskPage",
+        "type": "object"
+      },
+      "TaskSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "work_item",
+              "code_review"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "lease": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LeasePublic"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "active",
+              "dropped",
+              "deferred",
+              "done",
+              "wont-do",
+              "promoted",
+              "superseded"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "work_item_id": {
+            "format": "uuid",
+            "title": "Work Item Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "project_id",
+          "work_item_id",
+          "title",
+          "summary",
+          "status",
+          "updated_at",
+          "lease"
+        ],
+        "title": "TaskSummary",
+        "type": "object"
+      },
       "TermDiagnostic": {
         "additionalProperties": false,
         "properties": {
@@ -13780,6 +13939,15 @@
               "all"
             ],
             "title": "Status",
+            "type": "string"
+          },
+          "status_scope": {
+            "default": "effective",
+            "enum": [
+              "effective",
+              "work_item"
+            ],
+            "title": "Status Scope",
             "type": "string"
           },
           "tag": {
@@ -17263,7 +17431,7 @@
   "info": {
     "description": "Durable project-scoped work with immutable agent checkpoints.",
     "title": "Mnemonic API",
-    "version": "0.65.1"
+    "version": "0.66.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -20374,6 +20542,15 @@
                             "title": "Status",
                             "type": "string"
                           },
+                          "status_scope": {
+                            "default": "effective",
+                            "enum": [
+                              "effective",
+                              "work_item"
+                            ],
+                            "title": "Status Scope",
+                            "type": "string"
+                          },
                           "tag": {
                             "anyOf": [
                               {
@@ -20681,6 +20858,139 @@
           }
         ],
         "summary": "Update Project Settings"
+      }
+    },
+    "/api/v1/projects/{project_id}/tasks": {
+      "get": {
+        "operationId": "list_tasks_api_v1_projects__project_id__tasks_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "kind",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "work_item",
+                    "code_review"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kind"
+            }
+          },
+          {
+            "in": "query",
+            "name": "task_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Task Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "pending",
+                    "active",
+                    "dropped",
+                    "deferred",
+                    "done",
+                    "wont-do",
+                    "promoted",
+                    "superseded"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "const": "all",
+                  "type": "string"
+                }
+              ],
+              "default": "active",
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Tasks"
       }
     },
     "/api/v1/projects/{project_id}/transcript-settings": {
@@ -21786,6 +22096,20 @@
           },
           {
             "in": "query",
+            "name": "status_scope",
+            "required": false,
+            "schema": {
+              "default": "effective",
+              "enum": [
+                "effective",
+                "work_item"
+              ],
+              "title": "Status Scope",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
             "name": "query_mode",
             "required": false,
             "schema": {
@@ -22641,6 +22965,20 @@
             "schema": {
               "format": "uuid",
               "title": "Work Item Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status_scope",
+            "required": false,
+            "schema": {
+              "default": "effective",
+              "enum": [
+                "effective",
+                "work_item"
+              ],
+              "title": "Status Scope",
               "type": "string"
             }
           },
@@ -24913,6 +25251,15 @@
                               "all"
                             ],
                             "title": "Status",
+                            "type": "string"
+                          },
+                          "status_scope": {
+                            "default": "effective",
+                            "enum": [
+                              "effective",
+                              "work_item"
+                            ],
+                            "title": "Status Scope",
                             "type": "string"
                           },
                           "tag": {

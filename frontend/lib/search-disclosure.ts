@@ -24,9 +24,10 @@ export type SearchDisclosure = {
 
 function validFilter(source: Source, value: unknown): boolean {
   const row = objectValue(value);
-  if (!row || !exactKeys(row, [...Object.keys(DEFAULT_SEARCH_FILTERS[source]), ...(source === "artifacts" && "semantic" in row ? ["semantic"] : []), ...SEARCH_DATE_FIELDS.filter((key) => key in row)]) || !validDateBounds(row, true)) return false;
+  if (!row || !exactKeys(row, [...Object.keys(DEFAULT_SEARCH_FILTERS[source]), ...(source === "artifacts" && "semantic" in row ? ["semantic"] : []), ...(source === "work_items" && "status_scope" in row ? ["status_scope"] : []), ...SEARCH_DATE_FIELDS.filter((key) => key in row)]) || !validDateBounds(row, true)) return false;
   return Object.entries(row).every(([key, value]) => {
     if (SEARCH_DATE_FIELDS.includes(key as typeof SEARCH_DATE_FIELDS[number])) return value !== null;
+    if (key === "status_scope") return value === "work_item";
     if (key === "semantic") return value === true;
     if (value === null) return !["status", "view", "duplicate_scope", "include_deleted"].includes(key) || source === "transcripts" && key === "status";
     if (key === "work_fields") return validWorkFields(value);

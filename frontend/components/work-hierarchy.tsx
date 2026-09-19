@@ -114,6 +114,7 @@ function HierarchyBranch(props: BranchProps) {
     const controller = new AbortController();
     const requestedViewKey = childViewKey;
     const params = childSearchParams({
+      statusScope: "work_item",
       status: allDescendants ? "all" : status,
       sort,
       limit: CHILD_PAGE_SIZE,

@@ -203,6 +203,7 @@ const WORK_GATES = new RegExp(`^projects/${UUID}/work-items/${UUID}/gates$`);
 const GATE_CONTEXT = new RegExp(`^projects/${UUID}/work-items/${UUID}/gates/${UUID}/context$`);
 const GATE_RESOLVE = new RegExp(`^projects/${UUID}/work-items/${UUID}/gates/${UUID}/resolve$`);
 const LEASE_CAPABILITY = new RegExp(`^projects/${UUID}/work-items/${UUID}/(?:claim|claim-and-recall|renew-claim|release-claim)$`);
+const TASKS = new RegExp(`^projects/${UUID}/tasks$`);
 const REVIEW_LIST = new RegExp(`^projects/${UUID}/(?:code-reviews|work-agent-follow-ups)$`);
 const REVIEW_DETAIL = new RegExp(`^projects/${UUID}/work-items/${UUID}/code-reviews/${UUID}$`);
 const FOLLOW_UP_DETAIL = new RegExp(`^projects/${UUID}/work-items/${UUID}/agent-follow-ups/${UUID}$`);
@@ -253,6 +254,7 @@ export function allowedQueryKeys(path: string, method: string): string[] | null 
   if (UNIFIED_SEARCH.test(path) && method === "POST") return [];
   // Lease receipts and arguments carry browser-forbidden capabilities.
   if (LEASE_CAPABILITY.test(path)) return null;
+  if (TASKS.test(path) && method === "GET") return ["kind", "status", "task_id", "limit", "offset"];
   if (REVIEW_LIST.test(path) && method === "GET") return ["state", "availability", "work_item_id", "after", "limit"];
   if ((REVIEW_DETAIL.test(path) || FOLLOW_UP_DETAIL.test(path)) && method === "GET") return [];
   if (FOLLOW_UP_ANSWER.test(path) && method === "POST") return [];
@@ -277,7 +279,7 @@ export function allowedQueryKeys(path: string, method: string): string[] | null 
   if (WORK_ITEMS.test(path)) {
     if (method === "GET") {
       return [
-        "q", "semantic", "status", "sort", "tag", "source_client",
+        "q", "semantic", "status", "status_scope", "sort", "tag", "source_client",
         "external_url", "source_session_id", "view", "detail", "duplicate_scope", "canonical_work_item_id",
         "created_after", "created_before", "updated_after", "updated_before", "diagnostics", "query_mode", "work_fields",
         "limit", "offset"
@@ -294,7 +296,7 @@ export function allowedQueryKeys(path: string, method: string): string[] | null 
     return ["recent_limit", "recent_event_limit"];
   }
   if (WORK_CHILDREN.test(path) && method === "GET") {
-    return ["status", "sort", "tag", "source_client", "source_session_id", "limit", "offset"];
+    return ["status", "status_scope", "sort", "tag", "source_client", "source_session_id", "limit", "offset"];
   }
   if (WORK_RELATIONSHIPS.test(path) && method === "GET") {
     return ["direction", "type", "limit", "offset"];

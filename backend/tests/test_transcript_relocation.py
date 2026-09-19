@@ -46,7 +46,10 @@ def test_move_and_append_survive_restart_without_rewriting_assertion(enrolled, t
     # Already published immutable bytes recover without re-discovery or a live source.
     restarted = TranscriptStorage(tmp_path / "private", 100_000)
     recovered = restarted.capture(transcript, snapshot, str(source), [], source_identity=identity)
-    assert recovered == copy and recovered.source_path is None
+    assert recovered == copy
+    # The durable capture receipt also preserves verified relocation provenance.
+    assert recovered.source_path == str(target)
+    assert recovered.source_modified_at == copy.source_modified_at
 
 
 def test_fingerprint_is_bounded_and_short_assertions_do_not_gain_inferred_evidence(tmp_path):

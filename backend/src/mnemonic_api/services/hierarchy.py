@@ -63,7 +63,8 @@ def _hierarchy_match_sql(
         )
     elif filters.status != "all":
         review = review_status_clause(literal_column("candidate.id"))
-        effective = func.coalesce(review, literal_column("candidate.status"))
+        effective = (literal_column("candidate.status") if filters.status_scope == "work_item"
+                     else func.coalesce(review, literal_column("candidate.status")))
         predicate = effective == filters.status
         conditions.append(str(predicate.compile(compile_kwargs={"literal_binds": True})))
 

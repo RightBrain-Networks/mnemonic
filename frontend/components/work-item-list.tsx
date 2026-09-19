@@ -9,7 +9,7 @@ import {
   WORK_PAGE_SIZE,
   moreFiltersForced,
   statusFilterLabels,
-  statusFilterOrder,
+  workItemStatusFilterOrder,
   type WorkQueueItem
 } from "@/lib/work-queue";
 import { WORK_SPLIT_MAX, WORK_SPLIT_MIN } from "@/lib/work-split";
@@ -166,11 +166,11 @@ export default function WorkItemList({
 
   return <>
     <section className="library-controls" aria-label="Find work items">
-      <section className={`library-tools ${libraryToolsOpen ? "is-open" : ""}`} aria-label="Work library overview">
+      <section className={`library-tools ${libraryToolsOpen ? "is-open" : ""}`} aria-label="Work items overview">
         <button
           className="library-tools-toggle"
           type="button"
-          aria-label={`${libraryToolsOpen ? "Collapse" : "Expand"} work library overview`}
+          aria-label={`${libraryToolsOpen ? "Collapse" : "Expand"} work items overview`}
           aria-expanded={libraryToolsOpen}
           aria-controls="library-tools-panel"
           onClick={() => onLibraryToolsOpen(!libraryToolsOpen)}
@@ -197,7 +197,7 @@ export default function WorkItemList({
       </section>
       <div className="filter-row">
         <div className="status-filters" role="group" aria-label="Filter work items" aria-keyshortcuts="ArrowLeft ArrowRight">
-          {statusFilterOrder.map((filter) => <button type="button" key={filter} className={`filter-button ${status === filter ? "selected" : ""}`} aria-pressed={status === filter} onClick={() => onStatus(filter)}>{filter === "pending" && <span className="filter-dot" />}{statusFilterLabels[filter]}</button>)}
+          {workItemStatusFilterOrder.map((filter) => <button type="button" key={filter} className={`filter-button ${status === filter ? "selected" : ""}`} aria-pressed={status === filter} onClick={() => onStatus(filter)}>{filter === "pending" && <span className="filter-dot" />}{statusFilterLabels[filter]}</button>)}
         </div>
         <div className="filter-controls">
           <div className="sort-group">

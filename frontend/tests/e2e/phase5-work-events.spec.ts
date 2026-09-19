@@ -163,7 +163,7 @@ test("activity is live, safe text, actor-attributed, and usable at both viewport
       }
     });
 
-    await page.goto("/");
+    await page.goto("/work-items");
     await page.locator("#project-select").selectOption(state.projectId);
     await page.getByLabel("Search work items").fill(title);
     const card = workCard(page, title);
@@ -354,7 +354,7 @@ test("activity pagination, refresh recovery, replay, and proxy denials stay cohe
     expect(replay.ok(), await replay.text()).toBe(true);
     expect((await replay.json() as { created: boolean }).created).toBe(false);
 
-    await page.goto("/");
+    await page.goto("/work-items");
     await expect.poll(() => Boolean(sendSync)).toBe(true);
     await page.locator("#project-select").selectOption(state.projectId);
     await page.getByLabel("Search work items").fill(title);
@@ -543,7 +543,7 @@ test("reconstructed and discovered-from events retain bounded references", async
       }
     );
 
-    await page.goto("/");
+    await page.goto("/work-items");
     await page.locator("#project-select").selectOption(state.projectId);
     await page.getByLabel("Search work items").fill(title);
     const card = workCard(page, title);

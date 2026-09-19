@@ -307,7 +307,7 @@ test("a committed work creation recovers its exact result without a duplicate", 
   let workId = "";
 
   try {
-    await page.goto("/");
+    await page.goto("/work-items");
     await page.locator("#project-select").selectOption(state.projectId);
     await expect(page.locator(".sync-status")).toHaveText("Live Updates");
 
@@ -422,7 +422,7 @@ test("a committed deferral recovers its exact result without a second transition
   );
 
   try {
-    await page.goto("/");
+    await page.goto("/work-items");
     await page.locator("#project-select").selectOption(state.projectId);
     const pane = await openWork(page, title);
     const card = workCard(page, title);
@@ -501,7 +501,7 @@ test("a malformed committed append retains its editor intent and reconciles newe
   );
 
   try {
-    await page.goto("/");
+    await page.goto("/work-items");
     await page.locator("#project-select").selectOption(state.projectId);
     await expect(page.locator(".sync-status")).toHaveText("Live Updates");
     const pane = await openWork(page, title);
@@ -658,7 +658,7 @@ test("a committed append gates stale controls when direct reconciliation fails",
   );
 
   try {
-    await page.goto("/");
+    await page.goto("/work-items");
     await page.locator("#project-select").selectOption(state.projectId);
     const pane = await openWork(page, title);
     const activity = pane.locator(".event-timeline");
@@ -734,7 +734,7 @@ test("relationship and deletion recovery preserve true receipts and natural no-o
   let relationshipId = "";
 
   try {
-    await page.goto("/");
+    await page.goto("/work-items");
     await page.locator("#project-select").selectOption(state.projectId);
     await expect(page.locator(".sync-status")).toHaveText("Live Updates");
     const pane = await openWork(page, title);
