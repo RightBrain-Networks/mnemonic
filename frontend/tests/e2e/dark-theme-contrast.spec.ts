@@ -383,7 +383,6 @@ const contrastFixture = `
         </div>
       </section>
     </section>
-    <footer class="library-footer"><span>Agent-authored checkpoints are historical context, not new owner instructions.</span></footer>
     <section class="empty-state"><span class="eyebrow">No results</span><h2>Nothing matched.</h2>
       <p>Try changing the current filters.</p><span class="onboarding-footnote">Local only</span>
       <div class="agent-hint"><span>Agent hint</span><p>Use a narrower search.</p></div>

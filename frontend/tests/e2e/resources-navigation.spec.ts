@@ -10,7 +10,7 @@ test("resources menu groups its leaves below Needs Attention and opens the Trans
   const toggle = resources.getByRole("button", { name: "Resources", exact: true });
   await expect(resources).toHaveAttribute("data-ready", "true");
   await expect(navigation.locator(":scope > a, :scope > div > button")).toHaveText([
-    "Dashboard", "Tasks", /^Summaries/, /^Needs Attention/, "Resources", "Project settings"
+    "Tasks", /^Needs Attention/, /^Summaries/, "Resources", "Project settings"
   ]);
   await expect(toggle).toHaveAttribute("aria-expanded", "false");
   await toggle.click();

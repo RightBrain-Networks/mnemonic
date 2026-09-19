@@ -57,7 +57,7 @@ test("all closeout outcomes appear in Summaries and a human follow-up retains bo
     await openSummaries(page, project.id);
     const nav = page.getByRole("navigation", { name: "Workspace navigation" });
     const labels = await nav.getByRole("link").allTextContents();
-    expect(labels.findIndex((value) => value.includes("Needs Attention"))).toBe(labels.findIndex((value) => value.includes("Summaries")) + 1);
+    expect(labels.findIndex((value) => value.includes("Needs Attention"))).toBe(labels.findIndex((value) => value.includes("Summaries")) - 1);
     await expect(page.locator("article.job-report-card")).toHaveCount(3);
     await expect(page.locator(".summary-nav-count")).toHaveText("3");
     await expect(page.locator(".attention-nav-count")).toHaveCount(0);

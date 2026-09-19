@@ -109,7 +109,7 @@ test("tasks menu persists its disclosure state and the dashboard recovers failed
   await page.reload();
   await expect(toggle).toHaveAttribute("aria-expanded", "false");
   await page.route("**/tasks?**", (route) => route.fulfill({ status: 503, json: { error: { code: "unavailable", message: "Task read unavailable" } } }));
-  await page.getByRole("link", { name: "Dashboard", exact: true }).click();
+  await page.getByRole("link", { name: "Mnemonic home" }).click();
   await expect(page.getByRole("button", { name: "Retry tasks" })).toBeVisible();
   await page.unroute("**/tasks?**");
   await page.getByRole("button", { name: "Retry tasks" }).click();
