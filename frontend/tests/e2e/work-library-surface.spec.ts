@@ -782,6 +782,7 @@ test("the summary-card Defer split moves deferred work without opening it premat
     }).click();
 
     await expect(page.locator("#project-select")).toHaveValue(targetProject.id);
+    await expect(page).toHaveURL(new RegExp(`[?&]project=${targetProject.id}(?:&|$)`));
     await expect(page).toHaveURL(new RegExp(`[?&]work=${work.id}(?:&|$)`));
 
     const pane = workPane(page);
@@ -989,6 +990,7 @@ test("the Defer menu moves linked deferred work without severing its relationshi
     await target.click();
 
     await expect(page.locator("#project-select")).toHaveValue(targetProject.id);
+    await expect(page).toHaveURL(new RegExp(`[?&]project=${targetProject.id}(?:&|$)`));
     await expect(page).toHaveURL(new RegExp(`[?&]work=${work.id}(?:&|$)`));
     await expect(pane).toHaveClass(/is-open/);
     await expect(pane.locator(".detail-id code")).toHaveText(work.id);
@@ -1141,6 +1143,7 @@ test("an externally moved open item follows its verified project without losing 
       `moved to “${targetProjectName}” in another session`
     );
     await expect(page.locator("#project-select")).toHaveValue(targetProject.id);
+    await expect(page).toHaveURL(new RegExp(`[?&]project=${targetProject.id}(?:&|$)`));
     await expect(page).toHaveURL(new RegExp(`[?&]work=${work.id}(?:&|$)`));
     await expect(pane.locator(".detail-title")).toHaveText(title);
     await expect(pane.locator(".detail-identity > .status-badge")).toHaveText("Pending");

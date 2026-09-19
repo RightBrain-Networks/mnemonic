@@ -166,11 +166,11 @@ export default function WorkItemList({
 
   return <>
     <section className="library-controls" aria-label="Find work items">
-      <section className={`library-tools ${libraryToolsOpen ? "is-open" : ""}`} aria-label="Work library overview">
+      <section className={`library-tools ${libraryToolsOpen ? "is-open" : ""}`} aria-label="Work items overview">
         <button
           className="library-tools-toggle"
           type="button"
-          aria-label={`${libraryToolsOpen ? "Collapse" : "Expand"} work library overview`}
+          aria-label={`${libraryToolsOpen ? "Collapse" : "Expand"} work items overview`}
           aria-expanded={libraryToolsOpen}
           aria-controls="library-tools-panel"
           onClick={() => onLibraryToolsOpen(!libraryToolsOpen)}

@@ -886,11 +886,13 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
     window.history.replaceState(null, "", url);
   }, [contextReconciliationRequired, openedId, view, route.query]);
 
-  function applyProjectSelection(id: string) {
+  function applyProjectSelection(id: string, workItemId?: string) {
     if ((view === "library" || view === "reviews") && id) {
       const url = new URL(window.location.href);
-      if (url.searchParams.get("project") !== id) {
+      if (url.searchParams.get("project") !== id || workItemId && url.searchParams.get("work") !== workItemId) {
         url.searchParams.set("project", id);
+        // Publish a move and its selection together so route reconciliation retains the pane.
+        if (workItemId) url.searchParams.set("work", workItemId);
         window.history.replaceState(null, "", url);
       }
     }
@@ -1320,7 +1322,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
       const displayStatus = preservedWorkMoveDisplayStatus(found.context);
       if (catalog) updateCatalog(catalog);
       if (projectChanged) {
-        applyProjectSelection(targetProjectId);
+        applyProjectSelection(targetProjectId, found.context.work_item.id);
         setJobReportDraft((draft) => ({ ...draft, promptRevision: null }));
       }
       setStatus(displayStatus);
@@ -1499,7 +1501,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
       if (!leavingOpenedWorkAllowed()) return;
       if (!isCurrent()) return;
       clearSelection();
-      applyProjectSelection(projectId);
+      applyProjectSelection(projectId, workItemId);
       const loaded = await openExactWork(projectId, workItemId);
       if (!loaded && requestId === workPlacementRequest.current) {
         setNotice({
@@ -2071,7 +2073,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
     const isCurrent = () =>
       workPlacementRequest.current === placementRequestId
       && recordRequest.current === requestId;
-    applyProjectSelection(result.target_project_id);
+    applyProjectSelection(result.target_project_id, result.work_item.id);
     setStatus(displayStatus);
     setOpened(movedSummary);
     setContext(null);

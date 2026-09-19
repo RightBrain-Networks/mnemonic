@@ -46,7 +46,7 @@ const contrastFixture = `
     </div>
     <section class="library-controls">
       <section class="library-tools is-open">
-        <button id="library-tools-toggle" class="library-tools-toggle" aria-label="Collapse work library overview" aria-expanded="true">
+        <button id="library-tools-toggle" class="library-tools-toggle" aria-label="Collapse work items overview" aria-expanded="true">
           <span class="library-tools-chevron"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="m6 15 6-6 6 6"></path></svg></span>
         </button>
         <div class="library-tools-region"><div class="library-tools-clip"><div class="library-tools-content">
