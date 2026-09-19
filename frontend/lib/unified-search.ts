@@ -43,6 +43,7 @@ export function workSearchRequest(input: WorkSearchOptions): SearchRequest {
   for (const [key, value] of Object.entries({ tag: input.tag, source_client: input.sourceClient, source_session_id: input.sourceSessionId, canonical_work_item_id: input.canonicalWorkItemId })) {
     if (value?.trim()) filters[key] = value.trim();
   }
+  if (input.statusScope) filters.status_scope = input.statusScope;
   if (q && input.semantic) filters.semantic = true;
   return {
     q, detail: "full", facets: ["work_items"], filters: { work_items: filters },

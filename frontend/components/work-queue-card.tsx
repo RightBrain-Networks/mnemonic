@@ -130,7 +130,7 @@ export default function WorkQueueCard({ summary, presentation, depth = 0 }: Prop
     }}
   >
     <div className="queue-card-topline">
-      <StatusBadge status={work.status} readiness={summary.readiness} />
+      <StatusBadge workItem status={work.status} readiness={summary.readiness} />
       <OperationalBadge readiness={summary.readiness} />
       <span className="queue-card-meta">
         {clientLabel(context.source_client)}

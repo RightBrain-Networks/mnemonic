@@ -40,7 +40,9 @@ class SearchSelection:
     score: float = 0.0
 
 
-def status_conditions(status: str, as_of: datetime) -> list[ColumnElement[bool]]:
+def status_conditions(
+    status: str, as_of: datetime, status_scope: str = "effective",
+) -> list[ColumnElement[bool]]:
     if status == "all":
         return []
     if status == "active":
@@ -49,7 +51,10 @@ def status_conditions(status: str, as_of: datetime) -> list[ColumnElement[bool]]
         return [WorkItem.status == "pending", _lease_exists(WorkLease.expires_at <= as_of)]
     if status == "pending":
         return [WorkItem.status == "pending", ~_lease_exists()]
-    return [func.coalesce(review_status_clause(WorkItem.id), WorkItem.status) == status]
+    effective = WorkItem.status if status_scope == "work_item" else func.coalesce(
+        review_status_clause(WorkItem.id), WorkItem.status,
+    )
+    return [effective == status]
 
 
 def _lease_exists(*conditions: ColumnElement[bool]) -> ColumnElement[bool]:

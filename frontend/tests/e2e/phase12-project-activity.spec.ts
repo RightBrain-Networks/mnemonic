@@ -214,7 +214,7 @@ async function createPendingWork(api: APIRequestContext, projectId: string, titl
   return (await response.json() as { work_item: { id: string; title: string; version: number } }).work_item;
 }
 async function openProjectWork(page: Page, projectId: string, title: string) {
-  await page.goto("/");
+  await page.goto("/work-items");
   await page.locator("#project-select").selectOption(projectId);
   await page.getByRole("group", { name: "Filter work items" }).getByRole("button", { name: "Pending", exact: true }).click();
   return selectWork(page, title);

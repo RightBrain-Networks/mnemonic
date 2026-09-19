@@ -13,7 +13,7 @@ const contrastFixture = `
     <a class="brand">Mnemonic<span class="brand-period">.</span></a>
     <span class="section-label">Workspace</span>
     <nav>
-      <a class="nav-item active"><span>Work library</span></a>
+      <a class="nav-item active"><span>Work items</span></a>
       <a class="nav-item"><span>Needs attention</span><span class="attention-nav-count">2</span></a>
     </nav>
     <div class="sidebar-footer">
@@ -27,7 +27,7 @@ const contrastFixture = `
   </aside>
   <section class="page-content">
     <header class="page-heading">
-      <div><span class="eyebrow">Durable context</span><h1>Work library<span class="heading-mark">:</span> <span class="heading-subject">Durable context</span></h1>
+      <div><span class="eyebrow">Durable context</span><h1>Work items<span class="heading-mark">:</span> <span class="heading-subject">Durable context</span></h1>
       <p>Search, resume, and manage durable work.</p></div>
     </header>
     <section class="settings-card">
@@ -445,7 +445,7 @@ const deferHoverFixture = `
 
 test("dark-theme text stays in the 7.21:1 to 9.5:1 contrast band", async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem("mnemonic.theme", "dark"));
-  await page.goto("/");
+  await page.goto("/work-items");
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
   await page.waitForTimeout(350);
   expect(await auditTextContrast(page)).toEqual([]);

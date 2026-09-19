@@ -277,7 +277,7 @@ test("an artifact upload with a lost response preserves the file and receipt unt
   await expect(page.getByRole("button", { name: "Retry pending action" })).toBeVisible();
   await expect(page.locator("#project-select")).toBeDisabled();
   await expect(page.getByRole("button", { name: "Drop, paste, or upload files here.", exact: true })).toBeDisabled();
-  await page.getByRole("link", { name: "Work library" }).click();
+  await page.getByRole("link", { name: "Work items" }).click();
   await expect(page).toHaveURL(/\/artifacts(?:\?|$)/);
   await page.getByRole("button", { name: "Retry pending action" }).click();
   await expect(page.getByRole("button", { name: "Retry pending action" })).toBeEnabled();
@@ -305,9 +305,9 @@ test("artifact work links restore their project after another tab changes it and
     expect(response.status()).toBe(201);
     const destination = await response.json() as { id: string };
     const workId = state.historicalCompletion.workItemId;
-    await page.goto("/");
+    await page.goto("/work-items");
     await page.locator("#project-select").selectOption(state.projectId);
-    await page.goto(`/?work=${workId}`);
+    await page.goto(`/work-items?work=${workId}`);
     const link = page.getByRole("link", { name: "View or upload linked files" });
     await expect(link).toHaveAttribute("href", `/artifacts?project=${state.projectId}&work=${workId}`);
     const otherTab = await page.context().newPage();
@@ -382,7 +382,7 @@ test("disabled artifacts stay visible without listing files or accepting clipboa
   const screenshot = testInfo.outputPath("artifact-library-disabled.png");
   await page.screenshot({ path: screenshot, fullPage: true });
   await testInfo.attach("Disabled artifact library", { path: screenshot, contentType: "image/png" });
-  await page.goto(`/?work=${state.historicalCompletion.workItemId}`);
+  await page.goto(`/work-items?work=${state.historicalCompletion.workItemId}`);
   await expect(page.locator(".work-artifact-links")).toContainText("Artifact library disabled");
   await expect(page.locator(".work-artifact-links")).not.toContainText("retry loading linked files");
   await expect(page.locator(".work-artifact-links").getByRole("link", { name: "Open artifact library" })).toBeVisible();

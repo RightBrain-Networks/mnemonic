@@ -209,7 +209,7 @@ async function mergeDirect(
 }
 
 async function openDashboard(page: Page, projectId = state.projectId): Promise<void> {
-  await page.goto("/");
+  await page.goto("/work-items");
   await page.locator("#project-select").selectOption(projectId);
   await expect(page.locator(".sync-status")).toHaveText("Live Updates");
 }
@@ -1103,7 +1103,7 @@ test("an externally moved open item follows its verified project without losing 
     // Keep recovery deterministic by exercising the activity catch-up path rather than
     // depending on websocket delivery timing.
     await page.routeWebSocket(/\/api\/mnemonic\/sync$/, () => {});
-    await page.goto("/");
+    await page.goto("/work-items");
     await page.locator("#project-select").selectOption(sourceProject.id);
     await searchFor(page, token, 1);
     const pane = await selectWork(page, title);
@@ -1345,6 +1345,7 @@ test("Move retries keep every draft and follow an item that moves again", async 
     );
     expect(intercepted).toBe(true);
     await expect(page.locator("#project-select")).toHaveValue(final.id);
+    await expect(page).toHaveURL(new RegExp(`[?&]project=${final.id}(?:&|$)`));
     await expect(page).toHaveURL(new RegExp(`[?&]work=${work.id}(?:&|$)`));
     await expect(pane.locator(".detail-title")).toHaveText(title);
     await expect(pane.locator(".detail-identity > .status-badge")).toHaveText("Pending");
@@ -1481,7 +1482,7 @@ test("More filters collapses on demand and auto-opens when a canonical group for
     await expect(panel).toHaveCount(0);
 
     // With the panel closed, viewing a duplicate group forces it open again.
-    await page.goto(`/?work=${source.id}`);
+    await page.goto(`/work-items?work=${source.id}`);
     await expect(page.locator("#project-select")).toHaveValue(state.projectId);
     const pane = workPane(page);
     await expect(pane.locator(".detail-title")).toHaveText(sourceTitle);
@@ -1826,7 +1827,7 @@ test("the horizontal arrows walk the lifecycle filters", async ({ page }, testIn
     "The stacked layout below 900px has no divider for the same keys to yield to."
   );
   // The rendered order of the filter row, which the arrows follow.
-  const order = ["Pending", "Active", "To review", "Dropped", "Deferred", "Done", "Won’t do", "Promoted", "All"];
+  const order = ["Pending", "Active", "Dropped", "Deferred", "Done", "Won’t do", "Promoted", "All"];
   const filter = (name: string) => page.getByRole("button", { name, exact: true });
   const pressed = async (name: string) => {
     for (const label of order) {

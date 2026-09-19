@@ -112,7 +112,7 @@ def search_work(
             select(WorkItem).where(
                 WorkItem.project_id == project_id,
                 WorkItem.deleted_at.is_(None),
-                *status_conditions(filters.status, as_of),
+                *status_conditions(filters.status, as_of, filters.status_scope),
                 *provenance_conditions(filters),
                 *date_conditions(filters, WorkItem.created_at, WorkItem.updated_at),
                 *([WorkItem.external_references.contains([{ "url": filters.external_url }])]

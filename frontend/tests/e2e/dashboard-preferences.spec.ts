@@ -9,7 +9,7 @@ test.beforeAll(async () => {
 });
 
 test("project, filter, and sort selections survive a reload", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/work-items");
   const projectSelect = page.locator("#project-select");
   await projectSelect.selectOption(state.projectId);
 
@@ -37,11 +37,11 @@ test("project, filter, and sort selections survive a reload", async ({ page }) =
 });
 
 test("the complete library overview collapses with directional easing and persists", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/work-items");
   const toggle = page.locator(".library-tools-toggle");
   const panel = page.locator("#library-tools-panel");
   const filters = page.getByRole("group", { name: "Filter work items" });
-  const heading = page.getByRole("heading", { name: /^Work library[.:]/ });
+  const heading = page.getByRole("heading", { name: /^Work items[.:]/ });
   const pageHeading = page.locator(".page-heading");
   const topbar = page.locator(".topbar");
   const newWork = topbar.getByRole("button", { name: "New work" });

@@ -3,6 +3,7 @@ import { workSummaryMaxChars } from "@/lib/work-summary-limit";
 import type { Metadata } from "next";
 import { libraryToolsInitializationScript } from "@/lib/dashboard-preferences";
 import { themeInitializationScript } from "@/lib/theme-preference";
+import { applicationSettingsInitializationScript } from "@/lib/application-settings";
 import "./globals.css";
 
 export const dynamic = "force-dynamic";
@@ -16,6 +17,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
   return <html lang="en" suppressHydrationWarning>
     <head>
       <script dangerouslySetInnerHTML={{ __html: themeInitializationScript }} />
+      <script dangerouslySetInnerHTML={{ __html: applicationSettingsInitializationScript }} />
       <script dangerouslySetInnerHTML={{ __html: libraryToolsInitializationScript }} />
     </head>
     <body><WorkSummaryLimitProvider maximum={workSummaryMaxChars(process.env.MNEMONIC_WORK_SUMMARY_MAX_CHARS)}>{children}</WorkSummaryLimitProvider></body>

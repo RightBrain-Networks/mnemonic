@@ -173,7 +173,7 @@ test("hierarchy navigation and the relationship editor preserve graph semantics"
       if (request.url().includes("/children?")) childRequests.push(request.url());
     });
     await page.clock.install();
-    await page.goto("/");
+    await page.goto("/work-items");
     await page.locator("#project-select").selectOption(state.projectId);
 
     const rootCard = workCard(page, titles.root);
@@ -406,7 +406,7 @@ test("the relationship editor links work across projects and opens the target pr
       await route.continue();
     });
 
-    await page.goto("/");
+    await page.goto("/work-items");
     await expect.poll(() => Boolean(sendSync)).toBe(true);
     await page.locator("#project-select").selectOption(sourceProject.id);
     await page.getByLabel("Search work items").fill(sourceTitle);

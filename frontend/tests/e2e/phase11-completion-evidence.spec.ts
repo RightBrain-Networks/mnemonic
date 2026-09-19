@@ -265,7 +265,7 @@ async function installCommittedResponseLoss(
 }
 
 async function openFixture(page: Page, title: string, status: "Pending" | "Done" = "Pending") {
-  const response = await page.goto("/");
+  const response = await page.goto("/work-items");
   expect(response).not.toBeNull();
   expect(await response!.headerValue("x-dns-prefetch-control")).toBe("off");
   await expect(

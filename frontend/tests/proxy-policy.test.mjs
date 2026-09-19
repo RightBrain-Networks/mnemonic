@@ -67,12 +67,12 @@ test("the route allowlist exposes canonical Phase 3 work, hierarchy, and relatio
   assert.deepEqual(allowedQueryKeys(`projects/${project}`, "PATCH"), []);
   assert.deepEqual(allowedQueryKeys(`projects/${project}/settings`, "GET"), ["work_item_id"]);
   assert.deepEqual(allowedQueryKeys(`projects/${project}/settings`, "PATCH"), []);
-  assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items`, "GET"), ["q", "semantic", "status", "sort", "tag", "source_client", "external_url", "source_session_id", "view", "detail", "duplicate_scope", "canonical_work_item_id", "created_after", "created_before", "updated_after", "updated_before", "diagnostics", "query_mode", "work_fields", "limit", "offset"]);
+  assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items`, "GET"), ["q", "semantic", "status", "status_scope", "sort", "tag", "source_client", "external_url", "source_session_id", "view", "detail", "duplicate_scope", "canonical_work_item_id", "created_after", "created_before", "updated_after", "updated_before", "diagnostics", "query_mode", "work_fields", "limit", "offset"]);
   assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items`, "POST"), []);
   assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items/${work}`, "GET"), []);
   assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items/${work}`, "PATCH"), []);
   assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items/${work}/context`, "GET"), ["recent_limit", "recent_event_limit"]);
-  assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items/${work}/children`, "GET"), ["status", "sort", "tag", "source_client", "source_session_id", "limit", "offset"]);
+  assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items/${work}/children`, "GET"), ["status", "status_scope", "sort", "tag", "source_client", "source_session_id", "limit", "offset"]);
   assert.deepEqual(allowedQueryKeys(`projects/${project}/work-items/${work}/relationships`, "GET"), ["direction", "type", "limit", "offset"]);
   assert.deepEqual(allowedQueryKeys(`projects/${project}/relationships`, "POST"), []);
   assert.equal(allowedQueryKeys(`projects/${project}/relationships/${other}`, "GET"), null);

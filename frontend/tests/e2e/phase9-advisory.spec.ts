@@ -139,7 +139,7 @@ async function mergeAlias(
 }
 
 async function openDashboard(page: Page): Promise<void> {
-  await page.goto("/");
+  await page.goto("/work-items");
   await page.locator("#project-select").selectOption(state.projectId);
   await expect(page.locator(".sync-status")).toHaveText("Live Updates");
 }

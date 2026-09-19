@@ -52,7 +52,8 @@ def _project_work_corpus(
     )
     conditions = [
         WorkItem.project_id == project_id, WorkItem.deleted_at.is_(None),
-        *status_conditions(filters.status, as_of), *provenance_conditions(filters),
+        *status_conditions(filters.status, as_of, filters.status_scope),
+        *provenance_conditions(filters),
         *date_conditions(filters, WorkItem.created_at, WorkItem.updated_at),
     ]
     if filters.external_url is not None:

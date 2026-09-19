@@ -41,8 +41,8 @@ function effectiveCardStatus(status: WorkStatus, readiness?: Readiness): CardSta
   return "pending";
 }
 
-function StatusBadge({ status, readiness }: { status: WorkStatus; readiness?: Readiness }) {
-  const effective = effectiveCardStatus(status, readiness);
+function StatusBadge({ status, readiness, workItem = false }: { status: WorkStatus; readiness?: Readiness; workItem?: boolean }) {
+  const effective = workItem && status !== "pending" ? status : effectiveCardStatus(status, readiness);
   return <span className={`status-badge status-${effective}`}><span />{cardStatusLabels[effective]}</span>;
 }
 

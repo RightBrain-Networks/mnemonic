@@ -16,7 +16,7 @@ test("search shows checkpoint phrase evidence with its saved source", async ({ p
     } });
     expect(response.status(), await response.text()).toBe(201);
     const { work_item: work } = await response.json();
-    await page.goto("/");
+    await page.goto("/work-items");
     await page.locator("#project-select").selectOption(state.projectId);
     await expect(page.locator(".sync-status")).toHaveText("Live Updates");
     await page.getByLabel("Search work items").fill(`"${token} lease cookie"`);
@@ -43,7 +43,7 @@ test("incomplete duplicate comparison stays visible and creation remains availab
         comparison_incomplete: true, retry: { max_attempts: 1, after_seconds: 1 }, cache_refresh: { status: "not_needed", reason: null } }
     }) });
   });
-  await page.goto("/");
+  await page.goto("/work-items");
   await page.locator("#project-select").selectOption(state.projectId);
   await page.locator(".topbar").getByRole("button", { name: "New work" }).click();
   const dialog = page.getByRole("dialog", { name: "Create durable work" });

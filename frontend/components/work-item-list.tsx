@@ -9,7 +9,7 @@ import {
   WORK_PAGE_SIZE,
   moreFiltersForced,
   statusFilterLabels,
-  statusFilterOrder,
+  workItemStatusFilterOrder,
   type WorkQueueItem
 } from "@/lib/work-queue";
 import { WORK_SPLIT_MAX, WORK_SPLIT_MIN } from "@/lib/work-split";
@@ -197,7 +197,7 @@ export default function WorkItemList({
       </section>
       <div className="filter-row">
         <div className="status-filters" role="group" aria-label="Filter work items" aria-keyshortcuts="ArrowLeft ArrowRight">
-          {statusFilterOrder.map((filter) => <button type="button" key={filter} className={`filter-button ${status === filter ? "selected" : ""}`} aria-pressed={status === filter} onClick={() => onStatus(filter)}>{filter === "pending" && <span className="filter-dot" />}{statusFilterLabels[filter]}</button>)}
+          {workItemStatusFilterOrder.map((filter) => <button type="button" key={filter} className={`filter-button ${status === filter ? "selected" : ""}`} aria-pressed={status === filter} onClick={() => onStatus(filter)}>{filter === "pending" && <span className="filter-dot" />}{statusFilterLabels[filter]}</button>)}
         </div>
         <div className="filter-controls">
           <div className="sort-group">

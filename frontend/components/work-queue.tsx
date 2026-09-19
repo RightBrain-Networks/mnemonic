@@ -17,6 +17,7 @@ import type {
 import type { ManualStatusAction } from "@/lib/work-status-actions";
 import {
   cycleStatusFilter,
+  workItemStatusFilterOrder,
   listScrollTopFor,
   nextQueueSelection,
   resultCountLabel,
@@ -302,7 +303,7 @@ export default function WorkQueue({
         case "ArrowRight":
           if (resizingSurface(event.target)) return;
           event.preventDefault();
-          state.onStatus(cycleStatusFilter(state.status, event.key === "ArrowRight" ? "next" : "previous"));
+          state.onStatus(cycleStatusFilter(state.status, event.key === "ArrowRight" ? "next" : "previous", workItemStatusFilterOrder));
           return;
         case "c":
           if (readingRecord(event.target) || selectedIdRef.current === null) return;
