@@ -96,7 +96,7 @@ export default function ProjectSettingsPanel({
     return <section className="empty-state settings-empty">
       <h2>Select a project.</h2>
       <p>Project settings become available after you create or select a workspace.</p>
-      <a className="button button-primary" href="/">Open the work library</a>
+      <a className="button button-primary" href="/work-items">Open work items</a>
     </section>;
   }
   const selectedProject = project;

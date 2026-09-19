@@ -7,7 +7,7 @@ let state: E2EState;
 test.beforeAll(async () => { state = JSON.parse(await readFile(statePath, "utf8")) as E2EState; });
 
 async function openCreate(page: Page, title: string) {
-  await page.goto("/");
+  await page.goto("/work-items");
   await page.locator("#project-select").selectOption(state.projectId);
   await expect(page.locator(".sync-status")).toHaveText("Live Updates");
   await page.locator(".topbar").getByRole("button", { name: "New work" }).click();

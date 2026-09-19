@@ -34,7 +34,7 @@ export const READINESS_DECODER_FIELDS = {
   decodeReadiness: [...READINESS_FIELDS, "review_status"]
 } as const;
 
-function decodeLease(value: unknown): LeasePublic | null {
+export function decodeLease(value: unknown): LeasePublic | null {
   if (value === null) return null;
   const lease = objectValue(value);
   if (

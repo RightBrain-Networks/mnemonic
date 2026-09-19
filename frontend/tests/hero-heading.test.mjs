@@ -52,7 +52,7 @@ test("the library hero names the selected project and moves its description inli
   const subjects = [...dashboard.matchAll(/^\s*subject=\{([^}]*)\}$/gm)].map(([, value]) => value);
   assert.deepEqual(subjects, ["project?.name"]);
   const libraryChrome = dashboard.match(
-    /<DashboardViewChrome\n\s*title="Work library"[\s\S]*?\n\s*\/>/
+    /<DashboardViewChrome\n\s*title="Work items"[\s\S]*?\n\s*\/>/
   )?.[0] ?? "";
   assert.match(libraryChrome,
     /subject=\{project\?\.name\}\n\s*subjectDescription=\{project\?\.description \|\|/);

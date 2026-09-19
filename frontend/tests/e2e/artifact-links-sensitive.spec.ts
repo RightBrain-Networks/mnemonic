@@ -83,7 +83,7 @@ test("dashboard links artifacts in both directions and work items from either su
     await page.getByLabel("Search artifact metadata and content").fill(needle);
     await page.getByRole("button", { name: "Search", exact: true }).click();
     await expect(row.locator(".artifact-search-excerpt")).toContainText(needle);
-    await page.goto(`/?work=${workId}`);
+    await page.goto(`/work-items?work=${workId}`);
     const workLinks = page.locator(".work-artifact-links");
     await expect(workLinks).toContainText(first);
     const workAttempts: string[] = [];

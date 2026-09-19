@@ -24,10 +24,12 @@ import CodeReviewHandoffEditor, {
 } from "@/components/code-review-handoff-editor";
 import { formatDateTime } from "@/components/work-item-card";
 
-function ReviewResult({
+export function ReviewResult({
   detail,
   onOpen,
+  statusLabel,
 }: {
+  statusLabel?: string;
   detail: CodeReviewDetail;
   onOpen: (id: string) => void;
 }) {
@@ -40,7 +42,7 @@ function ReviewResult({
           review
         </h4>
         <span className={`review-state review-state-${review.state}`}>
-          {review.state === "requested" ? (review.human_decision?.status ?? "To review") : review.state}
+          {statusLabel ?? (review.state === "requested" ? (review.human_decision?.status ?? "Pending") : review.state)}
         </span>
       </div>
       <p>

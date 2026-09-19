@@ -1,7 +1,8 @@
 import { expect, test } from "@playwright/test";
 
 test("the sidebar note displays the original robot and updated message", async ({ page }) => {
-  await page.goto("/");
+  await page.addInitScript(() => localStorage.setItem("mnemonic.hide-nemo-logo", "false"));
+  await page.goto("/work-items");
   const note = page.locator(".sidebar-note");
   const art = note.locator("img.note-art");
   await expect(note.locator("h2")).toHaveText("Keeping your agents on the same page.");

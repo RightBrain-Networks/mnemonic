@@ -298,7 +298,7 @@ test("human questions stay visible and recover one exact durable resolution", as
     const resolutionPath = `/projects/${state.projectId}/work-items/${workId}/gates/${gate.id}/resolve`;
     const probe = await installCommittedResponseLoss(page, resolutionPath);
 
-    await page.goto("/");
+    await page.goto("/work-items");
     await page.locator("#project-select").selectOption(state.projectId);
     const moreFilters = await openMoreFilters(page);
     await moreFilters.getByLabel("Tag").fill(tag);
@@ -337,7 +337,7 @@ test("human questions stay visible and recover one exact durable resolution", as
       "Resolve human question · outcome unknown"
     );
     await expect(page.locator("#project-select")).toBeDisabled();
-    await page.getByRole("link", { name: "Work library" }).click();
+    await page.getByRole("link", { name: "Work items" }).click();
     await expect(page).toHaveURL(/\/attention$/);
     await expect(page.locator(".toast")).toContainText(
       "Resolve pending mutations before leaving this dashboard document."

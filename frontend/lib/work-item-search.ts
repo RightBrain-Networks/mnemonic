@@ -40,6 +40,7 @@ export function scheduleHierarchyFilterCommit(
 }
 
 export type WorkSearchOptions = {
+  statusScope?: "work_item";
   status: StatusFilter;
   sort: WorkSort;
   limit: number;
@@ -76,6 +77,7 @@ function addHierarchyFilters(
 
 export function workSearchParams({
   status,
+  statusScope,
   sort,
   limit,
   offset,
@@ -104,6 +106,7 @@ export function workSearchParams({
     params.set("q", trimmedQuery);
     if (semantic) params.set("semantic", "true");
   }
+  if (statusScope) params.set("status_scope", statusScope);
   addHierarchyFilters(params, { tag, sourceClient, sourceSessionId });
   if (canonicalWorkItemId) params.set("canonical_work_item_id", canonicalWorkItemId);
   return params;
@@ -111,6 +114,7 @@ export function workSearchParams({
 
 export function childSearchParams({
   status,
+  statusScope,
   sort,
   limit,
   offset,
@@ -119,9 +123,10 @@ export function childSearchParams({
   sourceSessionId
 }: Pick<
   WorkSearchOptions,
-  "status" | "sort" | "limit" | "offset" | "tag" | "sourceClient" | "sourceSessionId"
+  "statusScope" | "status" | "sort" | "limit" | "offset" | "tag" | "sourceClient" | "sourceSessionId"
 >): URLSearchParams {
   const params = new URLSearchParams({ status, sort, limit: String(limit), offset: String(offset) });
+  if (statusScope) params.set("status_scope", statusScope);
   addHierarchyFilters(params, { tag, sourceClient, sourceSessionId });
   return params;
 }

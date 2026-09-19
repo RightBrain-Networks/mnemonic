@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 
 test("theme choices persist and Auto follows the system", async ({ page }) => {
   await page.emulateMedia({ colorScheme: "dark" });
-  await page.goto("/");
+  await page.goto("/work-items");
 
   const auto = page.getByRole("radio", { name: "Auto" });
   const dark = page.getByRole("radio", { name: "Dark" });

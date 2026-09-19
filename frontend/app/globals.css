@@ -2600,3 +2600,77 @@ html[data-theme="dark"] .review-policy-summary, html[data-theme="dark"] .review-
 
 .transcript-health-notice .text-button { background: none; border: 0; padding: 0; color: var(--accent-deep); font: inherit; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
 .transcript-health-notice .text-button:focus-visible { outline: 2px solid var(--accent-deep); outline-offset: 3px; }
+
+html:not([data-hide-nemo="false"]) .sidebar-note { display: none; }
+.sidebar-footer { margin-top: auto; }
+.application-settings-trigger { flex: none; }
+.application-settings-drawer { position: fixed; inset: 0 0 0 auto; margin: 0; width: min(440px, 100vw); height: 100dvh; max-height: none; max-width: none; padding: 0; border: 0; border-left: 1px solid var(--line); background: var(--surface); color: var(--ink); box-shadow: -16px 0 64px #25113030; }
+.application-settings-drawer[open] { animation: artifact-details-enter 220ms ease-out; }
+.application-settings-drawer::backdrop { background: #1b10247a; }
+.application-settings-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 30px 24px 24px; border-bottom: 1px solid var(--line); }
+.application-settings-header h2 { margin: 10px 0 0; font-size: 23px; font-weight: 500; }
+.application-settings-body { padding: 24px; }
+.application-settings-body > p { color: var(--muted); font-size: 13px; line-height: 1.7; margin: 0 0 24px; }
+.application-setting { display: flex; justify-content: space-between; align-items: flex-start; gap: 24px; cursor: pointer; }
+.application-setting strong { display: block; font-size: 15px; font-weight: 500; }
+.application-setting .field-hint { display: block; line-height: 1.6; margin-top: 7px; }
+.application-setting .settings-switch { flex: none; appearance: none; width: 40px; height: 24px; margin: 0; padding: 3px; border: 1px solid var(--muted); border-radius: 14px; background: var(--paper); cursor: pointer; }
+.application-setting .settings-switch::before { content: ""; display: block; width: 16px; height: 16px; border-radius: 50%; background: var(--muted); transition: transform 150ms ease; }
+.application-setting .settings-switch:checked { background: var(--accent-deep); border-color: var(--accent-deep); }
+.application-setting .settings-switch:checked::before { transform: translateX(16px); background: white; }
+.application-setting .settings-switch:focus-visible { outline: 2px solid var(--accent-deep); outline-offset: 3px; }
+.task-widgets { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+.task-widget { padding: 26px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); }
+.task-widget-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.task-widget h2 { margin: 0; font-size: 20px; font-weight: 500; }
+.task-widget-heading a { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%; background: var(--paper); color: var(--accent-deep); font-size: 23px; text-decoration: none; }
+.task-widget > p { color: var(--muted); font-size: 12px; line-height: 1.6; margin: 6px 0 24px; }
+.task-counts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 0; gap: 16px; }
+.task-counts > div + div { border-left: 1px solid var(--line); padding-left: 24px; }
+.task-counts dt { display: flex; align-items: center; gap: 7px; color: var(--muted); font-size: 12px; }
+.task-counts dd { font: 500 42px/1.2 var(--display); margin: 7px 0 0; font-variant-numeric: tabular-nums; }
+.task-active-dot { width: 6px; height: 6px; background: var(--accent); border-radius: 50%; }
+.task-widget-code_reviews .task-active-dot { background: var(--violet); }
+.active-tasks { margin-top: 36px; }
+.task-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.task-section-heading h2 { font-size: 20px; margin: 0; font-weight: 500; }
+.task-section-heading > span, .task-result-count { font-size: 12px; color: var(--muted); }
+.task-section-description { color: var(--muted); font-size: 13px; line-height: 1.6; margin: 8px 0 20px; }
+.task-card-list { display: grid; gap: 12px; }
+.task-card { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 23px 26px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+.task-card-body { min-width: 0; flex: 1; }
+.task-card-meta { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
+.task-kind { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); }
+.task-card h3 { margin: 0 0 7px; font-size: 17px; font-weight: 500; line-height: 1.4; overflow-wrap: anywhere; }
+.task-card-body > p { margin: 0; color: var(--muted); line-height: 1.65; font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.task-card-footnote { margin-top: 14px; font-size: 11px; color: var(--muted); overflow-wrap: anywhere; }
+.task-view-link { flex: none; text-decoration: none; gap: 14px; }
+.task-empty-state { padding: 40px 24px; border: 1px dashed var(--line); border-radius: 12px; text-align: center; }
+.task-empty-state h2, .task-empty-state h3 { font-size: 17px; font-weight: 500; }
+.task-empty-state p { color: var(--muted); font-size: 13px; line-height: 1.6; }
+.task-pagination { display: flex; align-items: center; justify-content: flex-end; gap: 16px; margin-top: 20px; font-size: 12px; color: var(--muted); }
+.code-review-library > .status-filters { flex-wrap: wrap; margin-bottom: 18px; }
+.task-detail-heading { margin: 26px 0; }
+.task-detail-heading h2 { font-size: 24px; font-weight: 500; overflow-wrap: anywhere; }
+.task-detail-heading p { color: var(--muted); font-size: 13px; }
+.task-detail-heading a { color: var(--accent-deep); }
+.code-review-detail > .review-record { margin-bottom: 20px; }
+@media (max-width: 580px) {
+  .task-widgets { grid-template-columns: 1fr; gap: 12px; }
+  .task-widget { padding: 20px; }
+  .task-counts dd { font-size: 36px; }
+  .task-card { padding: 20px; align-items: flex-start; flex-direction: column; gap: 16px; }
+  .task-view-link { align-self: flex-end; }
+  .task-section-heading { align-items: baseline; }
+  .topbar .breadcrumb { min-width: 0; overflow: hidden; }
+  .topbar .breadcrumb > span:not(:last-child) { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .application-settings-drawer[open] { animation: none; }
+  .application-setting .settings-switch::before { transition: none; }
+}
+
+@media (max-width: 580px) {
+  .sidebar nav { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .sidebar nav .tasks-nav { grid-column: span 1; }
+}

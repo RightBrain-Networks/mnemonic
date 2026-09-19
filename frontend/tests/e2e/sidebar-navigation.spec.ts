@@ -7,7 +7,7 @@ test("sidebar navigation keeps the workspace mounted through menu links and brow
   await page.route("**/job-completion-reports/count", (route) => route.fulfill({ json: {
     project_id: state.projectId, undismissed_count: "7", as_of_sequence: "0"
   } }));
-  await page.goto("/");
+  await page.goto("/work-items");
   await page.locator("#project-select").selectOption(state.projectId);
   const navigation = page.getByRole("navigation", { name: "Workspace navigation" });
   const toggle = navigation.getByRole("button", { name: "Project settings" });
@@ -35,9 +35,9 @@ test("sidebar navigation keeps the workspace mounted through menu links and brow
     }).observe(document.querySelector(".sidebar")!, { subtree: true, childList: true, attributes: true });
   });
 
-  for (const label of ["Summaries", "Needs Attention", "Artifacts", "Transcripts", "Workspace", "Prompts", "Code reviews", "Backups", "Work library"]) {
-    await navigation.getByRole("link", { name: label, exact: label !== "Summaries" }).click();
-    await expect(page.locator("h1")).toContainText(label === "Work library" ? `Work library: ${state.projectName}` : `${label}.`);
+  for (const label of ["Summaries", "Needs Attention", "Artifacts", "Transcripts", "Workspace", "Prompts", "Code reviews", "Backups", "Work items"]) {
+    await (label === "Code reviews" ? navigation.locator(".settings-nav") : navigation).getByRole("link", { name: label, exact: label !== "Summaries" }).click();
+    await expect(page.locator("h1")).toContainText(label === "Work items" ? `Work items: ${state.projectName}` : `${label}.`);
     expect(documentRequests).toEqual([]);
     expect(await sidebar!.evaluate((element) => element.isConnected)).toBe(true);
     await expect(navigation.locator('[aria-current="page"]')).toContainText(label);
@@ -48,7 +48,7 @@ test("sidebar navigation keeps the workspace mounted through menu links and brow
   await page.goBack();
   await expect(page.locator("h1")).toHaveText("Backups.");
   await page.goForward();
-  await expect(page.locator("h1")).toContainText(`Work library: ${state.projectName}`);
+  await expect(page.locator("h1")).toContainText(`Work items: ${state.projectName}`);
   await navigation.getByRole("link", { name: "Summaries" }).click();
   await expect(page).toHaveURL("/summaries");
   await page.getByRole("link", { name: "Mnemonic home" }).click();
@@ -66,25 +66,25 @@ test("sidebar navigation restores a work deep link on Back and clears it on a fr
   test.skip((page.viewportSize()?.width ?? 0) < 801, "The narrow work sheet covers the sidebar while open.");
   const state = JSON.parse(await readFile(statePath, "utf8")) as E2EState;
   await page.addInitScript((projectId) => localStorage.setItem("mnemonic.project", projectId), state.projectId);
-  await page.goto(`/?work=${state.historicalCompletion.workItemId}`);
+  await page.goto(`/work-items?work=${state.historicalCompletion.workItemId}`);
   await expect(page.locator(".detail-title")).toHaveText(state.historicalCompletion.title);
   const sidebar = await page.locator(".sidebar").elementHandle();
   const navigation = page.getByRole("navigation", { name: "Workspace navigation" });
   await navigation.getByRole("link", { name: "Summaries" }).click();
   await expect(page).toHaveURL("/summaries");
   await page.goBack();
-  await expect(page).toHaveURL(`/?work=${state.historicalCompletion.workItemId}`);
+  await expect(page).toHaveURL(`/work-items?work=${state.historicalCompletion.workItemId}`);
   await expect(page.locator(".detail-title")).toHaveText(state.historicalCompletion.title);
-  await navigation.getByRole("link", { name: "Work library" }).click();
-  await expect(page).toHaveURL("/");
+  await navigation.getByRole("link", { name: "Work items" }).click();
+  await expect(page).toHaveURL("/work-items");
   await expect(page.locator(".detail-title")).toHaveCount(0);
   await page.goBack();
-  await expect(page).toHaveURL(`/?work=${state.historicalCompletion.workItemId}`);
+  await expect(page).toHaveURL(`/work-items?work=${state.historicalCompletion.workItemId}`);
   await expect(page.locator(".detail-title")).toHaveText(state.historicalCompletion.title);
   await navigation.getByRole("link", { name: "Summaries" }).click();
   await expect(page).toHaveURL("/summaries");
-  await navigation.getByRole("link", { name: "Work library" }).click();
-  await expect(page).toHaveURL("/");
+  await navigation.getByRole("link", { name: "Work items" }).click();
+  await expect(page).toHaveURL("/work-items");
   await expect(page.locator(".detail-title")).toHaveCount(0);
   expect(await sidebar!.evaluate((element) => element.isConnected)).toBe(true);
 });
@@ -131,7 +131,7 @@ test("sidebar navigation restores the artifact URL project after project changes
 
 test("sidebar navigation and browser Back retain a pending backup panel", async ({ page }) => {
   const state = JSON.parse(await readFile(statePath, "utf8")) as E2EState;
-  await page.goto("/");
+  await page.goto("/work-items");
   await page.locator("#project-select").selectOption(state.projectId);
   const navigation = page.getByRole("navigation", { name: "Workspace navigation" });
   await navigation.getByRole("button", { name: "Project settings" }).click();
@@ -154,7 +154,7 @@ test("sidebar navigation and browser Back retain a pending backup panel", async 
     await navigation.getByRole("link", { name: "Transcripts", exact: true }).click();
     await expect(page).toHaveURL("/settings/backups");
     expect(await originalPanel!.evaluate((element) => element.isConnected)).toBe(true);
-    await navigation.getByRole("link", { name: "Work library" }).click();
+    await navigation.getByRole("link", { name: "Work items" }).click();
     await expect(page).toHaveURL("/settings/backups");
     await page.goBack();
     await expect(page.getByText("Wait for the backup action to finish before leaving this page.")).toBeVisible();
@@ -162,7 +162,7 @@ test("sidebar navigation and browser Back retain a pending backup panel", async 
     expect(await originalPanel!.evaluate((element) => element.isConnected)).toBe(true);
     release();
     await expect(panel.getByRole("button", { name: "Back up now", exact: true })).toBeEnabled();
-    await navigation.getByRole("link", { name: "Work library" }).click();
-    await expect(page).toHaveURL("/");
+    await navigation.getByRole("link", { name: "Work items" }).click();
+    await expect(page).toHaveURL("/work-items");
   } finally { release(); }
 });

@@ -1,6 +1,10 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import ApplicationSettings from "@/components/application-settings";
+import TaskDashboard from "@/components/task-dashboard";
+import CodeReviewLibrary from "@/components/code-review-library";
 import { useDashboardRoute } from "@/components/use-dashboard-route";
 import WorkSummaryInput from "@/components/work-summary-input";
 import ExternalReferencesEditor from "@/components/external-references-editor";
@@ -304,6 +308,7 @@ type WorkDialogState = "closed" | "open" | "suspended";
 
 export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAULT_MAX_BYTES, backupMaxBytes = BACKUP_DEFAULT_MAX_BYTES }: { timeZone?: string | null; artifactMaxBytes?: number; backupMaxBytes?: number; }) {
   setDisplayTimeZone(timeZone);
+  const router = useRouter();
   const [mutationRegistry] = useState(() => new MutationIntentRegistry());
   const mutationIntents = useMutationIntents(mutationRegistry);
   useMutationUnloadWarning(mutationRegistry);
@@ -324,15 +329,18 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
     : pathname === "/summaries" ? "summaries"
       : pathname === "/attention" ? "attention"
         : pathname === "/artifacts" ? "artifacts"
-          : pathname === "/transcripts" ? "transcripts" : "library";
+          : pathname === "/transcripts" ? "transcripts"
+            : pathname === "/code-reviews" ? "reviews"
+              : pathname === "/work-items" ? "library" : "dashboard";
   const artifactRoute = artifactLocation(searchParams.toString());
-  const artifactProjectId = (view === "artifacts" || view === "transcripts") ? artifactRoute.projectId : null;
+  const artifactProjectId = (view === "artifacts" || view === "transcripts" || view === "library" || view === "reviews") ? artifactRoute.projectId : null;
 
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectsLoading, setProjectsLoading] = useState(true);
   const [projectsError, setProjectsError] = useState("");
   const [projectsRefresh, setProjectsRefresh] = useState(0);
   const [activeId, setActiveId] = useState("");
+  const [applicationSettingsOpen, setApplicationSettingsOpen] = useState(false);
   const [projectDialog, setProjectDialog] = useState(false);
   const [projectSaving, setProjectSaving] = useState(false);
   const [newProjectError, setNewProjectError] = useState("");
@@ -496,7 +504,8 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
       );
       document.documentElement.dataset.libraryTools = storedLibraryToolsOpen ? "open" : "closed";
       setLibraryToolsOpen(storedLibraryToolsOpen);
-      setStatus(dashboardStatusPreference(localStorage.getItem(dashboardStorageKeys.status)));
+      const savedStatus = dashboardStatusPreference(localStorage.getItem(dashboardStorageKeys.status));
+      setStatus(savedStatus === "to-review" ? "done" : savedStatus);
       setSort(dashboardSortPreference(localStorage.getItem(dashboardStorageKeys.sort)));
     } catch {
       // Preferences are optional when storage is unavailable.
@@ -524,7 +533,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
       setProjects(all);
       let saved = "";
       try { saved = localStorage.getItem(dashboardStorageKeys.project) ?? ""; } catch { /* optional */ }
-      const requested = (view === "artifacts" || view === "transcripts") ? artifactLocation(window.location.search).projectId : null;
+      const requested = (view === "artifacts" || view === "transcripts" || view === "library" || view === "reviews") ? artifactLocation(window.location.search).projectId : null;
       if (requested && !all.some((item) => sameUuid(item.id, requested))) {
         throw new Error(unavailableArtifactProject);
       }
@@ -540,6 +549,8 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
   // different project without reloading the shared project catalog.
   useEffect(() => {
     if (!artifactProjectId || projectsLoading) return;
+    // A verified work move may update history before the guarded route catches up.
+    if (artifactLocation(window.location.search).projectId !== artifactProjectId) return;
     const requested = projects.find((item) => sameUuid(item.id, artifactProjectId));
     if (!requested) {
       setProjectsError(unavailableArtifactProject);
@@ -875,7 +886,16 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
     window.history.replaceState(null, "", url);
   }, [contextReconciliationRequired, openedId, view, route.query]);
 
-  function applyProjectSelection(id: string) {
+  function applyProjectSelection(id: string, workItemId?: string) {
+    if ((view === "library" || view === "reviews") && id) {
+      const url = new URL(window.location.href);
+      if (url.searchParams.get("project") !== id || workItemId && url.searchParams.get("work") !== workItemId) {
+        url.searchParams.set("project", id);
+        // Publish a move and its selection together so route reconciliation retains the pane.
+        if (workItemId) url.searchParams.set("work", workItemId);
+        window.history.replaceState(null, "", url);
+      }
+    }
     setActiveId(id);
     setQuery("");
     setSearch("");
@@ -915,6 +935,9 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
     if ((view === "artifacts" || view === "transcripts") && id !== activeId) {
       window.history.replaceState(null, "", view === "transcripts" ? transcriptLibraryPath(id) : artifactLibraryPath(id));
       setProjectsError("");
+    }
+    if ((view === "library" || view === "reviews") && id !== activeId) {
+      window.history.replaceState(null, "", `${pathname}?project=${id}`);
     }
     applyProjectSelection(id);
   }
@@ -995,7 +1018,8 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
       setStatus("pending");
       setRefresh((value) => value + 1);
       setNotice({ message: `“${created.work_item.title}” now has its first immutable checkpoint.` });
-      void openExactWork(project.id, created.work_item.id);
+      if (view === "library") void openExactWork(project.id, created.work_item.id);
+      else router.push(`/work-items?project=${project.id}&work=${created.work_item.id}`);
     } catch (error) {
       if (error instanceof AffectedPathsValidationError) {
         setCreateAffectedPathsError(error.message);
@@ -1298,7 +1322,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
       const displayStatus = preservedWorkMoveDisplayStatus(found.context);
       if (catalog) updateCatalog(catalog);
       if (projectChanged) {
-        applyProjectSelection(targetProjectId);
+        applyProjectSelection(targetProjectId, found.context.work_item.id);
         setJobReportDraft((draft) => ({ ...draft, promptRevision: null }));
       }
       setStatus(displayStatus);
@@ -1477,7 +1501,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
       if (!leavingOpenedWorkAllowed()) return;
       if (!isCurrent()) return;
       clearSelection();
-      applyProjectSelection(projectId);
+      applyProjectSelection(projectId, workItemId);
       const loaded = await openExactWork(projectId, workItemId);
       if (!loaded && requestId === workPlacementRequest.current) {
         setNotice({
@@ -1542,7 +1566,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
         });
         return;
       }
-      window.location.assign(`/?work=${encodeURIComponent(workItemId)}`);
+      window.location.assign(`/work-items?work=${encodeURIComponent(workItemId)}`);
     } catch (error) {
       if (isCurrent()) {
         setNotice({ message: errorMessage(error), error: true });
@@ -2049,7 +2073,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
     const isCurrent = () =>
       workPlacementRequest.current === placementRequestId
       && recordRequest.current === requestId;
-    applyProjectSelection(result.target_project_id);
+    applyProjectSelection(result.target_project_id, result.work_item.id);
     setStatus(displayStatus);
     setOpened(movedSummary);
     setContext(null);
@@ -2780,7 +2804,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
       });
       return;
     }
-    window.location.assign(`/?work=${encodeURIComponent(summary.work_item.id)}`);
+    window.location.assign(`/work-items?work=${encodeURIComponent(summary.work_item.id)}`);
   }
 
   async function afterWorkMutation(
@@ -2869,13 +2893,13 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
   const settingsPage = settingsSections.find(({ id }) => id === settingsSection)!;
 
   const libraryChrome = <DashboardViewChrome
-    title="Work library"
+    title="Work items"
     subject={project?.name}
     subjectDescription={project?.description || "One objective. Many immutable checkpoints. Ready for whoever continues it."}
   />;
 
   return <MutationIntentProvider registry={mutationRegistry}><div className="app-shell">
-    <a className="skip-link" href="#main-content">{view === "transcripts" ? "Skip to transcripts" : view === "artifacts" ? "Skip to artifacts" : view === "settings" ? "Skip to project settings" : view === "attention" ? "Skip to human questions" : view === "summaries" ? "Skip to summaries" : "Skip to work items"}</a>
+    <a className="skip-link" href="#main-content">{view === "dashboard" ? "Skip to dashboard" : view === "reviews" ? "Skip to code reviews" : view === "transcripts" ? "Skip to transcripts" : view === "artifacts" ? "Skip to artifacts" : view === "settings" ? "Skip to project settings" : view === "attention" ? "Skip to human questions" : view === "summaries" ? "Skip to summaries" : "Skip to work items"}</a>
     <aside className="sidebar">
       <Link href="/" className="brand" aria-label="Mnemonic home" aria-disabled={activeProjectMutationBlocked || undefined} onClick={blockNavigationWhilePending}><Logo /><span>mnemonic<span className="brand-period">.</span></span></Link>
       <div className="workspace-picker">
@@ -2888,7 +2912,12 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
         {project && <button className="copy-project-button" type="button" title={`Project ID: ${project.id}`} onClick={() => void copyProjectId()}><Icon name="copy" size={13} />Copy project ID for your agent</button>}
       </div>
       <nav aria-label="Workspace navigation">
-        <Link className={`nav-item ${view === "library" ? "active" : ""}`} href="/" aria-current={view === "library" ? "page" : undefined} onClick={blockNavigationWhilePending}><Icon name="library" /><span>Work library</span><Icon name="arrow" size={15} /></Link>
+        <Link className={`nav-item ${view === "dashboard" ? "active" : ""}`} href="/" aria-current={view === "dashboard" ? "page" : undefined} onClick={blockNavigationWhilePending}><Icon name="box" /><span>Dashboard</span><Icon name="arrow" size={15} /></Link>
+        <SidebarNavGroup className="tasks-nav" label="Tasks"
+          storageKey={dashboardStorageKeys.tasksMenu}
+          activeId={view === "library" ? "work-items" : view === "reviews" ? "code-reviews" : undefined}
+          items={[{ id: "work-items", label: "Work items", href: "/work-items" }, { id: "code-reviews", label: "Code reviews", href: "/code-reviews" }]}
+          icon={<Icon name="library" />} onNavigate={blockNavigationWhilePending} />
         <Link className={`nav-item ${view === "summaries" ? "active" : ""}`} href="/summaries" aria-current={view === "summaries" ? "page" : undefined} onClick={blockNavigationWhilePending}><Icon name="box" /><span>Summaries</span>{reportCount !== null && reportCount !== "0" && <span className="summary-nav-count" aria-label={`${reportCount} undismissed summaries`}>{reportCount}</span>}<Icon name="arrow" size={15} /></Link>
         <Link className={`nav-item ${view === "attention" ? "active" : ""}`} href="/attention" aria-current={view === "attention" ? "page" : undefined} onClick={blockNavigationWhilePending}><Icon name="attention" /><span>Needs Attention</span>{attentionCount !== null && attentionCount > 0 && <span className="attention-nav-count" aria-label={`${attentionCount} unresolved human question${attentionCount === 1 ? "" : "s"}`}>{attentionCount}</span>}<Icon name="arrow" size={15} /></Link>
         <SidebarNavGroup className="resources-nav" label="Resources"
@@ -2905,11 +2934,28 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
       <div className="sidebar-footer"><span className="local-dot" /><span>Local workspace</span><ThemeSelector /></div>
     </aside>
 
+    {applicationSettingsOpen && <ApplicationSettings onClose={() => setApplicationSettingsOpen(false)} />}
     <main id="main-content" className="main-content">
-      <header className="topbar"><div className="breadcrumb"><span>Workspace</span><span className="breadcrumb-slash">/</span><span>{project?.name || "Getting started"}</span>{view !== "library" && <><span className="breadcrumb-slash">/</span><span>{view === "transcripts" ? "Transcripts" : view === "artifacts" ? "Artifacts" : view === "settings" ? settingsPage.label : view === "summaries" ? "Summaries" : "Needs Attention"}</span></>}</div><div className="topbar-actions">{project && <button className="button button-primary" type="button" disabled={createWorkMutationBlocked} onClick={openWorkDialog}><Icon name="plus" size={16} />New work</button>}<div className={`sync-status sync-status-${liveSyncStatus}`} role="status" aria-live="polite"><span className="sync-status-dot" />{liveSyncLabels[liveSyncStatus]}</div></div></header>
+      <header className="topbar">
+        <div className="breadcrumb"><span>Workspace</span><span className="breadcrumb-slash">/</span><span>{project?.name || "Getting started"}</span><span className="breadcrumb-slash">/</span><span>{view === "dashboard" ? "Dashboard" : view === "library" ? "Work items" : view === "reviews" ? "Code reviews" : view === "transcripts" ? "Transcripts" : view === "artifacts" ? "Artifacts" : view === "settings" ? settingsPage.label : view === "summaries" ? "Summaries" : "Needs Attention"}</span></div>
+        <div className="topbar-actions">
+          {project && <button className="button button-primary" type="button" disabled={createWorkMutationBlocked} onClick={openWorkDialog}><Icon name="plus" size={16} />New work</button>}
+          <div className={`sync-status sync-status-${liveSyncStatus}`} role="status" aria-live="polite"><span className="sync-status-dot" />{liveSyncLabels[liveSyncStatus]}</div>
+          <button type="button" className="icon-button application-settings-trigger" aria-label="Application settings" title="Application settings" aria-haspopup="dialog" onClick={() => setApplicationSettingsOpen(true)}><Icon name="settings" size={20} /></button>
+        </div>
+      </header>
       <div className={`page-content ${view === "library" ? "page-content-library" : ""}`}>
         {activity.error && <div className="error-notice" role="alert"><p>Activity updates: {activity.error}</p><button type="button" className="button button-secondary" onClick={activity.streamChanged ? activity.reloadSnapshot : activity.poll}>{activity.streamChanged ? "Reload current snapshot" : "Retry updates"}</button></div>}
-        {view === "transcripts" ? <>
+        {view === "dashboard" || view === "reviews" ? <>
+          <DashboardViewChrome title={view === "dashboard" ? "Dashboard" : "Code reviews"}
+            description={view === "dashboard" ? (project ? `Your agents’ work in “${project.name}”, at a glance.` : "Your agents’ work, at a glance.") : "Adversarial reviews of completed work items, each assigned to one agent session."} />
+          {projectsError ? <ErrorNotice message={projectsError}><button className="button button-secondary" onClick={() => setProjectsRefresh((value) => value + 1)}>Try again</button></ErrorNotice>
+            : projectsLoading && !projects.length ? <div className="loading-state" role="status">Opening your workspace…</div>
+              : !project ? <section className="empty-state onboarding"><h2>Create your first project.</h2><p>Keep your work items and code reviews together in a project.</p><button className="button button-primary" onClick={() => setProjectDialog(true)}>Create your first project</button></section>
+                : activityReadyProjectId !== project.id ? <div className="loading-state" role="status">Loading tasks…</div>
+                  : view === "dashboard" ? <TaskDashboard key={project.id} projectId={project.id} refreshSignal={refresh} onNavigate={blockNavigationWhilePending} />
+                    : <CodeReviewLibrary key={project.id} projectId={project.id} refreshSignal={refresh} workId={searchParams.get("work")} reviewId={searchParams.get("review")} onNavigate={blockNavigationWhilePending} />}
+        </> : view === "transcripts" ? <>
           <DashboardViewChrome eyebrow="AGENT SESSIONS THAT STAY WITH YOUR WORK" title="Transcripts" description={project ? `Find session history and subagent work in the “${project.name}” project.` : "Choose a project to open its transcripts."} />
           {projectsError && <ErrorNotice message={projectsError}><button className="button button-secondary" onClick={() => setProjectsRefresh((value) => value + 1)}>Try again</button></ErrorNotice>}
           {project ? <TranscriptLibrary key={`${project.id}:${artifactRoute.workItemId ?? ""}`} projectId={project.id} refreshSignal={refresh} onPendingChange={setTranscriptPending} /> : <div className="loading-state" role="status">{projectsLoading ? "Opening your workspace…" : "Select or create a project to view transcripts."}</div>}

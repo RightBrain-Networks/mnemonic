@@ -205,7 +205,7 @@ test("external API writes appear through live browser sync", async ({ page }, te
       }, { passive: true });
     });
 
-    await page.goto("/");
+    await page.goto("/work-items");
     await page.locator("#project-select").selectOption(state.projectId);
     await expect(page.locator(".sync-status")).toHaveText("Live Updates");
     await expect(page.getByRole("button", { name: "Refresh", exact: true })).toHaveCount(0);
@@ -532,12 +532,12 @@ test("external API writes appear through live browser sync", async ({ page }, te
 });
 
 test("the library hero names the selected project in the vendored italic face", async ({ page }) => {
-  await page.goto("/");
-  const heading = page.getByRole("heading", { name: /^Work library[.:]/ });
+  await page.goto("/work-items");
+  const heading = page.getByRole("heading", { name: /^Work items[.:]/ });
   await expect(heading).toBeVisible();
   await page.locator("#project-select").selectOption(state.projectId);
   await expect(heading).toHaveText(
-    `Work library: ${state.projectName}—${state.projectDescription}`
+    `Work items: ${state.projectName}—${state.projectDescription}`
   );
 
   // The colon inherits the accent the period carried; the project name must not.
@@ -612,8 +612,8 @@ test("one work item groups immutable checkpoints through its full dashboard life
   const replacement = `Replacement current context from ${suffix}.`;
   const completion = `Completion evidence for ${suffix}.`;
 
-  await page.goto("/");
-  await expect(page.getByRole("heading", { name: /^Work library[.:]/ })).toBeVisible();
+  await page.goto("/work-items");
+  await expect(page.getByRole("heading", { name: /^Work items[.:]/ })).toBeVisible();
   await page.locator("#project-select").selectOption(state.projectId);
 
   await page.locator(".topbar").getByRole("button", { name: "New work" }).click();

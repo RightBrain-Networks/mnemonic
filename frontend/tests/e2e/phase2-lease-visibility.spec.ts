@@ -61,7 +61,7 @@ test("an active lease is visible without exposing its capability and refreshes a
   }
 
   await page.clock.install();
-  await page.goto("/");
+  await page.goto("/work-items");
   await page.locator("#project-select").selectOption(state.projectId);
   await page.getByRole("button", { name: "Active", exact: true }).click();
   await page.getByLabel("Search work items").fill(title);
@@ -192,7 +192,7 @@ test("a human can move work through every manual status", async ({ page }, testI
     await client.dispose();
   }
 
-  await page.goto("/");
+  await page.goto("/work-items");
   await page.locator("#project-select").selectOption(state.projectId);
   await page.getByRole("button", { name: "Pending", exact: true }).click();
   await page.getByLabel("Search work items").fill(title);
@@ -358,7 +358,7 @@ test("a claim committed before an identity edit is reconciled in the visible det
     if (!created.ok()) throw new Error(`Could not create edit-race fixture (${created.status()}): ${await created.text()}`);
     const workItemId = (await created.json() as { work_item: { id: string } }).work_item.id;
 
-    await page.goto("/");
+    await page.goto("/work-items");
     await page.locator("#project-select").selectOption(state.projectId);
     await page.getByLabel("Search work items").fill(title);
     const card = workCard(page, title);
