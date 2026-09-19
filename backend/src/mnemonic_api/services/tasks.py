@@ -41,11 +41,13 @@ def task_rows(project_id: UUID, now: datetime):
         else_="pending",
     )
 
-    def columns(identity, kind, status, active):
+    def columns(identity, kind, status, active, review_state=None):
         return (
             identity.label("id"), literal(kind).label("kind"), WorkItem.project_id,
-            WorkItem.id.label("work_item_id"), WorkItem.title, WorkItem.summary,
+            WorkItem.id.label("work_item_id"), WorkItem.version.label("work_version"),
+            WorkItem.title, WorkItem.summary,
             status.label("status"), WorkItem.updated_at,
+            (literal(None) if review_state is None else review_state).label("review_state"),
             case((active, WorkLease.work_item_id)).label("lease_work_id"),
         )
 
@@ -54,7 +56,7 @@ def task_rows(project_id: UUID, now: datetime):
         and_(implementation_lease, WorkLease.expires_at > now),
     )).outerjoin(WorkLease, WorkLease.work_item_id == WorkItem.id).where(*visible)
     reviews = select(*columns(
-        CodeReview.id, "code_review", review_status, review_lease,
+        CodeReview.id, "code_review", review_status, review_lease, CodeReview.state,
     )).select_from(CodeReview).join(WorkItem, WorkItem.id == CodeReview.work_item_id).outerjoin(
         WorkLease, WorkLease.work_item_id == WorkItem.id,
     ).where(*visible)
