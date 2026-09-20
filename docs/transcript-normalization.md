@@ -202,3 +202,22 @@ bodies and never repairs filesystem permissions; unsafe directories are reported
 as unreadable. Non-transcript captures are reported separately; a journal/stdout file
 cannot be repaired by pretending it is a native session. Use the audited recovery
 workflow when a historical assertion identified the wrong file.
+
+## Claude runtime coverage repair (0.69.0)
+
+Normalizer 3 recognizes Claude `task_status` and `thinking_drop` attachments as
+runtime context, retaining their readable fields and typed payloads as system
+segments. Session `custom-title` and `agent-name` records are bookkeeping, like
+the already recognized `ai-title`; they do not add conversation turns.
+
+The prior allowlists omitted these valid native variants. A read-only inspection
+of retained affected sessions found task updates and thinking diagnostics behind
+`unsupported_attachment`, and session/agent labels behind `unsupported_role`.
+These were parser gaps, not malformed transcripts. The regression fixtures use
+synthetic values with the observed native field shapes.
+
+The normalizer version advances so the existing worker upgrade scheduler repairs
+ready imports and enrolled sessions from retained copies. Old search text remains
+available until publication, and active leases, project pauses and bounded retries
+still apply. No database migration, reimport or manual rebuild is required. Unknown
+future types and non-searchable binary bodies retain their coverage warnings.

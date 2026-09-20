@@ -83,7 +83,7 @@ git pull --ff-only origin main
 
 Use Semantic Versioning (`MAJOR.MINOR.PATCH`) for application releases. `MAJOR` version bumps are reserved and require explicit human approval. Increment `MINOR` for user-facing changes and `PATCH` for all other changes.
 
-The current application/API/MCP/dashboard release is `0.67.0`, Claude plugin
+The current application/API/MCP/dashboard release is `0.69.0`, Claude plugin
 `0.42.1`, and Alembic head `0046_shared_transcript_copies`. The catalog is exactly
 55 MCP tools, 17 receipt-protected MCP writes, 24 REST receipt kinds, 21 protected
 browser mutations, 24 work-event types, and three plugin skills. The suggestion
@@ -198,8 +198,9 @@ a coherent read snapshot, never a project mutation lock or operation UUID.
 `truncated` in transcript metadata denotes historical bounded text awaiting
 automatic complete-text refresh; `normalization_incomplete` separately denotes
 unsupported records or relationships. Do not conflate these with raw-copy loss.
-Normalizer 2 retains readable context attachments and compaction history; coverage
-warnings and informational notes have separate metadata counts. Workers automatically
+Normalizer 3 also retains Claude task-status and thinking-drop diagnostics and recognizes
+session/agent labels as bookkeeping. Context attachments and compaction history remain
+readable; coverage warnings and informational notes have separate metadata counts. Workers automatically
 refresh old ready normalizations after Active/pause guards clear without resetting
 failed retry budgets. Rebuilds reuse persisted segments when capture and normalizer versions match. See
 `docs/transcript-normalization.md`. PostgreSQL retains a durable job ledger; messages carry only job UUIDs.

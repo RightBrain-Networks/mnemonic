@@ -8,6 +8,7 @@ from sqlalchemy import select, text, update
 from mnemonic_api.artifact_tika import ExtractionError
 from mnemonic_api.models import Transcript, WorkLease
 from mnemonic_api.transcript_job_queue import enqueue_transcript_jobs
+from mnemonic_api.transcript_normalization import NORMALIZER_VERSION
 from mnemonic_api.transcript_upgrades import refresh_outdated_normalizations
 
 from .test_leases_postgres import expire_lease
@@ -56,7 +57,8 @@ def test_upgrade_uses_retained_native_copy_preserves_search_and_is_idempotent(
         assert enqueue_transcript_jobs(database, api.app.state.settings) == 1
     assert run(api)
     current = read(api, project, record)
-    assert current["normalizer_version"] == 2 and current["index_status"] == "ready"
+    assert current["normalizer_version"] == NORMALIZER_VERSION
+    assert current["index_status"] == "ready"
     assert current["sha256"] == original["sha256"]
     assert current["normalized_revision"] != original["normalized_revision"]
     assert current["index_created_at"] > original["index_created_at"]
@@ -92,7 +94,7 @@ def test_upgrade_defers_until_active_session_or_pause_ends_without_changing_leas
     if guard == "active":
         expire_lease(postgres_engine, work["id"])
     assert refresh(api) == 1
-    assert run(api) and read(api, project, record)["normalizer_version"] == 2
+    assert run(api) and read(api, project, record)["normalizer_version"] == NORMALIZER_VERSION
 
 
 def test_failed_upgrade_keeps_search_and_does_not_restart_exhausted_attempts(
@@ -104,7 +106,7 @@ def test_failed_upgrade_keeps_search_and_does_not_restart_exhausted_attempts(
     original = read(api, project, record)
     from mnemonic_api import transcript_normalization
 
-    monkeypatch.setattr(transcript_normalization, "NORMALIZER_VERSION", 3)
+    monkeypatch.setattr(transcript_normalization, "NORMALIZER_VERSION", NORMALIZER_VERSION + 1)
     assert refresh(api) == 1
     assert run(api, stage_error=ExtractionError("extraction_parse_failed"))
     failed = read(api, project, record)

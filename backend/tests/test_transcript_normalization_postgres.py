@@ -136,11 +136,12 @@ def test_failed_normalizer_upgrade_keeps_indexed_revision_and_locators_coherent(
     assert run(api)
     ready = read(api, project, record)
     normalize = transcript_normalization.normalize_transcript
-    monkeypatch.setattr(transcript_normalization, "NORMALIZER_VERSION", 3)
+    next_version = transcript_normalization.NORMALIZER_VERSION + 1
+    monkeypatch.setattr(transcript_normalization, "NORMALIZER_VERSION", next_version)
 
     def revised(*args):
         result = normalize(*args)
-        return replace(result, normalizer_version=3)
+        return replace(result, normalizer_version=next_version)
 
     monkeypatch.setattr("mnemonic_api.transcript_indexing.normalize_transcript", revised)
     assert api.post(collection(project) + "/rebuild",
@@ -236,7 +237,8 @@ def test_normalizer_failure_retains_last_ready_text_and_active_revision(
     expire_lease(postgres_engine, work["id"])
     assert run(api)
     original = read(api, project, record)
-    monkeypatch.setattr("mnemonic_api.transcript_normalization.NORMALIZER_VERSION", 3)
+    monkeypatch.setattr("mnemonic_api.transcript_normalization.NORMALIZER_VERSION",
+                        original["normalizer_version"] + 1)
 
     def unsupported(*_args):
         raise ExtractionError("transcript_unsupported_format")
