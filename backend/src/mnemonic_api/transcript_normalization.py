@@ -36,7 +36,7 @@ from mnemonic_api.transcript_parsers import (
 from mnemonic_api.transcript_spool import TranscriptSegments, discard_on_error
 
 SCHEMA_VERSION = 1
-NORMALIZER_VERSION = 2
+NORMALIZER_VERSION = 3
 _SEGMENT_LIMIT = 250_000
 _PG_STRING_INVALID = re.compile("[\x00\ud800-\udfff]")
 ContentKind = Literal[
