@@ -194,6 +194,10 @@ def replace_rows(connection: Connection, current: dict, restored: dict) -> None:
     # manifest UUIDs prevent completed source jobs from suppressing restore work.
     artifact_ids = {row["id"] for source in (current, restored) for row in source["artifacts"]}
     if artifact_ids:
+        # A restored revision must never revive a capability issued before restore.
+        connection.execute(text("DELETE FROM artifact_download_capabilities "
+                                "WHERE artifact_id = ANY(CAST(:ids AS uuid[]))"),
+                           {"ids": list(artifact_ids)})
         connection.execute(text("DELETE FROM artifact_passage_indexes "
                                 "WHERE artifact_id = ANY(CAST(:ids AS uuid[]))"),
                            {"ids": list(artifact_ids)})

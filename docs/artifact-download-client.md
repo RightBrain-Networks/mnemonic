@@ -29,7 +29,8 @@ The grant is valid for five minutes and one download of one project/artifact
 revision. PostgreSQL stores only its token hash and durably consumes it when the
 API opens the pinned file, so MCP replicas and restarts cannot replay it. A changed
 revision, deletion, expiry, or previous consumption rejects redemption. Consumption
-and download auditing do not prove completed network delivery. On an uncertain
+and download auditing do not prove completed network delivery. Project backups
+exclude grants, and restoring a project revokes its existing grants. On an uncertain
 transfer, inspect the destination, then obtain a new grant if needed.
 
 Sensitive grants preserve the existing HTTP 428 approval challenge. Stop and ask

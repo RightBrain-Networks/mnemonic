@@ -19,7 +19,7 @@ onboarding or token consumption.
 
 Grant regressions cover concurrent single-use redemption, hashed storage,
 project/artifact/revision scope, expiry, deletion, sensitive approval at issuance,
-and token reuse refusal. Gateway checks cover fixed upstream routing, host and
+token reuse refusal, and project-scoped revocation during backup restore. Gateway checks cover fixed upstream routing, host and
 header rejection, RPC isolation, and withholding corrupt upstream bytes. The
 existing helper checks cover integrity, deadlines, redirects, private destinations,
 and credential diagnostics. Metadata-only edits reuse completed extraction;
