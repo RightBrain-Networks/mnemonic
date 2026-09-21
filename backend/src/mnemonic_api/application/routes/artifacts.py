@@ -22,6 +22,7 @@ from mnemonic_api.application.state import embedder_of, settings_of
 from mnemonic_api.application.suggestion_resources import semantic_search_inference_acquired
 from mnemonic_api.application.validation import raise_reviewed_body_validation
 from mnemonic_api.artifact_access_schemas import ArtifactAccessRequest
+from mnemonic_api.artifact_download_schemas import ArtifactDownloadGrant, ArtifactDownloadRequest
 from mnemonic_api.artifact_schemas import (
     ArtifactActor,
     ArtifactHistory,
@@ -603,6 +604,24 @@ def _file_chunks(content: BinaryIO) -> Iterator[bytes]:
         content.close()
 
 
+@router.post(
+    "/projects/{project_id}/artifacts/{artifact_id}/download-grants",
+    response_model=ArtifactDownloadGrant, responses=_APPROVAL_RESPONSE,
+    openapi_extra={"x-mnemonic-effect": "safe_read"},
+)
+def authorize_download(
+    project_id: UUID, artifact_id: UUID, payload: ArtifactDownloadRequest,
+    request: Request, response: Response, database: Database,
+) -> ArtifactDownloadGrant:
+    from mnemonic_api.services.artifact_downloads import issue_download
+
+    _reject_metadata_echo(request, payload)
+    response.headers["Cache-Control"] = "no-store"
+    with storage_errors(request):
+        recover_artifact(database, storage_of(request), project_id, artifact_id)
+    return issue_download(database, project_id, artifact_id, payload)
+
+
 @router.get(
     "/projects/{project_id}/artifacts/{artifact_id}/content",
     responses=_APPROVAL_RESPONSE, openapi_extra=_ACCESS_HEADERS,
@@ -627,6 +646,7 @@ def download_artifact(
             artifact_id,
             expected_revision,
             actor, access=access, human_dashboard=_human_dashboard(request),
+            download_grant=_single_header(request, "x-artifact-download-grant"),
         )
     return StreamingResponse(
         _file_chunks(content),

@@ -190,8 +190,8 @@ async def test_public_upload_and_replace_report_sanitized_fault_with_configurati
     assert_storage_guidance(message, "storage_owner_mismatch")
     assert_retained_intent(message)
     assert (THIS_ATTEMPT in message) is not_committed
-    assert "Last observed configuration: Artifact library enabled." in message
-    assert "Configured upload limit: 1024 bytes" in message
+    assert "Last observed configuration" not in message
+    assert "Configured upload limit" not in message
     assert len(calls) == 1
     assert calls[0].headers["X-Client-Operation-ID"] == CLIENT_OPERATION_ID
 
@@ -207,7 +207,7 @@ async def test_public_download_reports_storage_fault_without_write_claim(setting
         settings, "download_artifact", download_arguments(), handler, wire=wire,
     )
     assert_storage_guidance(message, "storage_integrity")
-    assert "Last observed configuration" in message
+    assert "Last observed configuration" not in message
     for forbidden in ("mutation outcome", "operation UUID", "did not commit", "durable intent"):
         assert forbidden not in message
     assert len(calls) == 2

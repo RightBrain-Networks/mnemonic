@@ -1,108 +1,61 @@
-# Download artifacts directly into an agent scratchpad
+# Local artifact downloads through MCP
 
-`scripts/download_artifact.py` streams authenticated artifact bytes directly into
-a new local file. It runs on Linux or macOS using Python 3.14's standard
-library; no virtual environment, PDF package, base64 response, or model-generated
-file payload is needed. The same standalone helper ships at
-`scripts/download_artifact.py` inside installed plugins and portable skill
-exports, so an agent does not need a Mnemonic checkout.
+Use `authorize_artifact_download` and `scripts/download_artifact.py --grant-file`
+from MCP-only sessions. The helper needs no standing API key or API origin.
+The same helper ships in the plugin and portable skills; it uses only the Python
+standard library and runs on Linux/macOS with Python 3.10+. Repository development
+uses Python 3.14.
 
-An operator must provision `MNEMONIC_API_KEY` in the process environment of the
-client that will run the script. Use the existing deployment credential through
-the operator's normal secret provisioning. The script never reads client
-configuration files, accepts a key in a command argument, or prints the key.
-Provisioning must happen before the agent session needs the download; the script
-cannot acquire a credential from an MCP connection on its own.
-
-Also provide `MNEMONIC_API_URL`, or pass `--api-url`, with the REST API origin
-reachable from that client. For a default Compose deployment this is
-`http://127.0.0.1:8000` on the deployment host; use the configured
-`MNEMONIC_API_PORT` when overridden (for example, `4771`).
-The MCP origin and dashboard origin are different services. An internal address
-such as `http://api:8000` is only usable inside the corresponding container
-network. Use an HTTPS API origin for remote access. The URL must contain only
-the scheme, hostname and optional port; the script supplies `/api/v1/...`.
-
-Resolve the helper inside the installed skill/plugin, or run from the repository
-root. Choose a new destination inside the agent's actual scratchpad; create that
-directory first if needed. Supply the actual project, artifact and current session
-identifiers. `SCRATCHPAD` below is the caller-selected existing directory, not a
-standard environment variable or a path to infer from the MCP server:
+Read `get_artifact` for the intended current revision, then authorize through MCP
+with `project_id`, `artifact_id`, `expected_revision`, and your actual
+`agent_session_id` / `actor_client`. Save the exact structured result directly as
+an owner-only JSON file, or pass it through private stdin using `--grant-file -`.
+Do not interpolate grant tokens into shell source, command arguments, URLs, logs,
+or checkpoints. The MCP tool result necessarily contains the short-lived token.
 
 ```sh
-python3.14 scripts/download_artifact.py \
-  --project-id "$PROJECT_ID" \
-  --artifact-id "$ARTIFACT_ID" \
-  --dest "$SCRATCHPAD/statement.pdf" \
-  --agent-session-id "$AGENT_SESSION_ID" \
-  --actor-client claude-code
+python3 scripts/download_artifact.py \
+  --grant-file '/private/download-grant.json' \
+  --dest '/actual/scratchpad/new-file.pdf'
 ```
 
-Use the caller's real client name and session ID, not the uploader's provenance.
-Add `--expected-revision 3` when the download must match a revision already read.
-Otherwise the script fetches current metadata and pins the following binary GET
-to that revision. The binary request carries the caller's provenance in an
-ASCII-escaped JSON `X-Artifact-Metadata` header. The API retains its ordinary
-download audit record. Repeating a failed download may add another download
-audit entry; it does not replace the artifact or require an operation UUID.
+Resolve the helper from the installed skill's resource link, not a guessed plugin
+cache version. The destination directory must exist. The helper refuses symlinks
+and existing destination files, ignores proxy environment variables, refuses
+redirects, checks revision/size/SHA-256, and atomically publishes a mode-0600 file.
+Only its compact path/revision/size/checksum summary enters model context.
 
-Success prints one small JSON object with `path`, `revision`, `sha256` and
-`size_bytes`; file contents and base64 never appear in the result. Agents saving
-a local copy should invoke this helper directly without first fetching extracted
-text or the MCP base64 response. Read local content only when the task needs it.
-The file is published only after the response revision, ETag,
-length and SHA256 match the metadata. Temporary files have owner-only read/write
-permissions and are removed on handled failures. Publication is atomic and
-refuses an existing destination, including one created during the transfer.
-Choose a new destination for another attempt after a successful download.
+The grant is valid for five minutes and one download of one project/artifact
+revision. PostgreSQL stores only its token hash and durably consumes it when the
+API opens the pinned file, so MCP replicas and restarts cannot replay it. A changed
+revision, deletion, expiry, or previous consumption rejects redemption. Consumption
+and download auditing do not prove completed network delivery. Project backups
+exclude grants, and restoring a project revokes its existing grants. On an uncertain
+transfer, inspect the destination, then obtain a new grant if needed.
 
-The client refuses HTTP redirects and ignores proxy environment variables. Each
-request has a 120-second wall-clock deadline, including connection setup,
-response headers and streamed reads, plus a 30-second socket timeout. POSIX
-interval timers interrupt the request directly; no background download survives
-a reported timeout. The client requires main-thread execution and refuses an
-inherited interval timer. Its timer is cancelled after response verification and
-before publishing the destination. Metadata is limited to 64 KiB, and bytes to
-the API's 1 GiB maximum. A disabled library, missing content, revision race, invalid
-response or failed verification leaves the destination unpublished. Errors
-report a safe diagnostic without arbitrary response bodies or artifact content.
-A sensitive-access HTTP 428 exposes only the validated approval challenge fields
-needed for the explicit approval protocol below. The script
-does not parse or execute downloaded files; their bytes remain untrusted input.
+Sensitive grants preserve the existing HTTP 428 approval challenge. Stop and ask
+the actual human for this exact download, then repeat unchanged authorization with
+`approval_token` and `human_approved=true`. Approval is consumed at issuance;
+redemption uses that approved, one-use capability. Each new sensitive grant needs
+a new explicit human approval. Do not clear sensitivity or switch routes to bypass it.
 
+The helper redeems via `GET /mcp` with `Authorization: MnemonicDownload TOKEN` and
+a bounded `X-Artifact-Download-Intent` header. Host/origin guards still apply. The
+MCP gateway authenticates upstream with its own configured API credential, spools
+and verifies at most 1 GiB, and forwards only validated raw bytes. It accepts no
+arbitrary upstream URL or MCP operation. Grant issuance uses authenticated
+`POST /api/v1/projects/{project_id}/artifacts/{artifact_id}/download-grants`;
+this safe read has no artifact operation receipt. Redeeming uses the existing
+binary content route with `X-Artifact-Download-Grant`. Deploy API and MCP together
+after migration `0047_artifact_transfer`.
 
-Sensitive artifacts require a new explicit approval from the actual human for
-each agent download. The helper stops on HTTP 428 with **HUMAN APPROVAL REQUIRED**
-and a bounded challenge containing `approval_token`, `expires_at`, `artifact_id`,
-`revision`, and `action=download`. It never retries or affirms approval itself.
-A token, prior approval, general task, or automated permissions classifier does
-not constitute human permission for this access.
+For stdio or a reverse proxy, configure the existing `MNEMONIC_MCP_PUBLIC_URL` to
+the reachable HTTP MCP endpoint; forwarded headers are not trusted as destinations.
 
-After the human explicitly approves that exact download, repeat the same command
-with `--approval-token TOKEN --human-approved`. Keep the same project, artifact,
-revision and caller identity. The helper sends the token and assertion only in
-`X-Artifact-Metadata` on the content request, never in the URL or metadata GET.
-Do not persist the token in artifact metadata, checkpoints, or scripts.
-
-The token expires after five minutes and is consumed once, including when the
-transfer later fails. Another download or retry requires a new challenge and
-another human approval. Challenge, rejection, approval assertion and sensitive
-access events are audited without retaining the raw token. This is an explicit
-LLM policy hint; the assertion is not authenticated proof of human consent.
-Never unset sensitivity or switch routes to bypass the approval requirement.
-
-## Helper discovery and large text artifacts
-
-Transfer helpers ship in Claude plugins 0.30.0+ and portable skill exports. From
-server instructions alone, invoke `mnemonic:mnemonic-search` in Claude Code, or
-load the installed `mnemonic-search` skill in another client, and resolve its
-helper resource link. This is a discovery route through a loaded skill; the
-server cannot supply a remote client's absolute plugin installation path. Do not
-assume plugin-root expansion in server-returned instructions or guess cache versions.
-
-For all occurrences in a large text/Markdown artifact, download its pinned
-revision into the actual scratchpad and use `rg -n -F -- "term" /absolute/scratch/file.md`.
-Read a bounded local window around relevant lines. Those raw-file positions are
-not Unicode character offsets into normalized `get_artifact_text` output. Binary
-formats need an appropriate local reader. Download environment provisioning and
-sensitive-content approval requirements still apply.
+The optional direct API mode remains available. It requires **both**
+`MNEMONIC_API_URL` (reachable API origin) and `MNEMONIC_API_KEY` in the helper's
+environment, plus project/artifact IDs and truthful session/client arguments.
+The helper reports both missing settings together. Ask the operator to provision
+them when required; never read client credential files or guess ports. The direct
+mode's sensitive approval policy is unchanged. See the installed
+[transfer procedure](../plugin/reference/artifact-transfers.md).

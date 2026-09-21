@@ -22,7 +22,7 @@ Object.assign(transcript, { normalization_status: "ready", normalization_error_c
 Object.assign(transcript, { copy_status: "ready", copy_error_code: null, copied_at: timestamp, index_status: "ready", index_error_code: null });
 function result(facet, payload, limit = 50, offset = 0, options = {}) {
   const key = facet === "work_items" ? "work_item" : facet === "artifacts" ? "artifact" : "transcript";
-  return projectCoverage({ ...unifiedRanking([facet], options), detail: "full", work_rank_scope: "work_items", ...disclosure(project, [facet], options), tag_counts: null, search_scope: { searched_facets: [facet], transcripts: facet === "transcripts" ? "searched" : "not_selected", transcript_search_hint: TRANSCRIPT_SEARCH_HINT }, term_diagnostics: [], items: [{ rank: offset + 1, score_type: options.q ? "unified_reciprocal_rank" : "none", facet, id, project_id: project, created_at: timestamp, updated_at: timestamp, score: options.q ? 0.5 : 0, [key]: { ...payload, ...hitRanking(options.q, facet, offset + 1), ...(facet === "work_items" ? evidence(payload.matched_member.id, options.q ? "lexical" : "browse") : {}) } }], total: offset + 1, limit, offset, facet_totals: { work_items: 0, artifacts: 0, transcripts: 0, [facet]: offset + 1 }, coverage: { artifacts: { enabled: true, indexing, sensitive_content_withheld: 3 }, transcripts: { indexing_incomplete: true, unsegmented_content_omitted: 0 } }, indexing_incomplete: true  }, project);
+  return projectCoverage({ ...unifiedRanking([facet], options), detail: "full", work_rank_scope: "work_items", ...disclosure(project, [facet], options), tag_counts: null, search_scope: { searched_facets: [facet], transcripts: facet === "transcripts" ? "searched" : "not_selected", transcript_search_hint: TRANSCRIPT_SEARCH_HINT }, term_diagnostics: [], items: [{ rank: offset + 1, score_type: options.q ? "unified_reciprocal_rank" : "none", facet, id, project_id: project, created_at: timestamp, updated_at: timestamp, score: options.q ? 0.5 : 0, [key]: { ...payload, ...hitRanking(options.q, facet, offset + 1), ...(facet === "work_items" ? evidence(payload.matched_member.id, options.q ? "lexical" : "browse") : {}) } }], total: offset + 1, limit, offset, facet_totals: { work_items: 0, artifacts: 0, transcripts: 0, [facet]: offset + 1 }, coverage: { artifacts: { enabled: true, indexing, sensitive_content_withheld: facet === "artifacts" && options.fulltext ? 3 : 0 }, transcripts: { indexing_incomplete: true, unsegmented_content_omitted: 0 } }, indexing_incomplete: true  }, project);
 }
 
 test("the separate dashboard searches encode their facet, filters and pagination", () => {
@@ -127,6 +127,7 @@ test("empty artifact diagnostics survive the unified decoder with disabled cover
   assert.deepEqual(decodeUnifiedArtifactSearchPage(page, project, true, 50, 0).term_diagnostics, page.term_diagnostics);
   Object.assign(page, disclosure(project, [], { q: "needle", fulltext: true }), unifiedRanking([], { q: "needle" }));
   page.coverage.artifacts.enabled = false;
+  page.coverage.artifacts.sensitive_content_withheld = 0;
   page.search_scope.searched_facets = [];
   page.term_diagnostics[0].matches.artifacts = null;
   assert.deepEqual(decodeUnifiedArtifactSearchPage(page, project, true, 50, 0).term_diagnostics, page.term_diagnostics);

@@ -315,8 +315,10 @@ validated receipt. The helper ships in the plugin and portable skill exports as
 well as the repository. MCP upload/replacement tools still accept base64 for
 programmatic callers; agents should not read that encoding into their sessions.
 
-For downloads, run the bundled [download client](artifact-download-client.md)
-with `--dest` pointing into the agent's actual scratchpad. It streams and verifies
+For downloads, call `authorize_artifact_download` for the current revision, then
+run the bundled [download client](artifact-download-client.md) with `--grant-file`
+and `--dest` pointing into the agent's actual scratchpad. No helper API key or
+origin is needed. It streams and verifies
 raw bytes locally and prints only a compact transfer summary. All three skills
 and portable exports route local downloads through this helper.
 
@@ -353,17 +355,20 @@ MCP `download_artifact` retains its base64 transfer format. For bytes on the
 client's filesystem without passing the payload through model context, use the
 standard-library [download client](artifact-download-client.md),
 `scripts/download_artifact.py`, also bundled with installed plugins and portable
-skills. Set `--dest` to a new file in the agent's scratchpad. Its process receives
-an explicitly provisioned
-`MNEMONIC_API_KEY` and a reachable API origin through `--api-url` or
-`MNEMONIC_API_URL`. The API origin may use a different port from the MCP endpoint;
-do not derive it from the MCP port or an internal container address. The binary
-route is `/api/v1/projects/{project_id}/artifacts/{artifact_id}/content`.
+skills. Call `authorize_artifact_download` through MCP with the project/artifact,
+current revision and truthful session/client, then pass the exact structured
+result as `--grant-file PRIVATE_JSON` or private stdin (`--grant-file -`). Set
+`--dest` to a new file in the agent's scratchpad. Five-minute grants are durably
+single-use and preserve the sensitive approval challenge. The optional direct
+API mode requires both operator-provisioned `MNEMONIC_API_KEY` and
+`MNEMONIC_API_URL`; never derive the API origin from the MCP port or read client
+credential files. The binary route remains
+`/api/v1/projects/{project_id}/artifacts/{artifact_id}/content`.
 
 The helper checks current metadata, pins the binary read to that revision,
 streams into a private temporary file, validates size and SHA-256, and publishes
 to a new destination without overwriting existing files. Only a compact transfer summary
-is printed. The operator supplies the client environment; neither this helper
+is printed. Grant mode uses the reachable MCP endpoint; neither this helper
 nor the MCP server reads client credential configuration. The MCP server cannot
 write a client destination, including when both run on the same host. API-private
 storage paths and `docker cp` are not supported client download interfaces.
@@ -532,3 +537,25 @@ Opt into current body-passage ranking with `semantic=true, fulltext=true`. Each 
 identifies its artifact revision and extracted-text SHA-256 so the existing text
 read can recover exact evidence. Embedding coverage remains separate from extraction
 coverage. See [passage indexing, bounded jobs, and upgrade](artifact-semantic-search.md).
+
+## Artifact transfer improvements (0.70.0)
+
+Migration `0047_artifact_transfer` adds hashed one-use download capabilities.
+Deploy API and MCP together. Expiring grants are excluded from project archives;
+restoration cannot resurrect them. Normal artifact audit events remain durable.
+The MCP catalog has 56 tools and still 17 receipt-protected writes. Grant issuance
+is a safe read, with no artifact-operation UUID or receipt. Sensitive approval
+is consumed when issuing a grant; actual content-open auditing happens at redemption.
+
+Metadata-only edits still increment revision, including sensitivity changes.
+They now reuse ready extraction with its text hash and original extraction time,
+instead of scheduling Tika again. Previous normalized text is cleared and stale
+workers remain fenced. Semantic passages are rebuilt for the new revision;
+report embedding coverage while pending. A separate content revision was not
+introduced: existing revision pins continue to capture sensitivity and metadata.
+Revision conflicts now include `detail.context.current_revision`.
+
+Broad content searches add a `sensitive_content_withheld` warning when applicable;
+zero result and per-term counts cover only accessible content. MCP upload limits
+are returned only where actionable (upload authorization/upload/replacement),
+not on ordinary reads or unrelated errors.

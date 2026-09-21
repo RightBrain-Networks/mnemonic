@@ -2139,6 +2139,22 @@ class ArtifactAccessApproval(Base):
     consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
+class ArtifactDownloadCapability(Base):
+    """Hashed one-use download grants; credentials never enter retained metadata."""
+
+    __tablename__ = "artifact_download_capabilities"
+    token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    artifact_id: Mapped[UUID] = mapped_column(ForeignKey("artifacts.id", ondelete="RESTRICT"))
+    revision: Mapped[int] = mapped_column(Integer)
+    agent_session_id: Mapped[str] = mapped_column(String(200))
+    actor_client: Mapped[str] = mapped_column(String(80))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.clock_timestamp(),
+    )
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 class Transcript(Base):
     """A source file assertion and its durable normalized indexing snapshot."""
 

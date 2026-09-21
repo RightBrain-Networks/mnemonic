@@ -5,6 +5,13 @@ description: Retrieve or safely continue saved Mnemonic work through MCP - recal
 
 # Recall Mnemonic work
 
+For a local artifact upload, replacement, or download, read the short
+[transfer procedure](${CLAUDE_PLUGIN_ROOT}/reference/artifact-transfers.md) first.
+Both grant helpers need no API URL/key. The optional direct download mode requires
+operator-provisioned `MNEMONIC_API_URL` and `MNEMONIC_API_KEY`; ask the operator
+when those are absent. For a file-only task, use that procedure without loading
+the work lifecycle or deep artifact reference unless needed.
+
 When assigned an existing work item, immediately call
 `get_work(project_id, work_item_id, status_only=true)` before investigating or
 acting. Assess its current status/readiness and the returned `lease_settings`:
@@ -305,10 +312,10 @@ recall both exact root contexts before any authorized merge.
 
 During ordinary implementation recall, inspect linked `artifacts` and their
 omitted count; use `list_artifacts` with the work ID to page the full library.
-Read [artifacts.md](${CLAUDE_PLUGIN_ROOT}/reference/artifacts.md) before reading
-or changing file content. `get_artifact_text` pages normalized text at a required
-current revision. For a local copy, run the bundled
-[download helper](${CLAUDE_PLUGIN_ROOT}/scripts/download_artifact.py) with `--dest`
+For local transfers, read [artifact-transfers.md](${CLAUDE_PLUGIN_ROOT}/reference/artifact-transfers.md);
+use [artifacts.md](${CLAUDE_PLUGIN_ROOT}/reference/artifacts.md) for detailed content rules. `get_artifact_text` pages normalized text at a required
+current revision. For a local copy, call `authorize_artifact_download`, then run the bundled
+[download helper](${CLAUDE_PLUGIN_ROOT}/scripts/download_artifact.py) with `--grant-file` and `--dest`
 pointing to a new file in your actual scratchpad; only a compact transfer summary
 enters the session. Do not fetch base64 or extracted text just to save the file.
 For local uploads/replacements, use the bundled

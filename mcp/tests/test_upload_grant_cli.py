@@ -154,7 +154,7 @@ def test_no_client_credentials_upload_and_lost_response_replay(tmp_path, install
             "upload-session",
         )
     )
-    assert prepared["sha256"] == original_sha
+    assert prepared["expected_artifact"]["sha256"] == original_sha
     assert json.loads((prepared_dir / "request.json").read_text())["api_origin"] is None
     # Preparation survives later changes to the source.
     source.write_bytes(b"changed after preparation")
@@ -184,7 +184,7 @@ def test_no_client_credentials_upload_and_lost_response_replay(tmp_path, install
             response = receipt(request, uploaded)
             # The real journal is exercised separately against PostgreSQL.
             response.headers["X-Artifact-Operation-Replayed"] = "true" if ledger else "false"
-            ledger[prepared["client_operation_id"]] = original_sha
+            ledger[prepared["expected_artifact"]["client_operation_id"]] = original_sha
             return httpx.Response(
                 response.status_code,
                 headers=response.headers,

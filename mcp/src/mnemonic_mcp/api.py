@@ -403,6 +403,10 @@ def _semantic_error_message(context: dict[str, object]) -> str:
 
 
 def _application_error_message(code: str, context: dict[str, object]) -> str | None:
+    if code == "artifact_revision_conflict":
+        revision = context.get("current_revision")
+        if type(revision) is int and revision > 0:
+            return f"Artifact revision changed; current_revision={revision}. Read current metadata."
     if code == "semantic_unavailable":
         return _semantic_error_message(context)
     if code.startswith("artifact_human_approval"):

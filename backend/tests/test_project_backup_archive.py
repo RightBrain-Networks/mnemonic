@@ -461,3 +461,31 @@ def test_restore_never_revives_sensitive_approval_tokens(
     assert api.get(other_path, headers={"X-Artifact-Metadata": json.dumps({
         "approval_token": other_token, "human_approved": True,
     })}).status_code == 200
+
+
+def test_restore_revokes_download_grants_without_touching_another_project(
+    api, project, postgres_engine, tmp_path,
+):
+    from .test_artifact_download_grants_postgres import authorize, redeem
+    from .test_artifacts_postgres import collection
+
+    api.app.state.artifact_storage = ArtifactStorage(tmp_path / "artifacts", max_bytes=1024)
+    artifact = upload(api, project)
+    path = collection(project) + "/" + artifact["id"]
+    grant = authorize(api, path).json()
+    content = _export(postgres_engine, project)
+    _, rows = read_archive(io.BytesIO(content), 10_000_000)
+    assert "artifact_download_capabilities" not in rows
+    later = upload(api, project, filename="created-after-snapshot.txt")
+    assert authorize(api, collection(project) + "/" + later["id"]).status_code == 200
+    other = api.post("/api/v1/projects", json={"name": "Other download"}).json()
+    other_artifact = upload(api, other)
+    other_path = collection(other) + "/" + other_artifact["id"]
+    other_grant = authorize(api, other_path).json()
+
+    restore_project(postgres_engine, UUID(project["id"]), io.BytesIO(content))
+
+    assert redeem(api, path, grant).status_code == 401
+    assert redeem(api, other_path, other_grant).status_code == 200
+    with postgres_engine.connect() as connection:
+        assert connection.scalar(text("SELECT count(*) FROM artifact_download_capabilities")) == 1

@@ -47,6 +47,9 @@ VALIDATION_FIELDS = frozenset(
         "client",
         "transcript_id",
         "expected_sha256", "expected_text_sha256",
+        "intent", "upload_intent", "api_origin", "expected_revision",
+        "size_bytes", "sha256", "filename", "related_artifact_ids",
+        "related_work_item_ids", "approval_token", "human_approved", "content_base64",
 
         "gate_id",
         "expected_question_version",

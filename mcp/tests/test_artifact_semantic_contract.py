@@ -141,7 +141,12 @@ async def test_incomplete_embedding_coverage_is_distinct_from_missing_vector_gen
     page["embedding"].update({field: 1, "state": "incomplete"})
     partial = field in {"pending", "processing", "failed", "unavailable"}
     page["semantic"] = semantic_disposition("completed", scope="full_scope", partial=partial)
-    if field == "withheld": page["sensitive_content_withheld"] = 1
+    if field == "withheld":
+        page["sensitive_content_withheld"] = 1
+        page["warnings"] = [{
+            "code": "sensitive_content_withheld", "sources": ["artifacts"],
+            "message": "Sensitive artifact contents were withheld; zero matches do not establish absence.",
+        }]
     assert (await native_call(settings, "search_artifact_contents", args("search_artifact_contents"), page))[0] == page
     page["embedding"]["state"] = "ready"
     with pytest.raises(ToolError, match="unexpected response"):

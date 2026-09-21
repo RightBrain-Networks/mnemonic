@@ -18,7 +18,14 @@ export function disclosure(projectId, selected, { q = "", fulltext = false, filt
   return { diagnostics, applied_filters, query_interpretation, warnings: [] };
 }
 
+export function withholding(page) {
+  const withheld = page.coverage?.artifacts?.sensitive_content_withheld ?? page.sensitive_content_withheld ?? 0;
+  page.warnings = withheld ? [{ code: "sensitive_content_withheld", sources: ["artifacts"], message: "Sensitive artifact contents were withheld; zero matches do not establish absence." }] : [];
+  return page;
+}
+
 export function projectCoverage(page, projectId) {
+  withholding(page);
   page.project_coverage = [{ project_id: projectId, project_name: "Search project", project_slug: "search-project", facet_totals: page.facet_totals, coverage: page.coverage, indexing_incomplete: page.indexing_incomplete }];
   return page;
 }

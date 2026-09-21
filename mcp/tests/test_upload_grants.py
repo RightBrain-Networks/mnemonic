@@ -311,3 +311,16 @@ def test_observed_endpoint_and_proxy_configuration(settings):
         upload_url(MnemonicAPI(settings), ctx)
     public = replace(settings, public_url="https://mnemonic.example/prefix/mcp")
     assert upload_url(MnemonicAPI(public), ctx) == public.public_url
+
+
+async def test_prepared_envelope_mistake_names_only_reviewed_fields(settings):
+    server = build_server(settings)
+    request = intent().model_dump(mode="json", exclude_unset=True)
+    with pytest.raises(ToolError, match=r"intent.api_origin \(extra_forbidden\)"):
+        await server.call_tool("authorize_artifact_upload", {"intent": {**request, "api_origin": None}})
+    with pytest.raises(ToolError) as raised:
+        await server.call_tool("authorize_artifact_upload", {
+            "intent": {**request, "private-key-sentinel": "private-value-sentinel"},
+        })
+    assert "private-key-sentinel" not in str(raised.value)
+    assert "private-value-sentinel" not in str(raised.value)

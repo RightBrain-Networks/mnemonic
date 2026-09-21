@@ -688,6 +688,7 @@ async def test_tool_catalog_schemas_and_annotations(settings):
         "list_artifacts", "get_artifact", "get_artifact_text",
         "list_artifact_history", "download_artifact",
         "authorize_artifact_upload",
+        "authorize_artifact_download",
         "search_artifact_contents", "upload_artifact", "replace_artifact", "delete_artifact", "update_artifact",
         "list_code_reviews", "get_code_review", "complete_code_review",
         "list_work_follow_ups", "get_work_follow_up", "respond_to_work_follow_up",
@@ -796,10 +797,10 @@ async def test_tool_catalog_schemas_and_annotations(settings):
         "remove_relationship",
         "merge_work",
     }
-    assert len(tools) == 55
+    assert len(tools) == 56
     for name in mutating:
         assert tools[name].annotations.idempotentHint is (name in protected)
-    for name in tools.keys() - mutating:
+    for name in tools.keys() - mutating - {"authorize_artifact_download"}:
         assert tools[name].annotations.idempotentHint is True
 
     for name, tool in tools.items():
@@ -812,7 +813,7 @@ async def test_tool_catalog_schemas_and_annotations(settings):
         ) == (
             name not in mutating,
             name in destructive,
-            name not in mutating or name in protected,
+            name != "authorize_artifact_download" and (name not in mutating or name in protected),
             False,
         )
 

@@ -1,6 +1,7 @@
 """Attach current search metadata to older result fixtures, preserving explicit test envelopes."""
 
 import json
+from types import SimpleNamespace
 from uuid import UUID
 
 import httpx
@@ -11,6 +12,7 @@ from mnemonic_mcp.search_disclosure import (
     TranscriptAppliedFilters,
     WorkAppliedFilters,
     search_disclosure,
+    withholding_warnings,
 )
 
 
@@ -62,6 +64,9 @@ def disclosed_response(request: httpx.Request, response: httpx.Response) -> http
                                  ("artifacts", ArtifactAppliedFilters),
                                  ("transcripts", TranscriptAppliedFilters)) if source in scopes},
     )
+    withheld = value.get("sensitive_content_withheld", value.get("coverage", {}).get(
+        "artifacts", {}).get("sensitive_content_withheld", 0))
+    disclosure.warnings += withholding_warnings(SimpleNamespace(sensitive_content_withheld=withheld))
     return httpx.Response(response.status_code, headers=response.headers,
                           json={**value, **disclosure.model_dump(mode="json")})
 

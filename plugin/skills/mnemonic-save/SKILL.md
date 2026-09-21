@@ -5,6 +5,13 @@ description: Save Mnemonic work, hand-offs, follow-ups, project artifact files o
 
 # Save Mnemonic work
 
+For a local artifact upload, replacement, or download, read the short
+[transfer procedure](${CLAUDE_PLUGIN_ROOT}/reference/artifact-transfers.md) first.
+Both grant helpers need no API URL/key. The optional direct download mode requires
+operator-provisioned `MNEMONIC_API_URL` and `MNEMONIC_API_KEY`; ask the operator
+when those are absent. For a file-only task, use that procedure without loading
+the work lifecycle or deep artifact reference unless needed.
+
 When assigned an existing work item, immediately call
 `get_work(project_id, work_item_id, status_only=true)` before investigating or
 acting. Assess its current status/readiness and the returned `lease_settings`:

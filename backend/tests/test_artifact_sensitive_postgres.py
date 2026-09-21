@@ -222,5 +222,7 @@ def test_historically_sensitive_properties_stay_hidden_after_flag_is_cleared(
     assert old["sensitive"] is True
     assert old["extraction"]["metadata"] == {}
     filtered = api.get(path + "/history", params={"q": "Synthetic Author"}).json()
-    assert filtered["revisions"]["total"] == 0
-    assert api.get(collection(project), params={"q": "Synthetic Author"}).json()["total"] == 0
+    assert filtered["revisions"]["total"] == 1
+    assert [row["revision"] for row in filtered["revisions"]["items"]] == [2]
+    assert api.get(collection(project), params={"q": "Synthetic Author"}).json()["total"] == 1
+    assert not run_job(api, artifact_storage, Parser())

@@ -35,23 +35,12 @@ async def _status(api: MnemonicAPI) -> ArtifactToolStatus:
     effective = min(status.max_bytes, MCP_ARTIFACT_MAX_BYTES)
     return ArtifactToolStatus(
         enabled=True, max_bytes=status.max_bytes, effective_upload_max_bytes=effective,
-        message=(
-            f"Artifact library enabled. Configured upload limit: {status.max_bytes} bytes "
-            f"(MNEMONIC_ARTIFACT_MAX_BYTES). MCP transfer limit: {MCP_ARTIFACT_MAX_BYTES} "
-            f"bytes (64 MiB); effective new MCP upload limit: {effective} bytes. "
-            "Use the raw upload helper with authorize_artifact_upload, or the authenticated "
-            "binary API/dashboard, for larger configured transfers. "
-            "Existing downloads and exact receipt replay are not subject to a lowered "
-            "positive upload limit; the MCP transfer limit still applies."
-        ),
+        message=(f"Upload limit: {status.max_bytes} bytes; MCP base64 limit: "
+                 f"{MCP_ARTIFACT_MAX_BYTES} bytes. Raw helpers use the configured limit."),
     )
 
 
 @asynccontextmanager
 async def artifact_access(api: MnemonicAPI) -> AsyncIterator[ArtifactToolStatus]:
     status = await _status(api)
-    try:
-        yield status
-    except ToolError as exc:
-        # Only our locally constructed text is used, never upstream status.message.
-        raise ToolError(f"{exc} Last observed configuration: {status.message}") from None
+    yield status

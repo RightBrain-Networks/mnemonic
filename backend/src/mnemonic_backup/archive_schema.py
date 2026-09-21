@@ -15,11 +15,11 @@ from sqlalchemy import Connection, text
 
 from mnemonic_api.models import Base
 
-HEAD = "0046_shared_transcript_copies"
+HEAD = "0047_artifact_transfer"
 # Infrastructure delivery state is neither project data nor a restore target.
 # The reconciler derives transcript jobs anew from the restored domain rows.
 INFRASTRUCTURE_TABLES = frozenset({
-    "transcript_worker_health",
+    "transcript_worker_health", "artifact_download_capabilities",
     "background_jobs", "artifact_passage_indexes", "artifact_passages",
 })
 TABLES = tuple(sorted(set(Base.metadata.tables) - INFRASTRUCTURE_TABLES))
@@ -194,6 +194,10 @@ def replace_rows(connection: Connection, current: dict, restored: dict) -> None:
     # manifest UUIDs prevent completed source jobs from suppressing restore work.
     artifact_ids = {row["id"] for source in (current, restored) for row in source["artifacts"]}
     if artifact_ids:
+        # A restored revision must never revive a capability issued before restore.
+        connection.execute(text("DELETE FROM artifact_download_capabilities "
+                                "WHERE artifact_id = ANY(CAST(:ids AS uuid[]))"),
+                           {"ids": list(artifact_ids)})
         connection.execute(text("DELETE FROM artifact_passage_indexes "
                                 "WHERE artifact_id = ANY(CAST(:ids AS uuid[]))"),
                            {"ids": list(artifact_ids)})

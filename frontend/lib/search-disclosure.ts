@@ -19,7 +19,7 @@ export type SearchDisclosure = {
   diagnostics: DiagnosticsMode;
   applied_filters: AppliedSearchFilters;
   query_interpretation: QueryInterpretation;
-  warnings: never[];
+  warnings: { code: "sensitive_content_withheld"; sources: ["artifacts"]; message: string }[];
 };
 
 function validFilter(source: Source, value: unknown): boolean {
@@ -66,7 +66,15 @@ export function decodeSearchDisclosure(value: unknown, projectId: string, search
     if (!modes.includes(String(interpretation.match_mode)) || (isWork ? interpretation.fulltext !== null : typeof interpretation.fulltext !== "boolean")
       || !Array.isArray(interpretation.fields) || JSON.stringify(interpretation.fields) !== JSON.stringify(fields)) throw new Error("Mnemonic returned invalid search interpretation.");
   }
-  if (page.warnings.length !== 0) throw new Error("Mnemonic returned invalid search warnings.");
+  const artifactCoverage = objectValue(objectValue(page.coverage)?.artifacts);
+  const withheld = artifactCoverage?.sensitive_content_withheld ?? page.sensitive_content_withheld ?? 0;
+  if (page.warnings.length !== (withheld ? 1 : 0) || page.warnings.some((value: unknown) => {
+    const warning = objectValue(value);
+    return !warning || !exactKeys(warning, ["code", "sources", "message"])
+      || warning.code !== "sensitive_content_withheld"
+      || JSON.stringify(warning.sources) !== '["artifacts"]'
+      || warning.message !== "Sensitive artifact contents were withheld; zero matches do not establish absence.";
+  })) throw new Error("Mnemonic returned invalid search warnings.");
   return { diagnostics: page.diagnostics as DiagnosticsMode, applied_filters: applied as AppliedSearchFilters, query_interpretation: interpreted as QueryInterpretation, warnings: page.warnings as SearchDisclosure["warnings"] };
 }
 

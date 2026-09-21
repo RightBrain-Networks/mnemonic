@@ -83,9 +83,9 @@ git pull --ff-only origin main
 
 Use Semantic Versioning (`MAJOR.MINOR.PATCH`) for application releases. `MAJOR` version bumps are reserved and require explicit human approval. Increment `MINOR` for user-facing changes and `PATCH` for all other changes.
 
-The current application/API/MCP/dashboard release is `0.69.0`, Claude plugin
-`0.42.1`, and Alembic head `0046_shared_transcript_copies`. The catalog is exactly
-55 MCP tools, 17 receipt-protected MCP writes, 24 REST receipt kinds, 21 protected
+The current application/API/MCP/dashboard release is `0.70.0`, Claude plugin
+`0.43.0`, and Alembic head `0047_artifact_transfer`. The catalog is exactly
+56 MCP tools, 17 receipt-protected MCP writes, 24 REST receipt kinds, 21 protected
 browser mutations, 24 work-event types, and three plugin skills. The suggestion
 POST is a safe read. Completion evidence and job completion reports are nested
 only in the existing closeout mutations; do not add standalone agent writes.
@@ -121,11 +121,13 @@ Local uploads/replacements use `scripts/upload_artifact.py prepare`, then
 The five-minute grant uses the reachable MCP endpoint; no helper API URL/key is
 required. Grant refresh preserves the frozen intent and uncertain retry budget;
 retain the private prepared directory unchanged for an uncertain retry. Local
-downloads use `scripts/download_artifact.py --dest` with a new file in the agent's
-actual scratchpad. Both helpers stream raw bytes, return only
+downloads use `authorize_artifact_download`, then `scripts/download_artifact.py --grant-file`
+with `--dest` naming a new file in the agent's actual scratchpad. Both helpers stream raw bytes, return only
 compact summaries, and ship in the plugin and portable skills. Keep base64 out of
 agent context. See `docs/artifact-upload-client.md` and
-`docs/artifact-download-client.md` for grant-based uploads and provisioned direct downloads.
+`docs/artifact-download-client.md` for grant-based uploads/downloads. Both helpers
+accept `--grant-file -` via private stdin; never embed tokens in shell source. Metadata edits reuse completed extraction but
+still advance revision, so content pins must be refreshed.
 Tika extracts current normalized text and retained document properties into
 PostgreSQL; Tantivy searches a rebuildable RAM index. Content matching is opt-in
 (`fulltext=true`); metadata-only is the default. Replacement/deletion clears old

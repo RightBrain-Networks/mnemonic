@@ -232,7 +232,8 @@ def _validate_mutation(database: Session, artifact: Artifact, mutation: Artifact
         raise ApplicationError(410, "artifact_deleted", "Artifact content has been deleted.")
     if mutation.kind != "upload" and artifact.revision != mutation.expected_revision:
         raise conflict(
-            "artifact_revision_conflict", "The artifact revision changed. Reload metadata."
+            "artifact_revision_conflict", "The artifact revision changed. Reload metadata.",
+            context={"current_revision": artifact.revision},
         )
     if isinstance(mutation.metadata, ArtifactUploadMetadata):
         if mutation.metadata.filename != artifact.filename:
@@ -692,6 +693,7 @@ def open_artifact(
     expected_revision: int | None,
     actor: ArtifactActor,
     *, access: ArtifactAccessRequest | None = None, human_dashboard: bool = False,
+    download_grant: str | None = None,
 ) -> tuple[ArtifactRead, BinaryIO]:
     with project_mutation(database, project_id, protected=True, domain_seconds=120):
         artifact = require_artifact(database, project_id, artifact_id)
@@ -701,12 +703,20 @@ def open_artifact(
         if artifact.deleted_at is not None:
             raise ApplicationError(410, "artifact_deleted", "Artifact content has been deleted.")
         if expected_revision is not None and expected_revision != artifact.revision:
-            raise conflict("artifact_revision_conflict", "The artifact revision changed.")
-        require_sensitive_access(
-            database, artifact, "download",
-            access or ArtifactAccessRequest(**actor.model_dump()),
-            {"expected_revision": expected_revision}, human_dashboard=human_dashboard,
-        )
+            raise conflict("artifact_revision_conflict", "The artifact revision changed.",
+                           context={"current_revision": artifact.revision})
+        if download_grant is not None:
+            from mnemonic_api.services.artifact_downloads import consume_download
+
+            actor = consume_download(database, artifact, download_grant)
+            if artifact.sensitive:
+                _audit(database, artifact, "sensitive_downloaded", actor, {"action": "download"})
+        else:
+            require_sensitive_access(
+                database, artifact, "download",
+                access or ArtifactAccessRequest(**actor.model_dump()),
+                {"expected_revision": expected_revision}, human_dashboard=human_dashboard,
+            )
         content = storage.open(artifact.relative_path)
         try:
             _audit(database, artifact, "downloaded", actor)
@@ -784,7 +794,8 @@ def read_artifact_text(
         if artifact.deleted_at is not None:
             raise ApplicationError(410, "artifact_deleted", "Artifact content has been deleted.")
         if filters.expected_revision != artifact.revision:
-            raise conflict("artifact_revision_conflict", "The artifact revision changed.")
+            raise conflict("artifact_revision_conflict", "The artifact revision changed.",
+                           context={"current_revision": artifact.revision})
         require_sensitive_access(
             database, artifact, "text", access or ArtifactAccessRequest(),
             filters.model_dump(mode="json"), human_dashboard=human_dashboard,

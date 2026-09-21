@@ -6,7 +6,7 @@ import { decodeArtifactSearchPage, validArtifactSearchRequest } from "../lib/art
 import { artifactSearchRequest, decodeUnifiedArtifactSearchPage } from "../lib/unified-search.ts";
 import { validSearchRequest } from "../lib/search-request.ts";
 import { artifactQueryKeys, proxyArtifact } from "../lib/artifact-proxy.ts";
-import { disclosure, projectCoverage } from "./search-disclosure-fixtures.mjs";
+import { disclosure, projectCoverage, withholding } from "./search-disclosure-fixtures.mjs";
 import { ranking, unifiedRanking } from "./search-ranking-fixtures.mjs";
 import { TRANSCRIPT_SEARCH_HINT } from "../lib/search-diagnostics.ts";
 
@@ -39,7 +39,7 @@ test("embedding coverage distinguishes pending vectors, withheld bodies and unav
     const embedding = { ...coverage, [field]: 1, state: "incomplete" };
     const vectors = !["withheld", "truncated"].includes(field);
     const semantic = { ...page.semantic, partial_vectors: vectors, comparison_incomplete: vectors };
-    assert.equal(decode({ ...page, embedding, semantic, sensitive_content_withheld: embedding.withheld }).embedding[field], 1);
+    assert.equal(decode(withholding({ ...page, embedding, semantic, sensitive_content_withheld: embedding.withheld })).embedding[field], 1);
     assert.throws(() => decode({ ...page, embedding: { ...embedding, state: "ready" }, semantic }));
   }
   assert.throws(() => decode({ ...page, embedding: { ...coverage, ready: 0, passages: 0 } }));

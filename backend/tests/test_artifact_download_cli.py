@@ -294,7 +294,7 @@ def test_credential_must_be_provisioned_in_environment(
     dest = tmp_path / "missing-key.bin"
     result = run_client(server, dest, api_key="")
     assert_failed(result, dest)
-    assert "Provision MNEMONIC_API_KEY" in result.stderr
+    assert "MNEMONIC_API_KEY" in result.stderr and "operator" in result.stderr
     assert not server.requests
 
 
@@ -490,3 +490,28 @@ def test_download_to_scratchpad_omits_large_body_from_session(
     assert dest.stat().st_mode & 0o777 == 0o600
     assert len(server.requests) == 2
     assert not list(scratchpad.glob(".mnemonic-download-*"))
+
+
+def test_missing_direct_settings_are_reported_together(tmp_path):
+    environment = {name: value for name, value in os.environ.items()
+                   if name not in {"MNEMONIC_API_KEY", "MNEMONIC_API_URL"}}
+    destination = tmp_path / "unprovisioned.bin"
+    result = subprocess.run([sys.executable, str(SCRIPT), "--dest", str(destination)],
+                            env=environment, capture_output=True, text=True, check=False)
+    assert_failed(result, destination)
+    assert "MNEMONIC_API_URL" in result.stderr and "MNEMONIC_API_KEY" in result.stderr
+    assert "authorize_artifact_download" in result.stderr and "operator" in result.stderr
+
+
+@pytest.mark.parametrize("field", ["project_id", "artifact_id", "expires_at", "download_url"])
+def test_malformed_download_grant_is_rejected_without_traceback(tmp_path, field):
+    grant = {"project_id": PROJECT_ID, "artifact_id": ARTIFACT_ID, "expires_at": "",
+             "download_url": "http://localhost:8001/mcp", "download_token": "t" * 43,
+             "revision": 1, "size_bytes": 0, "sha256": "0" * 64, field: None}
+    destination = tmp_path / "invalid-grant.bin"
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT), "--grant-file", "-", "--dest", str(destination)],
+        input=json.dumps(grant), capture_output=True, text=True, check=False,
+    )
+    assert_failed(result, destination)
+    assert "Invalid download grant" in result.stderr and "Traceback" not in result.stderr

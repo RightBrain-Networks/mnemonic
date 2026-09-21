@@ -1,5 +1,38 @@
 # Mnemonic validation record
 
+## Artifact transfers from MCP-only sessions (0.70.0)
+
+Application/API/MCP/dashboard 0.70.0 and plugin 0.43.0 add the download grant
+route and require migration `0047_artifact_transfer`. The catalog has 56 tools,
+17 receipt-protected writes, and the same three skills. A short shared
+[transfer procedure](../plugin/reference/artifact-transfers.md) covers the common
+case. Root README.md remains unchanged.
+
+The real HTTP MCP/API/PostgreSQL helper regression removes both
+`MNEMONIC_API_URL` and `MNEMONIC_API_KEY` from the helper environment. It exercises
+prepare, authorize, send, download to a new private file, receipt replay,
+replacement, and another pinned download. Both private grant files and stdin are
+covered. One local run measured **0.301 seconds** to the first verified upload and
+**1.285 seconds** through the complete sequence. This is an automated integration
+measurement; it does not measure an independent agent's documentation-only
+onboarding or token consumption.
+
+Grant regressions cover concurrent single-use redemption, hashed storage,
+project/artifact/revision scope, expiry, deletion, sensitive approval at issuance,
+token reuse refusal, and project-scoped revocation during backup restore. Gateway checks cover fixed upstream routing, host and
+header rejection, RPC isolation, and withholding corrupt upstream bytes. The
+existing helper checks cover integrity, deadlines, redirects, private destinations,
+and credential diagnostics. Metadata-only edits reuse completed extraction;
+revision and sensitivity checks still invalidate older content pins. Search
+responses explicitly warn when sensitive contents were withheld.
+
+Full backend and MCP suites were run, with affected suites rerun after correcting
+regressions and release/catalog fixtures. The isolated PostgreSQL and RabbitMQ
+checks, frontend's 501 tests, TypeScript checking, Node 24 production build,
+backend/MCP lint and type checks, and plugin packaging checks were exercised.
+The pull request records the final aggregate Required checks result. These checks
+used isolated test services; no production artifacts or saved work were changed.
+
 ## Shared native transcript copies (0.65.2)
 
 The full isolated PostgreSQL/RabbitMQ backend run passed **3,383 tests**; MCP
