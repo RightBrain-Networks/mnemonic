@@ -71,3 +71,13 @@ test("reviewed validation rules match the public catalog and never render arbitr
     assert.deepEqual(detailMessage([{ type: code, loc: ["query", "external_url"], msg: "private-upstream-message", input: "private-input-value" }]), { message: `${field ?? "external_url"}: ${message}` });
   }
 });
+
+test("withheld content is explicit on empty artifact and unified searches", () => {
+  const warning = { code: "sensitive_content_withheld", sources: ["artifacts"], message: "Sensitive artifact contents were withheld; zero matches do not establish absence." };
+  for (const coverage of [{ sensitive_content_withheld: 1 }, { coverage: { artifacts: { sensitive_content_withheld: 1 } } }]) {
+    const page = { ...disclosure(project, ["artifacts"], { fulltext: true }), ...coverage, warnings: [warning] };
+    assert.deepEqual(decodeSearchDisclosure(page, project, ["artifacts"]).warnings, [warning]);
+    assert.throws(() => decodeSearchDisclosure({ ...page, warnings: [] }, project, ["artifacts"]));
+    assert.throws(() => decodeSearchDisclosure({ ...page, warnings: [{ ...warning, message: "private diagnostic" }] }, project, ["artifacts"]));
+  }
+});

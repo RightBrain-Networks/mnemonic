@@ -103,7 +103,7 @@ def exercise_client(api, project, tmp_path: Path, port: int) -> None:
     )
     assert first["status"] == "prepared"
     created = read_result(cli("send", "--request-dir", str(prepared), api_key=TEST_API_KEY))
-    assert created["artifact_id"] == first["artifact_id"]
+    assert created["artifact_id"] == first["expected_artifact"]["artifact_id"]
     assert created["revision"] == 1 and not created["replayed"]
     # Historical receipt replay must work even if today's upload maximum is lower.
     api.app.state.settings.artifact_max_bytes = 1

@@ -93,10 +93,11 @@ class QueryInterpretation(DisclosureModel):
 
 
 class SearchWarning(DisclosureModel):
-    code: Literal["phrase_operators_ignored"] = "phrase_operators_ignored"
+    code: Literal["phrase_operators_ignored", "sensitive_content_withheld"] = "phrase_operators_ignored"
     sources: list[SearchFacet] = Field(min_length=1, max_length=3)
     message: Literal[
-        "Quoted phrases are not supported; quotation marks do not require adjacent words."
+        "Quoted phrases are not supported; quotation marks do not require adjacent words.",
+        "Sensitive artifact contents were withheld; zero matches do not establish absence."
     ] = "Quoted phrases are not supported; quotation marks do not require adjacent words."
 
 
@@ -104,7 +105,18 @@ class SearchDisclosure(DisclosureModel):
     diagnostics: DiagnosticsMode = "on_empty"
     applied_filters: AppliedSearchFilters
     query_interpretation: QueryInterpretation
-    warnings: list[SearchWarning] = Field(max_length=1)
+    warnings: list[SearchWarning] = Field(max_length=2)
+
+
+def withholding_warnings(page) -> list[SearchWarning]:
+    coverage = getattr(page, "coverage", None)
+    count = getattr(page, "sensitive_content_withheld", 0)
+    if coverage is not None:
+        count = coverage.artifacts.sensitive_content_withheld
+    return [SearchWarning(
+        code="sensitive_content_withheld", sources=["artifacts"],
+        message="Sensitive artifact contents were withheld; zero matches do not establish absence.",
+    )] if count else []
 
 
 def search_disclosure(
@@ -158,8 +170,10 @@ def disclosure_matches(actual: SearchDisclosure, expected: SearchDisclosure) -> 
     if "diagnostics" not in actual.model_fields_set:
         return False
     if any(getattr(actual, name) != getattr(expected, name) for name in (
-        "diagnostics", "applied_filters", "query_interpretation", "warnings",
+        "diagnostics", "applied_filters", "query_interpretation",
     )):
+        return False
+    if actual.warnings != expected.warnings + withholding_warnings(actual):
         return False
     sources = (actual.applied_filters, actual.query_interpretation)
     return all(

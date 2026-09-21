@@ -10,6 +10,7 @@ from .api import _invalid_response_constant, _response_object_without_duplicate_
 from .artifact_errors import _STORAGE_FAILURES
 
 _KNOWN_ERRORS = {
+    401: {"artifact_download_grant_invalid"},
     404: {
         "project_not_found",
         "artifact_not_found",
@@ -73,6 +74,9 @@ def _context(status: int, code: str, context: dict) -> dict | None:
         cause, uncommitted = context.get("cause"), context.get("attempt_not_committed")
         if isinstance(cause, str) and cause in _STORAGE_FAILURES and type(uncommitted) is bool:
             return {"cause": cause, "attempt_not_committed": uncommitted}
+    revision = context.get("current_revision")
+    if code == "artifact_revision_conflict" and type(revision) is int and revision > 0:
+        return {"current_revision": revision}
     maximum = context.get("max_bytes")
     if (
         type(maximum) is int
@@ -88,7 +92,9 @@ def _context(status: int, code: str, context: dict) -> dict | None:
     return None
 
 
-def upstream_failure(response: httpx.Response) -> JSONResponse:
+def upstream_failure(
+    response: httpx.Response, *, fallback_code: str = "artifact_upload_outcome_unknown",
+) -> JSONResponse:
     try:
         if response.headers.get_list("content-type") not in (
             ["application/json"],
@@ -109,4 +115,4 @@ def upstream_failure(response: httpx.Response) -> JSONResponse:
             return rejection(response.status_code, code, safe or None)
     except ValueError, TypeError, KeyError, AttributeError, RecursionError:
         pass
-    return rejection(502, "artifact_upload_outcome_unknown")
+    return rejection(502, fallback_code)

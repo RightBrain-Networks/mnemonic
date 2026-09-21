@@ -110,6 +110,8 @@ def test_metadata_update_rejects_stale_revision_and_concurrent_changes(api, proj
         responses = list(workers.map(lambda flag: update(api, project, artifact, sensitive=flag),
                                      [True, False]))
     assert sorted(response.status_code for response in responses) == [200, 409]
+    conflict = next(response.json() for response in responses if response.status_code == 409)
+    assert conflict["detail"]["context"]["current_revision"] == 2
     assert api.get(collection(project) + "/" + artifact["id"]).json()["revision"] == 2
 
 
@@ -131,21 +133,23 @@ def test_related_artifacts_reject_self_deleted_unknown_and_foreign_project(api, 
     assert api.get(collection(project) + "/" + artifact["id"]).json()["revision"] == 1
 
 
-def test_metadata_revision_invalidates_text_and_suppresses_sensitive_properties(
+def test_metadata_revision_reuses_text_and_suppresses_sensitive_properties(
     api, project, artifact_storage,
 ):
     artifact = upload(api, project, filename="metadata.txt")
     assert run_job(api, artifact_storage, Parser())
     path = collection(project) + "/" + artifact["id"]
-    assert api.get(path).json()["extraction"]["metadata"]
+    before = api.get(path).json()["extraction"]
+    assert before["metadata"]
     response = update(api, project, artifact, sensitive=True)
     assert response.status_code == 200, response.text
-    assert response.json()["extraction"]["status"] == "pending"
+    assert response.json()["extraction"]["status"] == "ready"
+    assert response.json()["extraction"]["extracted_at"] == before["extracted_at"]
     with api.app.state.session_factory() as database:
         old = database.get(ArtifactExtraction, (UUID(artifact["id"]), 1))
         assert old.status == "superseded"
         assert old.normalized_text is None
-    assert run_job(api, artifact_storage, Parser())
+    assert not run_job(api, artifact_storage, Parser())
     assert api.get(path).json()["extraction"]["metadata"] == {}
     for row in api.get(path + "/history").json()["revisions"]["items"]:
         assert row["extraction"]["metadata"] == {}

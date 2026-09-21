@@ -221,11 +221,11 @@ class ArtifactToolRead(ArtifactRead):
 
 
 class ArtifactToolPage(ArtifactPage[ArtifactRead]):
-    artifact_library: ArtifactToolStatus
+    pass
 
 
 class ArtifactToolHistory(ArtifactHistory):
-    artifact_library: ArtifactToolStatus
+    pass
 
 
 class ArtifactSummary(ArtifactModel):
@@ -251,7 +251,6 @@ class ArtifactSummary(ArtifactModel):
 class ArtifactToolDownload(ArtifactModel):
     artifact: ArtifactSummary
     content_base64: ArtifactContent
-    artifact_library: ArtifactToolStatus
 
 
 class ArtifactToolSearchMatch(ArtifactModel, SearchHitRanking, ArtifactMatchEvidence):

@@ -8,7 +8,7 @@ from mnemonic_api.search_ranking import SemanticDisposition, SemanticReason, una
 
 SAFE_ERROR_CONTEXT_KEYS = frozenset(
     {
-        "approval_token", "action", "artifact_id", "revision",
+        "approval_token", "action", "artifact_id", "revision", "current_revision",
         "human_approval_required", "instructions",
         "holder_client", "holder_session_id", "expires_at", "purpose", "code_review_id", "mode",
         "canonical_work_item_id", "max_bytes", "max_chars", "cause", "attempt_not_committed",
@@ -36,6 +36,9 @@ def _safe_context(context: dict[str, Any] | None) -> dict[str, Any]:
     if not context:
         return {}
     safe = {key: value for key, value in context.items() if key in SAFE_ERROR_CONTEXT_KEYS}
+    revision = safe.get("current_revision")
+    if type(revision) is not int or revision < 1:
+        safe.pop("current_revision", None)
     cause = safe.get("cause")
     if not isinstance(cause, str) or cause not in SAFE_STORAGE_CAUSES:
         safe.pop("cause", None)

@@ -99,6 +99,7 @@ def _valid_approval(
 def require_sensitive_access(
     database: Session, artifact: Artifact, action: AccessAction,
     access: ArtifactAccessRequest, scope: dict[str, object], *, human_dashboard: bool = False,
+    audit_read: bool = True,
 ) -> None:
     if not artifact.sensitive:
         return
@@ -120,7 +121,8 @@ def require_sensitive_access(
     _audit(database, artifact, "approval_granted", access, {
         "action": action, "human_approved": True, "request_hash": request_hash,
     })
-    _audit(database, artifact, _READ_ACTIONS[action], access, {"action": action})
+    if audit_read:
+        _audit(database, artifact, _READ_ACTIONS[action], access, {"action": action})
 
 
 _READ_ACTIONS = {

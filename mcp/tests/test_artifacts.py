@@ -298,7 +298,7 @@ async def test_transfer_tools_report_limits_while_search_omits_upload_guidance(s
         return httpx.Response(200, json=artifact())
 
     result = await call(settings, name, arguments, handler, maximum=1048576)
-    if name == "search_artifact_contents":
+    if name not in {"upload_artifact", "replace_artifact"}:
         assert "artifact_library" not in result
         return
     status = result["artifact_library"]
@@ -335,7 +335,7 @@ async def test_limit_error_reports_authoritative_raced_limit_without_echo(settin
     with pytest.raises(ToolError) as raised:
         await call(settings, "upload_artifact", upload_arguments(), handler, maximum=1024)
     assert "configured upload limit of 12 bytes" in str(raised.value)
-    assert "Last observed configuration" in str(raised.value)
+    assert "Last observed configuration" not in str(raised.value)
     assert "secret upstream data" not in str(raised.value)
 
 
@@ -367,9 +367,8 @@ async def test_lowered_positive_limit_does_not_prevent_exact_receipt_replay(sett
 
 
 async def test_large_config_explicitly_reports_distinct_mcp_cap(settings):
-    result = await call(settings, "get_artifact", {
-        "project_id": PROJECT_ID, "artifact_id": ARTIFACT_ID,
-    }, lambda request: httpx.Response(200, json=artifact()), maximum=1073741824)
+    result = await call(settings, "upload_artifact", upload_arguments(),
+                        lambda request: httpx.Response(201, json=artifact()), maximum=1073741824)
     assert result["artifact_library"]["max_bytes"] == 1073741824
     assert result["artifact_library"]["effective_upload_max_bytes"] == 67108864
 
@@ -387,6 +386,6 @@ async def test_replacement_timeout_keeps_exact_receipt_and_limit_guidance(settin
             artifact_id=ARTIFACT_ID, expected_revision=1,
         ), handler, maximum=1024)
     assert UNKNOWN_IDEMPOTENT_MUTATION_OUTCOME in str(raised.value)
-    assert "Configured upload limit: 1024 bytes" in str(raised.value)
+    assert "Configured upload limit" not in str(raised.value)
     assert "private upstream diagnostic" not in str(raised.value)
     assert len(calls) == 1

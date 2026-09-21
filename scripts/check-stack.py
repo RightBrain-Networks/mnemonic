@@ -47,6 +47,7 @@ CANONICAL_TOOLS = {
     "list_artifacts", "get_artifact", "get_artifact_text",
     "list_artifact_history", "download_artifact",
     "authorize_artifact_upload",
+    "authorize_artifact_download",
     "search_artifact_contents", "upload_artifact", "replace_artifact", "delete_artifact", "update_artifact",
     "list_code_reviews", "get_code_review", "complete_code_review",
     "list_work_follow_ups", "get_work_follow_up", "respond_to_work_follow_up",
@@ -1125,7 +1126,7 @@ async def phase12_human_report_flow(
 def validate_rest_contract(document: Any) -> None:
     """Reject a healthy but contract-incompatible pre-Phase-12 API."""
     try:
-        require(document["info"]["version"] == "0.69.0", "Unexpected REST API version.")
+        require(document["info"]["version"] == "0.70.0", "Unexpected REST API version.")
         schemas = document["components"]["schemas"]
         unified_search = document["paths"]["/api/v1/projects/{project_id}/search"]["post"]
         require(
@@ -1361,8 +1362,8 @@ def validate_mcp_catalog(catalog: Any) -> None:
     """Require the exact tool set, annotations, and operation-ID boundaries."""
     tools_by_name = {entry.name: entry for entry in catalog.tools}
     require(
-        len(catalog.tools) == 55
-        and len(tools_by_name) == 55
+        len(catalog.tools) == 56
+        and len(tools_by_name) == 56
         and len(PROTECTED_MUTATION_TOOLS) == 17
         and set(tools_by_name) == CANONICAL_TOOLS,
         "Unexpected MCP tool catalog.",
@@ -1376,7 +1377,8 @@ def validate_mcp_catalog(catalog: Any) -> None:
         expected_annotations = (
             name in READ_ONLY_TOOLS,
             name in DESTRUCTIVE_TOOLS,
-            name in READ_ONLY_TOOLS | PROTECTED_MUTATION_TOOLS,
+            name != "authorize_artifact_download"
+            and name in READ_ONLY_TOOLS | PROTECTED_MUTATION_TOOLS,
             False,
         )
         actual_annotations = (
@@ -1633,15 +1635,15 @@ async def check(args: argparse.Namespace, key: str) -> None:
                 initialized = await session.initialize()
                 require(
                     initialized.serverInfo.name == "Mnemonic"
-                    and initialized.serverInfo.version == "0.69.0",
+                    and initialized.serverInfo.version == "0.70.0",
                     "Unexpected MCP server identity or version.",
                 )
                 catalog = await session.list_tools()
                 validate_mcp_catalog(catalog)
                 await tool(session, "list_projects", {})
                 print(
-                    "PASS: REST 0.69.0 cross-project relationship contract shape, work-move, "
-                    "code-review contract, real MCP initialization, 55-tool catalog, "
+                    "PASS: REST 0.70.0 cross-project relationship contract shape, work-move, "
+                    "code-review contract, real MCP initialization, 56-tool catalog, "
                     "exact seventeen protected mutation "
                     "schemas/annotations, and REST-backed project listing"
                 )

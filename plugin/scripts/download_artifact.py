@@ -7,8 +7,10 @@ import json
 import os
 import re
 import signal
+import stat
 import sys
 import tempfile
+import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -115,9 +117,13 @@ def content_length(response: HTTPResponse, maximum: int) -> int | None:
     return int(value)
 
 
-def request(opener: OpenerDirector, url: str, headers: dict[str, str]) -> HTTPResponse:
+def request(
+    opener: OpenerDirector, url: str, headers: dict[str, str], timeout: float | None = None,
+) -> HTTPResponse:
     try:
-        response = opener.open(Request(url, headers=headers), timeout=SOCKET_SECONDS)
+        response = opener.open(
+            Request(url, headers=headers), timeout=SOCKET_SECONDS if timeout is None else timeout,
+        )
     except HTTPError as error:
         status = error.code
         if status == 428:
@@ -129,6 +135,11 @@ def request(opener: OpenerDirector, url: str, headers: dict[str, str]) -> HTTPRe
         error.close()
         if 300 <= status < 400:
             raise DownloadError("The API redirected the request; redirects are refused.") from None
+        if status == 401 and headers.get("Authorization", "").startswith("MnemonicDownload "):
+            raise DownloadError(
+                "Download grant expired, consumed, or invalid. Obtain a new grant through MCP; "
+                "sensitive downloads require new human approval."
+            ) from None
         if status == 409:
             raise DownloadError("Artifact revision changed; read its metadata and retry.") from None
         raise DownloadError(f"The API refused the download (HTTP {status}).") from None
@@ -159,7 +170,7 @@ def validate_approval_challenge(context: dict[str, object]) -> dict[str, object]
         raise ValueError("Invalid approval token")
     expiry = context["expires_at"]
     if not isinstance(expiry, str) or len(expiry) > 64 or (
-        datetime.fromisoformat(expiry).tzinfo is None
+        datetime.fromisoformat(expiry.replace("Z", "+00:00")).tzinfo is None
     ):
         raise ValueError("Invalid approval expiry")
     revision = context["revision"]
@@ -201,13 +212,13 @@ def deadline_expired(signum: int, frame: FrameType | None) -> None:
 
 
 @contextmanager
-def request_deadline() -> Iterator[None]:
+def request_deadline(seconds: float | None = None) -> Iterator[None]:
     # The signal interrupts connection/header/framing reads as well as payload reads.
     # Keep it inside staging's lifetime and cancel before publishing a verified file.
     require_deadline_support()
     previous_handler = signal.signal(signal.SIGALRM, deadline_expired)
     try:
-        signal.setitimer(signal.ITIMER_REAL, REQUEST_SECONDS)
+        signal.setitimer(signal.ITIMER_REAL, REQUEST_SECONDS if seconds is None else seconds)
         yield
     finally:
         signal.setitimer(signal.ITIMER_REAL, 0)
@@ -272,10 +283,14 @@ def verify_headers(response: HTTPResponse, artifact: Artifact) -> None:
 
 def save_content(
     opener: OpenerDirector, url: str, headers: dict[str, str], artifact: Artifact, dest: Path,
+    *, granted: bool = False,
 ) -> None:
-    content_url = f"{url}/content?expected_revision={artifact.revision}"
+    content_url = url if granted else f"{url}/content?expected_revision={artifact.revision}"
     with tempfile.NamedTemporaryFile(prefix=".mnemonic-download-", dir=dest.parent) as staging:
-        with request_deadline(), request(opener, content_url, headers) as response:
+        with (
+            request_deadline(330 if granted else REQUEST_SECONDS),
+            request(opener, content_url, headers, 310 if granted else SOCKET_SECONDS) as response,
+        ):
             verify_headers(response, artifact)
             digest, size = hashlib.sha256(), 0
             for chunk in chunks(response, artifact.size_bytes):
@@ -296,12 +311,92 @@ def save_content(
             ) from None
 
 
+def read_grant(path: Path) -> dict:
+    if str(path) == "-":
+        raw = sys.stdin.buffer.read(MAX_METADATA_BYTES + 1)
+    else:
+        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        with os.fdopen(descriptor, "rb") as source:
+            mode = os.fstat(source.fileno()).st_mode
+            if not stat.S_ISREG(mode) or mode & 0o077:
+                raise DownloadError("Grant must be a regular owner-only file (chmod 600).")
+            raw = source.read(MAX_METADATA_BYTES + 1)
+    if len(raw) > MAX_METADATA_BYTES:
+        raise DownloadError("Download grant exceeds its limit.")
+    return json.loads(raw, object_pairs_hook=unique_object)
+
+
+def unique_object(pairs: list[tuple[str, object]]) -> dict:
+    result = {}
+    for name, value in pairs:
+        if name in result:
+            raise DownloadError("Duplicate fields in download grant.")
+        result[name] = value
+    return result
+
+
+def grant_download(args: argparse.Namespace, opener: OpenerDirector, dest: Path) -> Artifact:
+    grant = read_grant(args.grant_file)
+    required = {"download_url", "download_token", "expires_at", "project_id", "artifact_id",
+                "revision", "size_bytes", "sha256"}
+    if not isinstance(grant, dict) or set(grant) != required:
+        raise DownloadError("Use the exact structured authorize_artifact_download result.")
+    if not all(isinstance(grant[field], str) for field in
+               ("project_id", "artifact_id", "expires_at", "download_url")):
+        raise DownloadError("Invalid download grant identity, expiry, or endpoint.")
+    for field in ("project_id", "artifact_id"):
+        identity = UUID(grant[field])
+        if getattr(args, field) not in {None, identity}:
+            raise DownloadError("Download grant belongs to another project or artifact.")
+        setattr(args, field, identity)
+    token = grant["download_token"]
+    if not isinstance(token, str) or not re.fullmatch(r"[A-Za-z0-9_-]{43}", token):
+        raise DownloadError("Invalid download grant token.")
+    expires = datetime.fromisoformat(grant["expires_at"].replace("Z", "+00:00"))
+    if expires.tzinfo is None or expires.timestamp() <= time.time():
+        raise DownloadError("Download grant expired; obtain a new grant through MCP.")
+    url = grant["download_url"]
+    parsed = urlsplit(url)
+    if (parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.port == 0
+            or parsed.username is not None or parsed.password is not None or not parsed.path
+            or parsed.query or parsed.fragment or any(ord(c) <= 32 or ord(c) >= 127 for c in url)):
+        raise DownloadError("Grant needs an HTTP(S) MCP endpoint without credentials or query.")
+    artifact = artifact_metadata(json.dumps({**grant, "id": grant["artifact_id"],
+                                           "content_available": True}).encode(), args)
+    intent = {name: grant[name] for name in
+              ("project_id", "artifact_id", "revision", "size_bytes", "sha256")}
+    headers = {"Authorization": f"MnemonicDownload {token}", "Accept-Encoding": "identity",
+               "X-Artifact-Download-Intent": json.dumps(intent, ensure_ascii=True)}
+    save_content(opener, url, headers, artifact, dest, granted=True)
+    return artifact
+
+
+def direct_download(args: argparse.Namespace, opener: OpenerDirector, dest: Path) -> Artifact:
+    missing = [name for name, value in (("MNEMONIC_API_URL (or --api-url)", args.api_url),
+                                      ("MNEMONIC_API_KEY", os.environ.get("MNEMONIC_API_KEY")))
+               if not value]
+    if missing:
+        raise DownloadError(
+            "Missing " + " and ".join(missing) + ". Use authorize_artifact_download "
+            "and --grant-file, or ask the operator to provision both values."
+        )
+    if any(getattr(args, field) is None for field in
+           ("project_id", "artifact_id", "agent_session_id", "actor_client")):
+        raise DownloadError("Direct download needs project/artifact IDs and actual session/client.")
+    origin, key = api_origin(args.api_url), api_credential()
+    provenance = approval_provenance(
+        args, actor_metadata(args.agent_session_id, args.actor_client, key),
+    )
+    url = f"{origin}/api/v1/projects/{args.project_id}/artifacts/{args.artifact_id}"
+    headers = {"Authorization": f"Bearer {key}", "Accept-Encoding": "identity"}
+    artifact = fetch_metadata(opener, url, headers, args)
+    headers["X-Artifact-Metadata"] = provenance
+    save_content(opener, url, headers, artifact, dest)
+    return artifact
+
+
 def download(args: argparse.Namespace) -> dict[str, str | int]:
     require_deadline_support()
-    origin = api_origin(args.api_url)
-    key = api_credential()
-    provenance = actor_metadata(args.agent_session_id, args.actor_client, key)
-    provenance = approval_provenance(args, provenance)
     dest = Path(os.path.abspath(args.dest))
     if os.path.lexists(dest):
         raise DownloadError("Destination already exists; choose a new --dest path.")
@@ -309,13 +404,13 @@ def download(args: argparse.Namespace) -> dict[str, str | int]:
         raise DownloadError("The destination directory must already exist.")
     if args.expected_revision is not None and args.expected_revision < 1:
         raise DownloadError("Expected revision must be a positive integer.")
-    # Ignore proxy environment: the credential is sent only to the explicit API origin.
     opener = build_opener(ProxyHandler({}), NoRedirects())
-    url = f"{origin}/api/v1/projects/{args.project_id}/artifacts/{args.artifact_id}"
-    headers = {"Authorization": f"Bearer {key}", "Accept-Encoding": "identity"}
-    artifact = fetch_metadata(opener, url, headers, args)
-    headers["X-Artifact-Metadata"] = provenance
-    save_content(opener, url, headers, artifact, dest)
+    if getattr(args, "grant_file", None):
+        if args.approval_token or args.human_approved:
+            raise DownloadError("Obtain sensitive approval through authorize_artifact_download.")
+        artifact = grant_download(args, opener, dest)
+    else:
+        artifact = direct_download(args, opener, dest)
     return {"path": str(dest), "revision": artifact.revision,
             "sha256": artifact.sha256, "size_bytes": artifact.size_bytes}
 
@@ -324,11 +419,12 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--api-url", default=os.environ.get("MNEMONIC_API_URL"),
                         help="Client-reachable API origin; defaults to MNEMONIC_API_URL")
-    parser.add_argument("--project-id", type=UUID, required=True)
-    parser.add_argument("--artifact-id", type=UUID, required=True)
+    parser.add_argument("--grant-file", type=Path, help="Private MCP grant JSON; - reads stdin")
+    parser.add_argument("--project-id", type=UUID)
+    parser.add_argument("--artifact-id", type=UUID)
     parser.add_argument("--dest", type=Path, required=True, help="New file; never overwritten")
-    parser.add_argument("--agent-session-id", required=True, help="Current caller's session ID")
-    parser.add_argument("--actor-client", required=True, help="Current caller's client name")
+    parser.add_argument("--agent-session-id", help="Current caller's session ID")
+    parser.add_argument("--actor-client", help="Current caller's client name")
     parser.add_argument("--expected-revision", type=int)
     parser.add_argument("--approval-token", help="One-use token from this exact download challenge")
     parser.add_argument("--human-approved", action="store_true",
@@ -341,7 +437,7 @@ def main() -> int:
         if args.approval_token and "HUMAN APPROVAL REQUIRED" not in str(error):
             print("The token may already be consumed. " + HUMAN_APPROVAL_REQUIRED, file=sys.stderr)
         return 1
-    except (OSError, URLError, HTTPException, ValueError):
+    except (OSError, URLError, HTTPException, ValueError, KeyError, TypeError, RecursionError):
         print("Download failed: connection or filesystem error; "
               "check the destination before retrying.", file=sys.stderr)
         if args.approval_token:

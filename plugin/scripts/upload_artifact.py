@@ -228,7 +228,7 @@ def prepare(args: argparse.Namespace) -> dict[str, Any]:
     }
     with (request_dir / "request.json").open("x", encoding="utf-8") as output:
         os.fchmod(output.fileno(), 0o600)
-        output.write(encode_json(manifest))
+        output.write(encode_json({"api_origin": origin, "upload_intent": upload_intent(manifest)}))
         output.flush()
         os.fsync(output.fileno())
     for directory in (request_dir, request_dir.parent):
@@ -241,7 +241,7 @@ def prepare(args: argparse.Namespace) -> dict[str, Any]:
         "status": "prepared",
         "request_dir": str(request_dir),
         "upload_intent": upload_intent(manifest),
-        **summary(manifest),
+        "expected_artifact": summary(manifest),
     }
 
 
@@ -268,6 +268,8 @@ def load_request(request_dir: Path) -> dict[str, Any]:
     if len(raw) > MAX_JSON_BYTES:
         raise UploadError("Prepared request metadata exceeds its limit.")
     manifest = decode_json(raw)
+    if "upload_intent" in manifest:
+        manifest = {**manifest["upload_intent"], "api_origin": manifest["api_origin"]}
     if manifest["api_origin"] is not None:
         api_origin(manifest["api_origin"])
     for field in ("project_id", "client_operation_id"):
@@ -389,11 +391,17 @@ def http_failure(error: HTTPError) -> UploadError:
         message = "Transferred bytes did not match the grant. Stop and reconcile. "
     elif error.code == 503 and code == "artifact_storage_unavailable":
         boundary = detail.get("context", {})
-        local = isinstance(boundary, dict) and boundary.get("storage_boundary") == "mcp_upload_staging"
+        local = (isinstance(boundary, dict)
+                 and boundary.get("storage_boundary") == "mcp_upload_staging")
         location = "MCP temporary upload storage" if local else "Artifact storage"
         message = f"{location} needs operator repair. Stop retries until it is repaired. "
     elif error.code == 409 and code == "artifact_revision_conflict":
-        message = "Artifact revision changed. Read current metadata before a new replacement intent. "
+        message = "Artifact revision changed. Read current metadata before a new intent. "
+    elif code in {"artifact_origin_immutable", "artifact_filename_immutable"}:
+        message = {
+            "artifact_origin_immutable": "The originating work_item_id cannot change. ",
+            "artifact_filename_immutable": "Replacement must keep the original filename. ",
+        }[code]
     elif error.code == 409 and code in {"artifact_operation_conflict", "client_operation_conflict"}:
         message = (
             "Operation UUID conflicts with a different request. Stop this intent. "
@@ -402,7 +410,7 @@ def http_failure(error: HTTPError) -> UploadError:
         "artifact_too_large",
         "artifact_library_disabled",
     }:
-        message = "The API size/availability policy refused the upload. Read /api/v1/artifacts/status. "
+        message = "Upload refused by size/availability policy. Read /api/v1/artifacts/status. "
     elif 300 <= error.code < 400:
         message = "The API redirected the request; redirects are refused. "
     else:
@@ -477,16 +485,21 @@ def upload_intent(manifest: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def load_grant(path: Path, manifest: dict[str, Any]) -> dict[str, Any]:
-    with regular_file(path) as source:
-        if os.fstat(source.fileno()).st_mode & 0o077:
-            raise UploadError(
-                "Grant file must have owner-only permissions (chmod 600)."
-            )
-        raw = source.read(MAX_JSON_BYTES + 1)
+def grant_bytes(path: Path) -> bytes:
+    if str(path) == "-":
+        raw = sys.stdin.buffer.read(MAX_JSON_BYTES + 1)
+    else:
+        with regular_file(path) as source:
+            if os.fstat(source.fileno()).st_mode & 0o077:
+                raise UploadError("Grant file must have owner-only permissions (chmod 600).")
+            raw = source.read(MAX_JSON_BYTES + 1)
     if len(raw) > MAX_JSON_BYTES:
         raise UploadError("Upload grant exceeds its limit.")
-    grant = decode_json(raw)
+    return raw
+
+
+def load_grant(path: Path, manifest: dict[str, Any]) -> dict[str, Any]:
+    grant = decode_json(grant_bytes(path))
     if set(grant) != {
         "upload_url",
         "upload_token",
@@ -646,7 +659,7 @@ def main() -> int:
     )
     sending.add_argument("--request-dir", type=Path, required=True)
     sending.add_argument(
-        "--grant-file", type=Path, help="Private MCP upload grant JSON"
+        "--grant-file", type=Path, help="Private MCP grant JSON; - reads bounded JSON from stdin"
     )
     args = parser.parse_args()
     try:

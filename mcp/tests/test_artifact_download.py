@@ -118,7 +118,7 @@ async def test_download_sends_exact_ascii_actor_only_to_binary_get(
     assert isinstance(result, tuple)
     assert base64.b64decode(result[1]["content_base64"]) == CONTENT
     assert result[1]["artifact"] == artifact_summary()
-    assert result[1]["artifact_library"]["max_bytes"] == 1
+    assert "artifact_library" not in result[1]
     assert len(requests) == 3
 
 
@@ -140,7 +140,7 @@ async def test_download_unavailable_or_oversize_metadata_prevents_binary_request
     with pytest.raises(ToolError, match=error) as raised:
         await call(settings, "download_artifact", download_arguments(), handler)
     assert len(requests) == 1
-    assert "Last observed configuration" in str(raised.value)
+    assert "Last observed configuration" not in str(raised.value)
 
 
 @pytest.mark.parametrize("headers", [
@@ -161,7 +161,7 @@ async def test_download_preserves_strict_binary_response_headers(settings, heade
     with pytest.raises(ToolError, match="safe read") as raised:
         await call(settings, "download_artifact", download_arguments(), handler)
     assert len(binary_requests) == 1
-    assert "Last observed configuration" in str(raised.value)
+    assert "Last observed configuration" not in str(raised.value)
 
 
 @pytest.mark.parametrize("headers", [
@@ -203,7 +203,7 @@ async def test_download_failures_keep_safe_read_semantics_without_implicit_retry
         await call(settings, "download_artifact", download_arguments(), handler)
     assert len(binary_requests) == 1
     message = str(raised.value)
-    assert "Last observed configuration" in message
+    assert "Last observed configuration" not in message
     for forbidden in ("private upstream", "untrusted.invalid", "mutation outcome", "operation UUID"):
         assert forbidden not in message
 
@@ -232,7 +232,7 @@ async def test_download_secret_echo_is_a_sanitized_definite_read_rejection(setti
     message = str(raised.value)
     assert "rejected the safe read" in message
     assert "caller context" in message
-    assert "Last observed configuration" in message
+    assert "Last observed configuration" not in message
     for forbidden in (
         settings.api_key, private_marker, "mutation", "UUID", "client_operation_id",
         "new intent", "unknown outcome",

@@ -23,7 +23,7 @@ from .test_artifact_upload_cli_postgres import APIBridge, read_result
 pytestmark = pytest.mark.postgres
 
 
-def grant_cli(*args: str) -> dict:
+def grant_cli(*args: str, input: str | None = None) -> dict:
     environment = {
         name: value
         for name, value in os.environ.items()
@@ -32,7 +32,7 @@ def grant_cli(*args: str) -> dict:
     return read_result(
         subprocess.run(
             [sys.executable, str(SCRIPT), *args],
-            env=environment,
+            env=environment, input=input,
             capture_output=True,
             text=True,
             timeout=30,
@@ -160,17 +160,33 @@ def exercise_grants(api, project, tmp_path, endpoint):
         "--actor-client",
         "pytest",
     ]
+    started = time.monotonic()
     prepared_dir = tmp_path / "prepared"
     prepared = grant_cli(
         "prepare", "--request-dir", str(prepared_dir), *common, "--description", "Résumé"
     )
+    stored_request = json.loads((prepared_dir / "request.json").read_text())
+    assert stored_request["upload_intent"] == prepared["upload_intent"]
+    assert "revision" not in prepared and "artifact_id" not in prepared
     grant_file = save_grant(endpoint, prepared, tmp_path / "grant.json")
     source.write_bytes(b"replacement\x00\xfe")
     uploaded = grant_cli(
         "send", "--request-dir", str(prepared_dir), "--grant-file", str(grant_file)
     )
     assert uploaded["revision"] == 1 and not uploaded["replayed"]
-    assert uploaded["sha256"] == prepared["sha256"]
+    print(f"First verified MCP-only upload: {time.monotonic() - started:.3f}s")
+    assert uploaded["sha256"] == prepared["expected_artifact"]["sha256"]
+    download_grant = authorize_download(endpoint, project["id"], uploaded["artifact_id"], 1)
+    downloaded = tmp_path / "downloaded.bin"
+    download_grant_file = tmp_path / "download-grant.json"
+    download_grant_file.write_text(json.dumps(download_grant))
+    download_grant_file.chmod(0o600)
+    result = download_cli(download_grant, downloaded, grant_file=download_grant_file)
+    assert result.returncode == 0, result.stderr
+    assert downloaded.read_bytes() == (prepared_dir / "content").read_bytes()
+    replay_download = download_cli(download_grant, tmp_path / "replay.bin")
+    assert replay_download.returncode == 1 and "consumed" in replay_download.stderr
+    assert not (tmp_path / "replay.bin").exists()
     # Reauthorizing a frozen intent after the positive limit falls still reaches its old receipt.
     api.app.state.settings.artifact_max_bytes = 1
     fresh_grant = save_grant(endpoint, prepared, tmp_path / "refreshed-grant.json")
@@ -191,9 +207,15 @@ def exercise_grants(api, project, tmp_path, endpoint):
     assert "description" not in replacement["upload_intent"]["metadata"]
     replacement_grant = save_grant(endpoint, replacement, tmp_path / "replacement-grant.json")
     replaced = grant_cli(
-        "send", "--request-dir", str(replacement_dir), "--grant-file", str(replacement_grant)
+        "send", "--request-dir", str(replacement_dir), "--grant-file", "-",
+        input=replacement_grant.read_text()
     )
     assert replaced["revision"] == 2 and not replaced["replayed"]
+    final_grant = authorize_download(endpoint, project["id"], uploaded["artifact_id"], 2)
+    final_path = tmp_path / "replacement-download.bin"
+    result = download_cli(final_grant, final_path)
+    assert result.returncode == 0, result.stderr
+    assert final_path.read_bytes() == source.read_bytes()
     path = f"/api/v1/projects/{project['id']}/artifacts/{uploaded['artifact_id']}"
     current = api.get(path).json()
     assert current["description"] == "Résumé"
@@ -202,3 +224,33 @@ def exercise_grants(api, project, tmp_path, endpoint):
     assert history["revisions"]["total"] == 2
     actions = [item["action"] for item in history["audit"]["items"]]
     assert actions.count("uploaded") == 1 and actions.count("replaced") == 1
+    print(f"Upload/download/replay/replace/download: {time.monotonic() - started:.3f}s")
+
+
+def authorize_download(endpoint, project_id, artifact_id, revision):
+    payload = {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {
+        "name": "authorize_artifact_download", "arguments": {
+            "project_id": project_id, "artifact_id": artifact_id, "expected_revision": revision,
+            "agent_session_id": "grant-session", "actor_client": "pytest",
+        },
+    }}
+    request = urllib.request.Request(endpoint, json.dumps(payload).encode(), headers={
+        "Authorization": f"Bearer {TEST_API_KEY}", "Content-Type": "application/json",
+        "Accept": "application/json, text/event-stream",
+    })
+    with urllib.request.urlopen(request, timeout=10) as response:
+        result = json.loads(response.read())["result"]
+    assert not result.get("isError"), result
+    return result["structuredContent"]
+
+
+def download_cli(grant, destination, *, grant_file=None):
+    environment = {name: value for name, value in os.environ.items()
+                   if name not in {"MNEMONIC_API_URL", "MNEMONIC_API_KEY"}}
+    return subprocess.run(
+        [sys.executable, str(REPO / "scripts/download_artifact.py"),
+         "--grant-file", str(grant_file) if grant_file else "-", "--dest", str(destination)],
+        input=None if grant_file else json.dumps(grant), env=environment,
+        capture_output=True, text=True,
+        timeout=30, check=False,
+    )

@@ -31,14 +31,16 @@ python3 scripts/upload_artifact.py prepare \
 No API origin or key is required. The parent directory must already exist.
 Preparation copies the bytes to a mode-0600 file in a mode-0700 directory,
 records their size/checksum, metadata and one operation UUID, and makes no network
-request. Its output includes `upload_intent`; this does **not** mean the upload
+request. Its output includes `upload_intent`, identical to `request.json.upload_intent`; this does **not** mean the upload
 has completed.
 
 Call `authorize_artifact_upload(intent=PREPARED_UPLOAD_INTENT)` through the
 connected MCP tool, copying that entire object unchanged. Save the exact
 structured grant result as an owner-only JSON file (mode 0600), separate from the
 frozen request directory. Do not put its token in a command argument, URL,
-checkpoint, or log. Then:
+checkpoint, or log. `--grant-file -` also accepts bounded JSON on private stdin;
+use the process-input facility or tool-result bridge, never a token-bearing shell
+heredoc or `echo` command. Then:
 
 ```sh
 python3 scripts/upload_artifact.py send \
@@ -76,7 +78,7 @@ budget. Never regenerate the operation UUID, edit the manifest, or replace the
 prepared bytes to get past an uncertain outcome.
 
 If that retry is also uncertain, stop sending and reconcile through
-`get_artifact` and `list_artifact_history`. The prepared summary gives the
+`get_artifact` and `list_artifact_history`. The prepared `expected_artifact` summary gives the
 deterministic target artifact ID even when the first response was lost. Receipt
 replay returns the original historical result; read current metadata before a
 later edit. A classified storage fault requires operator repair before retry.
