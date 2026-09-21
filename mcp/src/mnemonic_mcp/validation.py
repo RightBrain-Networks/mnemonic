@@ -11,6 +11,7 @@ from mcp.server.fastmcp.exceptions import ToolError
 from mcp.types import AnyFunction, Icon, ToolAnnotations
 from pydantic import ConfigDict, ValidationError
 
+from .input_schema import InputValidationError, input_schema_hint
 from .transport import bounded_stdio_server
 from .validation_rules import VALIDATION_RULES
 
@@ -319,7 +320,9 @@ def validation_error_message(
     return "Mnemonic rejected the input. Check the field names and constraints."
 
 
-def _pydantic_validation_error(error: BaseException) -> ValidationError | None:
+def _exception_in_chain[ErrorT: BaseException](
+    error: BaseException, error_type: type[ErrorT],
+) -> ErrorT | None:
     pending: list[BaseException] = [error]
     seen: set[int] = set()
     while pending:
@@ -327,11 +330,11 @@ def _pydantic_validation_error(error: BaseException) -> ValidationError | None:
         if id(current) in seen:
             continue
         seen.add(id(current))
-        if isinstance(current, ValidationError):
+        if isinstance(current, error_type):
             return current
         if current.__cause__ is not None:
             pending.append(current.__cause__)
-        if current.__context__ is not None:
+        if current.__context__ is not None and not current.__suppress_context__:
             pending.append(current.__context__)
     return None
 
@@ -397,6 +400,17 @@ def _tool_validation_message(name: str, error: ValidationError) -> str:
     return message
 
 
+def _validate_subagent_closeout(name: str, arguments: dict[str, Any]) -> None:
+    changes = arguments.get("changes")
+    if name == "update_work" and isinstance(changes, dict):
+        status = changes.get("status")
+        closeout = isinstance(status, str) and status in {"wont-do", "promoted"}
+        if not closeout and arguments.get("subagent_transcripts") is not None:
+            raise InputValidationError(
+                "Subagent transcript assertions require a closeout transition."
+            )
+
+
 class SanitizedFastMCP(FastMCP[Any]):
     """Per-server strict argument models and value-free validation errors."""
 
@@ -458,25 +472,24 @@ class SanitizedFastMCP(FastMCP[Any]):
 
     async def call_tool(self, name: str, arguments: dict[str, Any]) -> Any:
         tool = self._tool_manager.get_tool(name)
-        changes = arguments.get("changes")
-        if name == "update_work" and isinstance(changes, dict):
-            status = changes.get("status")
-            closeout = isinstance(status, str) and status in {"wont-do", "promoted"}
-            if not closeout and arguments.get("subagent_transcripts") is not None:
-                raise ToolError("Subagent transcript assertions require a closeout transition.")
         try:
+            _validate_subagent_closeout(name, arguments)
             return await super().call_tool(name, arguments)
         except ToolError as error:
-            validation_error = _pydantic_validation_error(error)
-            if (
-                validation_error is None
-                or tool is None
-                or validation_error.title != tool.fn_metadata.arg_model.__name__
-            ):
+            if tool is None:
                 raise
-            raise ToolError(
-                _tool_validation_message(name, validation_error)
-            ) from None
+            input_error = _exception_in_chain(error, InputValidationError)
+            validation_error = _exception_in_chain(error, ValidationError)
+            if input_error is not None:
+                message = str(input_error)
+            elif (
+                validation_error is not None
+                and validation_error.title == tool.fn_metadata.arg_model.__name__
+            ):
+                message = _tool_validation_message(name, validation_error)
+            else:
+                raise
+            raise ToolError(message + input_schema_hint(tool.name, tool.parameters)) from None
 
     async def run_stdio_async(self) -> None:
         """Run through the bounded binary adapter at the pinned FastMCP seam."""

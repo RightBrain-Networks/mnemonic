@@ -4104,7 +4104,8 @@ async def test_local_validation_is_strict_and_never_echoes_values(
         await adapter(settings, handler).call_tool(tool_name, arguments)
 
     message = str(caught.value)
-    assert message == expected_validation_message(fields, kinds)
+    assert message.split("\nInput schema for ", 1)[0] == expected_validation_message(fields, kinds)
+    assert f"\nInput schema for {tool_name} " in message
     for secret in secrets:
         assert secret not in message
     assert "input_value" not in message

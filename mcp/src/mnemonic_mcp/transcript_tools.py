@@ -12,6 +12,7 @@ from pydantic.experimental.missing_sentinel import MISSING
 
 from .api import MnemonicAPI, TransportEffect, _raise_unexpected_response
 from .artifact_transport import _request
+from .input_schema import InputValidationError
 from .response_validation import response_matches
 from .search_diagnostics import diagnostics_match
 from .search_disclosure import (
@@ -151,7 +152,7 @@ def _register_discovery(server: FastMCP, api: MnemonicAPI) -> None:
         dates = DateBounds(created_after=created_after, created_before=created_before,
                            updated_after=updated_after, updated_before=updated_before)
         if content_kinds and not fulltext:
-            raise ToolError("Mnemonic rejected the input. Check: content_kinds "
+            raise InputValidationError("Mnemonic rejected the input. Check: content_kinds "
                             "(content_kinds_requires_fulltext). content_kinds requires fulltext=true.")
         payload: dict[str, object] = {"query": query, "fulltext": fulltext,
                                      "limit": limit, "offset": offset, "detail": detail}
@@ -229,13 +230,15 @@ def _text_params(
         params["expected_sha256"] = expected_sha256
     if segment_id is None:
         if revision is not None or before or after:
-            raise ToolError("Mnemonic rejected the input. Supply segment_id for structured context.")
+            raise InputValidationError(
+                "Mnemonic rejected the input. Supply segment_id for structured context."
+            )
         if expected_sha256 is None or offset > 1_073_741_824:
-            raise ToolError("Mnemonic rejected the input. Flat text requires expected_sha256 "
+            raise InputValidationError("Mnemonic rejected the input. Flat text requires expected_sha256 "
                             "and offset at most 1073741824.")
     else:
         if revision is None or before + after > 20 or (before and offset):
-            raise ToolError("Mnemonic rejected the input. Segment reads require "
+            raise InputValidationError("Mnemonic rejected the input. Segment reads require "
                             "expected_normalized_revision, before+after<=20, and before=0 "
                             "when offset is nonzero.")
         params.update(segment_id=segment_id, expected_normalized_revision=revision,

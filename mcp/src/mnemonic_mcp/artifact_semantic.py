@@ -8,6 +8,7 @@ from uuid import UUID
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, StrictInt, model_validator
 from pydantic_core import PydanticCustomError
 
+from .input_schema import InputValidationError
 from .search_query import QueryMode, constrained_query
 
 Digest = Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
@@ -130,13 +131,11 @@ def artifact_evidence_matches(item, semantic: bool,
 
 
 def validate_tool_artifact_semantic(query: str | None, mode: QueryMode, fulltext: bool) -> None:
-    from mcp.server.fastmcp.exceptions import ToolError
-
     from .validation_rules import VALIDATION_RULES
 
     try:
         validate_artifact_semantic(query, mode, fulltext)
     except PydanticCustomError as error:
         field, message = VALIDATION_RULES[error.type]
-        raise ToolError(f"Mnemonic rejected the input. Check: {field} "
+        raise InputValidationError(f"Mnemonic rejected the input. Check: {field} "
                         f"({error.type}). {message}") from None

@@ -31,6 +31,35 @@ PRIVATE_EXTRA_VALUE = "private-extra-value-marker"
 
 LOCAL_VALIDATION_CASES = (
     (
+        "complete_work",
+        {
+            "project_id": PROJECT_ID,
+            "work_item_id": WORK_ID,
+            "expected_version": 3,
+            "client_operation_id": CLIENT_OPERATION_ID,
+            "subagent_transcripts": None,
+            "actor_client": PRIVATE_EXTRA_VALUE,
+            "actor_session_id": PRIVATE_EXTRA_VALUE,
+            "completion_evidence": {
+                "artifact_references": [{"kind": PRIVATE_EXTRA_VALUE}],
+                "verification_results": [{"name": PRIVATE_EXTRA_VALUE}],
+            },
+        },
+        (
+            "actor_client (extra_forbidden)",
+            "actor_session_id (extra_forbidden)",
+            "checkpoint (missing)",
+            "completion_evidence (none_required)",
+            "completion_evidence.artifact_references.artifact_type (missing)",
+            "completion_evidence.artifact_references.kind (extra_forbidden)",
+            "completion_evidence.artifact_references.label (missing)",
+            "completion_evidence.artifact_references.reference (missing)",
+            "completion_evidence.verification_results",
+        ),
+        (PRIVATE_EXTRA_VALUE,),
+        (),
+    ),
+    (
         "create_work",
         {
             "project_id": PROJECT_ID,
