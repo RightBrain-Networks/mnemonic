@@ -164,7 +164,7 @@ def test_http_protocol_initialize_list_and_call(settings, work_context):
         initialized = client.post("/mcp", json=INITIALIZE, headers=JSON_HEADERS)
         assert initialized.status_code == 200
         assert initialized.json()["result"]["serverInfo"]["name"] == "Mnemonic"
-        assert initialized.json()["result"]["serverInfo"]["version"] == "0.70.0"
+        assert initialized.json()["result"]["serverInfo"]["version"] == "0.71.0"
         instructions = initialized.json()["result"]["instructions"]
         # Clients truncate this block, so it must stay short and lead with the
         # trigger condition. Per-tool doctrine lives in the tool descriptions.
@@ -315,7 +315,11 @@ def test_http_tool_validation_is_strict_and_value_free(settings):
             assert response.status_code == 200
             payload = response.json()["result"]
             assert payload["isError"] is True
-            assert payload["content"][0]["text"] == expected_validation_message(fields, kinds)
+            message = payload["content"][0]["text"]
+            assert message.split("\nInput schema for ", 1)[0] == expected_validation_message(
+                fields, kinds
+            )
+            assert f"\nInput schema for {tool_name} " in message
             for secret in secrets:
                 assert secret not in response.text
             assert "input_value" not in response.text
@@ -459,7 +463,7 @@ async def test_stdio_transport_handshake_and_catalog():
         ):
             initialized = await session.initialize()
             assert initialized.serverInfo.name == "Mnemonic"
-            assert initialized.serverInfo.version == "0.70.0"
+            assert initialized.serverInfo.version == "0.71.0"
             assert initialized.instructions is not None
             assert len(initialized.instructions) <= 1200
             assert "unimplemented" not in initialized.instructions.casefold()
@@ -482,7 +486,10 @@ async def test_stdio_transport_handshake_and_catalog():
                 assert invalid.isError is True
                 assert len(invalid.content) == 1
                 text = invalid.content[0].text
-                assert text == expected_validation_message(fields, kinds)
+                assert text.split("\nInput schema for ", 1)[0] == expected_validation_message(
+                    fields, kinds
+                )
+                assert f"\nInput schema for {tool_name} " in text
                 rendered = repr(invalid)
                 for secret in secrets:
                     assert secret not in rendered

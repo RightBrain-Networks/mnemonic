@@ -1,5 +1,31 @@
 # Mnemonic validation record
 
+## MCP rejected-input schema hints (0.71.0)
+
+Rejected MCP arguments now carry a compact JSON Schema from the called tool's
+registered input contract. The application/API/MCP/dashboard version is 0.71.0;
+plugin 0.43.0, migration 0047, and the tool/receipt catalogs are unchanged.
+No migration or configuration change is required.
+
+The reported `complete_work` regression runs through the local boundary, HTTP,
+and stdio. It includes misplaced actor fields, a missing checkpoint, and invalid
+artifact/verification entries. The returned schema supplies the nested shapes,
+required fields, discriminators, and allowed values without echoing caller data.
+The schema regressions cover all 56 tools, validate the returned JSON Schemas,
+exercise both verification variants and conditional command exit codes, and
+check optional versus nullable fields, recursive references, and property names
+that collide with JSON Schema annotation names. Current catalog rejection
+fixtures stay below 12,000 characters after verbose annotations and long regex
+patterns are removed; omitted patterns are explicitly marked.
+
+API 422 and manual cross-field rejections retain their sanitized guidance and
+append the schema. Conflicts, malformed successes, and uncertain write outcomes
+keep their existing guidance. A regression also ensures a later intentionally
+superseding error cannot be replaced by a suppressed earlier input rejection.
+The API OpenAPI snapshot, backend/MCP lint and type checks, Node 24 release
+metadata regression, and gitleaks are included in validation. The pull request
+records the full MCP suite and aggregate Required checks results.
+
 ## Artifact transfers from MCP-only sessions (0.70.0)
 
 Application/API/MCP/dashboard 0.70.0 and plugin 0.43.0 add the download grant

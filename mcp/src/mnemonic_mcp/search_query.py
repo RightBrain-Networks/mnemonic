@@ -3,11 +3,11 @@
 from typing import Annotated, Literal, Self
 from uuid import UUID
 
-from mcp.server.fastmcp.exceptions import ToolError
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, StrictBool, model_validator
 from pydantic.experimental.missing_sentinel import MISSING
 from pydantic_core import PydanticCustomError
 
+from .input_schema import InputValidationError
 from .validation_rules import VALIDATION_RULES
 
 QueryMode = Literal["terms", "phrase", "literal"]
@@ -105,18 +105,18 @@ def validate_tool_query(query: str | None, mode: QueryMode, *, semantic: bool = 
         validate_query(query, mode, semantic=semantic, fields=fields)
     except PydanticCustomError as error:
         location, message = VALIDATION_RULES[error.type]
-        raise ToolError(f"Mnemonic rejected the input. Check: {location} "
+        raise InputValidationError(f"Mnemonic rejected the input. Check: {location} "
                         f"({error.type}). {message}") from None
 
 
 def content_search_query(query: str | MISSING, q: str | MISSING) -> str:
     if query is MISSING and q is MISSING:
-        raise ToolError(
+        raise InputValidationError(
             "Mnemonic rejected the input. Check: query (missing). "
             "Supply query or its q alias."
         )
     if query is not MISSING and q is not MISSING:
-        raise ToolError(
+        raise InputValidationError(
             "Mnemonic rejected the input. Supply exactly one of query or q, not both."
         )
     if query is not MISSING:
