@@ -94,9 +94,11 @@ def test_prior_reservation_time_does_not_consume_fresh_domain_budget(
     postgres_engine: Engine, monkeypatch: pytest.MonkeyPatch
 ):
     project_id = _project(postgres_engine)
-    monkeypatch.setattr(mutation_module, "DOMAIN_SECONDS", 0.15)
+    # Keep the existing transaction older than the fresh domain budget, while
+    # allowing scheduling/SQL overhead on a loaded runner after domain entry.
+    monkeypatch.setattr(mutation_module, "DOMAIN_SECONDS", 2.0)
     with Session(postgres_engine) as database:
-        database.execute(text("SELECT pg_sleep(0.2)"))
+        database.execute(text("SELECT pg_sleep(2.1)"))
         with project_mutation(database, project_id, protected=True):
             database.execute(text("SELECT pg_sleep(0.03)"))
             database.commit()
