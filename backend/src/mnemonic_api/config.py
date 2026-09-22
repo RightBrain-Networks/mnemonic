@@ -186,21 +186,39 @@ class Settings(BaseSettings):
         ),
     )
     duplicate_suggestion_inference_slots: int = Field(
-        default=1,
+        default=2,
         ge=1,
-        le=1,
+        le=4,
         validation_alias=AliasChoices(
             "MNEMONIC_DUPLICATE_SUGGESTION_INFERENCE_SLOTS",
             "duplicate_suggestion_inference_slots",
         ),
     )
     duplicate_suggestion_inference_wait_ms: int = Field(
-        default=50,
+        default=5_000,
         ge=1,
-        le=50,
+        le=30_000,
         validation_alias=AliasChoices(
             "MNEMONIC_DUPLICATE_SUGGESTION_INFERENCE_WAIT_MS",
             "duplicate_suggestion_inference_wait_ms",
+        ),
+    )
+    duplicate_suggestion_inference_threads: int = Field(
+        default=1,
+        ge=1,
+        le=8,
+        validation_alias=AliasChoices(
+            "MNEMONIC_DUPLICATE_SUGGESTION_INFERENCE_THREADS",
+            "duplicate_suggestion_inference_threads",
+        ),
+    )
+    duplicate_suggestion_inference_queue_size: int = Field(
+        default=8,
+        ge=0,
+        le=16,
+        validation_alias=AliasChoices(
+            "MNEMONIC_DUPLICATE_SUGGESTION_INFERENCE_QUEUE_SIZE",
+            "duplicate_suggestion_inference_queue_size",
         ),
     )
     duplicate_suggestion_lexical_shortlist: int = Field(

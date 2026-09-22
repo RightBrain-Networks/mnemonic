@@ -315,15 +315,14 @@ def test_operator_rebuild_is_project_scoped_and_invalidates_delivery_generations
 def test_artifact_semantic_requests_share_bounded_inference_admission(
     api, project, artifact_storage, route,
 ):
-    import asyncio
 
     class NeverEmbedder:
         def embed_query(self, _text):
             raise AssertionError("Inference ran without capacity")
 
     resources = api.app.state.duplicate_suggestion_resources
-    resources.inference_slots = asyncio.Semaphore(0)
-    resources.inference_wait_seconds = 0.001
+    resources.inference.slots = 0
+    resources.inference.wait_seconds = 0.001
     api.app.state.semantic_embedder = NeverEmbedder()
     path, payload = semantic_request(project, route)
     response = api.post(path, json=payload)
@@ -506,9 +505,9 @@ def test_disabled_artifact_semantics_does_not_request_inference_or_hide_coverage
 ):
     attempts = []
 
-    async def admission(_resources):
+    def admission(_resources, _request):
         attempts.append("admission")
-        return fault != "capacity"
+        raise AssertionError("A disabled artifact library must not request inference")
 
     class BrokenEmbedder:
         def embed_query(self, _text):
@@ -516,7 +515,7 @@ def test_disabled_artifact_semantics_does_not_request_inference_or_hide_coverage
             raise RuntimeError("A disabled artifact library must not load the model")
 
     resources = api.app.state.duplicate_suggestion_resources
-    monkeypatch.setattr(type(resources), "acquire_inference", admission)
+    monkeypatch.setattr(type(resources.inference), "_acquire", admission)
     api.app.state.semantic_embedder = BrokenEmbedder()
     api.app.state.settings.artifact_max_bytes = 0
     path, payload = semantic_request(project, route)

@@ -6,8 +6,9 @@ import hashlib
 import logging
 import math
 import os
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from queue import LifoQueue
 from threading import Lock
 from typing import Protocol
 from uuid import UUID
@@ -87,10 +88,11 @@ class Embedder(Protocol):
     def embed_query(self, text: str) -> list[float]: ...
 
 
-class FastembedEmbedder:
-    """Thread-safe lazy wrapper around the image-bundled local embedding model."""
+class _EmbeddingWorker:
+    """One lazily loaded model and tokenizer, owned by one pool borrower."""
 
-    def __init__(self) -> None:
+    def __init__(self, threads: int | None) -> None:
+        self._threads = threads
         self._model = None
         self._passage_tokenizer = None
         self._lock = Lock()
@@ -100,7 +102,7 @@ class FastembedEmbedder:
             from fastembed import TextEmbedding
 
             cache_dir = os.getenv("MNEMONIC_EMBEDDING_CACHE")
-            self._model = TextEmbedding(EMBED_MODEL, cache_dir=cache_dir)
+            self._model = TextEmbedding(EMBED_MODEL, cache_dir=cache_dir, threads=self._threads)
         return self._model
 
     def passage_tokenizer(self):
@@ -120,6 +122,38 @@ class FastembedEmbedder:
         with self._lock:
             vector = next(iter(self._load().query_embed([text])))
             return [float(value) for value in vector]
+
+
+class FastembedEmbedder:
+    """A fixed pool of independent models, loaded only when borrowed.
+
+    LIFO reuse keeps low-traffic processes on one warm model. Independent model
+    instances make configured admission slots real execution capacity; native
+    threads per instance are also bounded to avoid CPU oversubscription.
+    """
+
+    def __init__(self, *, workers: int = 1, threads: int | None = None) -> None:
+        if workers < 1 or (threads is not None and threads < 1):
+            raise ValueError("Embedding worker and thread counts must be positive")
+        self._workers: LifoQueue[_EmbeddingWorker] = LifoQueue(workers)
+        for _ in range(workers):
+            self._workers.put(_EmbeddingWorker(threads))
+
+    def _run[T](self, operation: Callable[[_EmbeddingWorker], T]) -> T:
+        worker = self._workers.get()
+        try:
+            return operation(worker)
+        finally:
+            self._workers.put(worker)
+
+    def embed_documents(self, texts: Sequence[str]) -> list[list[float]]:
+        return self._run(lambda worker: worker.embed_documents(texts))
+
+    def embed_query(self, text: str) -> list[float]:
+        return self._run(lambda worker: worker.embed_query(text))
+
+    def passage_tokenizer(self):
+        return self._run(lambda worker: worker.passage_tokenizer())
 
 
 def warm_embedding_model() -> None:

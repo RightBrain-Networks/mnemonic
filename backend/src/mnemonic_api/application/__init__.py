@@ -78,7 +78,7 @@ def create_app(
 
     app = FastAPI(
         title="Mnemonic API",
-        version="0.72.0",
+        version="0.73.0",
         description="Durable project-scoped work with immutable agent checkpoints.",
         lifespan=lifespan,
     )
@@ -94,7 +94,10 @@ def create_app(
     app.state.session_factory = build_session_factory(
         connection_pool, work_summary_max_chars=config.work_summary_max_chars
     )
-    app.state.semantic_embedder = semantic_embedder or FastembedEmbedder()
+    app.state.semantic_embedder = semantic_embedder or FastembedEmbedder(
+        workers=config.duplicate_suggestion_inference_slots,
+        threads=config.duplicate_suggestion_inference_threads,
+    )
     app.state.duplicate_suggestion_resources = DuplicateSuggestionResources.from_settings(config)
     app.state.live_sync_hub = LiveSyncHub()
 

@@ -19,7 +19,6 @@ from starlette.concurrency import run_in_threadpool
 
 from mnemonic_api.application.artifact_policy import artifact_status, require_artifacts_enabled
 from mnemonic_api.application.state import embedder_of, settings_of
-from mnemonic_api.application.suggestion_resources import semantic_search_inference_acquired
 from mnemonic_api.application.validation import raise_reviewed_body_validation
 from mnemonic_api.artifact_access_schemas import ArtifactAccessRequest
 from mnemonic_api.artifact_download_schemas import ArtifactDownloadGrant, ArtifactDownloadRequest
@@ -55,6 +54,7 @@ from mnemonic_api.errors import (
     client_operation_secret_echo,
     semantic_unavailable,
 )
+from mnemonic_api.inference import inference_failure_reason
 from mnemonic_api.schemas import APIModel
 from mnemonic_api.semantic import semantic_query_vector
 from mnemonic_api.services.artifact_search import ArtifactSearchIndex, search_artifact_contents
@@ -489,15 +489,13 @@ async def search_contents(
         query_vector = None
         artifact_chunk_config = None
         if payload.semantic:
-            if not semantic_search_inference_acquired(request.scope):
-                raise semantic_unavailable("capacity_exhausted")
             try:
                 embedder = embedder_of(request)
                 query_vector = semantic_query_vector(embedder, payload.q)
                 artifact_chunk_config = passage_tokenizer(embedder).config
             except Exception as exc:
                 raise semantic_unavailable(
-                    "deadline_exceeded" if isinstance(exc, TimeoutError) else "model_failure"
+                    inference_failure_reason(exc)
                 ) from None
         with storage_errors(request):
             recover_project_artifacts(database, storage_of(request), project_id)

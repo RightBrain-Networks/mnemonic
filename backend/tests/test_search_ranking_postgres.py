@@ -1,6 +1,5 @@
 """Ranking, inference and disposable cache health are separate observable facts."""
 
-import asyncio
 import logging
 
 import pytest
@@ -78,8 +77,8 @@ def test_saturated_inference_reports_same_safe_reason_for_search_and_duplicate_c
 ):
     save(api, project, work_payload, title="Cache repair candidate")
     resources = api.app.state.duplicate_suggestion_resources
-    resources.inference_slots = asyncio.Semaphore(0)
-    resources.inference_wait_seconds = 0.001
+    resources.inference.slots = 0
+    resources.inference.wait_seconds = 0.001
     page = suggest(api, project).json()
     failure = api.get(f"/api/v1/projects/{project['id']}/work-items",
                       params={"q": "cache", "semantic": True})

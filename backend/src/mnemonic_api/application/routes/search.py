@@ -16,11 +16,11 @@ from mnemonic_api.application.routes.artifacts import (
     storage_of,
 )
 from mnemonic_api.application.state import embedder_of, settings_of
-from mnemonic_api.application.suggestion_resources import semantic_search_inference_acquired
 from mnemonic_api.application.validation import raise_reviewed_body_validation
 from mnemonic_api.artifact_tokenizer import passage_tokenizer
 from mnemonic_api.database import Database
 from mnemonic_api.errors import ApplicationError, semantic_unavailable
+from mnemonic_api.inference import inference_failure_reason
 from mnemonic_api.search_projects import ProjectSelection, selected_project_ids
 from mnemonic_api.search_schemas import MultiProjectSearchRequest, SearchPage, SearchRequest
 from mnemonic_api.semantic import semantic_query_vector
@@ -147,8 +147,6 @@ async def _execute_search(
         query_vector = None
         artifact_chunk_config = None
         if payload.filters.work_items.semantic or artifact_semantic:
-            if not semantic_search_inference_acquired(request.scope):
-                raise semantic_unavailable("capacity_exhausted")
             try:
                 query_vector = semantic_query_vector(embedder, payload.q)
                 if artifact_semantic:
@@ -156,7 +154,7 @@ async def _execute_search(
             except Exception as exc:
                 logger.error("Unified semantic query failed (%s)", type(exc).__name__)
                 raise semantic_unavailable(
-                    "deadline_exceeded" if isinstance(exc, TimeoutError) else "model_failure"
+                    inference_failure_reason(exc)
                 ) from None
         if "artifacts" in payload.facets and artifacts_enabled:
             with storage_errors(request):

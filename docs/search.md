@@ -324,8 +324,11 @@ Duplicate suggestions retain their existing advisory lexical fallback. An
 unavailable semantic comparison includes `retry={max_attempts:1,after_seconds:1}`;
 a caller may retry once or continue saving work with the incomplete comparison
 visible. Resource and deadline errors use the same bounded retry guidance and
-`Retry-After: 1`. Search and duplicate suggestion share inference admission while
-retaining their different candidate and cache composition policies.
+`Retry-After: 1`. Search and duplicate suggestion share a bounded FIFO queue and model pool while
+retaining their different candidate and cache composition policies. Admission is
+per native call; defaults are two model workers, eight waiting calls, and a
+five-second wait clipped to remaining request/stage time. Database and cache work
+do not occupy a model slot. See [semantic inference](semantic-inference.md).
 
 `semantic.cache_refresh` independently reports `not_needed`, `completed`, or
 `failed`, with `reason=cache_refresh_failed` only for failure. Once coherent

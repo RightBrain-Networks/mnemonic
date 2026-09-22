@@ -5,9 +5,12 @@ runtime is listed here once, so a reader sees it in one place and a type
 checker can follow every use.
 """
 
+from time import monotonic
+
 from starlette.requests import HTTPConnection
 
 from mnemonic_api.config import Settings
+from mnemonic_api.inference import INFERENCE_REQUEST_KEY, InferenceRequest, QueuedEmbedder
 from mnemonic_api.live_sync import LiveSyncHub
 from mnemonic_api.semantic import Embedder
 
@@ -22,7 +25,11 @@ def api_key_of(connection: HTTPConnection) -> str:
 
 
 def embedder_of(connection: HTTPConnection) -> Embedder:
-    return connection.app.state.semantic_embedder
+    resources = connection.app.state.duplicate_suggestion_resources
+    state = connection.scope.setdefault("state", {})
+    budget = state.setdefault(INFERENCE_REQUEST_KEY,
+                             InferenceRequest(monotonic() + resources.timeout_seconds))
+    return QueuedEmbedder(connection.app.state.semantic_embedder, resources.inference, budget)
 
 
 def live_sync_hub_of(connection: HTTPConnection) -> LiveSyncHub:

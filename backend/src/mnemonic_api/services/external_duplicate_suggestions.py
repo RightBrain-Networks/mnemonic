@@ -19,6 +19,7 @@ from mnemonic_api.external_duplicate_schemas import (
     ExternalSignal,
     require_external_correspondence,
 )
+from mnemonic_api.inference import with_inference_deadline
 from mnemonic_api.pool_deadlines import pool_checkout_deadline
 from mnemonic_api.schemas import DuplicateSuggestionPage, DuplicateSuggestionRequest
 from mnemonic_api.semantic import (
@@ -91,7 +92,6 @@ async def extend_external_suggestions(
     session_factory: sessionmaker[Session],
     embedder: Embedder,
     query_vector: tuple[float, ...] | None,
-    inference_permitted: bool,
     request_deadline: float,
     owned_work: OwnedSuggestionWork,
 ) -> DuplicateSuggestionPage:
@@ -102,7 +102,7 @@ async def extend_external_suggestions(
     if baseline is None:
         return _extended_page(page, payload, [], "unavailable")
     semantic_urls = None
-    if inference_permitted and query_vector is not None and monotonic() < deadline:
+    if query_vector is not None and monotonic() < deadline:
         semantic_urls = await _external_semantic(
             payload.external_candidates, embedder, query_vector, deadline, owned_work
         )
@@ -136,7 +136,8 @@ async def _external_semantic(
     deadline: float,
     owner: OwnedSuggestionWork,
 ) -> tuple[str, ...] | None:
-    task = owner.start(lambda: rank_external_semantic(candidates, embedder, query_vector, deadline))
+    bounded = with_inference_deadline(embedder, deadline)
+    task = owner.start(lambda: rank_external_semantic(candidates, bounded, query_vector, deadline))
     try:
         return await _await_owned(task, deadline)
     except Exception as exc:
