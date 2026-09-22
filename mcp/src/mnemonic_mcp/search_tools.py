@@ -12,7 +12,7 @@ from .api import MnemonicAPI, TransportEffect
 from .artifact_models import ArtifactSummary, CompactArtifactMatch
 from .artifact_semantic import artifact_evidence_matches
 from .compact_search import compact_work_matches
-from .input_schema import InputValidationError
+from .input_errors import InputValidationError
 from .models import CompactWorkHit, SearchStatus, WorkIdentityPointer, WorkSummary
 from .response_validation import response_matches
 from .search_diagnostics import diagnostics_match
@@ -357,7 +357,8 @@ def register_search_tool(server: FastMCP, api: MnemonicAPI) -> None:
         except ValidationError as error:
             pairs = [(item.get("loc"), item.get("type"))
                      for item in error.errors(include_input=False, include_context=False)]
-            raise InputValidationError(validation_error_message(*validation_details(pairs))) from None
+            details = validation_details(pairs)
+            raise InputValidationError(validation_error_message(*details), details=details) from None
         _validate_request(request)
         if tag_counts is not None and "work_items" not in request.facets:
             raise InputValidationError("Mnemonic rejected the input. Check: tag_counts "

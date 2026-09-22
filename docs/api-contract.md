@@ -3,8 +3,8 @@
 Use [unified search](search.md) to retrieve work, artifacts, and transcripts in one
 ranked, filtered, paginated read through REST or MCP.
 
-This is application/API/MCP/dashboard `0.71.0`, plugin `0.43.0`, and migration
-`0047_artifact_transfer`. The catalog has exactly 56 MCP tools, 17
+This is application/API/MCP/dashboard `0.72.0`, plugin `0.43.0`, and migration
+`0047_artifact_transfer`. The catalog has exactly 57 MCP tools, 17
 protected MCP writes, 24 REST receipt kinds, 21 protected browser mutations and
 24 work-event types. The 24 REST receipt kinds comprise 18 work operations, four artifact operations
 with filesystem recovery journals, and two transcript operations (rebuild and import). See
@@ -1523,18 +1523,22 @@ Stable structured application errors are mapped to value-free guidance. A 404
 names only reachable entity kinds (project, work item, checkpoint, or
 relationship) when the backend supplies a typed code; otherwise it uses generic
 scope wording. Structured 422 errors expose only allowlisted field paths and
-error kinds. Rejected MCP inputs also include the called tool's compact JSON
-Schema, generated from its registered input contract: top-level arguments,
-required fields, nested definitions, unions, enum values, and constraints. This
-applies to local argument validation, explicit input rejections, and structured
-API 422 validation errors over both HTTP and stdio. Descriptions, defaults, and
-regex patterns longer than 120 characters are omitted; `x-pattern-omitted: true`
-marks the latter. All validation rules still apply, including fresh-execution
-requirements documented by the tool (such as closeout reports and transcript
-assertions that remain optional in the schema for historical receipt replay).
-Schema hints use only server-owned definitions, never submitted values or
-upstream schemas. Execution conflicts, malformed successes, and uncertain
-outcomes retain their existing guidance without a schema hint. Unknown/string-detail
+error kinds. Rejected MCP inputs provide up to three specific prose repairs and
+a count of further invalid fields, followed by an exact `help` call for the
+relevant argument page. They do not append schemas. Local validation, explicit
+input rejections, and API 422 responses use the same behavior over HTTP and stdio.
+Execution conflicts, malformed successes, and uncertain outcomes retain their
+existing guidance. The read-only `help(topic="")` tool lists the command catalog;
+`help(topic="complete_work")` gives compact arguments, while
+`help(topic="complete_work usage")` explains workflow. Subsequent field/variant
+names navigate deeper.
+Appending `schema` explicitly retrieves the complete registered input schema or a
+field's subtree with only its referenced definitions. Plain-text help appears
+once, with no duplicate structured output. All validation rules still apply,
+including fresh-execution report/transcript requirements retained outside the
+historically replayable schema. See [MCP help](mcp-help.md) for navigation examples.
+Help and repairs use server-owned definitions and reviewed prose, never submitted
+values or upstream schemas. Unknown/string-detail
 conflicts are not guessed as slug or version conflicts. No adapter error renders
 caller values, request IDs, operation IDs, lease tokens, prompts, or upstream detail.
 

@@ -7,7 +7,7 @@ from pydantic import AfterValidator, BaseModel, ConfigDict, Field, StrictBool, m
 from pydantic.experimental.missing_sentinel import MISSING
 from pydantic_core import PydanticCustomError
 
-from .input_schema import InputValidationError
+from .input_errors import InputValidationError
 from .validation_rules import VALIDATION_RULES
 
 QueryMode = Literal["terms", "phrase", "literal"]

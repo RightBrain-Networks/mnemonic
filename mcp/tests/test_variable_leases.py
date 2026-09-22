@@ -115,7 +115,7 @@ async def test_status_only_rejects_context_or_mismatched_metadata(
 
 async def test_catalog_exposes_optional_nonnullable_duration_and_two_exact_read_shapes(settings):
     tools = {tool.name: tool for tool in await build_server(settings).list_tools()}
-    assert len(tools) == 56
+    assert len(tools) == 57
     for name in ("claim_work", "claim_and_recall", "renew_claim"):
         schema = tools[name].inputSchema
         duration = schema["properties"]["lease_minutes"]

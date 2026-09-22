@@ -15,7 +15,7 @@ from pydantic import BaseModel, ValidationError
 from .artifact_approval import artifact_approval_message
 from .artifact_errors import artifact_storage_message
 from .config import Settings
-from .input_schema import InputValidationError
+from .input_errors import InputValidationError
 from .transport import (
     COMPLETION_EVIDENCE_RESPONSE_MAX_BYTES,
     MCP_STREAM_CHUNK_BYTES,
@@ -597,7 +597,8 @@ def _raise_remaining_response_error(
 ) -> None:
     if response.status_code == 422:
         pairs = _validation_error_pairs(response)
-        raise InputValidationError(validation_error_message(*validation_details(pairs)))
+        details = validation_details(pairs)
+        raise InputValidationError(validation_error_message(*details), details=details)
     if response.status_code == 503 and semantic_read:
         raise ToolError(_APPLICATION_ERRORS["semantic_unavailable"])
     if 200 <= response.status_code < 300:

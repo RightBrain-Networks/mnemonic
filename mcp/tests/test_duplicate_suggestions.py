@@ -102,7 +102,7 @@ def required_arguments() -> dict[str, object]:
 
 
 def test_advisory_package_version_is_coordinated():
-    assert __version__ == "0.71.0"
+    assert __version__ == "0.72.0"
 
 
 async def test_advisory_tool_schema_is_exact_and_capability_free(settings):
@@ -111,7 +111,7 @@ async def test_advisory_tool_schema_is_exact_and_capability_free(settings):
     schema = tool.inputSchema
     properties = schema["properties"]
 
-    assert len(tools) == 56
+    assert len(tools) == 57
     assert set(properties) == {
         "project_id",
         "title",
