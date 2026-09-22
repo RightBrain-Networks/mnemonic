@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from mnemonic_api.errors import semantic_unavailable
+from mnemonic_api.inference import inference_failure_reason
 from mnemonic_api.models import WorkItem
 from mnemonic_api.schemas import WorkIdentityPointer, WorkItemListQuery, WorkSearchHit
 from mnemonic_api.search_exploration import date_conditions
@@ -97,9 +98,7 @@ def _semantic_selections(
         )
     except Exception as exc:
         logger.error("Unified semantic ranking failed (%s)", type(exc).__name__)
-        raise semantic_unavailable(
-                    "deadline_exceeded" if isinstance(exc, TimeoutError) else "model_failure"
-                ) from None
+        raise semantic_unavailable(inference_failure_reason(exc)) from None
     by_id = {item.id: item for item in scoped}
     selections: list[SearchSelection] = []
     scores: dict[UUID, float] = {}

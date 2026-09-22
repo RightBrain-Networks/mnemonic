@@ -12,7 +12,6 @@ from sqlalchemy.orm import Session, sessionmaker
 from mnemonic_api.application.mutations import run_registered_mutation
 from mnemonic_api.application.state import api_key_of, embedder_of, settings_of
 from mnemonic_api.application.suggestion_resources import (
-    suggestion_inference_acquired,
     suggestion_owned_work,
     suggestion_request_deadline,
 )
@@ -50,14 +49,13 @@ async def duplicate_suggestions(
     require_work_summary_length(payload.summary, settings_of(request).work_summary_max_chars)
     factory: sessionmaker[Session] = request.app.state.session_factory
     owner = suggestion_owned_work(request.scope)
-    inference_permitted = suggestion_inference_acquired(request.scope)
     deadline = suggestion_request_deadline(request.scope)
 
     def internal() -> InternalSuggestionResult:
         with factory() as database:
             return capture_internal_suggestions(
                 database, project_id, payload, settings=settings_of(request),
-                embedder=embedder_of(request), inference_permitted=inference_permitted,
+                embedder=embedder_of(request),
                 deadline=deadline,
             )
 
@@ -65,7 +63,7 @@ async def duplicate_suggestions(
         captured = await asyncio.shield(owner.start(internal))
         return await extend_external_suggestions(
             captured.page, payload, session_factory=factory, embedder=embedder_of(request),
-            query_vector=captured.query_vector, inference_permitted=inference_permitted,
+            query_vector=captured.query_vector,
             request_deadline=deadline, owned_work=owner,
         )
     except ApplicationError:

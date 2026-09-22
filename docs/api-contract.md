@@ -3,7 +3,7 @@
 Use [unified search](search.md) to retrieve work, artifacts, and transcripts in one
 ranked, filtered, paginated read through REST or MCP.
 
-This is application/API/MCP/dashboard `0.72.0`, plugin `0.43.0`, and migration
+This is application/API/MCP/dashboard `0.73.0`, plugin `0.43.0`, and migration
 `0047_artifact_transfer`. The catalog has exactly 57 MCP tools, 17
 protected MCP writes, 24 REST receipt kinds, 21 protected browser mutations and
 24 work-event types. The 24 REST receipt kinds comprise 18 work operations, four artifact operations
@@ -726,9 +726,11 @@ relevance controls its page order, with the selected sort as a deterministic
 tie-breaker. Search results never contain prompt or
 source-metadata bodies.
 
-Opt-in semantic search acquires the same one-slot process-wide inference gate
-as duplicate suggestions before opening its database snapshot. If the 50 ms
-capacity wait expires, a valid semantic request returns typed 503
+Opt-in semantic search shares a bounded process-wide model pool with duplicate
+suggestions. Defaults are two independent models, one native thread per model,
+eight FIFO waiters, and up to five seconds of waiting per embedding call. Capacity
+is owned only during native calls; query inference runs before the database snapshot.
+A full queue or expired capacity wait returns typed 503
 `semantic_unavailable`; clients can retry as lexical search. Existing-work
 semantic text is SQL-bounded to the first 1,500 initial-prompt characters and a
 1,500-character tail across later checkpoints. Derived cache refresh occurs in
@@ -823,9 +825,10 @@ the composition, title-key, model, dimensions, text bounds, and rank weights.
 Full semantic scope is reported only for a project of at most 10,000 visible
 members when all current vectors are cached. Otherwise semantic work is limited
 to the lexical shortlist and at most 128 missing vectors. The process-wide
-inference gate is shared with ordinary semantic search. Suggestions wait at
-most 50 ms for capacity, then fall back to deterministic lexical 200; model
-load, inference, vector, or derived-cache failure has the same fallback.
+model pool is shared with ordinary semantic search. Each embedding call waits
+within the configured queue bound and remaining request deadline. Capacity,
+model-load, inference, or vector failure returns deterministic lexical 200.
+Completed ranking survives a derived-cache failure and reports it separately.
 Database/system failure returns the typed 503.
 
 One absolute 60-second request deadline begins before body handling and spans
@@ -833,8 +836,8 @@ inference and application work. The PostgreSQL-17 snapshot transaction sets
 transaction, statement, and lock timeouts from the remaining route budget.
 Existing-work cache updates occur afterward in a separate digest-checked
 transaction, skip locked work rows, and cap cache lock waits at 50 ms within
-that remaining budget. A cache-row lock timeout therefore falls back without
-extending the transport deadline. The draft vector and result are never
+that remaining budget. A cache-row lock timeout preserves completed ranking
+without extending the transport deadline. The draft vector and result are never
 persisted. The request creates no work, relationship, event, receipt,
 version/activity change, or live invalidation.
 
@@ -1643,10 +1646,14 @@ API: `DATABASE_URL`, `MNEMONIC_API_KEY` (required, at least 32 characters),
 browser/WebSocket origins. Advisory settings are
 `MNEMONIC_DUPLICATE_SUGGESTION_BODY_MAX_BYTES`, `_REQUEST_SLOTS`,
 `_REQUEST_WAIT_MS`, `_INFERENCE_SLOTS`, `_INFERENCE_WAIT_MS`,
+`_INFERENCE_QUEUE_SIZE`, `_INFERENCE_THREADS`,
 `_LEXICAL_SHORTLIST`, `_MISSING_VECTOR_LIMIT`,
 `_FULL_POPULATION_CEILING`, and `_TIMEOUT_SECONDS`, where every abbreviated
 name retains the `MNEMONIC_DUPLICATE_SUGGESTION` prefix. Their defaults are the
-2 MiB/4/250 ms/1/50 ms/200/128/10000/60-second limits documented above.
+2 MiB/4/250 ms/2/5000 ms/8/1/200/128/10000/60-second limits documented above.
+Inference slots allow 1–4, native threads 1–8 per model, queue size 0–16, and
+wait 1–30000 ms. Existing explicit environment values remain effective; see
+[semantic inference](semantic-inference.md) before upgrading an older `.env`.
 
 MCP: `MNEMONIC_API_URL`, `MNEMONIC_API_KEY`, `MNEMONIC_MCP_HOST`,
 `MNEMONIC_MCP_PORT`, `MNEMONIC_MCP_ALLOWED_HOSTS`, and

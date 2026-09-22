@@ -1,6 +1,5 @@
 """Coherent pagination and coverage across work, artifacts and indexed transcripts."""
 
-import asyncio
 import json
 from uuid import uuid4
 
@@ -220,7 +219,7 @@ def test_semantic_uses_shared_admission_and_reports_failure(api, project, work_p
     assert response.status_code == 503
     assert response.json()["detail"]["code"] == "semantic_unavailable"
     resources = api.app.state.duplicate_suggestion_resources
-    resources.inference_slots = asyncio.Semaphore(0)
-    resources.inference_wait_seconds = 0.001
+    resources.inference.slots = 0
+    resources.inference.wait_seconds = 0.001
     assert api.post(path(project), json=payload).status_code == 503
     assert search(api, project, q="cache")["total"] == 1

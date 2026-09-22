@@ -982,6 +982,10 @@ at 50 ms, statements at five seconds, and those bounded expirations retain the c
 
 ### 6.7 Suggestion resource controls
 
+The original inference slot/wait defaults below are superseded by the
+0.73.0 [semantic inference amendment](semantic-inference.md). The request,
+body, candidate, and transport bounds remain in effect.
+
 Advisory adds request controls and shares the model gate with ordinary semantic search:
 
 | Control | Frozen default |

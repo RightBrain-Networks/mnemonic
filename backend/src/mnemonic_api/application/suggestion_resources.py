@@ -17,12 +17,11 @@ from mnemonic_api.errors import (
     duplicate_suggestion_unavailable,
     request_body_too_large,
 )
+from mnemonic_api.inference import INFERENCE_REQUEST_KEY, InferenceRequest, InferenceResources
 from mnemonic_api.search_timing import record_timing, timed_phase
 
 SUGGESTION_WORK_KEY = "duplicate_suggestion_owned_work"
-SUGGESTION_STATE_KEY = "duplicate_suggestion_inference_acquired"
 SUGGESTION_DEADLINE_KEY = "duplicate_suggestion_deadline"
-SEMANTIC_SEARCH_STATE_KEY = "semantic_search_inference_acquired"
 _NO_STORE = (b"cache-control", b"no-store")
 
 
@@ -71,25 +70,27 @@ def suggestion_owned_work(scope: Scope) -> OwnedSuggestionWork:
 
 @dataclass(slots=True)
 class DuplicateSuggestionResources:
-    """Two independent semaphores; neither consumes a database connection."""
+    """Bound suggestion workers separately from individual native model calls."""
 
     request_slots: asyncio.Semaphore
-    inference_slots: asyncio.Semaphore
     request_wait_seconds: float
-    inference_wait_seconds: float
     body_max_bytes: int
     timeout_seconds: float
+    inference: InferenceResources = field(default_factory=InferenceResources)
     draining_tasks: set[asyncio.Task[None]] = field(default_factory=set, repr=False)
 
     @classmethod
     def from_settings(cls, settings: Settings) -> DuplicateSuggestionResources:
         return cls(
             request_slots=asyncio.Semaphore(settings.duplicate_suggestion_request_slots),
-            inference_slots=asyncio.Semaphore(settings.duplicate_suggestion_inference_slots),
             request_wait_seconds=settings.duplicate_suggestion_request_wait_ms / 1_000,
-            inference_wait_seconds=settings.duplicate_suggestion_inference_wait_ms / 1_000,
             body_max_bytes=settings.duplicate_suggestion_body_max_bytes,
             timeout_seconds=float(settings.duplicate_suggestion_timeout_seconds),
+            inference=InferenceResources(
+                slots=settings.duplicate_suggestion_inference_slots,
+                queue_size=settings.duplicate_suggestion_inference_queue_size,
+                wait_seconds=settings.duplicate_suggestion_inference_wait_ms / 1_000,
+            ),
         )
 
     async def acquire_request(self) -> bool:
@@ -99,17 +100,9 @@ class DuplicateSuggestionResources:
                       outcome="completed" if acquired else "capacity_exhausted")
         return acquired
 
-    async def acquire_inference(self) -> bool:
-        started = monotonic()
-        acquired = await _bounded_acquire(self.inference_slots, self.inference_wait_seconds)
-        record_timing("work_semantic", "inference_queue", started,
-                      outcome="completed" if acquired else "capacity_exhausted")
-        return acquired
-
     def retain_resources_until_done(
         self,
         task: asyncio.Task[None],
-        inference_acquired: bool,
         *,
         request_acquired: bool = True,
         owned_work: OwnedSuggestionWork | None = None,
@@ -118,7 +111,6 @@ class DuplicateSuggestionResources:
             _release_resources_when_done(
                 task,
                 self,
-                inference_acquired,
                 request_acquired=request_acquired,
                 owned_work=owned_work,
             )
@@ -216,7 +208,6 @@ async def _serve_acquired_request(
     send: Send,
     deadline: float,
 ) -> None:
-    inference_acquired = False
     release_resources = True
     app_task: asyncio.Task[None] | None = None
     owned_work = OwnedSuggestionWork()
@@ -232,22 +223,12 @@ async def _serve_acquired_request(
             await _send_duplicate_key_error(scope, receive, send)
             return
 
-        inference_deadline = min(
-            deadline,
-            monotonic() + resources.inference_wait_seconds,
-        )
-        inference_started = monotonic()
-        inference_acquired = await _acquire_inference_before(
-            resources,
-            deadline,
-            inference_deadline,
-        )
-        record_timing("duplicate_suggestions", "inference_queue", inference_started,
-                      outcome="completed" if inference_acquired else "capacity_exhausted")
+        budget = InferenceRequest(deadline, "duplicate_suggestions")
+        budget.require_time()
         state = scope.setdefault("state", {})
         state[SUGGESTION_WORK_KEY] = owned_work
-        state[SUGGESTION_STATE_KEY] = inference_acquired
         state[SUGGESTION_DEADLINE_KEY] = deadline
+        state[INFERENCE_REQUEST_KEY] = budget
         buffered: list[Message] = []
 
         async def buffer_response(message: Message) -> None:
@@ -262,7 +243,7 @@ async def _serve_acquired_request(
         )
         if not done:
             resources.retain_resources_until_done(
-                app_task, inference_acquired, owned_work=owned_work
+                app_task, owned_work=owned_work
             )
             release_resources = False
             await _send_error(
@@ -274,72 +255,46 @@ async def _serve_acquired_request(
             await send(message)
     except asyncio.CancelledError:
         release_resources = release_resources and _release_immediately_after_cancel(
-            resources, app_task, inference_acquired, owned_work
+            resources, app_task, owned_work
         )
         raise
     except TimeoutError:
         await _send_error(duplicate_suggestion_unavailable(), scope, receive, send)
     finally:
+        _cancel_inference(scope, resources)
         if release_resources:
-            _finalize_suggestion_resources(resources, app_task, inference_acquired, owned_work)
+            _finalize_suggestion_resources(resources, app_task, owned_work)
 
 
 def _finalize_suggestion_resources(
     resources: DuplicateSuggestionResources,
     app_task: asyncio.Task[None] | None,
-    inference_acquired: bool,
     owned_work: OwnedSuggestionWork,
 ) -> None:
     if owned_work.pending and app_task is not None:
         resources.retain_resources_until_done(
-            app_task, inference_acquired, owned_work=owned_work
+            app_task, owned_work=owned_work
         )
     else:
-        _release_resources(resources, inference_acquired)
+        _release_resources(resources)
 
 
 def _release_immediately_after_cancel(
     resources: DuplicateSuggestionResources,
     app_task: asyncio.Task[None] | None,
-    inference_acquired: bool,
     owned_work: OwnedSuggestionWork,
 ) -> bool:
     if app_task is None or (app_task.done() and not owned_work.pending):
         return True
     resources.retain_resources_until_done(
-        app_task, inference_acquired, owned_work=owned_work
+        app_task, owned_work=owned_work
     )
     return False
-
-
-async def _acquire_inference_before(
-    resources: DuplicateSuggestionResources,
-    request_deadline: float,
-    inference_deadline: float,
-) -> bool:
-    if _remaining_seconds(request_deadline) <= 0:
-        raise TimeoutError
-    budget = _remaining_seconds(inference_deadline)
-    if budget <= 0:
-        return False
-    acquired = await _bounded_acquire(
-        resources.inference_slots,
-        budget,
-    )
-    if _remaining_seconds(request_deadline) <= 0:
-        if acquired:
-            resources.inference_slots.release()
-        raise TimeoutError
-    if acquired and _remaining_seconds(inference_deadline) <= 0:
-        resources.inference_slots.release()
-        return False
-    return acquired
 
 
 async def _release_resources_when_done(
     task: asyncio.Task[None],
     resources: DuplicateSuggestionResources,
-    inference_acquired: bool,
     *,
     request_acquired: bool,
     owned_work: OwnedSuggestionWork | None = None,
@@ -353,30 +308,21 @@ async def _release_resources_when_done(
             await owned_work.finish()
         _release_resources(
             resources,
-            inference_acquired,
             request_acquired=request_acquired,
         )
 
 
 def _release_resources(
     resources: DuplicateSuggestionResources,
-    inference_acquired: bool,
     *,
     request_acquired: bool = True,
 ) -> None:
-    if inference_acquired:
-        resources.inference_slots.release()
     if request_acquired:
         resources.request_slots.release()
 
 
 def _remaining_seconds(deadline: float) -> float:
     return max(0.0, deadline - monotonic())
-
-
-def suggestion_inference_acquired(scope: Scope) -> bool:
-    state = scope.get("state")
-    return bool(isinstance(state, dict) and state.get(SUGGESTION_STATE_KEY) is True)
 
 
 def suggestion_request_deadline(scope: Scope) -> float:
@@ -387,9 +333,10 @@ def suggestion_request_deadline(scope: Scope) -> float:
     raise RuntimeError("Duplicate suggestion request deadline is unavailable")
 
 
-def semantic_search_inference_acquired(scope: Scope) -> bool:
-    state = scope.get("state")
-    return bool(isinstance(state, dict) and state.get(SEMANTIC_SEARCH_STATE_KEY) is True)
+def _cancel_inference(scope: Scope, resources: DuplicateSuggestionResources) -> None:
+    budget = scope.get("state", {}).get(INFERENCE_REQUEST_KEY)
+    if isinstance(budget, InferenceRequest):
+        resources.inference.cancel(budget)
 
 
 async def _serve_unified_search(
@@ -477,12 +424,9 @@ async def _serve_semantic_search(
     receive: Receive,
     send: Send,
 ) -> None:
-    inference_acquired = await resources.acquire_inference()
-    scope.setdefault("state", {})[SEMANTIC_SEARCH_STATE_KEY] = inference_acquired
-    if not inference_acquired:
-        await app(scope, receive, send)
-        return
-    release_resources = True
+    scope.setdefault("state", {})[INFERENCE_REQUEST_KEY] = InferenceRequest(
+        monotonic() + resources.timeout_seconds, _search_operation(scope) or "work_semantic",
+    )
 
     async def run_app() -> None:
         await app(scope, receive, send)
@@ -494,14 +438,11 @@ async def _serve_semantic_search(
         if not app_task.done():
             resources.retain_resources_until_done(
                 app_task,
-                True,
                 request_acquired=False,
             )
-            release_resources = False
         raise
     finally:
-        if release_resources:
-            _release_resources(resources, True, request_acquired=False)
+        _cancel_inference(scope, resources)
 
 
 def _is_suggestion_request(scope: Scope) -> bool:

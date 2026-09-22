@@ -17,6 +17,7 @@ from mnemonic_api.external_duplicate_schemas import (
     ExternalDuplicateCandidate,
     require_external_correspondence,
 )
+from mnemonic_api.inference import INFERENCE_REQUEST_KEY, QueuedEmbedder
 from mnemonic_api.schemas import DuplicateSuggestionPage, DuplicateSuggestionRequest
 from mnemonic_api.services import external_duplicate_suggestions as service
 
@@ -191,14 +192,16 @@ def test_late_semantic_result_keeps_baseline_and_permits_until_worker_really_fin
             release.wait(3)
             return [[1, 0]]
 
+    resources = None
+
     async def downstream(scope, _receive, send):
         result = await service.extend_external_suggestions(
             internal_page(),
             request,
             session_factory=None,
-            embedder=SlowEmbedder(),
+            embedder=QueuedEmbedder(SlowEmbedder(), resources.inference,
+                                    scope["state"][INFERENCE_REQUEST_KEY]),
             query_vector=(1, 0),
-            inference_permitted=True,
             request_deadline=monotonic() + 5,
             owned_work=suggestion_owned_work(scope),
         )
@@ -207,13 +210,9 @@ def test_late_semantic_result_keeps_baseline_and_permits_until_worker_really_fin
         await send({"type": "http.response.body", "body": b"{}"})
 
     async def exercise():
+        nonlocal resources
         resources = DuplicateSuggestionResources(
-            asyncio.Semaphore(1),
-            asyncio.Semaphore(1),
-            0.1,
-            0.1,
-            2097152,
-            5,
+            asyncio.Semaphore(1), 0.1, 2097152, 5,
         )
         middleware = DuplicateSuggestionControlMiddleware(downstream, resources=resources)
 
@@ -237,11 +236,12 @@ def test_late_semantic_result_keeps_baseline_and_permits_until_worker_really_fin
             assert entered.is_set()
             assert responses[0].external_scope == "lexical"
             assert responses[0].mode == "hybrid_full"
-            assert resources.request_slots.locked() and resources.inference_slots.locked()
+            assert resources.request_slots.locked() and resources.inference._active == 1
         finally:
             release.set()
         await asyncio.gather(*resources.draining_tasks)
-        assert resources.request_slots._value == resources.inference_slots._value == 1
+        assert resources.request_slots._value == 1
+        assert resources.inference._active == 0
 
     asyncio.run(exercise())
 

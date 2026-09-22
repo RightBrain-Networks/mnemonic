@@ -14,7 +14,6 @@ from mnemonic_api.application.suggestion_resources import (
     DuplicateSuggestionControlMiddleware,
     DuplicateSuggestionResources,
     _is_semantic_search_request,
-    suggestion_inference_acquired,
 )
 from mnemonic_api.config import Settings
 from mnemonic_api.main import create_app
@@ -169,7 +168,6 @@ def test_expired_request_deadline_rejects_before_inference():
             DuplicateSuggestionRequest.model_validate(request_payload()),
             settings=settings,
             embedder=NeverEmbedder(),
-            inference_permitted=True,
             deadline=monotonic() - 1,
         )
 
@@ -217,9 +215,7 @@ def test_chunked_body_cap_is_enforced_without_content_length():
 
     resources = DuplicateSuggestionResources(
         request_slots=asyncio.Semaphore(1),
-        inference_slots=asyncio.Semaphore(1),
         request_wait_seconds=0.1,
-        inference_wait_seconds=0.1,
         body_max_bytes=5,
         timeout_seconds=1.0,
     )
@@ -259,9 +255,7 @@ def test_disconnect_during_body_stops_before_inference_and_releases_request_slot
 
     resources = DuplicateSuggestionResources(
         request_slots=asyncio.Semaphore(1),
-        inference_slots=asyncio.Semaphore(1),
         request_wait_seconds=0.1,
-        inference_wait_seconds=0.1,
         body_max_bytes=2_097_152,
         timeout_seconds=1.0,
     )
@@ -276,7 +270,6 @@ def test_disconnect_during_body_stops_before_inference_and_releases_request_slot
     async def exercise():
         await middleware(scope, receive, send)
         assert await asyncio.wait_for(resources.request_slots.acquire(), timeout=0.1)
-        assert await asyncio.wait_for(resources.inference_slots.acquire(), timeout=0.1)
 
     asyncio.run(exercise())
     assert downstream_called is False
@@ -329,9 +322,7 @@ def test_adversarial_json_parser_failures_are_bounded_422_errors(body):
 
     resources = DuplicateSuggestionResources(
         request_slots=asyncio.Semaphore(1),
-        inference_slots=asyncio.Semaphore(1),
         request_wait_seconds=0.1,
-        inference_wait_seconds=0.1,
         body_max_bytes=2_097_152,
         timeout_seconds=1.0,
     )
@@ -346,7 +337,6 @@ def test_adversarial_json_parser_failures_are_bounded_422_errors(body):
     async def exercise():
         await middleware(scope, receive, send)
         assert await asyncio.wait_for(resources.request_slots.acquire(), timeout=0.1)
-        assert await asyncio.wait_for(resources.inference_slots.acquire(), timeout=0.1)
 
     asyncio.run(exercise())
     assert downstream_called is False
@@ -356,7 +346,7 @@ def test_adversarial_json_parser_failures_are_bounded_422_errors(body):
     assert (b"cache-control", b"no-store") in start["headers"]
 
 
-def test_timeout_budget_is_typed_and_releases_both_resource_slots():
+def test_timeout_budget_is_typed_and_releases_request_slot():
     sent = []
     downstream_finished = False
 
@@ -377,9 +367,7 @@ def test_timeout_budget_is_typed_and_releases_both_resource_slots():
 
     resources = DuplicateSuggestionResources(
         request_slots=asyncio.Semaphore(1),
-        inference_slots=asyncio.Semaphore(1),
         request_wait_seconds=0.1,
-        inference_wait_seconds=0.1,
         body_max_bytes=2_097_152,
         timeout_seconds=0.001,
     )
@@ -396,10 +384,8 @@ def test_timeout_budget_is_typed_and_releases_both_resource_slots():
         await middleware(scope, receive, send)
         assert asyncio.get_running_loop().time() - started_at < 0.02
         assert resources.request_slots.locked()
-        assert resources.inference_slots.locked()
         await asyncio.sleep(0.03)
         assert await asyncio.wait_for(resources.request_slots.acquire(), timeout=0.1)
-        assert await asyncio.wait_for(resources.inference_slots.acquire(), timeout=0.1)
         assert not resources.draining_tasks
 
     asyncio.run(exercise())
@@ -434,9 +420,7 @@ def test_timeout_response_cancellation_does_not_over_release_resource_slots():
 
     resources = DuplicateSuggestionResources(
         request_slots=asyncio.Semaphore(1),
-        inference_slots=asyncio.Semaphore(1),
         request_wait_seconds=0.1,
-        inference_wait_seconds=0.1,
         body_max_bytes=2_097_152,
         timeout_seconds=0.001,
     )
@@ -457,125 +441,8 @@ def test_timeout_response_cancellation_does_not_over_release_resource_slots():
         assert downstream_finished.is_set()
 
         assert await asyncio.wait_for(resources.request_slots.acquire(), timeout=0.1)
-        assert await asyncio.wait_for(resources.inference_slots.acquire(), timeout=0.1)
         with pytest.raises(TimeoutError):
             await asyncio.wait_for(resources.request_slots.acquire(), timeout=0.01)
-        with pytest.raises(TimeoutError):
-            await asyncio.wait_for(resources.inference_slots.acquire(), timeout=0.01)
-
-    asyncio.run(exercise())
-
-
-def test_body_and_inference_wait_share_one_route_deadline():
-    sent = []
-    downstream_called = False
-
-    async def downstream(_scope, _receive, _send):
-        nonlocal downstream_called
-        downstream_called = True
-
-    async def receive():
-        await asyncio.sleep(0.04)
-        return {"type": "http.request", "body": b"{}", "more_body": False}
-
-    async def send(message):
-        sent.append(message)
-
-    resources = DuplicateSuggestionResources(
-        request_slots=asyncio.Semaphore(1),
-        inference_slots=asyncio.Semaphore(0),
-        request_wait_seconds=0.1,
-        inference_wait_seconds=0.2,
-        body_max_bytes=2_097_152,
-        timeout_seconds=0.05,
-    )
-    middleware = DuplicateSuggestionControlMiddleware(downstream, resources=resources)
-    scope = {
-        "type": "http",
-        "method": "POST",
-        "path": f"/api/v1/projects/{uuid4()}/duplicate-suggestions",
-        "headers": [],
-    }
-
-    async def exercise():
-        started_at = asyncio.get_running_loop().time()
-        await middleware(scope, receive, send)
-        elapsed = asyncio.get_running_loop().time() - started_at
-        assert elapsed < 0.12
-        assert await asyncio.wait_for(resources.request_slots.acquire(), timeout=0.1)
-
-    asyncio.run(exercise())
-    assert downstream_called is False
-    start = next(message for message in sent if message["type"] == "http.response.start")
-    assert start["status"] == 503
-    body = b"".join(
-        message.get("body", b"")
-        for message in sent
-        if message["type"] == "http.response.body"
-    )
-    assert json.loads(body)["detail"]["code"] == "duplicate_suggestion_unavailable"
-    semantic = json.loads(body)["detail"]["context"]["semantic"]
-    assert semantic["inference"]["reason"] == "deadline_exceeded"
-    assert semantic["comparison_incomplete"] is True
-    assert semantic["retry"] == {"max_attempts": 1, "after_seconds": 1}
-
-
-def test_semantic_search_and_suggestion_share_one_inference_gate():
-    suggestion_states = []
-
-    async def exercise():
-        search_started = asyncio.Event()
-        finish_search = asyncio.Event()
-
-        async def downstream(scope, _receive, _send):
-            if str(scope["path"]).endswith("/work-items"):
-                search_started.set()
-                await finish_search.wait()
-                return
-            suggestion_states.append(suggestion_inference_acquired(scope))
-
-        async def receive():
-            return {"type": "http.request", "body": b"{}", "more_body": False}
-
-        async def send(_message):
-            return
-
-        resources = DuplicateSuggestionResources(
-            request_slots=asyncio.Semaphore(1),
-            inference_slots=asyncio.Semaphore(1),
-            request_wait_seconds=0.1,
-            inference_wait_seconds=0.001,
-            body_max_bytes=2_097_152,
-            timeout_seconds=1.0,
-        )
-        middleware = DuplicateSuggestionControlMiddleware(downstream, resources=resources)
-        project_id = uuid4()
-        search_scope = {
-            "type": "http",
-            "method": "GET",
-            "path": f"/api/v1/projects/{project_id}/work-items",
-            "query_string": b"q=cache&sem%61ntic=true",
-            "headers": [],
-        }
-        suggestion_scope = {
-            "type": "http",
-            "method": "POST",
-            "path": f"/api/v1/projects/{project_id}/duplicate-suggestions",
-            "headers": [],
-        }
-        search_task = asyncio.create_task(
-            middleware(search_scope, receive, send)
-        )
-        await search_started.wait()
-        assert resources.inference_slots.locked()
-
-        await middleware(suggestion_scope, receive, send)
-        assert suggestion_states == [False]
-        assert await asyncio.wait_for(resources.request_slots.acquire(), timeout=0.1)
-
-        finish_search.set()
-        await search_task
-        assert await asyncio.wait_for(resources.inference_slots.acquire(), timeout=0.1)
 
     asyncio.run(exercise())
 
@@ -607,9 +474,7 @@ def test_client_cancellation_retains_slots_until_downstream_exits():
 
     resources = DuplicateSuggestionResources(
         request_slots=asyncio.Semaphore(1),
-        inference_slots=asyncio.Semaphore(1),
         request_wait_seconds=0.1,
-        inference_wait_seconds=0.1,
         body_max_bytes=2_097_152,
         timeout_seconds=1.0,
     )
@@ -628,18 +493,16 @@ def test_client_cancellation_retains_slots_until_downstream_exits():
         with pytest.raises(asyncio.CancelledError):
             await request_task
         assert resources.request_slots.locked()
-        assert resources.inference_slots.locked()
         drains = tuple(resources.draining_tasks)
         assert len(drains) == 1
         finish_downstream.set()
         await asyncio.gather(*drains)
         assert await asyncio.wait_for(resources.request_slots.acquire(), timeout=0.1)
-        assert await asyncio.wait_for(resources.inference_slots.acquire(), timeout=0.1)
 
     asyncio.run(exercise())
 
 
-def test_settings_freeze_advisory_defaults_and_timeout_ceiling():
+def test_settings_define_bounded_advisory_defaults_and_timeout_ceiling():
     settings = Settings(
         database_url="postgresql://localhost/mnemonic",
         api_key=API_KEY,
@@ -647,8 +510,10 @@ def test_settings_freeze_advisory_defaults_and_timeout_ceiling():
     assert settings.duplicate_suggestion_body_max_bytes == 2_097_152
     assert settings.duplicate_suggestion_request_slots == 4
     assert settings.duplicate_suggestion_request_wait_ms == 250
-    assert settings.duplicate_suggestion_inference_slots == 1
-    assert settings.duplicate_suggestion_inference_wait_ms == 50
+    assert settings.duplicate_suggestion_inference_slots == 2
+    assert settings.duplicate_suggestion_inference_threads == 1
+    assert settings.duplicate_suggestion_inference_wait_ms == 5_000
+    assert settings.duplicate_suggestion_inference_queue_size == 8
     assert settings.duplicate_suggestion_lexical_shortlist == 200
     assert settings.duplicate_suggestion_missing_vector_limit == 128
     assert settings.duplicate_suggestion_full_population_ceiling == 10_000

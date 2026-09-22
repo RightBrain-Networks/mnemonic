@@ -22,6 +22,7 @@ from mnemonic_api.config import Settings
 from mnemonic_api.database import begin_coherent_read
 from mnemonic_api.errors import duplicate_graph_invalid
 from mnemonic_api.external_references import ExternalReference
+from mnemonic_api.inference import inference_failure_reason
 from mnemonic_api.models import WorkItem, WorkItemEmbedding, WorkStatus
 from mnemonic_api.schemas import (
     DuplicateCandidateSummary,
@@ -389,12 +390,11 @@ def suggest_duplicate_work(
     *,
     settings: Settings,
     embedder: Embedder,
-    inference_permitted: bool,
     deadline: float,
 ) -> DuplicateSuggestionPage:
     return capture_internal_suggestions(
         database, project_id, payload, settings=settings, embedder=embedder,
-        inference_permitted=inference_permitted, deadline=deadline,
+        deadline=deadline,
     ).page
 
 
@@ -405,13 +405,11 @@ def capture_internal_suggestions(
     *,
     settings: Settings,
     embedder: Embedder,
-    inference_permitted: bool,
     deadline: float,
 ) -> InternalSuggestionResult:
     """Capture once, rank outside the snapshot, and persist only derived cache rows."""
     _remaining_deadline_milliseconds(deadline)
-    query_vector, reason = (_query_vector(embedder, payload) if inference_permitted
-                            else (None, "capacity_exhausted"))
+    query_vector, reason = _query_vector(embedder, payload)
     dimensions = len(query_vector) if query_vector is not None else None
     _remaining_deadline_milliseconds(deadline)
     begin_coherent_read(database)
@@ -429,8 +427,7 @@ def capture_internal_suggestions(
     except Exception as exc:
         logger.warning("Duplicate suggestion semantic fallback (%s)", type(exc).__name__)
         return InternalSuggestionResult(_lexical_page(
-            snapshot, payload.limit, reason="deadline_exceeded" if isinstance(exc, TimeoutError)
-            else "model_failure"), query_vector)
+            snapshot, payload.limit, reason=inference_failure_reason(exc)), query_vector)
     page.semantic.cache_refresh = refresh_cache("duplicate_suggestions", bool(updates),
         lambda: _persist_cache_updates(database, updates, dimensions=len(query_vector),
                                         deadline=deadline))
@@ -449,7 +446,7 @@ def _query_vector(
                 raise ValueError("Invalid query vector")
     except Exception as exc:
         logger.warning("Duplicate suggestion query fallback (%s)", type(exc).__name__)
-        return None, "deadline_exceeded" if isinstance(exc, TimeoutError) else "model_failure"
+        return None, inference_failure_reason(exc)
     return vector, None
 
 

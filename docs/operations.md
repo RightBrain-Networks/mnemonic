@@ -63,10 +63,15 @@ Important API settings are:
 - `MNEMONIC_DUPLICATE_SUGGESTION_BODY_MAX_BYTES`, default 2097152.
 - `MNEMONIC_DUPLICATE_SUGGESTION_REQUEST_SLOTS` and
   `MNEMONIC_DUPLICATE_SUGGESTION_REQUEST_WAIT_MS`, defaults 4 and 250.
-- `MNEMONIC_DUPLICATE_SUGGESTION_INFERENCE_SLOTS` and
-  `MNEMONIC_DUPLICATE_SUGGESTION_INFERENCE_WAIT_MS`, defaults 1 and 50. This
-  process-wide model gate is shared by suggestions and ordinary semantic
-  search.
+- `MNEMONIC_DUPLICATE_SUGGESTION_INFERENCE_SLOTS`, default 2, range 1–4,
+  selects independently loaded models shared by all semantic searches and suggestions.
+- `MNEMONIC_DUPLICATE_SUGGESTION_INFERENCE_THREADS`, default 1, range 1–8,
+  bounds native threads per API model instance.
+- `MNEMONIC_DUPLICATE_SUGGESTION_INFERENCE_WAIT_MS`, default 5000, range 1–30000,
+  bounds each model-call wait, clipped to its remaining request/stage deadline.
+- `MNEMONIC_DUPLICATE_SUGGESTION_INFERENCE_QUEUE_SIZE`, default 8, range 0–16,
+  bounds FIFO waiters per API process; zero disables waiting. See
+  [semantic inference](semantic-inference.md) for sizing and upgrade guidance.
 - `MNEMONIC_DUPLICATE_SUGGESTION_LEXICAL_SHORTLIST`,
   `MNEMONIC_DUPLICATE_SUGGESTION_MISSING_VECTOR_LIMIT`, and
   `MNEMONIC_DUPLICATE_SUGGESTION_FULL_POPULATION_CEILING`, defaults 200, 128,
@@ -93,8 +98,12 @@ Semantic search is opt-in. Ordinary dashboard and MCP queries use PostgreSQL
 lexical search. A nonblank semantic query runs `BAAI/bge-small-en-v1.5` inside
 the API container and lazily refreshes derived `work_item_embeddings` rows in
 batches of 16, so a first query after canonical content changes may take longer.
-It waits up to 50 ms for the shared process-wide inference slot; saturation
-returns `semantic_unavailable`, while lexical search remains available.
+Each query embedding or document batch uses the shared model pool. The default
+pool has two models and eight FIFO waiting positions, with a five-second wait
+per call. Full queues or expired capacity waits return `semantic_unavailable`;
+lexical search remains available. Database reads, ranking, and cache publication
+do not reserve model capacity. Waiting is clipped to the request deadline;
+cancelled or expired requests cannot start another native call.
 
 The image build downloads model artifacts into `/app/.embedding-cache`; runtime
 uses offline mode and never sends prompt or query text to a hosted model API.
@@ -112,7 +121,8 @@ lexical search.
 Duplicate comparison runs only after an explicit request with a complete
 creation draft. Its default per-process limits are a 2,097,152-byte
 authenticated streaming body cap, four concurrent request slots with a 250 ms
-wait, a shared inference slot with a 50 ms wait, a 200-group lexical shortlist,
+wait, two shared model slots with eight waiting positions and a five-second
+per-call wait, a 200-group lexical shortlist,
 at most 30 recent distinct normalized tags composed per existing work item, at
 most 128 missing vectors computed per request, a 10,000-visible-member ceiling
 for full semantic scope, ten returned candidates, and an absolute 60-second

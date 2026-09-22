@@ -11,11 +11,9 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from mnemonic_api.application.state import embedder_of
-from mnemonic_api.application.suggestion_resources import (
-    semantic_search_inference_acquired,
-)
 from mnemonic_api.database import Database, begin_coherent_read
 from mnemonic_api.errors import ApplicationError, semantic_unavailable
+from mnemonic_api.inference import inference_failure_reason
 from mnemonic_api.models import WorkItem
 from mnemonic_api.schemas import (
     WorkIdentityPointer,
@@ -79,8 +77,6 @@ def search_work(
     embedder = embedder_of(request)
     query_vector: tuple[float, ...] | None = None
     if filters.semantic:
-        if not semantic_search_inference_acquired(request.scope):
-            raise semantic_unavailable("capacity_exhausted")
         try:
             query_vector = semantic_query_vector(embedder, query)
         except Exception as exc:
@@ -223,4 +219,4 @@ def _semantic_response(
 def _semantic_unavailable(exc: Exception) -> ApplicationError:
     logger.error("Semantic search failed (%s)", type(exc).__name__)
     return semantic_unavailable(
-        "deadline_exceeded" if isinstance(exc, TimeoutError) else "model_failure")
+        inference_failure_reason(exc))

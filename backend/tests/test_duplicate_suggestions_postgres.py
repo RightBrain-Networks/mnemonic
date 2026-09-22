@@ -1097,8 +1097,8 @@ def test_resource_saturation_falls_back_or_returns_bounded_retry(
 ):
     save(api, project, work_payload, title="Cache repair candidate")
     resources = api.app.state.duplicate_suggestion_resources
-    resources.inference_slots = asyncio.Semaphore(0)
-    resources.inference_wait_seconds = 0.001
+    resources.inference.slots = 0
+    resources.inference.wait_seconds = 0.001
     api.app.state.semantic_embedder = NeverEmbedder()
     fallback = suggest(api, project)
     assert fallback.status_code == 200, fallback.text
