@@ -1,5 +1,22 @@
 # Mnemonic validation record
 
+## Progressive MCP help and input repairs (0.72.0)
+
+The new read-only `help` tool lists commands and offers compact argument, workflow,
+field, and discriminator-variant pages. Schemas are returned only on explicit
+request, either complete or scoped to one field with its referenced definitions.
+The catalog has 57 tools; protected writes, receipts, plugin version, migrations,
+and configuration are unchanged. See [MCP help](mcp-help.md).
+
+Regressions check every registered command and navigable field, page size budgets,
+exact schema preservation, conditional verification rules, local-only execution,
+unknown-topic redaction, and a single text payload over HTTP and stdio. Rejected
+inputs now provide bounded prose repairs and exact help calls. API 422 and manual
+validation retain safe guidance; execution conflicts and uncertain writes keep
+their existing behavior. Release metadata and the OpenAPI snapshot are also checked.
+
+This supersedes the automatic schema-dump behavior recorded below.
+
 ## MCP rejected-input schema hints (0.71.0)
 
 Rejected MCP arguments now carry a compact JSON Schema from the called tool's

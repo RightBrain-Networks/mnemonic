@@ -12,7 +12,7 @@ from pydantic.experimental.missing_sentinel import MISSING
 
 from .api import MnemonicAPI, TransportEffect, _raise_unexpected_response
 from .artifact_transport import _request
-from .input_schema import InputValidationError
+from .input_errors import InputValidationError
 from .response_validation import response_matches
 from .search_diagnostics import diagnostics_match
 from .search_disclosure import (

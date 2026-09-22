@@ -11,7 +11,8 @@ from mcp.server.fastmcp.exceptions import ToolError
 from mcp.types import AnyFunction, Icon, ToolAnnotations
 from pydantic import ConfigDict, ValidationError
 
-from .input_schema import InputValidationError, input_schema_hint
+from .input_errors import InputValidationError
+from .input_hints import help_pointer, rejection_message
 from .transport import bounded_stdio_server
 from .validation_rules import VALIDATION_RULES
 
@@ -22,7 +23,7 @@ VALIDATION_FIELDS = frozenset(
         "created_before",
         "updated_after",
         "updated_before",
-        "diagnostics", "query_mode", "work_fields",
+        "diagnostics", "query_mode", "work_fields", "topic",
         "tag_counts",
         "facets",
         "facet",
@@ -250,6 +251,8 @@ VALIDATION_ERROR_TYPES = frozenset(
         "datetime_parsing",
         "datetime_type",
         "none_required",
+        "union_tag_not_found",
+        "union_tag_invalid",
     }
 )
 
@@ -379,7 +382,10 @@ def _validation_details(error: ValidationError) -> tuple[dict[str, set[str]], se
 _CLAIM_KEY_HINT = (
     "Claim tools use claim_request_id as the retry key; client_operation_id is not accepted."
 )
+_ACTOR_HINT = "Put the actual author in checkpoint.source_client and checkpoint.source_session_id."
 _TOOL_INPUT_HINTS = {
+    ("complete_work", ("actor_client",)): _ACTOR_HINT,
+    ("complete_work", ("actor_session_id",)): _ACTOR_HINT,
     ("claim_work", ("client_operation_id",)): _CLAIM_KEY_HINT,
     ("claim_and_recall", ("client_operation_id",)): _CLAIM_KEY_HINT,
     ("search", ("sources",)): (
@@ -388,16 +394,16 @@ _TOOL_INPUT_HINTS = {
 }
 
 
-def _tool_validation_message(name: str, error: ValidationError) -> str:
-    message = validation_error_message(*_validation_details(error))
+def _tool_validation_message(name: str, schema: dict[str, Any], error: ValidationError) -> str:
+    hints = []
     # Only exact, reviewed mistakes select static hints. Never interpolate an
     # unknown field name or value, including nested metadata keys.
     for item in error.errors(include_url=False, include_context=False, include_input=False):
         if item["type"] == "extra_forbidden":
             hint = _TOOL_INPUT_HINTS.get((name, item["loc"]))
             if hint is not None:
-                message += " " + hint
-    return message
+                hints.append(hint)
+    return rejection_message(name, schema, _validation_details(error), hints=hints)
 
 
 def _validate_subagent_closeout(name: str, arguments: dict[str, Any]) -> None:
@@ -481,15 +487,19 @@ class SanitizedFastMCP(FastMCP[Any]):
             input_error = _exception_in_chain(error, InputValidationError)
             validation_error = _exception_in_chain(error, ValidationError)
             if input_error is not None:
-                message = str(input_error)
+                message = (
+                    rejection_message(name, tool.parameters, input_error.details)
+                    if input_error.details is not None
+                    else str(input_error) + " " + help_pointer(name)
+                )
             elif (
                 validation_error is not None
                 and validation_error.title == tool.fn_metadata.arg_model.__name__
             ):
-                message = _tool_validation_message(name, validation_error)
+                message = _tool_validation_message(name, tool.parameters, validation_error)
             else:
                 raise
-            raise ToolError(message + input_schema_hint(tool.name, tool.parameters)) from None
+            raise ToolError(message) from None
 
     async def run_stdio_async(self) -> None:
         """Run through the bounded binary adapter at the pinned FastMCP seam."""

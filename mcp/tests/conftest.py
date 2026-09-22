@@ -121,16 +121,25 @@ LOCAL_VALIDATION_CASES = (
 )
 
 
-def expected_validation_message(fields: tuple[str, ...], kinds: tuple[str, ...] = ()) -> str:
-    """fields are already rendered as 'path (kind, kind)'; kinds are unattributed."""
-    if fields:
-        return f"Mnemonic rejected the input. Check: {', '.join(fields)}."
-    if kinds:
-        return (
-            f"Mnemonic rejected the input ({', '.join(kinds)}). "
-            "Check the field names and constraints."
-        )
-    return "Mnemonic rejected the input. Check the field names and constraints."
+def assert_validation_guidance(message: str, name: str, fields: tuple[str, ...],
+                               kinds: tuple[str, ...] = ()) -> None:
+    assert message.startswith("Mnemonic rejected the input.")
+    assert "Input schema" not in message and '"$defs"' not in message
+    assert len(message) < 1200
+    assert f'help({{"topic":"{name}' in message
+    for field in fields[:3]:
+        assert field in message
+    for kind in kinds:
+        assert kind in message
+    if name == "complete_work":
+        assert "prompt, source_client, source_session_id" in message
+        assert "more invalid fields" in message
+    elif name in {"create_work", "claim_work"}:
+        assert "maxLength=" in message
+    elif name == "renew_claim":
+        assert "maxLength=200" in message
+    elif name == "list_projects":
+        assert "Remove unlisted fields" in message
 
 
 @pytest.fixture

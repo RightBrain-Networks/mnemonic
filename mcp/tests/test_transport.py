@@ -14,7 +14,7 @@ from conftest import (
     LOCAL_VALIDATION_CASES,
     PROJECT_ID,
     WORK_ID,
-    expected_validation_message,
+    assert_validation_guidance,
 )
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
@@ -38,6 +38,7 @@ INITIALIZE = {
 }
 
 CANONICAL_TOOL_NAMES = {
+    "help",
     "authorize_artifact_download",
     "authorize_artifact_upload",
     "search",
@@ -164,7 +165,7 @@ def test_http_protocol_initialize_list_and_call(settings, work_context):
         initialized = client.post("/mcp", json=INITIALIZE, headers=JSON_HEADERS)
         assert initialized.status_code == 200
         assert initialized.json()["result"]["serverInfo"]["name"] == "Mnemonic"
-        assert initialized.json()["result"]["serverInfo"]["version"] == "0.71.0"
+        assert initialized.json()["result"]["serverInfo"]["version"] == "0.72.0"
         instructions = initialized.json()["result"]["instructions"]
         # Clients truncate this block, so it must stay short and lead with the
         # trigger condition. Per-tool doctrine lives in the tool descriptions.
@@ -193,7 +194,7 @@ def test_http_protocol_initialize_list_and_call(settings, work_context):
         listed = client.post("/mcp", json={"jsonrpc": "2.0", "id": 2, "method": "tools/list"}, headers=JSON_HEADERS)
         assert listed.status_code == 200
         listed_tools = listed.json()["result"]["tools"]
-        assert len(listed_tools) == 56
+        assert len(listed_tools) == 57
         assert_serialized_tool_contract(listed_tools)
         assert all(
             tool["inputSchema"].get("additionalProperties") is False
@@ -316,10 +317,7 @@ def test_http_tool_validation_is_strict_and_value_free(settings):
             payload = response.json()["result"]
             assert payload["isError"] is True
             message = payload["content"][0]["text"]
-            assert message.split("\nInput schema for ", 1)[0] == expected_validation_message(
-                fields, kinds
-            )
-            assert f"\nInput schema for {tool_name} " in message
+            assert_validation_guidance(message, tool_name, fields, kinds)
             for secret in secrets:
                 assert secret not in response.text
             assert "input_value" not in response.text
@@ -463,13 +461,14 @@ async def test_stdio_transport_handshake_and_catalog():
         ):
             initialized = await session.initialize()
             assert initialized.serverInfo.name == "Mnemonic"
-            assert initialized.serverInfo.version == "0.71.0"
+            assert initialized.serverInfo.version == "0.72.0"
             assert initialized.instructions is not None
             assert len(initialized.instructions) <= 1200
             assert "unimplemented" not in initialized.instructions.casefold()
             result = await session.list_tools()
-            assert len(result.tools) == 56
-            assert all(tool.outputSchema is not None for tool in result.tools)
+            assert len(result.tools) == 57
+            assert all(tool.outputSchema is not None for tool in result.tools if tool.name != "help")
+            assert next(tool for tool in result.tools if tool.name == "help").outputSchema is None
             assert all(
                 tool.inputSchema.get("additionalProperties") is False
                 for tool in result.tools
@@ -481,15 +480,24 @@ async def test_stdio_transport_handshake_and_catalog():
                 ]
             )
 
+            for topic in ("", "complete_work checkpoint", "complete_work schema"):
+                page = await session.call_tool("help", {"topic": topic})
+                assert page.isError is False
+                assert page.structuredContent is None
+                assert len(page.content) == 1
+                assert page.content[0].type == "text"
+                if topic.endswith("schema"):
+                    expected = next(tool for tool in result.tools if tool.name == "complete_work")
+                    assert json.loads(page.content[0].text) == expected.inputSchema
+                else:
+                    assert len(page.content[0].text) < 2200
+
             for tool_name, arguments, fields, secrets, kinds in LOCAL_VALIDATION_CASES:
                 invalid = await session.call_tool(tool_name, arguments)
                 assert invalid.isError is True
                 assert len(invalid.content) == 1
                 text = invalid.content[0].text
-                assert text.split("\nInput schema for ", 1)[0] == expected_validation_message(
-                    fields, kinds
-                )
-                assert f"\nInput schema for {tool_name} " in text
+                assert_validation_guidance(text, tool_name, fields, kinds)
                 rendered = repr(invalid)
                 for secret in secrets:
                     assert secret not in rendered
@@ -532,3 +540,31 @@ async def test_stdio_transport_handshake_and_catalog():
             },
         }
     ]
+
+
+def test_help_http_returns_one_text_page_and_schema_only_on_request(settings):
+    def handler(request):
+        pytest.fail("Help must not call the REST API")
+
+    app = create_app(settings, MnemonicAPI(settings, httpx.MockTransport(handler)))
+    with TestClient(app, base_url="http://localhost:8001") as client:
+        assert client.post("/mcp", json=INITIALIZE, headers=JSON_HEADERS).status_code == 200
+        for request_id, topic in enumerate(("", "complete_work checkpoint", "complete_work schema"), 20):
+            response = client.post("/mcp", headers=JSON_HEADERS, json={
+                "jsonrpc": "2.0", "id": request_id, "method": "tools/call",
+                "params": {"name": "help", "arguments": {"topic": topic}},
+            })
+            assert response.status_code == 200
+            result = response.json()["result"]
+            assert result["isError"] is False
+            assert result.get("structuredContent") is None
+            assert len(result["content"]) == 1
+            assert result["content"][0]["type"] == "text"
+            page = result["content"][0]["text"]
+            if topic.endswith("schema"):
+                schema = json.loads(page)
+                assert "checkpoint" in schema["required"]
+                assert "CommandVerificationInput" in schema["$defs"]
+            else:
+                assert '"$defs"' not in page
+                assert len(page) < 2200

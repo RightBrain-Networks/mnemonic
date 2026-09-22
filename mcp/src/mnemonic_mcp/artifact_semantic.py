@@ -8,7 +8,7 @@ from uuid import UUID
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, StrictInt, model_validator
 from pydantic_core import PydanticCustomError
 
-from .input_schema import InputValidationError
+from .input_errors import InputValidationError
 from .search_query import QueryMode, constrained_query
 
 Digest = Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]

@@ -18,7 +18,7 @@ from conftest import (
     PROJECT_ID,
     RELATIONSHIP_ID,
     WORK_ID,
-    expected_validation_message,
+    assert_validation_guidance,
     stream_json,
 )
 from mcp.server.fastmcp import FastMCP
@@ -682,7 +682,7 @@ async def test_tool_catalog_schemas_and_annotations(settings):
     server = build_server(settings)
     tools = {tool.name: tool for tool in await server.list_tools()}
     assert set(tools) == {
-        "search",
+        "help", "search",
         "list_transcripts", "search_transcript_contents", "get_transcript",
         "get_transcript_text", "download_transcript",
         "list_artifacts", "get_artifact", "get_artifact_text",
@@ -725,7 +725,8 @@ async def test_tool_catalog_schemas_and_annotations(settings):
         "merge_work",
         "suggest_duplicate_work",
     }
-    assert all(tool.outputSchema for tool in tools.values())
+    assert all(tool.outputSchema for name, tool in tools.items() if name != "help")
+    assert tools["help"].outputSchema is None
     assert all(
         tool.inputSchema.get("additionalProperties") is False for tool in tools.values()
     )
@@ -797,7 +798,7 @@ async def test_tool_catalog_schemas_and_annotations(settings):
         "remove_relationship",
         "merge_work",
     }
-    assert len(tools) == 56
+    assert len(tools) == 57
     for name in mutating:
         assert tools[name].annotations.idempotentHint is (name in protected)
     for name in tools.keys() - mutating - {"authorize_artifact_download"}:
@@ -849,7 +850,7 @@ async def test_tool_catalog_operation_and_claim_schemas(settings):
     assert project_page_schema["additionalProperties"] is False
     assert project_page_schema["$defs"]["Project"]["additionalProperties"] is False
 
-    for name in tools.keys() - {"list_projects", "create_project", "authorize_artifact_upload", "search"}:
+    for name in tools.keys() - {"help", "list_projects", "create_project", "authorize_artifact_upload", "search"}:
         assert "project_id" in tools[name].inputSchema["required"]
     search_properties = tools["search"].inputSchema["properties"]
     assert search_properties["project_id"]["default"] is None
@@ -4104,8 +4105,7 @@ async def test_local_validation_is_strict_and_never_echoes_values(
         await adapter(settings, handler).call_tool(tool_name, arguments)
 
     message = str(caught.value)
-    assert message.split("\nInput schema for ", 1)[0] == expected_validation_message(fields, kinds)
-    assert f"\nInput schema for {tool_name} " in message
+    assert_validation_guidance(message, tool_name, fields, kinds)
     for secret in secrets:
         assert secret not in message
     assert "input_value" not in message

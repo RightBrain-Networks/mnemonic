@@ -1,0 +1,48 @@
+# MCP command help
+
+The `help` tool answers locally with one plain-text page, without a project ID,
+API request, lease, or operation receipt. It is safe to use before claiming work
+and during a cold review: it reads command definitions, never work context.
+
+Pass an optional `topic` string. Each successive word selects a child page:
+
+| MCP call | Result |
+| --- | --- |
+| `help({})` | All registered commands, grouped by task, plus navigation syntax |
+| `help({"topic":"complete_work"})` | Purpose, required arguments, optional argument names, and important fresh-call requirements |
+| `help({"topic":"complete_work usage"})` | Workflow and retry guidance |
+| `help({"topic":"complete_work checkpoint"})` | Checkpoint fields and author provenance |
+| `help({"topic":"complete_work completion_evidence artifact_references"})` | Required fields and rules for each artifact reference |
+| `help({"topic":"complete_work completion_evidence verification_results command"})` | The command verification variant and conditional exit-code requirements |
+| `help({"topic":"complete_work schema"})` | The exact full registered input JSON Schema |
+| `help({"topic":"complete_work completion_evidence schema"})` | Only that field's schema and its transitively referenced definitions |
+
+Overview pages list immediate fields rather than recursively expanding them.
+Array pages describe their items; discriminated unions list selectable variants.
+Every field page links back to its parent and offers its own schema. Dotted field
+paths and `[]` suffixes also work. Unknown topics return the nearest known page
+or the root navigation hint without echoing the unknown input. Topics are limited
+to 400 characters and 12 field levels.
+
+Names, required fields, types, enum choices, bounds, and explicit schemas come
+from the registered tool contract. Short authored notes explain workflow rules
+that are not expressed by schema alone. For example, fresh closeouts require a
+report and explicit transcript assertions even though their historical receipt
+replays remain parseable without them. Help never grants execution authority.
+
+Ordinary help pages stay small; full schema retrieval is explicit and can be
+large. The response has one text content block and no duplicate structured
+payload. No schema rules, annotations, defaults, or long patterns are removed
+from an explicitly requested schema.
+
+Rejected inputs receive at most three field repairs, a count of additional invalid
+fields, and short navigation instructions. Repairs use only reviewed field/error
+names, static guidance, and server-owned constraints. Caller values, unknown
+field names, and upstream error prose remain withheld. For example, misplaced
+`complete_work` actor fields are redirected to `checkpoint.source_client` and
+`checkpoint.source_session_id`; a missing checkpoint names its required fields
+and points to `help({"topic":"complete_work checkpoint"})`.
+
+The same behavior applies to local validation and API 422 input rejections over
+HTTP and stdio. Conflict and uncertain-outcome handling stays unchanged; a help
+link is not permission to change an operation UUID or any frozen retry argument.

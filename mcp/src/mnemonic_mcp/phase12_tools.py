@@ -8,7 +8,7 @@ from mcp.types import ToolAnnotations
 from pydantic import Field, StrictInt
 
 from .api import MnemonicAPI, TransportEffect
-from .input_schema import InputValidationError
+from .input_errors import InputValidationError
 from .phase12_models import (
     ActivityCursorArgument,
     ActivityCursorDocument,
