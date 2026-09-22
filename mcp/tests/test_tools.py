@@ -4085,8 +4085,10 @@ async def test_relationship_validation_errors_name_only_allowlisted_fields(setti
     with pytest.raises(ToolError) as caught:
         await adapter(settings, handler).call_tool("list_projects", {})
     message = str(caught.value)
-    for field in fields:
+    for field in sorted(fields)[:3]:
         assert field in message
+    assert "9 more invalid fields; consult help" in message
+    assert len(message) < 1200
     assert API_KEY not in message
 
 
