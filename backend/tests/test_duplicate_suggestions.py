@@ -346,14 +346,31 @@ def test_adversarial_json_parser_failures_are_bounded_422_errors(body):
     assert (b"cache-control", b"no-store") in start["headers"]
 
 
-def test_timeout_budget_is_typed_and_releases_request_slot():
+@pytest.fixture
+def suggestion_request_clock(monkeypatch):
+    # Keep admission within budget regardless of runner load. asyncio still uses
+    # its real clock to time out the downstream task once it has been scheduled.
+    now = monotonic()
+    monkeypatch.setattr(
+        "mnemonic_api.application.suggestion_resources.monotonic", lambda: now
+    )
+    monkeypatch.setattr("mnemonic_api.inference.monotonic", lambda: now)
+
+    def advance(seconds):
+        nonlocal now
+        now += seconds
+
+    return advance
+
+
+def test_timeout_budget_is_typed_and_releases_request_slot(suggestion_request_clock):
     sent = []
-    downstream_finished = False
+    finish_downstream = asyncio.Event()
+    downstream_finished = asyncio.Event()
 
     async def downstream(_scope, _receive, _send):
-        nonlocal downstream_finished
-        await asyncio.sleep(0.02)
-        downstream_finished = True
+        await finish_downstream.wait()
+        downstream_finished.set()
 
     messages = iter(
         ({"type": "http.request", "body": b"{}", "more_body": False},)
@@ -380,16 +397,20 @@ def test_timeout_budget_is_typed_and_releases_request_slot():
     }
 
     async def exercise():
-        started_at = asyncio.get_running_loop().time()
-        await middleware(scope, receive, send)
-        assert asyncio.get_running_loop().time() - started_at < 0.02
+        try:
+            await asyncio.wait_for(middleware(scope, receive, send), timeout=5)
+            assert not downstream_finished.is_set()
+            assert resources.request_slots.locked()
+            assert len(resources.draining_tasks) == 1
+        finally:
+            finish_downstream.set()
+            await asyncio.wait_for(asyncio.gather(*resources.draining_tasks), timeout=5)
+        assert downstream_finished.is_set()
+        assert await asyncio.wait_for(resources.request_slots.acquire(), timeout=1)
         assert resources.request_slots.locked()
-        await asyncio.sleep(0.03)
-        assert await asyncio.wait_for(resources.request_slots.acquire(), timeout=0.1)
         assert not resources.draining_tasks
 
     asyncio.run(exercise())
-    assert downstream_finished is True
     start = next(message for message in sent if message["type"] == "http.response.start")
     assert start["status"] == 503
     assert (b"cache-control", b"no-store") in start["headers"]
@@ -405,17 +426,27 @@ def test_timeout_budget_is_typed_and_releases_request_slot():
     assert semantic["retry"] == {"max_attempts": 1, "after_seconds": 1}
 
 
-def test_timeout_response_cancellation_does_not_over_release_resource_slots():
+@pytest.mark.parametrize("expire_before_downstream", [False, True])
+def test_timeout_response_cancellation_does_not_over_release_resource_slots(
+    suggestion_request_clock, expire_before_downstream
+):
+    downstream_started = asyncio.Event()
+    finish_downstream = asyncio.Event()
     downstream_finished = asyncio.Event()
 
     async def downstream(_scope, _receive, _send):
-        await asyncio.sleep(0.02)
+        downstream_started.set()
+        await finish_downstream.wait()
         downstream_finished.set()
 
     async def receive():
+        if expire_before_downstream:
+            suggestion_request_clock(1)
         return {"type": "http.request", "body": b"{}", "more_body": False}
 
-    async def cancelled_send(_message):
+    async def cancelled_send(message):
+        assert message["type"] == "http.response.start"
+        assert message["status"] == 503
         raise asyncio.CancelledError
 
     resources = DuplicateSuggestionResources(
@@ -433,16 +464,20 @@ def test_timeout_response_cancellation_does_not_over_release_resource_slots():
     }
 
     async def exercise():
-        with pytest.raises(asyncio.CancelledError):
-            await middleware(scope, receive, cancelled_send)
-        drains = tuple(resources.draining_tasks)
-        assert len(drains) == 1
-        await asyncio.gather(*drains)
-        assert downstream_finished.is_set()
-
-        assert await asyncio.wait_for(resources.request_slots.acquire(), timeout=0.1)
-        with pytest.raises(TimeoutError):
-            await asyncio.wait_for(resources.request_slots.acquire(), timeout=0.01)
+        try:
+            with pytest.raises(asyncio.CancelledError):
+                await asyncio.wait_for(middleware(scope, receive, cancelled_send), timeout=5)
+            assert downstream_started.is_set() is not expire_before_downstream
+            assert not downstream_finished.is_set()
+            assert resources.request_slots.locked() is not expire_before_downstream
+            assert len(resources.draining_tasks) == (0 if expire_before_downstream else 1)
+        finally:
+            finish_downstream.set()
+            await asyncio.wait_for(asyncio.gather(*resources.draining_tasks), timeout=5)
+        assert downstream_finished.is_set() is not expire_before_downstream
+        assert not resources.draining_tasks
+        assert await asyncio.wait_for(resources.request_slots.acquire(), timeout=1)
+        assert resources.request_slots.locked()
 
     asyncio.run(exercise())
 
