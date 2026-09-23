@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import math
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime
@@ -24,6 +24,7 @@ from mnemonic_api.errors import duplicate_graph_invalid
 from mnemonic_api.external_references import ExternalReference
 from mnemonic_api.inference import inference_failure_reason
 from mnemonic_api.models import WorkItem, WorkItemEmbedding, WorkStatus
+from mnemonic_api.pool_deadlines import pool_checkout_deadline
 from mnemonic_api.schemas import (
     DuplicateCandidateSummary,
     DuplicateSuggestion,
@@ -35,6 +36,7 @@ from mnemonic_api.schemas import (
     WorkIdentityPointer,
 )
 from mnemonic_api.search_ranking import (
+    CacheRefresh,
     SemanticReason,
     completed_semantic,
     unavailable_semantic,
@@ -406,21 +408,27 @@ def capture_internal_suggestions(
     settings: Settings,
     embedder: Embedder,
     deadline: float,
+    on_result: Callable[[InternalSuggestionResult], None] | None = None,
 ) -> InternalSuggestionResult:
     """Capture once, rank outside the snapshot, and persist only derived cache rows."""
     _remaining_deadline_milliseconds(deadline)
-    query_vector, reason = _query_vector(embedder, payload)
-    dimensions = len(query_vector) if query_vector is not None else None
+    with pool_checkout_deadline(deadline):
+        database.connection()
     _remaining_deadline_milliseconds(deadline)
     begin_coherent_read(database)
     _set_transaction_deadline(database, deadline)
     with timed_phase("duplicate_suggestions", "candidate_selection"):
-        snapshot = _capture_snapshot(database, project_id, payload, settings, dimensions)
+        snapshot = _capture_snapshot(database, project_id, payload, settings)
     database.commit()
+    if on_result is not None:
+        on_result(InternalSuggestionResult(
+            _lexical_page(snapshot, payload.limit, reason="deadline_exceeded"), None))
+    query_vector, reason = _query_vector(embedder, payload)
     if query_vector is None:
         return InternalSuggestionResult(_lexical_page(
             snapshot, payload.limit, reason=reason or "model_failure"), query_vector)
     try:
+        _remaining_deadline_milliseconds(deadline)
         with timed_phase("duplicate_suggestions", "document_inference"):
             page, updates = _semantic_page(
                 snapshot, payload.limit, query_vector, embedder, settings)
@@ -428,6 +436,13 @@ def capture_internal_suggestions(
         logger.warning("Duplicate suggestion semantic fallback (%s)", type(exc).__name__)
         return InternalSuggestionResult(_lexical_page(
             snapshot, payload.limit, reason=inference_failure_reason(exc)), query_vector)
+    if on_result is not None and updates:
+        # Publish an independent response before derived writes. A cache stall
+        # cannot replace a completed ranking with a lexical or generic failure.
+        retained = page.model_copy(deep=True)
+        retained.semantic.cache_refresh = CacheRefresh(
+            status="failed", reason="cache_refresh_failed")
+        on_result(InternalSuggestionResult(retained, query_vector))
     page.semantic.cache_refresh = refresh_cache("duplicate_suggestions", bool(updates),
         lambda: _persist_cache_updates(database, updates, dimensions=len(query_vector),
                                         deadline=deadline))
@@ -467,7 +482,6 @@ def _capture_snapshot(
     project_id: UUID,
     payload: DuplicateSuggestionRequest,
     settings: Settings,
-    dimensions: int | None,
 ) -> CapturedSuggestionSnapshot:
     require_project(database, project_id)
     visible_count = _visible_member_count(database, project_id)
@@ -512,11 +526,7 @@ def _capture_snapshot(
         if within_full_ceiling
         else frozenset(lexical_winners.values())
     )
-    vectors = (
-        _capture_vectors(database, population.work_by_id, capture_ids, dimensions)
-        if dimensions is not None
-        else {}
-    )
+    vectors = _capture_vectors(database, population.work_by_id, capture_ids)
     return CapturedSuggestionSnapshot(
         work_by_id=population.work_by_id,
         root_by_member=population.root_by_member,
@@ -792,20 +802,16 @@ def _capture_vectors(
     database: Session,
     work_by_id: dict[UUID, WorkSnapshot],
     work_item_ids: Iterable[UUID],
-    dimensions: int,
 ) -> dict[UUID, VectorCandidate]:
     ids = frozenset(work_item_ids)
     if not ids:
         return {}
     composition = _bounded_compositions(database, ids)
-    cache_version = _cache_version(dimensions)
     cache_by_id = {
         row.work_item_id: row
         for row in database.scalars(
             select(WorkItemEmbedding).where(
                 WorkItemEmbedding.work_item_id.in_(ids),
-                WorkItemEmbedding.model == cache_version,
-                func.cardinality(WorkItemEmbedding.vector) == dimensions,
             )
         )
     }
@@ -818,9 +824,9 @@ def _capture_vectors(
         vector = (
             tuple(float(component) for component in cache.vector)
             if cache is not None
-            and cache.model == cache_version
+            and cache.model == _cache_version(len(cache.vector))
             and cache.digest == digest
-            and _valid_vector(cache.vector, dimensions)
+            and _valid_vector(cache.vector)
             else None
         )
         captured[work_item_id] = VectorCandidate(work, value, digest, vector)
@@ -885,6 +891,7 @@ def _semantic_page(
         and set(snapshot.vectors_by_id) == set(snapshot.eligible_ids)
         and all(
             candidate.cached_vector is not None
+            and len(candidate.cached_vector) == len(query_vector)
             for candidate in snapshot.vectors_by_id.values()
         )
     )
@@ -918,8 +925,9 @@ def _shortlist_vectors(
         candidate.work.id: candidate.cached_vector
         for candidate in candidates
         if candidate.cached_vector is not None
+        and len(candidate.cached_vector) == dimensions
     }
-    missing = [candidate for candidate in candidates if candidate.cached_vector is None]
+    missing = [candidate for candidate in candidates if candidate.work.id not in vectors]
     logger.info("Suggestion vector cache ready=%d missing=%d", len(vectors), len(missing))
     missing = missing[: settings.duplicate_suggestion_missing_vector_limit]
     updates: list[CacheUpdate] = []
@@ -1160,7 +1168,8 @@ def _persist_cache_updates(
         return False
     by_id = {update.work_item_id: update for update in updates}
     with Session(bind=database.get_bind()) as cache_database:
-        cache_database.connection()
+        with pool_checkout_deadline(deadline):
+            cache_database.connection()
         _set_transaction_deadline(
             cache_database,
             deadline,

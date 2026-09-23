@@ -97,6 +97,8 @@ async def extend_external_suggestions(
 ) -> DuplicateSuggestionPage:
     if not payload.external_candidates:
         return page
+    if owned_work.pending:
+        return _extended_page(page, payload, [], "unavailable")
     deadline = external_deadline(request_deadline, monotonic())
     baseline = await _external_baseline(payload, session_factory, deadline, owned_work)
     if baseline is None:

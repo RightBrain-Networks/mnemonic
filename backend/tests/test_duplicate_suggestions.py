@@ -552,13 +552,39 @@ def test_settings_define_bounded_advisory_defaults_and_timeout_ceiling():
     assert settings.duplicate_suggestion_lexical_shortlist == 200
     assert settings.duplicate_suggestion_missing_vector_limit == 128
     assert settings.duplicate_suggestion_full_population_ceiling == 10_000
-    assert settings.duplicate_suggestion_timeout_seconds == 60
+    assert settings.duplicate_suggestion_timeout_seconds == 45
     with pytest.raises(ValidationError):
         Settings(
             database_url="postgresql://localhost/mnemonic",
             api_key=API_KEY,
-            duplicate_suggestion_timeout_seconds=61,
+            duplicate_suggestion_timeout_seconds=46,
         )
+
+
+def test_request_queue_wait_cannot_outlast_the_response_deadline():
+    async def forbidden(*_args):
+        raise AssertionError("A request without capacity must not read its body or run")
+
+    sent = []
+
+    async def send(message):
+        sent.append(message)
+
+    resources = DuplicateSuggestionResources(
+        request_slots=asyncio.Semaphore(0), request_wait_seconds=1.0,
+        body_max_bytes=2_097_152, timeout_seconds=0.05,
+    )
+    middleware = DuplicateSuggestionControlMiddleware(forbidden, resources=resources)
+    scope = {"type": "http", "method": "POST", "headers": [],
+             "path": f"/api/v1/projects/{uuid4()}/duplicate-suggestions"}
+    before = monotonic()
+    asyncio.run(middleware(scope, forbidden, send))
+    assert monotonic() - before < 0.5
+    assert sent[0]["status"] == 503
+    body = json.loads(sent[1]["body"])
+    assert body["detail"]["code"] == "duplicate_suggestion_unavailable"
+    assert body["detail"]["context"]["semantic"]["inference"]["reason"] == "deadline_exceeded"
+    assert resources.request_slots.locked()
 
 
 def test_candidate_contract_rejects_endpoint_and_timestamp_incoherence():

@@ -93,9 +93,11 @@ class DuplicateSuggestionResources:
             ),
         )
 
-    async def acquire_request(self) -> bool:
+    async def acquire_request(self, deadline: float) -> bool:
         started = monotonic()
-        acquired = await _bounded_acquire(self.request_slots, self.request_wait_seconds)
+        acquired = await _bounded_acquire(
+            self.request_slots, min(self.request_wait_seconds, max(0.0, deadline - started))
+        )
         record_timing("duplicate_suggestions", "request_queue", started,
                       outcome="completed" if acquired else "capacity_exhausted")
         return acquired
@@ -166,8 +168,10 @@ class DuplicateSuggestionControlMiddleware:
         if _declared_oversize(scope, self.resources.body_max_bytes):
             await _send_error(request_body_too_large(), scope, receive, send_no_store)
             return
-        if not await self.resources.acquire_request():
-            await _send_error(duplicate_suggestion_busy(), scope, receive, send_no_store)
+        if not await self.resources.acquire_request(deadline):
+            error = (duplicate_suggestion_unavailable() if monotonic() >= deadline
+                     else duplicate_suggestion_busy())
+            await _send_error(error, scope, receive, send_no_store)
             return
         try:
             await _serve_acquired_request(

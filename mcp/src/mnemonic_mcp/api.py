@@ -192,7 +192,8 @@ _APPLICATION_ERRORS = {
         "ask an operator to run the local integrity audit."
     ),
     "duplicate_suggestion_busy": (
-        "Mnemonic duplicate suggestions are busy; comparison is incomplete. Retry once after one "
+        "duplicate_suggestion_busy: Mnemonic duplicate suggestions are busy; "
+        "comparison is incomplete. Retry once after one "
         "second, or continue creating "
         "the distinct work item without suggestions."
     ),
@@ -201,7 +202,8 @@ _APPLICATION_ERRORS = {
         "before retrying; creation remains independent."
     ),
     "duplicate_suggestion_unavailable": (
-        "Mnemonic duplicate suggestions are unavailable; comparison is incomplete. Retry once after "
+        "duplicate_suggestion_unavailable: Mnemonic duplicate suggestions are unavailable; "
+        "comparison is incomplete. Retry once after "
         "one second, or continue creating the "
         "distinct work item without suggestions."
     ),
@@ -232,6 +234,7 @@ _SAFE_READ_FAILURE = (
     "Check service health and try again."
 )
 _EXTENDED_READ_TIMEOUT_SECONDS = 60.0
+_DUPLICATE_SUGGESTION_TIMEOUT_SECONDS = 50.0
 # Transcript pages can include 100 failed 4096-character paths and filenames.
 # Each caller still supplies its own narrower response budget.
 _BOUNDED_SAFE_READ_RESPONSE_MAX_BYTES = 16 * 1024 * 1024
@@ -487,10 +490,11 @@ def _lease_purpose_message(context: dict[str, object]) -> str:
 def _raise_request_error(method: str, *, effect: TransportEffect | None,
                          path: str = "") -> NoReturn:
     if effect == TransportEffect.SAFE_READ:
-        guidance = (" Duplicate comparison is incomplete. Retry once after one second, "
-                    "or continue creating distinct work without a completed comparison."
-                    if path.endswith("/duplicate-suggestions") else "")
-        raise ToolError(_SAFE_READ_FAILURE + guidance) from None
+        if path.endswith("/duplicate-suggestions"):
+            raise ToolError("duplicate_suggestion_unavailable: " + _SAFE_READ_FAILURE +
+                            " Duplicate comparison is incomplete. Retry once after one second, "
+                            "or continue creating distinct work without a completed comparison.")
+        raise ToolError(_SAFE_READ_FAILURE) from None
     if method not in {"POST", "PUT", "PATCH", "DELETE"}:
         raise ToolError(
             "Mnemonic API is unavailable. Check service health and try again."
@@ -629,6 +633,10 @@ def _raise_for_response_error(
     if response.status_code == 404:
         raise ToolError(_not_found_message(response))
     application_error = _application_error(response)
+    if (path.endswith("/duplicate-suggestions") and effect == TransportEffect.SAFE_READ
+            and response.status_code >= 500
+            and (application_error is None or application_error[0] not in _APPLICATION_ERRORS)):
+        _raise_request_error(method, effect=effect, path=path)
     _raise_server_uncertainty(
         response,
         application_error=application_error,
@@ -773,6 +781,10 @@ class MnemonicAPI:
         # A request-scoped client avoids sharing event-loop state across SDK
         # stateless HTTP sessions or stdio clients. No automatic write retries.
         semantic_read = method == "GET" and params is not None and params.get("semantic") is True
+        duplicate_read = effect == TransportEffect.SAFE_READ and path.endswith(
+            "/duplicate-suggestions")
+        read_timeout = (_DUPLICATE_SUGGESTION_TIMEOUT_SECONDS if duplicate_read
+                        else _EXTENDED_READ_TIMEOUT_SECONDS)
         if extended_read_timeout and effect != TransportEffect.SAFE_READ:
             raise ValueError("Extended read timeout requires an explicit safe-read effect.")
         if strict_wire_response and effect != TransportEffect.SAFE_READ:
@@ -791,7 +803,7 @@ class MnemonicAPI:
                 # embedding cache. Ordinary reads and writes keep the shorter timeout.
                 timeout=httpx.Timeout(
                     (
-                        _EXTENDED_READ_TIMEOUT_SECONDS
+                        read_timeout
                         if semantic_read or extended_read_timeout
                         else 20.0
                     ),
@@ -804,7 +816,7 @@ class MnemonicAPI:
                 if semantic_read or extended_read_timeout:
                     # httpx timeouts bound individual transport phases. The
                     # outer deadline is the actual end-to-end request ceiling.
-                    async with asyncio.timeout(_EXTENDED_READ_TIMEOUT_SECONDS):
+                    async with asyncio.timeout(read_timeout):
                         response = await _dispatch_request(
                             client,
                             method,

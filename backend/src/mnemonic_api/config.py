@@ -8,6 +8,7 @@ from pydantic import AliasChoices, Field, SecretStr, field_validator, model_vali
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import make_url
 
+from mnemonic_api.suggestion_deadlines import SUGGESTION_MAX_SECONDS
 from mnemonic_api.summary_limits import DEFAULT_WORK_SUMMARY_MAX_CHARS
 
 DEFAULT_TRANSCRIPT_SEARCH_MAX_BYTES = 536_870_912
@@ -249,9 +250,9 @@ class Settings(BaseSettings):
         ),
     )
     duplicate_suggestion_timeout_seconds: int = Field(
-        default=60,
+        default=SUGGESTION_MAX_SECONDS,
         ge=1,
-        le=60,
+        le=SUGGESTION_MAX_SECONDS,
         validation_alias=AliasChoices(
             "MNEMONIC_DUPLICATE_SUGGESTION_TIMEOUT_SECONDS",
             "duplicate_suggestion_timeout_seconds",

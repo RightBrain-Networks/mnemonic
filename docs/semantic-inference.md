@@ -34,8 +34,11 @@ comparison deadline remains `deadline_exceeded`. Duplicate suggestions retain
 their lexical fallback; explicit semantic searches return the existing typed
 503 error. The response continues to permit one retry after one second.
 
-The suggestion request limit remains four, with a 250 ms admission wait and a
-60-second overall deadline starting before body handling. External comparison
+The suggestion request limit remains four, with a 250 ms admission wait. The
+0.74.0 [response deadline amendment](duplicate-suggestion-deadlines.md) replaces
+the previous 60-second deadline with a maximum 45-second backend response budget
+and a 50-second MCP adapter ceiling. Internal work reserves response time and
+retains lexical results before inference. External comparison
 retains its five-second stage budget. Waiting and each new native call check
 the applicable deadline. Cancellation wakes queued calls and prevents new
 batches. An already running native call cannot be forcibly cancelled: its
@@ -45,7 +48,10 @@ until its underlying workers finish.
 
 ## Upgrade guidance
 
-Existing explicit `.env` values remain effective. An installation still setting
+Existing explicit inference `.env` values remain effective. The response timeout
+now accepts 1–45 seconds; change an older explicit
+`MNEMONIC_DUPLICATE_SUGGESTION_TIMEOUT_SECONDS=60` to 45 before recreating the API.
+An installation still setting
 `INFERENCE_SLOTS=1` and `INFERENCE_WAIT_MS=50` keeps those choices after upgrade.
 To use the new defaults, set the four fully prefixed variables to the table's
 values (or remove old overrides and use Compose defaults), then rebuild/recreate

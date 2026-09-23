@@ -819,11 +819,16 @@ after the coherent candidate snapshot in a separate digest-checked transaction,
 skip locked work rows, and publish no event or live-sync invalidation.
 
 The authenticated route has a 2,097,152-byte streaming body cap, four request
-slots with a 250 ms wait, a ten-result maximum, and an absolute 60-second
-transport budget. A single process-wide inference slot is shared with ordinary
-semantic search. Suggestions wait 50 ms for it and then use lexical results;
-saturated ordinary semantic search returns typed `semantic_unavailable`.
-Capacity is acquired before a database session. PostgreSQL-17 suggestion
+slots with a 250 ms wait, a ten-result maximum, and an absolute 45-second
+response budget. The MCP adapter permits 50 seconds. Internal work reserves
+response time and retains lexical results before inference and completed ranking
+before cache publication. An expired await returns the latest usable result;
+owned workers retain capacity until completion. See
+[response deadlines](duplicate-suggestion-deadlines.md).
+Two process-wide models and eight FIFO waiters are shared with ordinary semantic
+search, with a five-second per-call capacity wait clipped to the work deadline.
+Saturated ordinary semantic search returns typed `semantic_unavailable`.
+Request capacity is acquired before a database session. PostgreSQL-17 suggestion
 transactions derive transaction, statement, and lock timeouts from the
 remaining request budget, and post-snapshot cache lock waits are further capped
 at 50 ms. Request saturation returns typed 429 with `Retry-After: 1`;

@@ -2,6 +2,8 @@
 
 import asyncio
 import logging
+from queue import SimpleQueue
+from time import monotonic
 from uuid import UUID
 
 from fastapi import APIRouter, Request
@@ -17,6 +19,7 @@ from mnemonic_api.application.suggestion_resources import (
 )
 from mnemonic_api.database import Database
 from mnemonic_api.errors import ApplicationError, duplicate_suggestion_unavailable
+from mnemonic_api.inference import with_inference_deadline
 from mnemonic_api.schemas import (
     DuplicateSuggestionPage,
     DuplicateSuggestionRequest,
@@ -30,6 +33,7 @@ from mnemonic_api.services.duplicate_suggestions import (
 )
 from mnemonic_api.services.duplicates import merge_work_records, reject_merge_secret_echo
 from mnemonic_api.services.external_duplicate_suggestions import extend_external_suggestions
+from mnemonic_api.suggestion_deadlines import suggestion_work_deadline
 from mnemonic_api.summary_limits import require_work_summary_length
 
 logger = logging.getLogger(__name__)
@@ -50,17 +54,19 @@ async def duplicate_suggestions(
     factory: sessionmaker[Session] = request.app.state.session_factory
     owner = suggestion_owned_work(request.scope)
     deadline = suggestion_request_deadline(request.scope)
+    work_deadline = suggestion_work_deadline(deadline, monotonic())
+    responses: SimpleQueue[InternalSuggestionResult] = SimpleQueue()
 
     def internal() -> InternalSuggestionResult:
         with factory() as database:
             return capture_internal_suggestions(
                 database, project_id, payload, settings=settings_of(request),
-                embedder=embedder_of(request),
-                deadline=deadline,
+                embedder=with_inference_deadline(embedder_of(request), work_deadline),
+                deadline=work_deadline, on_result=responses.put,
             )
 
     try:
-        captured = await asyncio.shield(owner.start(internal))
+        captured = await _await_internal(owner.start(internal), work_deadline, responses)
         return await extend_external_suggestions(
             captured.page, payload, session_factory=factory, embedder=embedder_of(request),
             query_vector=captured.query_vector,
@@ -72,6 +78,26 @@ async def duplicate_suggestions(
         logger.error("Duplicate suggestion unavailable (%s)", type(exc).__name__)
         raise duplicate_suggestion_unavailable(
             "deadline_exceeded" if isinstance(exc, TimeoutError) else "model_failure") from None
+
+
+async def _await_internal(
+    task: asyncio.Task[InternalSuggestionResult],
+    deadline: float,
+    responses: SimpleQueue[InternalSuggestionResult],
+) -> InternalSuggestionResult:
+    # Neither timeout nor cancellation cancels the owned thread. The middleware
+    # retains its request permit, and native inference keeps its model permit.
+    done, _ = await asyncio.wait((task,), timeout=max(0.0, deadline - monotonic()))
+    if done:
+        return task.result()
+    latest = None
+    # The single worker publishes at most two independently owned responses:
+    # lexical before inference, then completed ranking before cache publication.
+    while not responses.empty():
+        latest = responses.get_nowait()
+    if latest is None:
+        raise TimeoutError
+    return latest
 
 
 @router.post(

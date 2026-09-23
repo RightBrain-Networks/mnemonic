@@ -76,7 +76,9 @@ Important API settings are:
   `MNEMONIC_DUPLICATE_SUGGESTION_MISSING_VECTOR_LIMIT`, and
   `MNEMONIC_DUPLICATE_SUGGESTION_FULL_POPULATION_CEILING`, defaults 200, 128,
   and 10000.
-- `MNEMONIC_DUPLICATE_SUGGESTION_TIMEOUT_SECONDS`, default 60.
+- `MNEMONIC_DUPLICATE_SUGGESTION_TIMEOUT_SECONDS`, default 45, range 1–45.
+  Change older explicit values above 45 before recreating the API. See
+  [duplicate response deadlines](duplicate-suggestion-deadlines.md).
 
 Never put credentials in browser-public environment variables. The dashboard's
 API key is server-only. The PostgreSQL password must be URL-safe because it is
@@ -125,8 +127,11 @@ wait, two shared model slots with eight waiting positions and a five-second
 per-call wait, a 200-group lexical shortlist,
 at most 30 recent distinct normalized tags composed per existing work item, at
 most 128 missing vectors computed per request, a 10,000-visible-member ceiling
-for full semantic scope, ten returned candidates, and an absolute 60-second
-transport budget that starts before body handling.
+for full semantic scope, ten returned candidates, and an absolute 45-second
+response budget that starts before request admission and body handling. Internal
+work reserves response time and retains lexical results before model loading or
+inference. The MCP adapter permits 50 seconds, leaving delivery time below the
+client's default 60-second timer; no client changes are required.
 
 `429 duplicate_suggestion_busy` includes `Retry-After: 1` and is safe to retry.
 Model saturation, loading, inference, or unusable-vector failures return a normal
