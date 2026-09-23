@@ -1,5 +1,7 @@
 import asyncio
 import json
+from pathlib import Path
+from runpy import run_path
 
 import httpx
 import pytest
@@ -21,6 +23,19 @@ from mnemonic_mcp.server import build_server
 
 THIRD_WORK_ID = "94b31fa0-b078-4ab3-8df2-f4844f55a2a2"
 NOW = "2026-09-02T12:00:00Z"
+
+
+def test_duplicate_deadlines_leave_delivery_time_before_the_client_timer():
+    # Read the dependency-free backend policy without mixing the two environments.
+    root = Path(__file__).resolve().parents[2]
+    policy = run_path(str(root / "backend/src/mnemonic_api/suggestion_deadlines.py"))
+    backend_seconds = policy["SUGGESTION_MAX_SECONDS"]
+    adapter_seconds = api_module._DUPLICATE_SUGGESTION_TIMEOUT_SECONDS
+    # Claude HTTP's default per-request timer is 60 seconds:
+    # https://code.claude.com/docs/en/mcp#managing-your-servers
+    client_seconds = 60
+    assert 0 < backend_seconds <= adapter_seconds - 5
+    assert adapter_seconds <= client_seconds - 5
 
 
 def adapter(settings: Settings, handler) -> object:
@@ -102,7 +117,7 @@ def required_arguments() -> dict[str, object]:
 
 
 def test_advisory_package_version_is_coordinated():
-    assert __version__ == "0.73.1"
+    assert __version__ == "0.74.0"
 
 
 async def test_advisory_tool_schema_is_exact_and_capability_free(settings):
@@ -208,7 +223,7 @@ async def test_suggestion_forwards_exact_normalized_six_field_body_and_binds_lim
         assert request.url.path == f"/api/v1/projects/{PROJECT_ID}/duplicate-suggestions"
         assert request.url.query == b""
         assert request.extensions["timeout"]["connect"] == 5.0
-        assert request.extensions["timeout"]["read"] == 60.0
+        assert request.extensions["timeout"]["read"] == 50.0
         assert json.loads(request.content) == {
             "title": "Draft objective",
             "summary": "Check existing work",
@@ -563,7 +578,7 @@ async def test_suggestion_transport_failure_has_no_structural_uncertainty_or_ret
 
     def handler(request):
         calls.append(request)
-        assert request.extensions["timeout"]["read"] == 60.0
+        assert request.extensions["timeout"]["read"] == 50.0
         if failure == "timeout":
             raise httpx.ReadTimeout("private-timeout-diagnostic", request=request)
         return httpx.Response(
@@ -579,6 +594,7 @@ async def test_suggestion_transport_failure_has_no_structural_uncertainty_or_ret
     assert "outcome" not in message
     assert "client_operation_id" not in message
     assert "private-timeout-diagnostic" not in message
+    assert "duplicate_suggestion_unavailable" in message
     if failure == "timeout":
         assert "Duplicate comparison is incomplete" in message
         assert "Retry once after one second" in message
@@ -626,13 +642,14 @@ async def test_suggestion_has_a_hard_end_to_end_timeout_and_cancels_transport(
             transport_cancelled.set()
         return httpx.Response(200, json=suggestion_page())
 
-    monkeypatch.setattr(api_module, "_EXTENDED_READ_TIMEOUT_SECONDS", 0.01)
+    monkeypatch.setattr(api_module, "_DUPLICATE_SUGGESTION_TIMEOUT_SECONDS", 0.01)
     with pytest.raises(ToolError, match="safe read") as caught:
         await adapter(settings, handler).call_tool(
             "suggest_duplicate_work", required_arguments()
         )
 
     assert transport_cancelled.is_set()
+    assert "duplicate_suggestion_unavailable" in str(caught.value)
     assert "outcome" not in str(caught.value)
 
 

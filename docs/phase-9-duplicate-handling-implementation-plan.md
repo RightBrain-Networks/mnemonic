@@ -983,8 +983,11 @@ at 50 ms, statements at five seconds, and those bounded expirations retain the c
 ### 6.7 Suggestion resource controls
 
 The original inference slot/wait defaults below are superseded by the
-0.73.0 [semantic inference amendment](semantic-inference.md). The request,
-body, candidate, and transport bounds remain in effect.
+0.73.0 [semantic inference amendment](semantic-inference.md). The original
+60-second timeout references in this plan are superseded by the 0.74.0
+[response deadline amendment](duplicate-suggestion-deadlines.md): backend 45
+seconds, adapter 50 seconds, client baseline 60 seconds. The request capacity,
+body, and candidate bounds remain in effect.
 
 Advisory adds request controls and shares the model gate with ordinary semantic search:
 

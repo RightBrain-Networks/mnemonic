@@ -3,7 +3,7 @@
 Use [unified search](search.md) to retrieve work, artifacts, and transcripts in one
 ranked, filtered, paginated read through REST or MCP.
 
-This is application/API/MCP/dashboard `0.73.1`, plugin `0.43.0`, and migration
+This is application/API/MCP/dashboard `0.74.0`, plugin `0.43.0`, and migration
 `0047_artifact_transfer`. The catalog has exactly 57 MCP tools, 17
 protected MCP writes, 24 REST receipt kinds, 21 protected browser mutations and
 24 work-event types. The 24 REST receipt kinds comprise 18 work operations, four artifact operations
@@ -831,8 +831,14 @@ model-load, inference, or vector failure returns deterministic lexical 200.
 Completed ranking survives a derived-cache failure and reports it separately.
 Database/system failure returns the typed 503.
 
-One absolute 60-second request deadline begins before body handling and spans
-inference and application work. The PostgreSQL-17 snapshot transaction sets
+One absolute 45-second response deadline begins before request admission and body
+handling. Internal work reserves response time, retaining lexical results before
+inference and completed ranking before cache publication. Expiry returns the
+retained result, or typed unavailable if snapshot capture has not finished;
+workers retain permits until actual completion. The MCP adapter has a separate
+50-second ceiling, pinned below the client's default 60-second timer by a
+cross-package test. See [response deadlines](duplicate-suggestion-deadlines.md).
+The PostgreSQL-17 snapshot transaction sets
 transaction, statement, and lock timeouts from the remaining route budget.
 Existing-work cache updates occur afterward in a separate digest-checked
 transaction, skip locked work rows, and cap cache lock waits at 50 ms within
@@ -1487,7 +1493,10 @@ waiting work.
 `suggest_duplicate_work` accepts the resolved project plus exactly the six
 draft fields documented above. It is read-only, closed-world, and explicitly
 classified `safe_read`; it takes no `client_operation_id` and sends one request
-with the 60-second Advisory budget. A timeout, transport failure, 429, or 503
+with a 50-second end-to-end budget above the API's 45-second ceiling.
+MCP busy/unavailable errors include their documented code; adapter timeout and
+unrecognized upstream 5xx use `duplicate_suggestion_unavailable`.
+A timeout, transport failure, 429, or 503
 permits an ordinary retry because no structural outcome is uncertain. Its
 strict response validator binds project-independent candidate fields, unique
 canonical groups, contiguous ranks, signal order, exact counts, and coherent
@@ -1589,7 +1598,7 @@ body allowlist is only `title`, `summary`, `initial_prompt`, `tags`,
 `exclude_work_item_id`, and `limit`; operation IDs, lease tokens, headers,
 cookies, query parameters, and nested additions are rejected. Only this route
 raises the streaming proxy body cap to 2,097,152 bytes and the transport budget
-to 60 seconds. It forwards `Retry-After: 1` only for the typed busy response,
+to 60 seconds, above the API's 45-second ceiling. It forwards `Retry-After: 1` only for the typed busy response,
 never enters the protected-intent registry, and publishes no live invalidation.
 
 The fourteen covered browser writes require one top-level operation UUID and a frozen body.
@@ -1650,9 +1659,10 @@ browser/WebSocket origins. Advisory settings are
 `_LEXICAL_SHORTLIST`, `_MISSING_VECTOR_LIMIT`,
 `_FULL_POPULATION_CEILING`, and `_TIMEOUT_SECONDS`, where every abbreviated
 name retains the `MNEMONIC_DUPLICATE_SUGGESTION` prefix. Their defaults are the
-2 MiB/4/250 ms/2/5000 ms/8/1/200/128/10000/60-second limits documented above.
+2 MiB/4/250 ms/2/5000 ms/8/1/200/128/10000/45-second limits documented above.
 Inference slots allow 1–4, native threads 1–8 per model, queue size 0–16, and
-wait 1–30000 ms. Existing explicit environment values remain effective; see
+wait 1–30000 ms. Timeout accepts 1–45 seconds; older explicit values above 45
+must be reduced before recreating the API. Other explicit values remain effective; see
 [semantic inference](semantic-inference.md) before upgrading an older `.env`.
 
 MCP: `MNEMONIC_API_URL`, `MNEMONIC_API_KEY`, `MNEMONIC_MCP_HOST`,
@@ -1969,7 +1979,7 @@ successful comparison. Clients bind identity, count, presence, ranks, signals an
 exact prefixes to the actual request. Results are advisory and authorize no write.
 
 Internal ranking remains independent. External work gets at most five seconds
-within the global 60-second deadline, reserving one second for serialization.
+within the global 45-second deadline, reserving one second for serialization.
 Failure preserves the completed internal page and any external lexical baseline;
 owned worker permits remain retained until actual completion. No provider fetch,
 external persistence, cache, event, activity, receipt, new tool or configuration is
