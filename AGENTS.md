@@ -8,12 +8,26 @@ Backend code, migrations, and tests live under `backend/`; the MCP adapter and t
 
 - `/README.md` is exclusively human-authored and therefore is READ ONLY unless the owner explicitly asks you to edit it.
 
+## Production Stack Authorization
+
+Never stop, restart, recreate, or replace production Mnemonic services without
+explicit human authorization for that operation. Production serves active agent
+sessions and workstreams; even a brief interruption can disrupt their work. This
+rule covers individual services as well as the full stack, including deployments
+and commands such as `docker compose up` that may recreate running containers.
+Approval to investigate, implement, test, or merge a change does not authorize a
+production interruption.
+
+Complete safe preparation first, then describe the affected services and expected
+interruption when requesting authorization. Use isolated development or test
+stacks for validation while authorization is pending.
+
 ## Build, Test, and Development Commands
 
 - `python scripts/setup.py`: create settings from `.env.example`.
 - `uv tool install pre-commit && pre-commit install --install-hooks`: install the required local gitleaks commit hook.
 - `pre-commit run --all-files`: run all local pre-commit checks manually.
-- `docker compose up --build -d --wait`: build and start the complete stack.
+- `docker compose up --build -d --wait`: build and start the complete stack; production changes require the explicit authorization above.
 - `docker compose -f compose.test.yaml up -d --wait`: start the isolated PostgreSQL test database.
 - `cd backend && uv sync --frozen && uv run pytest -q && uv run ruff check . && uv run ty check src`: test, lint, and type-check the API.
 - `cd mcp && uv sync --frozen && uv run pytest -q && uv run ruff check . && uv run ty check src/mnemonic_mcp`: verify, lint, and type-check the MCP package.
