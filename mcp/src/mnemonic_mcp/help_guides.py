@@ -66,10 +66,14 @@ GUIDES: dict[str, tuple[str, str, str]] = {
                    ("Use claim_request_id, not client_operation_id. Verify the actual native "
                    "session_transcript or explicitly use null if unavailable. Start with the project "
                    "default lease. Code review requires purpose=code_review, code_review_id, and mode. "
-                   "Cold review uses this tool, never claim_and_recall.")),
+                   "Cold review uses this tool, never claim_and_recall. Lost token: confirm no other "
+                   "active session is working on this item, then use force=true with a new request ID. "
+                   "This invalidates the old token; retain exact arguments on retries.")),
     "claim_and_recall": ("Leases", "Claim work and return its context.",
                          ("Use claim_request_id and an explicit verified session_transcript or null. "
-                         "Use only for authorized execution or warm review. Cold review uses claim_work.")),
+                         "Use only for authorized execution or warm review. Cold review uses claim_work. "
+                         "Lost token: confirm no other active session is working on this item before "
+                         "force=true with a new request ID. This invalidates the old token; retry exactly.")),
     "renew_claim": ("Leases", "Extend an active work or review lease.",
                     ("Supply the current lease_token. Choose lease_minutes within current project bounds; "
                     "omission uses the project default.")),
@@ -185,6 +189,13 @@ FIELD_NOTES: dict[str, str] = {
                             "An empty list is invalid. Keep assertions fixed on uncertain retries.",
     "claim_request_id": "Generate before claiming. Keep this key and every argument unchanged across "
                         "uncertain retries; claim tools do not accept client_operation_id.",
+    "force": "Default false. If compaction lost the token, first replay the exact original claim "
+             "when available. Otherwise read get_work(status_only=true), check holder/expiry, and "
+             "confirm no other active session is working on this item. Then use force=true with a "
+             "new claim_request_id and verified session_transcript (or null if unavailable). "
+             "It invalidates the previous token, even another session's. It does not bypass "
+             "blockers, human gates, lifecycle or review rules. Retain force and all arguments "
+             "on retries. Released/replaced force requests cannot take the lease back.",
     "client_operation_id": "Generate a UUID before the first write. Freeze every argument with it. "
                            "After an uncertain outcome, follow the tool's exact-retry guidance; "
                            "never substitute a new UUID for the same intent.",

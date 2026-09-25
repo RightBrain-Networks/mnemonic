@@ -22,6 +22,7 @@ from mnemonic_api.schemas import (
     ReleaseResult,
     WorkClaimCreate,
 )
+from mnemonic_api.services.force_claims import check_force_claim_retry, retain_force_claim
 from mnemonic_api.services.lease_settings import lease_settings, requested_lease_minutes
 from mnemonic_api.services.readiness import require_fresh_claim_eligible
 from mnemonic_api.services.work_events import (
@@ -129,6 +130,7 @@ def claim_lease_record(
 
     # Capture time only after both possible work/lease lock waits.
     database_now = _database_now(database)
+    force_replay = check_force_claim_retry(database, work_item.id, lease, payload)
     requested_identity = (
         payload.holder_client,
         payload.holder_session_id,
@@ -169,6 +171,7 @@ def claim_lease_record(
         from mnemonic_api.services.manual_reviews import seal_claim_scope
 
         seal_claim_scope(database, lease, payload)
+        retain_force_claim(database, lease, payload)
         return claim_receipt(lease, database)
 
     retained_identity = (
@@ -179,24 +182,28 @@ def claim_lease_record(
     )
     if lease.expires_at > database_now:
         if retained_identity == requested_identity:
-            if lease.claim_lease_minutes != payload.lease_minutes:
+            if (
+                lease.claim_lease_minutes != payload.lease_minutes
+                or (payload.force and not force_replay)
+            ):
                 raise conflict(
                     "claim_request_mismatch",
-                    "This claim request was already used with a different lease duration.",
+                    "This claim request was already used with different lease arguments.",
                 )
             require_same_claim_transcript(database, lease, payload.session_transcript)
             return claim_receipt(lease, database)
-        _fresh_claim_eligible(database, work_item, payload)
-        raise conflict(
-            "lease_held",
-            "This work item has an active lease.",
-            context=_contention_context(lease),
-        )
+        if not payload.force:
+            _fresh_claim_eligible(database, work_item, payload)
+            raise conflict(
+                "lease_held",
+                "This work item has an active lease.",
+                context=_contention_context(lease),
+            )
 
     if lease.claim_request_id == payload.claim_request_id:
         raise conflict(
             "claim_request_expired",
-            "This claim request belongs to an expired lease; use a new claim_request_id.",
+            "This claim request cannot be reused; use a new claim_request_id.",
             context={"expires_at": _utc(lease.expires_at)},
         )
 
@@ -233,6 +240,7 @@ def claim_lease_record(
     from mnemonic_api.services.manual_reviews import seal_claim_scope
 
     seal_claim_scope(database, lease, payload)
+    retain_force_claim(database, lease, payload)
     return claim_receipt(lease, database)
 
 

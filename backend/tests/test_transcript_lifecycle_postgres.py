@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from mnemonic_api.models import Transcript
+from mnemonic_api.transcript_copying import claim_transcript_copy
 
 from .report_fixtures import reported
 from .test_leases_postgres import claim_payload, create_work, expire_lease, item_path
@@ -76,6 +77,35 @@ def test_null_claim_replay_cannot_add_source_and_reclaim_preserves_generation(
     assert len(rows) == 2
     assert len({row[2] for row in rows}) == 2
     assert first in rows
+
+
+def test_force_claim_retains_old_transcript_and_enrolls_new_generation(
+    api, project, work_payload, postgres_engine,
+):
+    work = create_work(api, project, work_payload)["work_item"]
+    path = item_path(project, work)
+    original, _ = claim(api, path)
+    first = transcripts(postgres_engine, work["id"])[0]
+    factory, settings = api.app.state.session_factory, api.app.state.settings
+    assert claim_transcript_copy(factory, settings) is None
+    payload = {**claim_payload("force-recovery"), "force": True, "session_transcript": SOURCE}
+    response = api.post(path + "/claim", json=payload)
+    assert response.status_code == 200, response.text
+    assert response.json()["lease_token"] != original["lease_token"]
+    rows = transcripts(postgres_engine, work["id"])
+    assert first in rows
+    assert len(rows) == 2
+    assert len({row[2] for row in rows}) == 2
+    assert all(row[1] == SOURCE["path"] for row in rows)
+    assert api.post(path + "/claim", json=payload).json() == response.json()
+    assert transcripts(postgres_engine, work["id"]) == rows
+    job = claim_transcript_copy(factory, settings)
+    assert job is not None
+    with Session(postgres_engine) as database:
+        copied = database.get(Transcript, job.transcript_id)
+        assert copied is not None and copied.lease_generation_id == first[2]
+    # The replacement session's generation remains Active and cannot be copied yet.
+    assert claim_transcript_copy(factory, settings) is None
 
 
 def test_done_registers_children_atomically_and_receipt_retry_does_not_duplicate(

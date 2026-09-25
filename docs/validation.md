@@ -1,5 +1,25 @@
 # Mnemonic validation record
 
+## Force-claim lease recovery (0.75.0)
+
+Application/API/MCP/dashboard 0.75.0 and plugin 0.44.0 add optional `force=true`
+to both claim commands. Migration `0048_force_claims` retains request fingerprints
+and generation IDs so a delayed force retry cannot replace a newer holder.
+Project backups retain these records; downgrade refuses to discard them.
+Tool, protected mutation, and work-event catalogs are unchanged.
+
+PostgreSQL regressions cover token/generation rotation, same-session recovery and
+cross-session replacement, concurrent claims, exact retries, stale-token writes,
+failed-claim rollback, blockers and human gates, cold/warm reviews, transcript
+generation fencing, and backup round trips. MCP regressions cover strict boolean
+validation, forwarding, default behavior, and recovery help. The skills advise
+checking that no other active session is working before force claiming.
+
+Validation uses the isolated PostgreSQL/RabbitMQ test services, backend and MCP
+pytest suites, Ruff and ty, plugin/portable skill checks, and frontend tests,
+typecheck, and build under Node 24. Deployment requires a separate authorized
+production cutover; repository validation does not apply the migration there.
+
 ## Progressive MCP help and input repairs (0.72.0)
 
 The new read-only `help` tool lists commands and offers compact argument, workflow,

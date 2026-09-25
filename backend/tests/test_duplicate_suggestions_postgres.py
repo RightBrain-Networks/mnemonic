@@ -1329,5 +1329,5 @@ def test_title_key_function_and_partial_expression_index_are_frozen(postgres_eng
                 """
             )
         ).one()
-        assert head == "0047_artifact_transfer"
+        assert head == "0048_force_claims"
         assert capacity == 64

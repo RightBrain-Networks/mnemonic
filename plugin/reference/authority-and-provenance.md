@@ -229,12 +229,18 @@ There is no automatic redirect, unmerge, transfer, or safe replacement operation
 
 This durable mutation workflow is separate from lease acquisition.
 `claim_work` and `claim_and_recall` use `claim_request_id` only while the same
-retained lease remains active. Retain `lease_minutes` exactly, including omission,
+retained lease remains active. Retain `force` and `lease_minutes` exactly, including omission,
 with all claim arguments across uncertain retries; never substitute a refreshed
 default or estimate into the same claim request. Follow the
 [project lease guidance](${CLAUDE_PLUGIN_ROOT}/reference/work-graph.md#choose-a-project-configured-lease)
 for initial Default requests and later duration estimates. `renew_claim` is
 time-relative and not idempotent. Never rename, exchange, or infer one identifier from the other.
+If compaction loses both the token and original claim arguments, follow
+[lost-token recovery](${CLAUDE_PLUGIN_ROOT}/reference/work-graph.md#recover-a-lost-lease-token):
+confirm no other active session is working before a new `force=true` claim.
+Force requests retain their identities after release or replacement so an old
+retry cannot take back a later lease. This recovery does not change protected
+mutation retry rules or resolve an uncertain completion or release.
 
 ## Checkpoints and events have different jobs
 

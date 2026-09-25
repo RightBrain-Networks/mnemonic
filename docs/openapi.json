@@ -14222,6 +14222,12 @@
             "title": "Code Review Id",
             "type": "string"
           },
+          "force": {
+            "default": false,
+            "description": "Replace an active lease and invalidate its token. Confirm no other session is working on this item first; use a new claim_request_id and keep retries identical.",
+            "title": "Force",
+            "type": "boolean"
+          },
           "holder_client": {
             "maxLength": 80,
             "minLength": 1,
@@ -17560,7 +17566,7 @@
   "info": {
     "description": "Durable project-scoped work with immutable agent checkpoints.",
     "title": "Mnemonic API",
-    "version": "0.74.0"
+    "version": "0.75.0"
   },
   "openapi": "3.1.0",
   "paths": {

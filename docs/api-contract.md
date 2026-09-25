@@ -3,8 +3,8 @@
 Use [unified search](search.md) to retrieve work, artifacts, and transcripts in one
 ranked, filtered, paginated read through REST or MCP.
 
-This is application/API/MCP/dashboard `0.74.0`, plugin `0.43.0`, and migration
-`0047_artifact_transfer`. The catalog has exactly 57 MCP tools, 17
+This is application/API/MCP/dashboard `0.75.0`, plugin `0.44.0`, and migration
+`0048_force_claims`. The catalog has exactly 57 MCP tools, 17
 protected MCP writes, 24 REST receipt kinds, 21 protected browser mutations and
 24 work-event types. The 24 REST receipt kinds comprise 18 work operations, four artifact operations
 with filesystem recovery journals, and two transcript operations (rebuild and import). See
@@ -630,6 +630,27 @@ request has expired, the identical
 request returns `claim_request_expired`; a new request ID can replace the row
 and acquire a fresh lease. This is bounded lost-response recovery, not general
 idempotency.
+
+Both claim routes also accept the optional strict boolean `force` (default
+`false`). For a token lost during context compaction, first replay the original
+claim if all exact arguments are available. Otherwise inspect current status and
+holder metadata, confirm that no other active session is working on the same
+item, and use `force=true` with a new `claim_request_id`. This confirmation is
+agent guidance; the server permits replacing another session's active lease.
+Force atomically rotates the token and generation and starts a new duration.
+The old token can no longer renew, release, complete, or perform protected work
+mutations. Eligibility, blockers, human gates, review scope, transcript validation,
+and duration bounds still apply. No additional execution authority is granted.
+
+Preserve `force` and every argument on uncertain retries. An identical active
+force request returns its current receipt without another rotation or extension.
+Changing arguments returns `claim_request_mismatch`. Migration `0048_force_claims`
+retains force request fingerprints and generation IDs in `work_force_claims`,
+independently of the current lease. After release, expiry, or replacement, the
+same force request returns `claim_request_expired`; it cannot take back a later
+lease. Journal entries contain no capability tokens and are included in project
+backups. Downgrade is refused while force requests are retained. No new tools,
+work-event types, or protected mutation receipt kinds are introduced.
 
 `renew-claim` accepts `{"lease_token": "...", "lease_minutes": 30}` (duration
 optional) and requires a matching unexpired row. Renewal replaces expiry with

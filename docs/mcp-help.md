@@ -16,6 +16,7 @@ Pass an optional `topic` string. Each successive word selects a child page:
 | `help({"topic":"complete_work completion_evidence verification_results command"})` | The command verification variant and conditional exit-code requirements |
 | `help({"topic":"complete_work schema"})` | The exact full registered input JSON Schema |
 | `help({"topic":"complete_work completion_evidence schema"})` | Only that field's schema and its transitively referenced definitions |
+| `help({"topic":"claim_work force"})` | Lost-token recovery, checks for another active session, and exact force-claim retries |
 
 Overview pages list immediate fields rather than recursively expanding them.
 Array pages describe their items; discriminated unions list selectable variants.
@@ -46,3 +47,10 @@ and points to `help({"topic":"complete_work checkpoint"})`.
 The same behavior applies to local validation and API 422 input rejections over
 HTTP and stdio. Conflict and uncertain-outcome handling stays unchanged; a help
 link is not permission to change an operation UUID or any frozen retry argument.
+
+`claim_work` and `claim_and_recall` accept `force=true` to replace an active
+lease when compaction loses its token. Confirm that no other active session is
+working on the item before using a new claim request ID. Both usage pages and
+the `force` field page explain that the previous token is invalidated and that
+force does not bypass eligibility or human gates. Ordinary token recovery still
+uses an exact replay when the original claim arguments are available.

@@ -125,6 +125,38 @@ A changed claim duration is a new intent and needs a new request ID only after t
 outcome is known. Renewals are time-relative and non-idempotent; inspect current
 safe coordination state after uncertainty before deciding on another renewal.
 
+## Recover a lost lease token
+
+If compaction loses your `lease_token`, replay the exact original claim when its
+`claim_request_id` and all arguments are still available. If they are unavailable,
+read `get_work(status_only=true)` and inspect `readiness.active_lease` for the
+holder client, session, and expiry. Confirm that no other active session is
+working on this same item, using available session state or coordination with the
+user when needed. An Active label or matching holder ID alone does not establish
+that another session is idle. If another session is working, wait or choose other
+work; if its activity is uncertain, resolve that uncertainty before proceeding.
+
+Then call `claim_work(..., force=true)` or `claim_and_recall(..., force=true)` with
+a **new** `claim_request_id`, your actual client/session identity, an in-range
+`lease_minutes`, and a freshly verified `session_transcript` (explicit null only
+when unavailable). Force replaces the existing lease even if another session
+holds it, immediately invalidating its token. Keep the returned token private.
+Cold reviewers use only `claim_work` with the same pinned review scope and no
+contextual reads before findings freeze.
+
+Force defaults to false and changes only active-lease contention. It does not
+bypass blockers, human gates, lifecycle rules, review eligibility, or transcript
+validation, and grants no new execution authority. An expired or absent lease
+can still be claimed normally. Never automatically force again after a token
+mismatch: recheck who is working first.
+
+Preserve `force`, the request ID, and every argument across uncertain retries.
+An identical active retry returns the same token and expiry without extending
+or rotating them. A force request whose lease has expired, been released, or
+been replaced cannot acquire another lease; reconcile before a new intent.
+Never convert an uncertain ordinary claim into a force claim by changing its
+arguments or inventing a replacement ID.
+
 ## Structural parentage and discovery are independent
 
 Only `parent-child` defines the human structural forest, and it is the only edge

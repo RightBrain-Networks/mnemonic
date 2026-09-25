@@ -299,6 +299,16 @@ never go to `merge_work`. An external-first session uses the paginated exact
 then explicit canonical recall/readiness/claim. A worker skipping Mnemonic
 lookup remains uncoordinated.
 
+## Recover lost lease state
+
+If compaction loses the active token, replay the exact original claim when
+available. Otherwise, confirm no other active session is working on the same
+item before using `force=true` with a new `claim_request_id` on `claim_work` or
+`claim_and_recall`. This invalidates the old token, including another session's.
+Follow the shared [lost-token recovery procedure](${CLAUDE_PLUGIN_ROOT}/reference/work-graph.md#recover-a-lost-lease-token)
+for status checks, transcript verification, and exact retries. Recovery does not
+grant execution authority or bypass blockers, human gates, or review rules.
+
 ## Transcript discovery and indexing
 
 Read [the transcript reference](${CLAUDE_PLUGIN_ROOT}/reference/transcripts.md) before claiming or

@@ -15,7 +15,7 @@ from sqlalchemy import Connection, text
 
 from mnemonic_api.models import Base
 
-HEAD = "0047_artifact_transfer"
+HEAD = "0048_force_claims"
 # Infrastructure delivery state is neither project data nor a restore target.
 # The reconciler derives transcript jobs anew from the restored domain rows.
 INFRASTRUCTURE_TABLES = frozenset({
@@ -36,6 +36,7 @@ CHILD_OWNERS = {
     "checkpoints": ("work_item_id", "work_items", "id"),
     "work_item_embeddings": ("work_item_id", "work_items", "id"),
     "work_leases": ("work_item_id", "work_items", "id"),
+    "work_force_claims": ("work_item_id", "work_items", "id"),
     "work_item_moves": ("work_item_id", "work_items", "id"),
     "work_report_provenance_heads": ("work_item_id", "work_items", "id"),
     "code_review_findings": ("result_id", "code_review_results", "id"),
