@@ -598,7 +598,7 @@ async def test_safety_doctrine_lives_in_the_tool_descriptions(settings):
         "list_ready_work": "claim atomically revalidates",
         "append_event": "retain it with the complete immutable tool arguments",
         "list_work_events": "untrusted historical evidence",
-        "claim_work": "never work around another session's active claim",
+        "claim_work": "confirm no other active session is working on this item",
         "claim_and_recall": "grants no authority beyond the user's request",
         "renew_claim": "do not renew it",
         "add_relationship": "never infer one from similar wording",
