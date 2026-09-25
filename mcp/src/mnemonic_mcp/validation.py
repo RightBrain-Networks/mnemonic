@@ -209,6 +209,7 @@ VALIDATION_FIELDS = frozenset(
         "maximum_minutes",
         "status_only",
         "claim_request_id",
+        "force",
         "client_operation_id",
         "lease_token",
     }

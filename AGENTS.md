@@ -97,8 +97,8 @@ git pull --ff-only origin main
 
 Use Semantic Versioning (`MAJOR.MINOR.PATCH`) for application releases. `MAJOR` version bumps are reserved and require explicit human approval. Increment `MINOR` for user-facing changes and `PATCH` for all other changes.
 
-The current application/API/MCP/dashboard release is `0.74.0`, Claude plugin
-`0.43.0`, and Alembic head `0047_artifact_transfer`. The catalog is exactly
+The current application/API/MCP/dashboard release is `0.75.0`, Claude plugin
+`0.44.0`, and Alembic head `0048_force_claims`. The catalog is exactly
 57 MCP tools, 17 receipt-protected MCP writes, 24 REST receipt kinds, 21 protected
 browser mutations, 24 work-event types, and three plugin skills. The suggestion
 POST is a safe read. Completion evidence and job completion reports are nested
@@ -111,6 +111,12 @@ and investigation, then estimate remaining session time within current bounds.
 Claim/renew `lease_minutes` is optional and omission uses the current project default.
 Preserve its exact value or omission across uncertain claim retries. Settings changes
 do not alter active expiry. `MNEMONIC_LEASE_TTL_SECONDS` is retired.
+For a token lost to compaction, replay the exact original claim when available.
+Otherwise inspect `get_work(status_only=true)` and confirm no other active session
+is working on the item before `claim_work`/`claim_and_recall(force=true)` with a
+new request ID. Force invalidates the prior token without bypassing eligibility
+or human gates. Keep force and every argument unchanged on uncertain retries;
+released or replaced force requests cannot take back a later lease.
 Fresh work starts pending. Every actual Done, Won’t do, or Promoted closeout
 requires a report and operation UUID. Sparse historical requests remain
 parseable exclusively for permanent receipt replay before fresh domain guards.

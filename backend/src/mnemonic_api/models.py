@@ -732,6 +732,19 @@ class WorkLease(Base):
         )
 
 
+class WorkForceClaim(Base):
+    """Retain force-claim identities so delayed retries cannot evict a later holder."""
+
+    __tablename__ = "work_force_claims"
+
+    work_item_id: Mapped[UUID] = mapped_column(
+        ForeignKey("work_items.id", ondelete="RESTRICT"), primary_key=True,
+    )
+    claim_request_id: Mapped[str] = mapped_column(String(200), primary_key=True)
+    payload_sha256: Mapped[str] = mapped_column(String(64))
+    lease_generation_id: Mapped[UUID] = mapped_column()
+
+
 class WorkRelationship(Base):
     """An immutable structural fact between two globally identified work items."""
 

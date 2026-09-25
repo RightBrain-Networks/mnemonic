@@ -131,7 +131,10 @@ _APPLICATION_ERRORS = {
         "Mnemonic rejected the human-gate request because request-known credential or operation "
         "control data appeared in durable content. Remove it and create a genuinely corrected intent."
     ),
-    "lease_held": "This work item has an active claim.",
+    "lease_held": (
+        "This work item has an active claim. If your token was lost, confirm no other active "
+        "session is working on it before a new force=true claim. Read help(topic='claim_work force')."
+    ),
     "work_move_active_lease": "Active work cannot move until its claim is released or expires.",
     "lease_expired": "This work claim has expired. Reconcile only after resolving any unknown outcome. Cold review permits a minimal same-scope claim, never a contextual reread.",
     "lease_minutes_out_of_range": (
@@ -141,11 +144,15 @@ _APPLICATION_ERRORS = {
     "invalid_lease_settings": "Lease durations must satisfy minimum <= default <= maximum.",
     "claim_request_mismatch": (
         "That claim request ID was already used with different lease arguments. "
-        "Recover the exact original arguments; do not change the duration on a retry."
+        "Recover the exact original arguments; do not change force or duration on a retry."
     ),
-    "lease_token_mismatch": "The work claim does not match the current active claim.",
+    "lease_token_mismatch": (
+        "The work claim does not match the current active claim. Stop and reconcile ownership; "
+        "read help(topic='claim_work force') for lost-token recovery."
+    ),
     "claim_request_expired": (
-        "That claim request can no longer be resumed. Claim again with a new claim_request_id."
+        "That claim request can no longer be resumed. Reconcile current ownership before a new "
+        "claim_request_id; confirm no other active session is working before using force=true."
     ),
     "relationship_cycle": "That relationship would create a cycle.",
     "relationship_context_invalid": (
@@ -210,7 +217,7 @@ _APPLICATION_ERRORS = {
 }
 UNKNOWN_CLAIM_OUTCOME = (
     "Mnemonic API could not confirm the response; the claim outcome is unknown. Retry promptly "
-    "with the exact same claim_request_id and all arguments, including lease_minutes, from this "
+    "with the exact same claim_request_id and all arguments, including force and lease_minutes, from this "
     "call. A new request ID can conflict, and search "
     "or recall cannot recover the lease token."
 )

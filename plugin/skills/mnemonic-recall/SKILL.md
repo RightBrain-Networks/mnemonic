@@ -1,6 +1,6 @@
 ---
 name: mnemonic-recall
-description: Retrieve or safely continue saved Mnemonic work through MCP - recall bounded context, claim before authorized execution, renew and release the expiring lease, read unresolved and answered human questions with their drift flags, ask a person mid-execution, record progress, and complete. Use when the user selects or resumes saved work, or when a claim or recall reports the item is waiting on human input; recall, a claim, or an answered question never grants execution authority.
+description: Retrieve or safely continue saved Mnemonic work through MCP - recall bounded context, claim before authorized execution, recover a lost lease token, renew and release the expiring lease, read unresolved and answered human questions with their drift flags, ask a person mid-execution, record progress, and complete. Use when the user selects or resumes saved work, or when a claim or recall reports the item is waiting on human input; recall, a claim, or an answered question never grants execution authority.
 ---
 
 # Recall Mnemonic work
@@ -158,18 +158,29 @@ Read the refusals as facts, not obstacles:
   answered, direct them to the dashboard's Needs Attention view.
 - **Unresolved blocker**: inspect its incoming `blocks` edges; do not retry
   around the guard.
-- **Active lease held elsewhere**: report the safe holder and expiry, then wait
-  or choose other work; never work around another session's claim.
+- **Active lease held elsewhere**: inspect the safe holder and expiry. If another
+  session is working, wait or choose other work. For a token lost to compaction,
+  confirm no other active session is working on the item before a new
+  `force=true` claim; follow the recovery procedure below.
 - **Not pending**: Deferred work may be moved to Pending only when the current
   human instruction names that item; terminal work is not reopened implicitly.
 
 If the outcome of a claim is unknown because the connection failed, retry
 promptly with the exact same `claim_request_id`, holder client, holder
-session, `session_transcript`, and `lease_minutes` (including whether omitted). That bounded replay recovers the original token while the retained
+session, `session_transcript`, `force`, and `lease_minutes` (including whether omitted). That bounded replay recovers the original token while the retained
 lease remains active, even if a gate or blocker was added later; recovery is
 not approval to continue past them. `claim_request_expired` means that window
 is over; generate a new request ID only for a new acquisition attempt. Never
 guess a lost token from search or recall.
+
+If compaction lost the token and the exact claim arguments, read
+`get_work(status_only=true)` and confirm that no other active session is working
+on this item before calling `claim_work` or `claim_and_recall` with `force=true`
+and a new `claim_request_id`. This invalidates the previously held token,
+including another session's. Read the shared
+[lost-token recovery procedure](${CLAUDE_PLUGIN_ROOT}/reference/work-graph.md#recover-a-lost-lease-token)
+for ownership checks, cold-review restrictions, transcript assertions, and
+retry rules. Force grants no new authority and does not bypass gates or blockers.
 
 ## Prepare protected writes once
 

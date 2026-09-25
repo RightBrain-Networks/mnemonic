@@ -206,3 +206,10 @@ handoff. Cold claims are available only after scope has been pinned, to a fresh
 reviewer who has not loaded implementation context. If scope cannot be established,
 leave the request queued and explain what is missing. Requester attribution remains
 human; the scope preparer's claim and the eventual result identify their agents.
+
+If compaction loses a review token and exact claim replay is unavailable, follow
+[lost-token recovery](work-graph.md#recover-a-lost-lease-token): confirm no other
+active session is reviewing this item before a new `force=true` claim. Preserve
+the review ID, purpose, mode, and pinned scope. Cold review still uses only
+`claim_work` and metadata-only status reads before findings freeze. A replaced
+token cannot renew or submit a review result.

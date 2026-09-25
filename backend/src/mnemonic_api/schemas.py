@@ -1760,6 +1760,11 @@ class WorkDeletionCreate(APIModel):
 
 
 class WorkClaimCreate(APIModel):
+    force: StrictBool = Field(
+        default=False,
+        description="Replace an active lease and invalidate its token. Confirm no other session "
+        "is working on this item first; use a new claim_request_id and keep retries identical.",
+    )
     code_review_handoff: CodeReviewHandoffInput | SkipJsonSchema[None] = Field(
         default=None, exclude_if=lambda value: value is None,
         description="Pin a manual review with its first warm claim; retain exact retries.",
