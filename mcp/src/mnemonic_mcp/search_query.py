@@ -103,10 +103,24 @@ def validate_tool_query(query: str | None, mode: QueryMode, *, semantic: bool = 
                         fields: list[WorkField] | None = None) -> None:
     try:
         validate_query(query, mode, semantic=semantic, fields=fields)
+        if semantic and not (query or "").strip():
+            raise PydanticCustomError("semantic_requires_query",
+                                      "Semantic search requires a nonblank q")
     except PydanticCustomError as error:
         location, message = VALIDATION_RULES[error.type]
         raise InputValidationError(f"Mnemonic rejected the input. Check: {location} "
                         f"({error.type}). {message}") from None
+
+
+def discovery_search_query(query: str | MISSING, q: str | None | MISSING) -> str | None:
+    """Accept one spelling without confusing explicit null with omission."""
+    if query is not MISSING and q is not MISSING:
+        raise InputValidationError(
+            "Mnemonic rejected the input. Supply exactly one of query or q, not both."
+        )
+    if query is not MISSING:
+        return query
+    return None if q is MISSING else q
 
 
 def content_search_query(query: str | MISSING, q: str | MISSING) -> str:

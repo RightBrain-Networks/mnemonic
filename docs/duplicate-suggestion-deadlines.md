@@ -1,14 +1,32 @@
 # Duplicate suggestion response deadlines
 
-Application/API/MCP/dashboard 0.74.0 amends the Phase 9 and 0.73.0 timeout
-contract. Tool arguments, successful response schemas, retry guidance, model
-composition, cache identity, and migration head are unchanged. Claude Code and
+The historical application/API/MCP/dashboard 0.74.0 change amended the Phase 9 and 0.73.0 timeout
+contract without changing its then-current tool arguments, response schemas,
+retry guidance, model composition, cache identity, or migration head. Claude Code and
 Codex clients need no update or timeout increase.
+
+## Current 0.76.0 guidance
+
+The outer response budgets below remain unchanged. After retaining a coherent
+lexical snapshot, duplicate query inference and refresh enrollment have a
+four-second work budget and return that fallback when it expires. Source capture
+retains the existing outer budget. Migration
+`0049_duplicate_embeddings` now separates cache consumers and moves stored-work
+document inference to durable background batches. Caller-supplied external
+candidates retain bounded request-time inference. Missing stored-work vectors return
+`vectors_pending` with `cache_refresh.status=queued`; warm complete vectors retain
+synchronous full-scope ranking. Only `capacity_exhausted` offers one immediate
+retry after one second. `deadline_exceeded`, `model_failure` and `vectors_pending`
+carry `retry=null`; report incomplete comparison and continue saving when
+appropriate. See [search usability](search-agent-usability.md) for the current
+schema, worker and pagination contract. Historical incident evidence below is
+retained.
 
 ## Ordered budgets
 
 | Boundary | Ceiling |
 | --- | ---: |
+| Query inference/refresh after retained lexical snapshot (0.76.0) | 4 seconds |
 | Backend response, starting before request admission and body handling | 45 seconds |
 | MCP adapter's complete upstream request | 50 seconds |
 | Claude HTTP's default per-request timer | 60 seconds |
@@ -16,8 +34,10 @@ Codex clients need no update or timeout increase.
 The backend setting `MNEMONIC_DUPLICATE_SUGGESTION_TIMEOUT_SECONDS` defaults to
 45 and accepts integers from 1 through 45. Before recreating the API, change
 any explicit value above 45 in `.env` to 45 or lower. Compose's default is 45.
-Rebuild/recreate the API and MCP services together; the dashboard release
-metadata advances with them. No database migration is required.
+The original 0.74.0 timeout-only change required no database migration. The current
+0.76.0 release requires migration `0049_duplicate_embeddings` and coordinated API,
+worker, MCP and dashboard code. Production recreation requires explicit operator
+authorization.
 
 The adapter's duplicate-specific HTTP phase timeout and outer asyncio deadline
 both use its 50-second constant. A cross-package regression loads the backend's
@@ -44,8 +64,7 @@ stored composition/version and then against the query vector's dimensions.
 The worker retains a lexical response before model loading or query/document
 inference. If its await deadline expires, the route returns that response with
 `semantic.inference.reason=deadline_exceeded`,
-`semantic.comparison_incomplete=true`, and the existing one-retry-after-one-second
-guidance. If no coherent lexical result exists yet, it returns
+`semantic.comparison_incomplete=true`, and no immediate deadline retry guidance. If no coherent lexical result exists yet, it returns
 `503 duplicate_suggestion_unavailable` with the same semantic disposition.
 
 Completed semantic ranking is separately retained before cache publication.

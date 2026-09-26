@@ -21,6 +21,7 @@ from mnemonic_api.artifact_tokenizer import passage_tokenizer
 from mnemonic_api.database import Database
 from mnemonic_api.errors import ApplicationError, semantic_unavailable
 from mnemonic_api.inference import inference_failure_reason
+from mnemonic_api.search_pagination import bound_search_page
 from mnemonic_api.search_projects import ProjectSelection, selected_project_ids
 from mnemonic_api.search_schemas import MultiProjectSearchRequest, SearchPage, SearchRequest
 from mnemonic_api.semantic import semantic_query_vector
@@ -170,4 +171,4 @@ async def _execute_search(
             maximum_transcript_content_bytes=settings_of(request).transcript_search_max_bytes,
         )
 
-    return await run_in_threadpool(execute)
+    return bound_search_page(await run_in_threadpool(execute))

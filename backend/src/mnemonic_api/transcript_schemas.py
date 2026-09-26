@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, StrictBool, field_validator, 
 from mnemonic_api.search_diagnostics import TermDiagnostics
 from mnemonic_api.search_disclosure import SearchDisclosure
 from mnemonic_api.search_exploration_schemas import SearchOptions
+from mnemonic_api.search_pagination import SearchPagination
 from mnemonic_api.search_query import QueryMode, parse_query
 from mnemonic_api.search_ranking import ScoreType, SearchRanking
 from mnemonic_api.transcript_locations import TranscriptLocation
@@ -129,7 +130,7 @@ class TranscriptSearch(SearchOptions):
         return self
 
 
-class TranscriptPage(SearchDisclosure, SearchRanking):
+class TranscriptPage(SearchDisclosure, SearchRanking, SearchPagination):
     sort_by: TranscriptSort | None = None
     sort_direction: Literal["asc", "desc"] = "desc"
     detail: Literal["compact", "full"]

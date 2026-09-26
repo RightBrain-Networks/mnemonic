@@ -17,7 +17,8 @@ def test_scheduler_obeys_artifact_availability_without_pausing_other_job_kinds(
 ):
     calls = {}
     for name in ("refresh_outdated_normalizations", "enqueue_transcript_jobs",
-                 "enqueue_artifact_passage_jobs", "schedule_backups"):
+                 "enqueue_artifact_passage_jobs", "enqueue_duplicate_embedding_jobs",
+                 "schedule_backups"):
         calls[name] = Mock()
         monkeypatch.setattr(f"mnemonic_api.job_worker.{name}", calls[name])
     schedule_jobs(None, SimpleNamespace(artifact_max_bytes=maximum), None,
@@ -40,7 +41,8 @@ def test_disabled_existing_delivery_defers_without_inference_or_attempt_exhausti
 def test_tokenizer_preparation_precedes_sql_and_failure_keeps_other_jobs(monkeypatch):
     order = []
     for name in ("refresh_outdated_normalizations", "enqueue_transcript_jobs",
-                 "enqueue_artifact_passage_jobs", "schedule_backups"):
+                 "enqueue_artifact_passage_jobs", "enqueue_duplicate_embedding_jobs",
+                 "schedule_backups"):
         monkeypatch.setattr(f"mnemonic_api.job_worker.{name}",
                             lambda *_args, name=name: order.append(name))
 
@@ -52,7 +54,8 @@ def test_tokenizer_preparation_precedes_sql_and_failure_keeps_other_jobs(monkeyp
     schedule_jobs(None, settings, None, embedder=SimpleNamespace(passage_tokenizer=tokenizer))
     assert order == ["prepare_tokenizer", "refresh_outdated_normalizations",
                      "enqueue_transcript_jobs",
-                     "enqueue_artifact_passage_jobs", "schedule_backups"]
+                     "enqueue_artifact_passage_jobs", "enqueue_duplicate_embedding_jobs",
+                     "schedule_backups"]
     order.clear()
 
     def unavailable():
@@ -60,4 +63,4 @@ def test_tokenizer_preparation_precedes_sql_and_failure_keeps_other_jobs(monkeyp
 
     schedule_jobs(None, settings, None, embedder=SimpleNamespace(passage_tokenizer=unavailable))
     assert order == ["refresh_outdated_normalizations", "enqueue_transcript_jobs",
-                     "schedule_backups"]
+                     "enqueue_duplicate_embedding_jobs", "schedule_backups"]

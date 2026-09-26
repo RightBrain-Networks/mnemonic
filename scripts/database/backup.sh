@@ -3,7 +3,7 @@
 set -eu
 case "${1:-once}" in
   once) exec python -m mnemonic_backup once ;;
-  loop) exec uvicorn mnemonic_api.job_worker:create_app --factory --host 0.0.0.0 --port 8002 --no-access-log ;;
+  loop) exec uvicorn mnemonic_api.job_worker:create_app --factory --host 0.0.0.0 --port 8002 --no-access-log --log-config /app/backend/logging.json ;;
   health)
     exec python -c 'import urllib.request; urllib.request.urlopen("http://127.0.0.1:8002/healthz", timeout=3)'
     ;;

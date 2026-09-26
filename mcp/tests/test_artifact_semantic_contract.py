@@ -202,8 +202,8 @@ async def test_empty_semantic_pages_keep_ranked_totals_and_coverage(settings, wo
 
 async def test_disabled_artifact_semantics_do_not_claim_an_inference(settings, work_summary):
     page = semantic_page("search", work_summary)
-    page.update(items=[], total=0, total_kind="lexical_matches", indexing_incomplete=True,
-                semantic=semantic_disposition())
+    page.update(items=[], total=0, total_kind="lexical_matches", indexing_incomplete=True)
+    page.pop("semantic")
     page["search_scope"]["searched_facets"] = []
     page["facet_totals"]["artifacts"] = 0
     page["facet_total_kinds"]["artifacts"] = None

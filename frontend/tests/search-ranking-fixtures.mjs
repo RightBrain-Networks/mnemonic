@@ -1,6 +1,6 @@
 export function semanticDisposition(mode = "not_requested") {
   const status = mode === "unavailable" ? mode : mode === "not_requested" ? mode : "completed";
-  return { inference: { status, reason: status === "unavailable" ? "model_failure" : null }, candidate_scope: status === "completed" ? mode : "none", partial_vectors: false, comparison_incomplete: status === "unavailable" || mode === "lexical_shortlist", retry: status === "unavailable" ? { max_attempts: 1, after_seconds: 1 } : null, cache_refresh: { status: "not_needed", reason: null } };
+  return { inference: { status, reason: status === "unavailable" ? "model_failure" : null }, candidate_scope: status === "completed" ? mode : "none", partial_vectors: false, comparison_incomplete: status === "unavailable" || mode === "lexical_shortlist", retry: null, cache_refresh: { status: "not_needed", reason: null } };
 }
 export function ranking(q = "", source = "work_items", semantic = false, query_mode = "terms") {
   return { score_type: !q ? "none" : semantic ? source === "artifacts" ? "semantic_reciprocal_rank" : "hybrid_reciprocal_rank" : source === "work_items" ? "postgresql_lexical" : query_mode === "literal" ? "literal_presence" : "tantivy_relevance", total_kind: !q ? "browsed_records" : semantic ? "ranked_candidates" : "lexical_matches", semantic: semanticDisposition(semantic ? "full_scope" : "not_requested") };

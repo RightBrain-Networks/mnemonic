@@ -15,12 +15,13 @@ from sqlalchemy import Connection, text
 
 from mnemonic_api.models import Base
 
-HEAD = "0048_force_claims"
+HEAD = "0049_duplicate_embeddings"
 # Infrastructure delivery state is neither project data nor a restore target.
 # The reconciler derives transcript jobs anew from the restored domain rows.
 INFRASTRUCTURE_TABLES = frozenset({
     "transcript_worker_health", "artifact_download_capabilities",
     "background_jobs", "artifact_passage_indexes", "artifact_passages",
+    "duplicate_embedding_refreshes",
 })
 TABLES = tuple(sorted(set(Base.metadata.tables) - INFRASTRUCTURE_TABLES))
 MAX_ARCHIVE_IDENTITY = 2**53 - 1
@@ -202,6 +203,11 @@ def replace_rows(connection: Connection, current: dict, restored: dict) -> None:
         connection.execute(text("DELETE FROM artifact_passage_indexes "
                                 "WHERE artifact_id = ANY(CAST(:ids AS uuid[]))"),
                            {"ids": list(artifact_ids)})
+    project_ids = {row["id"] for source in (current, restored) for row in source["projects"]}
+    if project_ids:
+        connection.execute(text("DELETE FROM duplicate_embedding_refreshes "
+                                "WHERE project_id = ANY(CAST(:ids AS uuid[]))"),
+                           {"ids": list(project_ids)})
     connection.execute(text("SET LOCAL session_replication_role = 'replica'"))
     for name in TABLES:
         keys = primary_key(name)

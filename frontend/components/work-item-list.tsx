@@ -187,7 +187,7 @@ export default function WorkItemList({
             {introductoryContent}
             <div className="search-field">
               <Icon name="search" size={20} />
-              <input ref={searchRef} type="search" value={query} maxLength={500} aria-label="Search work items" placeholder="Search objectives, checkpoints, or session IDs…" onChange={(event) => onQuery(event.target.value)} />
+              <input ref={searchRef} type="search" value={query} maxLength={1000} aria-label="Search work items" placeholder="Search objectives, checkpoints, or session IDs…" onChange={(event) => onQuery(event.target.value)} />
               {query ? <button className="icon-button" type="button" aria-label="Clear search" onClick={() => onQuery("")}><Icon name="close" size={16} /></button> : <kbd aria-hidden="true">/</kbd>}
               <span className="search-mode-divider" />
               <button className={`semantic-toggle ${semantic ? "selected" : ""}`} type="button" aria-label="Semantic search" aria-pressed={semantic} onClick={onToggleSemantic}><span className="semantic-switch"><span /></span><span>Semantic</span></button>

@@ -40,10 +40,17 @@ def test_global_pagination_reaches_work_candidates_after_the_first_hundred(
                 for index in range(103)]
     artifact = upload(api, project, filename="paginationneedle.txt", body=b"page data")
     payload = {"q": "paginationneedle", "sort": {"by": "created_at", "direction": "asc"}}
-    first = search(api, project, limit=100, **payload)
-    second = search(api, project, offset=100, limit=100, **payload)
-    assert first["total"] == second["total"] == 104
-    assert identities(first) + identities(second) == work_ids + [artifact["id"]]
+    actual = []
+    offset = 0
+    while True:
+        page = search(api, project, offset=offset, limit=100, **payload)
+        assert page["total"] == 104 and page["limit"] == 100
+        actual.extend(identities(page))
+        if page["next_offset"] is None:
+            break
+        assert page["next_offset"] == offset + len(page["items"]) > offset
+        offset = page["next_offset"]
+    assert actual == work_ids + [artifact["id"]]
     grouped = search(api, project, offset=100, limit=3, **payload,
                      facet_order=[{"facet": "artifacts"}])
     assert identities(grouped) == work_ids[99:102]

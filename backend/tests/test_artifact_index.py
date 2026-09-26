@@ -94,7 +94,7 @@ def test_busy_index_returns_explicit_bounded_error():
     assert failure.value.detail["code"] == "artifact_search_busy"
 
 
-@pytest.mark.parametrize("query", ["", " ", "\x00", "a\nb", "\ud800", "x" * 201])
+@pytest.mark.parametrize("query", ["", " ", "\x00", "a\nb", "\ud800", "x" * 1001])
 def test_search_query_validation(query):
     with pytest.raises(ValueError):
         ArtifactSearchRequest(q=query)

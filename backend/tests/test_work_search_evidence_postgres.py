@@ -237,7 +237,7 @@ def test_phrase_excerpt_shows_qualifying_span_after_repeated_scattered_terms(
         prompt="Admission then cookie. " * 500 + "The admission cookie was finally granted.",
     )
     hit = find(api, project, "admission cookie", query_mode="phrase", unified=unified)[0]
-    assert hit["excerpts"] and not hit["excerpts_truncated"]
+    assert hit["excerpts"] and not hit.get("excerpts_truncated", False)
     assert "admission cookie" in hit["excerpts"][0]["text"].lower()
 
 
@@ -350,7 +350,7 @@ def test_one_complete_field_excerpt_proves_query_without_losing_contributing_fie
     assert hits[0]["matched_fields"] == ["title", "summary"]
     assert [excerpt["field"] for excerpt in hits[0]["excerpts"]] == ["summary"]
     assert "Copper zircon" in hits[0]["excerpts"][0]["text"]
-    assert hits[0]["excerpts_truncated"] is False
+    assert hits[0].get("excerpts_truncated", False) is False
 
 
 @pytest.mark.parametrize("unified", [False, True])

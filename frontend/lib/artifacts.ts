@@ -1,3 +1,4 @@
+import { searchPageKeys, searchPagination, validSearchPagination, type SearchPagination } from "./search-pagination.ts";
 import { decodeArtifactPassage, decodeEmbeddingCoverage, type ArtifactPassage, type ArtifactEmbeddingCoverage } from "./artifact-semantic.ts";
 import { validateSourceRanking, decodeSearchRanking, decodeHitRanking, SEARCH_RANKING_FIELDS, HIT_RANKING_FIELDS, type SearchRanking, type HitRanking } from "./search-ranking.ts";
 import { validQueryMode, type QueryMode } from "./search-evidence.ts";
@@ -120,7 +121,7 @@ export interface ArtifactSearchMatch extends HitRanking {
   matched_fields: ("metadata" | "content")[];
 }
 
-export interface ArtifactSearchPage extends SearchDisclosure, SearchRanking {
+export interface ArtifactSearchPage extends SearchDisclosure, SearchRanking, SearchPagination {
   detail: "full";
   match_mode: "all_terms" | "phrase" | "literal" | "semantic_passages";
   embedding: ArtifactEmbeddingCoverage | null;
@@ -137,11 +138,11 @@ export interface ArtifactSearchPage extends SearchDisclosure, SearchRanking {
 export function decodeArtifactSearchPage(value: unknown, projectId: string, fulltext: boolean, limit = 50, offset = 0, sourceSearched = true, queryMode: QueryMode = "terms", semantic = false): ArtifactSearchPage {
   const page = objectValue(value);
   const indexing = objectValue(page?.indexing);
-  if (!page || !exactKeys(page, ["items", "total", "limit", "offset", "fulltext", "indexing", "sensitive_content_withheld", "embedding", "match_mode", "detail", "term_diagnostics", ...SEARCH_DISCLOSURE_FIELDS, ...SEARCH_RANKING_FIELDS])
+  if (!page || !searchPageKeys(page, ["items", "total", "limit", "offset", "fulltext", "indexing", "sensitive_content_withheld", "embedding", "match_mode", "detail", "term_diagnostics", ...SEARCH_DISCLOSURE_FIELDS, ...SEARCH_RANKING_FIELDS])
     || !["all_terms", "phrase", "literal", "semantic_passages"].includes(String(page.match_mode)) || !sourceSearched && page.total !== 0
     || !finiteInteger(page.sensitive_content_withheld)
     || !Array.isArray(page.items) || !finiteInteger(page.total) || page.limit !== limit || page.offset !== offset
-    || page.items.length !== Math.min(limit, Math.max(0, page.total - offset)) || page.detail !== "full" || page.fulltext !== fulltext
+    || !validSearchPagination(page) || page.detail !== "full" || page.fulltext !== fulltext
     || !indexing || !exactKeys(indexing, ["pending", "failed", "ready", "truncated"])
     || !Object.values(indexing).every((count) => finiteInteger(count))) {
     throw new Error("Mnemonic returned invalid artifact search results.");
@@ -176,7 +177,7 @@ export function decodeArtifactSearchPage(value: unknown, projectId: string, full
     return { artifact, evidence: match.evidence as "semantic" | "lexical", passage, ...decodeHitRanking(match, ranking.score_type, page.total as number), snippet: match.snippet, matched_fields: match.matched_fields as ("metadata" | "content")[] };
   });
   if (new Set(items.map((item) => item.artifact.id.toLowerCase())).size !== items.length) throw new Error("Mnemonic returned duplicate artifact search matches.");
-  return { ...disclosure, ...ranking, detail: "full", embedding, match_mode: page.match_mode as ArtifactSearchPage["match_mode"], term_diagnostics, items, total: page.total, limit, offset, fulltext, indexing: indexing as unknown as ArtifactIndexingStatus, sensitive_content_withheld: page.sensitive_content_withheld };
+  return { ...disclosure, ...ranking, ...searchPagination(page), detail: "full", embedding, match_mode: page.match_mode as ArtifactSearchPage["match_mode"], term_diagnostics, items, total: page.total, limit, offset, fulltext, indexing: indexing as unknown as ArtifactIndexingStatus, sensitive_content_withheld: page.sensitive_content_withheld };
 }
 
 export function validArtifactSearchRequest(value: unknown): boolean {

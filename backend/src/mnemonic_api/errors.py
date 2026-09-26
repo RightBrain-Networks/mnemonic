@@ -279,13 +279,15 @@ def duplicate_suggestion_busy() -> ApplicationError:
 def duplicate_suggestion_unavailable(
     reason: SemanticReason = "deadline_exceeded",
 ) -> ApplicationError:
+    retryable = reason == "capacity_exhausted"
+    guidance = ("Retry this safe read once after one second; " if retryable else
+                "An immediate retry is not recommended; ")
     return ApplicationError(
         503,
         "duplicate_suggestion_unavailable",
-        "Duplicate comparison is incomplete. Retry this safe read once after one second; "
-        "work creation remains available.",
+        "Duplicate comparison is incomplete. " + guidance + "work creation remains available.",
         context={"semantic": unavailable_semantic(reason).model_dump()},
-        headers={"Retry-After": "1"},
+        headers={"Retry-After": "1"} if retryable else None,
     )
 
 
@@ -293,7 +295,12 @@ def semantic_unavailable(reason: SemanticReason = "model_failure") -> Applicatio
     return ApplicationError(
         503,
         "semantic_unavailable",
-        "Semantic search is unavailable. Retry once after one second or use lexical search.",
+        "Semantic search is unavailable. " + (
+            "Retry once after one second or use lexical search."
+            if reason == "capacity_exhausted" else
+            "Use lexical search while the cause is unresolved; "
+            "an immediate retry is not recommended."
+        ),
         context={"semantic": unavailable_semantic(reason).model_dump()},
-        headers={"Retry-After": "1"},
+        headers={"Retry-After": "1"} if reason == "capacity_exhausted" else None,
     )

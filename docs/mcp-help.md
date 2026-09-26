@@ -11,6 +11,9 @@ Pass an optional `topic` string. Each successive word selects a child page:
 | `help({})` | All registered commands, grouped by task, plus navigation syntax |
 | `help({"topic":"complete_work"})` | Purpose, required arguments, optional argument names, and important fresh-call requirements |
 | `help({"topic":"complete_work usage"})` | Workflow and retry guidance |
+| `help({"topic":"search details"})` | First bounded page of complete search guidance; follow its Next link |
+| `help({"topic":"search details 2"})` | Second complete-guidance page |
+| `help({"topic":"search filters work_items semantic"})` | Semantic preconditions, latency and response fields to inspect |
 | `help({"topic":"complete_work checkpoint"})` | Checkpoint fields and author provenance |
 | `help({"topic":"complete_work completion_evidence artifact_references"})` | Required fields and rules for each artifact reference |
 | `help({"topic":"complete_work completion_evidence verification_results command"})` | The command verification variant and conditional exit-code requirements |
@@ -24,6 +27,13 @@ Every field page links back to its parent and offers its own schema. Dotted fiel
 paths and `[]` suffixes also work. Unknown topics return the nearest known page
 or the root navigation hint without echoing the unknown input. Topics are limited
 to 400 characters and 12 field levels.
+
+Every registered tool description fits within 2,048 characters. Search preconditions
+and sensitive-content approval requirements appear in the advertised description;
+longer contracts remain available through `details`, with explicit numbered
+continuations. These pages retain the full guidance without loading unrelated
+command schemas. Field pages show schema descriptions and contextual prose,
+including semantic prerequisites, cost and coverage.
 
 Names, required fields, types, enum choices, bounds, and explicit schemas come
 from the registered tool contract. Short authored notes explain workflow rules

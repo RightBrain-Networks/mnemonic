@@ -21,7 +21,10 @@ GUIDES: dict[str, tuple[str, str, str]] = {
                     "Semantic search needs nonblank unconstrained terms and all work fields.")),
     "suggest_duplicate_work": ("Search", "Find possible duplicates without changing work.",
                                ("Supply a proposed title and summary. Suggestions are evidence; "
-                               "read both work items before any authorized merge.")),
+                               "read both work items before any authorized merge. Warm vectors rank synchronously; "
+                               "missing vectors queue background refresh and report vectors_pending. "
+                               "Only capacity_exhausted offers one retry after one second. "
+                               "Keep comparison_incomplete visible; creation stays independent.")),
     "list_ready_work": ("Work", "Find work that is ready to claim.",
                         "Select a project and a small limit. Selection does not authorize execution."),
     "get_work": ("Work", "Read a work item's current status or detail.",

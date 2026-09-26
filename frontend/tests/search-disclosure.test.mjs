@@ -46,7 +46,7 @@ test("search disclosure rejects missing, unsupported and misleading metadata eve
 
 test("empty work search validates effective status and preserves it in returned page", () => {
   const metadata = disclosure(project, ["work_items"], { q: "lease", filters: { work_items: { status: "done" } } });
-  const page = { ...unifiedRanking(["work_items"], { q: "lease" }), detail: "full", work_rank_scope: "work_items", ...metadata, tag_counts: null, search_scope: { searched_facets: ["work_items"], transcripts: "not_selected", transcript_search_hint: 'Agent sessions can be searched by explicitly including "transcripts" in facets or calling search_transcript_contents.' }, term_diagnostics: [], items: [], total: 0, limit: 50, offset: 0, facet_totals: { work_items: 0, artifacts: 0, transcripts: 0 }, coverage: { artifacts: { enabled: true }, transcripts: { indexing_incomplete: false } }, indexing_incomplete: false };
+  const page = { ...unifiedRanking(["work_items"], { q: "lease" }), next_offset: null, page_truncated: false, detail: "full", work_rank_scope: "work_items", ...metadata, tag_counts: null, search_scope: { searched_facets: ["work_items"], transcripts: "not_selected", transcript_search_hint: 'Agent sessions can be searched by explicitly including "transcripts" in facets or calling search_transcript_contents.' }, term_diagnostics: [], items: [], total: 0, limit: 50, offset: 0, facet_totals: { work_items: 0, artifacts: 0, transcripts: 0 }, coverage: { artifacts: { enabled: true }, transcripts: { indexing_incomplete: false } }, indexing_incomplete: false };
   projectCoverage(page, project);
   const options = { query: "lease", expectedFilters: { status: "done" } };
   assert.equal(decodeUnifiedWorkSearchPage(page, project, options).applied_filters.work_items.status, "done");
@@ -60,8 +60,8 @@ test("hierarchy search requires disclosure while child hierarchy listing keeps i
   assert.deepEqual(decodeHierarchyPage(page, project, 20, 0), page);
   assert.throws(() => decodeHierarchySearchPage(page, project, 20, 0));
   const metadata = disclosure(project, ["work_items"], { filters: { work_items: { status: "pending", view: "roots" } } });
-  assert.deepEqual(decodeHierarchySearchPage({ ...page, ...ranking(), detail: "full", work_rank_scope: "work_items", term_diagnostics: [], ...metadata }, project, 20, 0, { status: "pending" }), { ...page, ...ranking(), detail: "full", work_rank_scope: "work_items", term_diagnostics: [], ...metadata });
-  assert.throws(() => decodeHierarchySearchPage({ ...page, ...ranking(), detail: "full", work_rank_scope: "work_items", term_diagnostics: [], ...metadata }, project, 20, 0, { status: "done" }));
+  assert.deepEqual(decodeHierarchySearchPage({ ...page, ...ranking(), next_offset: null, page_truncated: false, detail: "full", work_rank_scope: "work_items", term_diagnostics: [], ...metadata }, project, 20, 0, { status: "pending" }), { ...page, ...ranking(), next_offset: null, page_truncated: false, detail: "full", work_rank_scope: "work_items", term_diagnostics: [], ...metadata });
+  assert.throws(() => decodeHierarchySearchPage({ ...page, ...ranking(), next_offset: null, page_truncated: false, detail: "full", work_rank_scope: "work_items", term_diagnostics: [], ...metadata }, project, 20, 0, { status: "done" }));
 });
 
 test("reviewed validation rules match the public catalog and never render arbitrary upstream messages", () => {

@@ -1,5 +1,48 @@
 # Mnemonic validation record
 
+## Agent search and independent duplicate vectors (0.76.0)
+
+Application/API/MCP/dashboard 0.76.0 uses migration `0049_duplicate_embeddings`.
+Search and duplicate vectors retain their independent compositions in separate
+consumer rows. Cold duplicate checks retain lexical results and schedule durable
+worker batches; native waits have a four-second budget after the coherent lexical
+snapshot, inside the existing 45/50-second backend/MCP ceilings. Native permits
+remain owned until the call actually finishes. The plugin stays at 0.44.0 and
+the tool, protected mutation and work-event catalogs are unchanged.
+
+Isolated PostgreSQL regressions cover a 205-item population beyond the lexical
+shortlist, alternating warm caches, durable partial progress, source/version and
+lease fencing, wrong dimensions, exhausted retry generations, independent external
+comparison, and scheduling beyond 100 projects. Migration tests preserve existing
+vectors and refuse to discard retained delivery history. Current-head and
+historical integrity audits pass against independently created test schemas.
+
+Search paging regressions retain exact result order, totals, identity and coverage
+while following `next_offset` across shortened pages. They cover all six discovery
+surfaces in compact/full modes, singleton/envelope overflow, malformed continuation,
+and uneven dashboard Next/Previous navigation. MCP tests enforce the 2,048-character
+description ceiling, lossless paged help, consistent query aliases/limits, explicit
+semantic preconditions and secret-safe actionable errors.
+
+The full isolated backend suite passed 3,525 tests with PostgreSQL and RabbitMQ
+enabled. Backend/MCP Ruff and type checks, operational-script Ruff and the
+pre-commit secret scan passed. The plugin suite passed 71 tests with its one
+macOS-only skip; the macOS runtime check remains part of required CI.
+
+MCP validation passed 2,031 cases in the temporary parallel runner and its static
+type-contract case separately in the package environment. That case locates `ty`
+beside Python, so the temporary runner reported a missing executable; the normal
+package environment passed it. Required CI runs the full suite in that environment.
+
+All 505 frontend unit tests, typecheck and build pass under Node 24. The isolated
+acceptance stack passed 16 desktop/narrow browser cases and six backup checks,
+including restore isolation and lock-timeout recovery, then removed its own
+containers. The queued-vector notice remains visible while creation stays enabled;
+reviewed screenshots are linked in [the behavior and upgrade notes](search-agent-usability.md).
+
+Production services and data were not changed. Applying the migration and
+recreating API, worker, MCP and dashboard requires separate operator authorization.
+
 ## Force-claim lease recovery (0.75.0)
 
 Application/API/MCP/dashboard 0.75.0 and plugin 0.44.0 add optional `force=true`

@@ -85,8 +85,10 @@ def test_semantic_hydration_reads_only_the_selected_page(api, project, work_payl
 
 
 def test_twenty_compact_work_hits_save_three_quarters_of_response_bytes(
-    api, project, work_payload,
+    api, project, work_payload, monkeypatch,
 ):
+    # Measure compaction independently of the separate result page budget.
+    monkeypatch.setattr("mnemonic_api.search_pagination.SEARCH_PAGE_MAX_BYTES", 1024 * 1024)
     for index in range(20):
         create_work(api, project, work_payload, title=f"Search result {index}",
                     summary="Search context supporting a concrete decision. " * 25)

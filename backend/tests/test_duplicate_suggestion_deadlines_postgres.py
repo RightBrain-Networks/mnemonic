@@ -10,16 +10,23 @@ import pytest
 from mnemonic_api import semantic
 from mnemonic_api.services import duplicate_suggestions as service
 
-from .test_duplicate_suggestions_postgres import DeterministicEmbedder, save, suggest
+from .test_duplicate_suggestions_postgres import (
+    DeterministicEmbedder,
+    cache_project_vectors,
+    save,
+    suggest,
+)
 
 pytestmark = pytest.mark.postgres
 
 
-@pytest.mark.parametrize("stage", ["model_load", "embed_query", "embed_documents", "cache_refresh"])
+@pytest.mark.parametrize("stage", ["model_load", "embed_query", "refresh_enrollment"])
 def test_slow_inference_retains_response_and_permits_within_budget(
-    api, project, work_payload, monkeypatch, stage
+    api, project, work_payload, monkeypatch, postgres_engine, stage
 ):
     work = save(api, project, work_payload, title="cache repair candidate")
+    if stage != "refresh_enrollment":
+        cache_project_vectors(postgres_engine, project["id"], None)
     resources = api.app.state.duplicate_suggestion_resources
     resources.timeout_seconds = 2.0
     resources.request_slots = asyncio.Semaphore(1)
@@ -36,20 +43,14 @@ def test_slow_inference_retains_response_and_permits_within_budget(
         assert response.status_code == 200, response.text
         body = response.json()
         assert body["items"][0]["canonical_work"]["work_item_id"] == work["id"]
-        if stage == "cache_refresh":
-            assert body["semantic_available"] is True
-            assert body["semantic"]["inference"]["status"] == "completed"
-            assert body["semantic"]["cache_refresh"] == {
-                "status": "failed", "reason": "cache_refresh_failed",
-            }
-        else:
-            assert body["mode"] == "lexical"
-            assert body["semantic_available"] is False
-            assert body["semantic"]["comparison_incomplete"] is True
-            assert body["semantic"]["inference"] == {
-                "status": "unavailable", "reason": "deadline_exceeded",
-            }
-            assert body["semantic"]["retry"] == {"max_attempts": 1, "after_seconds": 1}
+        assert body["mode"] == "lexical"
+        assert body["semantic_available"] is False
+        assert body["semantic"]["comparison_incomplete"] is True
+        assert body["semantic"]["inference"] == {
+            "status": "unavailable", "reason": "deadline_exceeded",
+        }
+        assert body["semantic"]["retry"] is None
+        assert resources.inference._active == int(stage != "refresh_enrollment")
         assert not finished.is_set()
         assert resources.request_slots.locked()
         assert suggest(api, project).status_code == 429
@@ -65,8 +66,8 @@ def test_slow_inference_retains_response_and_permits_within_budget(
 
 def _install_slow_stage(api, monkeypatch, stage, started, finished):
     embedder = DeterministicEmbedder()
-    target = service if stage == "cache_refresh" else embedder
-    method = "_persist_cache_updates" if stage == "cache_refresh" else stage
+    target = service if stage == "refresh_enrollment" else embedder
+    method = "_request_background_refresh" if stage == "refresh_enrollment" else stage
     if stage == "model_load":
         embedder = semantic.FastembedEmbedder(workers=1, threads=1)
         target, method = semantic._EmbeddingWorker, "_load"

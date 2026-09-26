@@ -4,7 +4,12 @@ import logging
 
 import pytest
 
-from .test_duplicate_suggestions_postgres import DeterministicEmbedder, save, suggest
+from .test_duplicate_suggestions_postgres import (
+    DeterministicEmbedder,
+    cache_project_vectors,
+    save,
+    suggest,
+)
 from .test_search_compact_postgres import work_page
 from .test_transcript_query_intent_postgres import query
 from .test_transcript_search_postgres import seed_transcripts
@@ -73,9 +78,10 @@ def test_transcript_ranking_separates_native_tantivy_and_literal_presence(api, p
 
 
 def test_saturated_inference_reports_same_safe_reason_for_search_and_duplicate_check(
-    api, project, work_payload,
+    api, project, work_payload, postgres_engine,
 ):
     save(api, project, work_payload, title="Cache repair candidate")
+    cache_project_vectors(postgres_engine, project["id"], None)
     resources = api.app.state.duplicate_suggestion_resources
     resources.inference.slots = 0
     resources.inference.wait_seconds = 0.001
@@ -96,13 +102,14 @@ def test_saturated_inference_reports_same_safe_reason_for_search_and_duplicate_c
 @pytest.mark.parametrize("exception,reason", [(RuntimeError, "model_failure"),
                                                (TimeoutError, "deadline_exceeded")])
 def test_duplicate_inference_failures_report_incomplete_comparison_without_content_logs(
-    api, project, work_payload, caplog, exception, reason,
+    api, project, work_payload, caplog, exception, reason, postgres_engine,
 ):
     class Broken:
         def embed_query(self, text):
             raise exception("private query or provider response must never be logged")
 
     save(api, project, work_payload, title="Cache repair candidate")
+    cache_project_vectors(postgres_engine, project["id"], None)
     api.app.state.semantic_embedder = Broken()
     with caplog.at_level(logging.INFO, logger="mnemonic_api.search_timing"):
         response = suggest(api, project)
@@ -123,9 +130,12 @@ def test_cold_warm_duplicate_cache_and_timings_are_observable(api, project, work
     api.app.state.semantic_embedder = embedder
     with caplog.at_level(logging.INFO, logger="mnemonic_api.search_timing"):
         cold = suggest(api, project).json()
+        from .test_duplicate_embedding_jobs_postgres import drain
+        drain(api, embedder)
         warm = suggest(api, project).json()
-    assert cold["semantic"]["candidate_scope"] == "lexical_shortlist"
-    assert cold["semantic"]["cache_refresh"]["status"] == "completed"
+    assert cold["semantic"]["candidate_scope"] == "none"
+    assert cold["semantic"]["inference"]["reason"] == "vectors_pending"
+    assert cold["semantic"]["cache_refresh"]["status"] == "queued"
     assert warm["semantic"]["candidate_scope"] == "full_scope"
     assert warm["semantic"]["cache_refresh"]["status"] == "not_needed"
     assert warm["semantic"]["comparison_incomplete"] is False
@@ -139,14 +149,24 @@ def test_cold_warm_duplicate_cache_and_timings_are_observable(api, project, work
 
 @pytest.mark.parametrize("endpoint", ["work", "unified", "duplicates"])
 def test_cache_write_failure_preserves_completed_ranking(
-    api, project, work_payload, monkeypatch, endpoint,
+    api, project, work_payload, monkeypatch, endpoint, postgres_engine,
 ):
     for title in ["Cache repair target", "Cache repair companion"]:
         save(api, project, work_payload, title=title, prompt="cache [dense-target]")
     api.app.state.semantic_embedder = DeterministicEmbedder()
     module = {"work": "mnemonic_api.application.routes.work_search.persist_embedding_updates",
               "unified": "mnemonic_api.services.search.persist_embedding_updates",
-              "duplicates": "mnemonic_api.services.duplicate_suggestions._persist_cache_updates"}
+              "duplicates": "mnemonic_api.duplicate_embedding_jobs.request_refresh"}
+
+    if endpoint == "duplicates":
+        from sqlalchemy import delete, select
+
+        from mnemonic_api.models import WorkItemEmbedding
+        cache_project_vectors(postgres_engine, project["id"], None)
+        with api.app.state.session_factory.begin() as database:
+            identity = database.scalar(select(WorkItemEmbedding.work_item_id).limit(1))
+            database.execute(delete(WorkItemEmbedding).where(
+                WorkItemEmbedding.work_item_id == identity))
 
     def broken(*args, **kwargs):
         raise RuntimeError("disposable cache failure")
@@ -167,7 +187,8 @@ def test_cache_write_failure_preserves_completed_ranking(
         patch.setattr(module[endpoint], broken)
         first = read_page()
     second = read_page()
-    assert second["semantic"]["cache_refresh"]["status"] == "completed"
+    assert second["semantic"]["cache_refresh"]["status"] == (
+        "queued" if endpoint == "duplicates" else "completed")
     assert first["items"] == second["items"]
     assert first["semantic"]["inference"]["status"] == "completed"
     assert first["semantic"]["cache_refresh"] == {
@@ -176,11 +197,15 @@ def test_cache_write_failure_preserves_completed_ranking(
     assert [item["rank"] for item in first["items"]] == [1, 2]
 
 
-def test_partial_vectors_are_distinct_from_inference_failure(api, project, work_payload):
-    for title in ["Cache repair target", "Cache repair companion"]:
-        save(api, project, work_payload, title=title, prompt="cache [dense-target]")
-    api.app.state.settings.duplicate_suggestion_missing_vector_limit = 1
-    api.app.state.semantic_embedder = DeterministicEmbedder()
+def test_partial_vectors_are_distinct_from_inference_failure(api, project, postgres_engine):
+    from .test_duplicate_embedding_jobs_postgres import step
+    from .test_duplicate_suggestions_postgres import bulk_save
+
+    bulk_save(postgres_engine, project["id"], count=17, title_prefix="Cache repair target")
+    embedder = DeterministicEmbedder()
+    api.app.state.semantic_embedder = embedder
+    assert suggest(api, project).status_code == 200
+    assert step(api, embedder)["embedded"] == 16
     response = suggest(api, project)
     assert response.status_code == 200, response.text
     semantic = response.json()["semantic"]

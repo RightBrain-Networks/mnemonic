@@ -21,8 +21,8 @@ const SNAPSHOT_URL = new URL("../../docs/openapi.json", import.meta.url);
 const DEFAULTED_RESPONSE_FIELDS = {
   "frontend/lib/duplicate-handling.ts:decodeWorkSearchPage:item": ["rank", "score", "score_type"],
   "frontend/lib/hierarchy-presentation.ts:decodeHierarchyPage:item": ["rank", "score", "score_type"],
-  "frontend/lib/duplicate-handling.ts:decodeWorkSearchPage": ["diagnostics", "term_diagnostics", "semantic"],
-  "frontend/lib/hierarchy-presentation.ts:decodeHierarchySearchPage": ["diagnostics", "term_diagnostics", "semantic"],
+  "frontend/lib/duplicate-handling.ts:decodeWorkSearchPage": ["diagnostics", "term_diagnostics", "semantic", "next_offset", "page_truncated"],
+  "frontend/lib/hierarchy-presentation.ts:decodeHierarchySearchPage": ["diagnostics", "term_diagnostics", "semantic", "next_offset", "page_truncated"],
   "frontend/lib/readiness-codecs.ts:decodeReadiness": ["review_status"],
   "frontend/lib/human-gates.ts:GATE_FIELDS": ["question_version", "previous_questions"],
   "frontend/lib/readiness-codecs.ts:decodeLease": ["purpose", "code_review_id", "mode"],

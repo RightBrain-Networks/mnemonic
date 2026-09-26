@@ -327,6 +327,7 @@ def cache_project_vectors(postgres_engine, project_id, target_id):
     rows = [
         {
             "work_item_id": work_item_id,
+            "purpose": "duplicate_suggestions",
             "model": suggestion_service._cache_version(2),
             "digest": suggestion_service._digest(compositions[work_item_id]),
             "vector": [1.0, 0.0] if work_item_id == target_id else [0.0, 1.0],
@@ -600,7 +601,12 @@ def test_partial_title_overlap_survives_disjoint_draft_fields_and_seeds_semantic
     )
     assert response.status_code == 200, response.text
     body = response.json()
-    assert body["mode"] == "hybrid_shortlist"
+    assert body["mode"] == "lexical"
+    from .test_duplicate_embedding_jobs_postgres import drain
+    drain(api, embedder)
+    body = suggest(api, project, title="repair cache", summary="Nebula constellation analysis.",
+                   initial_prompt="Orchid geology field notes.", tags=["volcanic"]).json()
+    assert body["mode"] == "hybrid_full"
     item = next(
         item for item in body["items"] if item["matched_member"]["id"] == candidate["id"]
     )
@@ -677,9 +683,11 @@ def test_shortlist_cache_fill_then_full_project_hybrid_is_deterministic_and_iner
     api.app.state.semantic_embedder = embedder
     first = suggest(api, project, title="cache", summary="cache", initial_prompt="cache")
     assert first.status_code == 200, first.text
-    assert first.json()["mode"] == "hybrid_shortlist"
-    assert first.json()["semantic_scope"] == "lexical_shortlist"
-    assert any("semantic" in item["signals"] for item in first.json()["items"])
+    assert first.json()["mode"] == "lexical"
+    assert first.json()["semantic"]["cache_refresh"]["status"] == "queued"
+    assert embedder.document_batches == []
+    from .test_duplicate_embedding_jobs_postgres import drain
+    drain(api, embedder)
     assert any("[dense-target]" in text for batch in embedder.document_batches for text in batch)
     assert target["id"] in {item["matched_member"]["id"] for item in first.json()["items"]}
 
@@ -782,18 +790,21 @@ def test_stale_wrong_dimension_and_nonfinite_caches_are_recomputed(
         database.add_all(
             [
                 WorkItemEmbedding(
+                    purpose="duplicate_suggestions",
                     work_item_id=candidate_ids[0],
                     model=suggestion_service._cache_version(2),
                     digest="0" * 64,
                     vector=[1.0, 0.0],
                 ),
                 WorkItemEmbedding(
+                    purpose="duplicate_suggestions",
                     work_item_id=candidate_ids[1],
                     model=suggestion_service._cache_version(2),
                     digest=suggestion_service._digest(compositions[candidate_ids[1]]),
                     vector=[1.0],
                 ),
                 WorkItemEmbedding(
+                    purpose="duplicate_suggestions",
                     work_item_id=candidate_ids[2],
                     model=suggestion_service._cache_version(2),
                     digest=suggestion_service._digest(compositions[candidate_ids[2]]),
@@ -814,7 +825,10 @@ def test_stale_wrong_dimension_and_nonfinite_caches_are_recomputed(
         tags=[],
     )
     assert response.status_code == 200, response.text
-    assert response.json()["mode"] == "hybrid_shortlist"
+    assert response.json()["mode"] == "lexical"
+    from .test_duplicate_embedding_jobs_postgres import drain
+    drain(api, embedder)
+    assert suggest(api, project).json()["mode"] == "hybrid_full"
     assert sum(len(batch) for batch in embedder.document_batches) == 3
     with Session(postgres_engine) as database:
         cache_rows = list(
@@ -929,14 +943,20 @@ def test_project_above_full_ceiling_uses_sql_bounded_shortlist(
     )
     assert response.status_code == 200, response.text
     body = response.json()
-    assert body["mode"] == "hybrid_shortlist"
-    assert body["semantic_scope"] == "lexical_shortlist"
+    assert body["mode"] == "lexical"
     assert captured_population_sizes == [200]
-    assert sum(len(batch) for batch in embedder.document_batches) == 128
+    from .test_duplicate_embedding_jobs_postgres import drain
+    drain(api, embedder)
+    warm = suggest(api, project, title="oversize lexical", summary="oversize lexical",
+                   initial_prompt="oversize lexical", tags=[], limit=10).json()
+    assert warm["mode"] == "hybrid_shortlist"
+    assert warm["semantic_scope"] == "lexical_shortlist"
+    assert sum(len(batch) for batch in embedder.document_batches) == 200
+    assert all(len(batch) <= 16 for batch in embedder.document_batches)
     with postgres_engine.connect() as connection:
         assert connection.scalar(
             select(func.count()).select_from(WorkItemEmbedding)
-        ) == 128
+        ) == 200
 
 
 def test_exclude_alias_removes_its_complete_canonical_group(api, project, work_payload):
@@ -1156,10 +1176,12 @@ def test_locked_cache_candidate_is_skipped_without_delaying_semantic_success(
         elapsed = monotonic() - started_at
 
     assert response.status_code == 200, response.text
-    assert response.json()["mode"] == "hybrid_shortlist"
+    assert response.json()["mode"] == "lexical"
+    assert response.json()["semantic"]["cache_refresh"]["status"] == "queued"
     assert elapsed < 1.0
     with Session(postgres_engine) as database:
-        assert database.get(WorkItemEmbedding, UUID(candidate["id"])) is None
+        assert database.get(WorkItemEmbedding,
+                            (UUID(candidate["id"]), "duplicate_suggestions")) is None
 
 
 def test_locked_embedding_cache_preserves_ranking_before_transport_deadline(
@@ -1182,7 +1204,9 @@ def test_locked_embedding_cache_preserves_ranking_before_transport_deadline(
         tags=[],
     )
     assert initial.status_code == 200, initial.text
-    assert initial.json()["mode"] == "hybrid_shortlist"
+    assert initial.json()["mode"] == "lexical"
+    from .test_duplicate_embedding_jobs_postgres import drain
+    drain(api, api.app.state.semantic_embedder)
 
     changed = api.post(
         f"/api/v1/projects/{project['id']}/work-items/{candidate['id']}/checkpoints",
@@ -1214,8 +1238,8 @@ def test_locked_embedding_cache_preserves_ranking_before_transport_deadline(
         elapsed = monotonic() - started_at
 
     assert contended.status_code == 200, contended.text
-    assert contended.json()["mode"] == "hybrid_shortlist"
-    assert contended.json()["semantic"]["cache_refresh"]["status"] == "failed"
+    assert contended.json()["mode"] == "lexical"
+    assert contended.json()["semantic"]["cache_refresh"]["status"] == "queued"
     assert elapsed < 1.0
 
 
@@ -1329,5 +1353,5 @@ def test_title_key_function_and_partial_expression_index_are_frozen(postgres_eng
                 """
             )
         ).one()
-        assert head == "0048_force_claims"
+        assert head == "0049_duplicate_embeddings"
         assert capacity == 64

@@ -66,6 +66,8 @@ export interface ProjectSettings {
 }
 
 export interface Page<T> {
+  next_offset?: number | null;
+  page_truncated?: boolean;
   items: T[];
   total: number;
   limit: number;

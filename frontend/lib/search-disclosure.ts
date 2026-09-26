@@ -1,3 +1,4 @@
+import type { SearchPagination } from "./search-pagination.ts";
 import { WORK_FIELDS, validWorkFields, validQueryMode, type QueryMode } from "./search-evidence.ts";
 import type { SearchRanking } from "./search-ranking.ts";
 import { validContentKinds } from "./transcript-segments.ts";
@@ -87,4 +88,4 @@ export function validateSearchDisclosure(disclosure: SearchDisclosure, source: S
     || interpretation && fulltext !== undefined && interpretation.fulltext !== fulltext) throw new Error("Mnemonic returned search disclosure outside the requested scope.");
 }
 
-export type FullWorkSearchDetail = SearchRanking & { detail: "full"; work_rank_scope: "work_items"; term_diagnostics: TermDiagnostic[] };
+export type FullWorkSearchDetail = SearchRanking & SearchPagination & { detail: "full"; work_rank_scope: "work_items"; term_diagnostics: TermDiagnostic[] };

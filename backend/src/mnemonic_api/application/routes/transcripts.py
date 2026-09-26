@@ -15,6 +15,7 @@ from mnemonic_api.application.state import settings_of
 from mnemonic_api.database import Database, begin_coherent_read
 from mnemonic_api.errors import ApplicationError, conflict
 from mnemonic_api.models import Transcript
+from mnemonic_api.search_pagination import bound_search_page
 from mnemonic_api.services import transcript_imports, transcripts
 from mnemonic_api.services.project_mutations import project_mutation
 from mnemonic_api.services.transcript_segments import segment_range
@@ -43,18 +44,18 @@ _collection = "/projects/{project_id}/transcripts"
 def list_transcripts(project_id: UUID, filters: Annotated[TranscriptSearch, Query()],
                      database: Database, request: Request) -> TranscriptPage:
     begin_coherent_read(database)
-    return transcripts.list_transcripts(
+    return bound_search_page(transcripts.list_transcripts(
         database, project_id, filters, request.app.state.transcript_search_index,
-        maximum_content_bytes=settings_of(request).transcript_search_max_bytes)
+        maximum_content_bytes=settings_of(request).transcript_search_max_bytes))
 
 
 @router.post(_collection + "/search-content", response_model=TranscriptPage)
 def search_transcripts(project_id: UUID, payload: TranscriptSearch,
                        database: Database, request: Request) -> TranscriptPage:
     begin_coherent_read(database)
-    return transcripts.list_transcripts(
+    return bound_search_page(transcripts.list_transcripts(
         database, project_id, payload, request.app.state.transcript_search_index,
-        maximum_content_bytes=settings_of(request).transcript_search_max_bytes)
+        maximum_content_bytes=settings_of(request).transcript_search_max_bytes))
 
 
 @router.post(_collection + "/rebuild", response_model=TranscriptRebuildRead)

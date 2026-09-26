@@ -134,7 +134,7 @@ services:
 
   worker:
     build: *backend-build
-    command: [uvicorn, 'mnemonic_api.job_worker:create_app', --factory, --host, 0.0.0.0, --port, '8002', --no-access-log]
+    command: [uvicorn, 'mnemonic_api.job_worker:create_app', --factory, --host, 0.0.0.0, --port, '8002', --no-access-log, --log-config, logging.json]
     environment:
       DATABASE_URL: postgresql+psycopg://mnemonic_e2e:mnemonic_e2e_only@postgres:5432/mnemonic_e2e
       MNEMONIC_API_KEY: ${MNEMONIC_E2E_API_KEY:?Run through scripts/test-e2e.sh}

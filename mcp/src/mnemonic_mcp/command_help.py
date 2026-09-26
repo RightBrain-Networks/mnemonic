@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import json
+from textwrap import wrap
 from typing import Annotated
 
 from mcp.server.fastmcp import FastMCP
 from mcp.types import Tool, ToolAnnotations
 from pydantic import Field
 
+from .help_details import DETAILS
 from .help_guides import FIELD_NOTES, GUIDES
 from .help_schema import (
     Schema,
@@ -22,6 +24,7 @@ from .help_schema import (
     type_label,
     variants,
 )
+from .search_help import SEARCH_FIELD_NOTES, SEARCH_TOOLS
 
 
 def help_call(name: str = "", path: tuple[str, ...] = ()) -> str:
@@ -68,6 +71,11 @@ def _fields(schema: Schema, root: Schema) -> list[str]:
 
 def _notes(name: str, path: tuple[str, ...], schema: Schema, root: Schema) -> list[str]:
     lines = []
+    description = resolve(schema, root).get("description")
+    if path and description:
+        lines.append(description)
+    if path and name in SEARCH_TOOLS and path[-1] in SEARCH_FIELD_NOTES:
+        lines.append(SEARCH_FIELD_NOTES[path[-1]])
     if path and path[-1] in FIELD_NOTES:
         lines.append(FIELD_NOTES[path[-1]])
     if not path and name == "complete_work":
@@ -114,6 +122,28 @@ def _usage(tool: Tool) -> str:
     if tool.name == "complete_work":
         lines.append("After an unknown outcome: at most one identical retry, then reconcile with safe "
                      "reads and request direction if still ambiguous.")
+    if tool.name in DETAILS:
+        lines.append("Complete guidance: " + help_call(tool.name, ("details",)))
+    lines.append("Arguments: " + help_call(tool.name))
+    return "\n".join(lines)
+
+
+
+def _details(tool: Tool, path: tuple[str, ...]) -> str:
+    reference = DETAILS.get(tool.name)
+    if reference is None:
+        return "No extended guidance. Workflow: " + help_call(tool.name, ("usage",))
+    pages = wrap(" ".join(reference.split()), width=1600,
+                 break_long_words=False, break_on_hyphens=False)
+    requested = path[1] if len(path) == 2 else "1" if len(path) == 1 else ""
+    if not requested.isascii() or not requested.isdecimal() or not 1 <= int(requested) <= len(pages):
+        return "Choose guidance page 1–" + str(len(pages)) + ": " + help_call(
+            tool.name, ("details", "1"),
+        )
+    number = int(requested)
+    lines = [f"{tool.name} complete guidance ({number}/{len(pages)})", pages[number - 1]]
+    if number < len(pages):
+        lines.append("Next: " + help_call(tool.name, ("details", str(number + 1))))
     lines.append("Arguments: " + help_call(tool.name))
     return "\n".join(lines)
 
@@ -128,6 +158,8 @@ def render_help(topic: str, tools: dict[str, Tool]) -> str:
     path = tuple(part.removesuffix("[]") for token in parts[1:] for part in token.split("."))
     if path == ("usage",):
         return _usage(tool)
+    if path and path[0] == "details":
+        return _details(tool, path)
     full_schema = bool(path and path[-1] == "schema")
     if full_schema:
         path = path[:-1]
@@ -150,6 +182,6 @@ def register_help_tool(server: FastMCP) -> None:
         structured_output=False,
     )
     async def help(topic: Annotated[str, Field(max_length=400)] = "") -> str:
-        """Compact command help, no project or API call. Empty topic lists commands. topic='<command>' shows arguments; append usage for workflow or field/variant names to drill down. topic='<command> schema' returns its full input JSON Schema; '<command> <field> schema' returns only that subtree. Example: topic='complete_work completion_evidence verification_results command'. Plain text, one page per call; schemas appear only on explicit request."""
+        """Compact command help, no project or API call. Empty topic lists commands. topic='<command>' shows arguments; append usage for workflow, details for complete guidance, or field/variant names to drill down. topic='<command> schema' returns its full input JSON Schema; '<command> <field> schema' returns only that subtree. Example: topic='complete_work completion_evidence verification_results command'. Plain text, one page per call; schemas appear only on explicit request."""
         tools = {tool.name: tool for tool in await server.list_tools()}
         return render_help(topic, tools)

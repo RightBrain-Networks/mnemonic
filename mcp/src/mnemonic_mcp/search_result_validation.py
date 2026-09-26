@@ -8,13 +8,16 @@ from .search_models import (
     TranscriptFacetHit,
     WorkFacetHit,
 )
+from .search_pagination import pagination_matches
 from .search_query import QueryMode, WorkField, evidence_matches
 from .search_ranking import ranking_matches, semantic_matches, source_ranking
 
 
 def work_ranking_matches(page: WorkPage, query: str | None, mode: QueryMode,
                          fields: list[WorkField], semantic: bool) -> bool:
-    if not ranking_matches(page, query, mode, work=True, semantic=semantic):
+    if not pagination_matches(page) or not ranking_matches(
+        page, query, mode, work=True, semantic=semantic,
+    ):
         return False
     for position, item in enumerate(page.items, page.offset + 1):
         if not {"rank", "score", "score_type"} <= item.model_fields_set:

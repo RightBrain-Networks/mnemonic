@@ -56,6 +56,7 @@ from mnemonic_api.errors import (
 )
 from mnemonic_api.inference import inference_failure_reason
 from mnemonic_api.schemas import APIModel
+from mnemonic_api.search_pagination import bound_search_page
 from mnemonic_api.semantic import semantic_query_vector
 from mnemonic_api.services.artifact_search import ArtifactSearchIndex, search_artifact_contents
 from mnemonic_api.services.artifacts import (
@@ -506,7 +507,7 @@ async def search_contents(
             query_vector=query_vector, artifact_chunk_config=artifact_chunk_config,
         )
 
-    return await run_in_threadpool(search)
+    return bound_search_page(await run_in_threadpool(search))
 
 
 async def _search_payload(request: Request) -> ArtifactSearchRequest:

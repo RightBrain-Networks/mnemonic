@@ -182,6 +182,12 @@ past the end returns an empty page with accurate totals. Pagination is stable
 for unchanged data; restart at offset zero when completeness matters after
 concurrent edits or indexing.
 
+Search pages have a 32,768-byte result budget. Follow `next_offset` until null;
+`page_truncated` identifies pages shortened by this budget. Requested `limit`,
+ranking, totals and coverage remain intact. A singleton or envelope that cannot
+fit returns `413 search_result_too_large` with compact/detail-read guidance. See
+[0.76.0 search usability](search-agent-usability.md) for exact accounting.
+
 ## Results and coverage
 
 Each unified result has `facet`, `id`, `created_at`, `updated_at`, and common `score`,
@@ -311,26 +317,30 @@ neighbors; `browsed_records` counts a filter-only listing. Unified pages also us
 `facet_total_kinds` and `facet_score_types` retain each source's meaning; null marks
 an unsearched source rather than an empty searched source.
 
-The `semantic` block separates inference from coverage. `inference.status` is
+The `semantic` block is omitted when unrequested; when present, it separates inference from coverage. `inference.status` is
 `not_requested`, `completed`, or `unavailable`. Unavailable inference carries the
-safe reason `capacity_exhausted`, `deadline_exceeded`, or `model_failure`.
+safe reason `capacity_exhausted`, `deadline_exceeded`, `model_failure`, or `vectors_pending`.
 `candidate_scope` independently names `none`, `full_scope`, or `lexical_shortlist`;
 `partial_vectors` reports missing vectors within the semantic candidate set.
 `comparison_incomplete` remains true for a shortlist, partial vectors, or a failed
 semantic comparison. It does not classify a result as a duplicate or clear a
 candidate for creation.
 
-Duplicate suggestions retain their existing advisory lexical fallback. An
-unavailable semantic comparison includes `retry={max_attempts:1,after_seconds:1}`;
-a caller may retry once or continue saving work with the incomplete comparison
-visible. Resource and deadline errors use the same bounded retry guidance and
-`Retry-After: 1`. Search and duplicate suggestion share a bounded FIFO queue and model pool while
-retaining their different candidate and cache composition policies. Admission is
+Duplicate suggestions retain advisory lexical fallback. Missing vectors queue
+background `duplicate_embed` batches and report `vectors_pending` with
+`cache_refresh.status=queued`; warm vectors rank synchronously within a
+four-second work budget after a coherent lexical snapshot is retained. Source
+capture keeps the outer API/MCP ceilings of 45/50 seconds. Only
+`capacity_exhausted` includes `retry={max_attempts:1,after_seconds:1}`.
+`deadline_exceeded`, `model_failure` and `vectors_pending` have no immediate retry.
+Continue saving work with incomplete comparison visible. Search and duplicate
+query inference share a bounded FIFO queue and model pool while retaining
+independent cache rows and candidate/composition policies. Admission is
 per native call; defaults are two model workers, eight waiting calls, and a
 five-second wait clipped to remaining request/stage time. Database and cache work
 do not occupy a model slot. See [semantic inference](semantic-inference.md).
 
-`semantic.cache_refresh` independently reports `not_needed`, `completed`, or
+`semantic.cache_refresh` independently reports `not_needed`, `completed`, `queued`, or
 `failed`, with `reason=cache_refresh_failed` only for failure. Once coherent
 ranking succeeds, failure to persist disposable embedding cache rows preserves
 that ranking and the successful inference status. A later request can rebuild

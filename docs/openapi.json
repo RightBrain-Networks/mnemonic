@@ -1694,10 +1694,27 @@
             "title": "Match Mode",
             "type": "string"
           },
+          "next_offset": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Offset"
+          },
           "offset": {
             "minimum": 0.0,
             "title": "Offset",
             "type": "integer"
+          },
+          "page_truncated": {
+            "default": false,
+            "title": "Page Truncated",
+            "type": "boolean"
           },
           "query_interpretation": {
             "$ref": "#/components/schemas/QueryInterpretation"
@@ -1999,7 +2016,8 @@
             "enum": [
               "not_needed",
               "completed",
-              "failed"
+              "failed",
+              "queued"
             ],
             "title": "Status",
             "type": "string"
@@ -4058,6 +4076,7 @@
             "type": "array"
           },
           "excerpts_truncated": {
+            "default": false,
             "title": "Excerpts Truncated",
             "type": "boolean"
           },
@@ -4175,7 +4194,6 @@
         },
         "required": [
           "rank",
-          "excerpts_truncated",
           "evidence_mode",
           "matched_fields",
           "excerpts",
@@ -4597,6 +4615,7 @@
             "type": "array"
           },
           "excerpts_truncated": {
+            "default": false,
             "title": "Excerpts Truncated",
             "type": "boolean"
           },
@@ -4703,7 +4722,6 @@
         },
         "required": [
           "rank",
-          "excerpts_truncated",
           "evidence_mode",
           "matched_fields",
           "excerpts",
@@ -11218,10 +11236,27 @@
             "title": "Limit",
             "type": "integer"
           },
+          "next_offset": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Offset"
+          },
           "offset": {
             "minimum": 0.0,
             "title": "Offset",
             "type": "integer"
+          },
+          "page_truncated": {
+            "default": false,
+            "title": "Page Truncated",
+            "type": "boolean"
           },
           "project_coverage": {
             "items": {
@@ -11714,7 +11749,8 @@
                 "enum": [
                   "capacity_exhausted",
                   "deadline_exceeded",
-                  "model_failure"
+                  "model_failure",
+                  "vectors_pending"
                 ],
                 "type": "string"
               },
@@ -12691,9 +12727,26 @@
             "title": "Limit",
             "type": "integer"
           },
+          "next_offset": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Offset"
+          },
           "offset": {
             "title": "Offset",
             "type": "integer"
+          },
+          "page_truncated": {
+            "default": false,
+            "title": "Page Truncated",
+            "type": "boolean"
           },
           "query_interpretation": {
             "$ref": "#/components/schemas/QueryInterpretation"
@@ -17027,9 +17080,26 @@
             "title": "Limit",
             "type": "integer"
           },
+          "next_offset": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Offset"
+          },
           "offset": {
             "title": "Offset",
             "type": "integer"
+          },
+          "page_truncated": {
+            "default": false,
+            "title": "Page Truncated",
+            "type": "boolean"
           },
           "query_interpretation": {
             "$ref": "#/components/schemas/QueryInterpretation"
@@ -17566,7 +17636,7 @@
   "info": {
     "description": "Durable project-scoped work with immutable agent checkpoints.",
     "title": "Mnemonic API",
-    "version": "0.75.0"
+    "version": "0.76.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -17904,7 +17974,7 @@
             "schema": {
               "anyOf": [
                 {
-                  "maxLength": 200,
+                  "maxLength": 1000,
                   "minLength": 1,
                   "type": "string"
                 },
@@ -18251,7 +18321,7 @@
                     "type": "integer"
                   },
                   "q": {
-                    "maxLength": 200,
+                    "maxLength": 1000,
                     "minLength": 1,
                     "title": "Q",
                     "type": "string"
@@ -18832,7 +18902,7 @@
             "schema": {
               "anyOf": [
                 {
-                  "maxLength": 200,
+                  "maxLength": 1000,
                   "minLength": 1,
                   "type": "string"
                 },
@@ -22374,7 +22444,7 @@
             "schema": {
               "anyOf": [
                 {
-                  "maxLength": 500,
+                  "maxLength": 1000,
                   "type": "string"
                 },
                 {

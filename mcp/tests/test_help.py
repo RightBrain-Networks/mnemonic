@@ -181,3 +181,66 @@ def test_scoped_schema_preserves_recursive_refs_literals_and_long_patterns():
     validator.validate({"title": "a" * 121, "description": {"title": "literal", "default": 1},
                         "children": [None, [None]]})
     assert not validator.is_valid({"title": "a" * 121})
+
+
+def test_registered_descriptions_fit_clients_and_keep_search_preconditions(catalog):
+    for name, tool in catalog.items():
+        assert len(tool.description or "") <= 2048, name
+    assert "semantic=true" in catalog["search_work"].description[:700]
+    artifact_intro = catalog["search_artifact_contents"].description[:1500]
+    assert "fulltext=true" in artifact_intro
+    assert "HUMAN APPROVAL REQUIRED" in artifact_intro
+    assert "five minutes" in artifact_intro and "single-use" in artifact_intro
+    assert "content_kinds also requires fulltext=true" in (
+        catalog["search_transcript_contents"].description[:700]
+    )
+    assert "search_transcript_contents(work_item_id=...)" in catalog["get_work"].description
+    assert "search_transcripts_content" not in catalog["get_work"].description
+
+
+def test_full_guidance_is_bounded_navigable_and_lossless(catalog):
+    from mnemonic_mcp.help_details import DETAILS
+
+    for name, original in DETAILS.items():
+        texts = []
+        number = 1
+        while True:
+            page = render_help(f"{name} details {number}", catalog)
+            assert len(page) < 1800, (name, number)
+            assert f"{name} complete guidance ({number}/" in page
+            assert 'Arguments: help(' in page
+            texts.append(page.splitlines()[1])
+            if "\nNext: " not in page:
+                break
+            assert f'help({{"topic":"{name} details {number + 1}"}})' in page
+            number += 1
+        assert " ".join(texts) == " ".join(original.split())
+        assert render_help(f"{name} details", catalog) == render_help(f"{name} details 1", catalog)
+        assert "Complete guidance:" in render_help(f"{name} usage", catalog)
+    assert "Choose guidance page" in render_help("search details 999", catalog)
+    assert "Choose guidance page" in render_help("search details invalid", catalog)
+    assert "No extended guidance" in render_help("get_work details", catalog)
+
+
+@pytest.mark.parametrize(("topic", "requirements"), [
+    ("search_work semantic", ("Find paraphrases", "all work_fields", "latency", "cache_refresh")),
+    ("search filters work_items semantic", ("Find paraphrases", "all work_fields", "latency")),
+    ("search filters artifacts semantic", ("fulltext=true", "embedding coverage", "text_sha256")),
+    ("search_artifact_contents semantic", ("fulltext=true", "probability", "text_sha256")),
+])
+def test_semantic_field_help_and_schema_explain_preconditions_cost_and_coverage(
+    catalog, topic, requirements,
+):
+    page = render_help(topic, catalog)
+    for requirement in requirements:
+        assert requirement in page
+    schema = json.loads(render_help(topic + " schema", catalog))
+    assert schema["description"]
+    assert "Default: false" in page
+
+
+def test_search_field_help_explains_matching_and_scope(catalog):
+    assert "grant access" in render_help("search fulltext", catalog)
+    assert "zero means measured zero" in render_help("search diagnostics", catalog)
+    assert "native role" in render_help("search_transcript_contents content_kinds", catalog)
+    assert "all six" in render_help("search_work work_fields", catalog)

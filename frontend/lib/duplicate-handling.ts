@@ -1,3 +1,4 @@
+import { searchPageKeys, searchPagination, validSearchPagination } from "./search-pagination.ts";
 import { validateSourceRanking, decodeSearchRanking, decodeHitRanking, SEARCH_RANKING_FIELDS, HIT_RANKING_FIELDS } from "./search-ranking.ts";
 import { decodeWorkEvidence, EVIDENCE_FIELDS, type QueryMode } from "./search-evidence.ts";
 import { decodeTermDiagnostics } from "./search-diagnostics.ts";
@@ -103,7 +104,7 @@ export const DUPLICATE_HANDLING_DECODER_FIELDS = {
   decodeWorkContext: [...CONTEXT_FIELDS, "code_review_context", "transcripts"],
   decodeWorkItemDetail: [...DETAIL_FIELDS, "code_review_context", "transcripts"],
   "decodeWorkSearchPage:item": SEARCH_HIT_FIELDS,
-  decodeWorkSearchPage: [...PAGE_FIELDS, "detail", "work_rank_scope", "term_diagnostics", ...SEARCH_DISCLOSURE_FIELDS, ...SEARCH_RANKING_FIELDS]
+  decodeWorkSearchPage: [...PAGE_FIELDS, "next_offset", "page_truncated", "detail", "work_rank_scope", "term_diagnostics", ...SEARCH_DISCLOSURE_FIELDS, ...SEARCH_RANKING_FIELDS]
 } as const;
 
 function pointerEqual(left: WorkIdentityPointer, right: WorkIdentityPointer): boolean {
@@ -229,7 +230,8 @@ export function decodeWorkSearchPage(
   const duplicateScope = options.duplicateScope ?? "canonical";
   if (
     !page
-    || !exactKeys(page, [...PAGE_FIELDS, "detail", "work_rank_scope", "term_diagnostics", ...SEARCH_DISCLOSURE_FIELDS, ...SEARCH_RANKING_FIELDS])
+    || !searchPageKeys(page, [...PAGE_FIELDS, "detail", "work_rank_scope", "term_diagnostics", ...SEARCH_DISCLOSURE_FIELDS, ...SEARCH_RANKING_FIELDS])
+    || !validSearchPagination(page)
     || page.detail !== "full" || page.work_rank_scope !== "work_items"
     || !Array.isArray(page.items)
     || !finiteInteger(page.total)
@@ -280,7 +282,7 @@ export function decodeWorkSearchPage(
     throw new Error("Mnemonic returned repeated work search hits.");
   }
   return {
-    ...disclosure, ...ranking,
+    ...disclosure, ...ranking, ...searchPagination(page),
     detail: "full",
     work_rank_scope: "work_items",
     term_diagnostics,

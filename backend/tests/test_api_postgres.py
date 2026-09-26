@@ -431,7 +431,7 @@ def test_two_simultaneous_writers_cannot_overwrite_each_other(api, project, work
         {"offset": -1},
         {"sort": "oldest"},
         {"status": "deleted"},
-        {"q": "x" * 501},
+        {"q": "x" * 1001},
         {"tag": " "},
         {"semantic": "sometimes"},
         {"q": "bad\x00query"},

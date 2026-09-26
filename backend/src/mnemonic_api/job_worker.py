@@ -19,6 +19,10 @@ from mnemonic_api.artifact_passage_jobs import (
 from mnemonic_api.artifact_tokenizer import passage_tokenizer
 from mnemonic_api.config import Settings
 from mnemonic_api.database import build_engine, build_session_factory
+from mnemonic_api.duplicate_embedding_jobs import (
+    enqueue_duplicate_embedding_jobs,
+    handle_duplicate_embedding,
+)
 from mnemonic_api.semantic import FastembedEmbedder
 from mnemonic_api.transcript_copies import TranscriptStorage
 from mnemonic_api.transcript_health import TranscriptHealthReporter
@@ -68,6 +72,7 @@ def schedule_jobs(database: Session, settings: Settings, backups: BackupSettings
     enqueue_transcript_jobs(database, settings)
     if tokenizer is not None:
         enqueue_artifact_passage_jobs(database, tokenizer)
+    enqueue_duplicate_embedding_jobs(database)
     schedule_backups(database, backups)
 
 
@@ -106,6 +111,7 @@ def create_app() -> FastAPI:
                     handle_transcript_index, factory, settings,
                 ),
                 "backup_create": app.state.backup_service.handle_job,
+                "duplicate_embed": partial(handle_duplicate_embedding, factory, embedder),
                 "artifact_embed": partial(
                     _artifact_embedding_job, settings, factory, embedder),
             }, partial(schedule_jobs, settings=settings, backups=backups,

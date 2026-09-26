@@ -40,6 +40,7 @@ from mnemonic_api.artifact_passage_db import (
     passage_index_elements,
 )
 from mnemonic_api.background_job_db import job_elements
+from mnemonic_api.duplicate_embedding_db import refresh_elements
 from mnemonic_api.transcript_health_db import diagnostic_columns, worker_health_elements
 from mnemonic_api.transcript_metadata_db import metadata_columns
 from mnemonic_api.transcript_normalization_db import normalization_elements, segment_elements
@@ -655,11 +656,17 @@ class WorkItemEmbedding(Base):
     """Disposable local-model output; work/checkpoint rows remain canonical."""
 
     __tablename__ = "work_item_embeddings"
-    __table_args__ = (CheckConstraint("cardinality(vector) > 0", name="vector_nonempty"),)
+    __table_args__ = (
+        CheckConstraint("cardinality(vector) > 0", name="vector_nonempty"),
+        CheckConstraint("purpose IN ('work_search', 'duplicate_suggestions')",
+                        name="purpose_valid"),
+    )
 
     work_item_id: Mapped[UUID] = mapped_column(
         ForeignKey("work_items.id", ondelete="CASCADE"), primary_key=True
     )
+    purpose: Mapped[str] = mapped_column(String(30), primary_key=True, default="work_search",
+                                       server_default="work_search")
     model: Mapped[str] = mapped_column(String(300))
     digest: Mapped[str] = mapped_column(String(64))
     vector: Mapped[list[float]] = mapped_column(ARRAY(REAL))
@@ -2279,8 +2286,13 @@ class TranscriptImport(Base):
     created_at: Mapped[datetime]
 
 
+class DuplicateEmbeddingRefresh(Base):
+    __table__ = Table("duplicate_embedding_refreshes", Base.metadata, *refresh_elements())
+
+
 class BackgroundJob(Base):
-    __table__ = Table("background_jobs", Base.metadata, *job_elements(artifact_embeddings=True))
+    __table__ = Table("background_jobs", Base.metadata,
+                      *job_elements(artifact_embeddings=True, duplicate_embeddings=True))
 
     id: Mapped[UUID]
     kind: Mapped[str]

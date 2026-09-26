@@ -86,7 +86,7 @@ test("manual external comparison has independent results, stale populations, una
     const input = route.request().postDataJSON();
     const { body: _body, ...reference } = input.external_candidates[0];
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({
-      items: [], limit: input.limit, mode: "lexical", semantic: { inference: { status: "unavailable", reason: "model_failure" }, candidate_scope: "none", partial_vectors: false, comparison_incomplete: true, retry: { max_attempts: 1, after_seconds: 1 }, cache_refresh: { status: "not_needed", reason: null } }, semantic_available: false,
+      items: [], limit: input.limit, mode: "lexical", semantic: { inference: { status: "unavailable", reason: "model_failure" }, candidate_scope: "none", partial_vectors: false, comparison_incomplete: true, retry: null, cache_refresh: { status: "not_needed", reason: null } }, semantic_available: false,
       semantic_scope: "unavailable", composition_version: "duplicate-suggestion-v1",
       exact_title_group_total: 0, omitted_exact_title_group_count: 0,
       external_items: unavailable ? [] : [{ rank: 1, signals: ["exact_title", "lexical"], reference }],
@@ -133,7 +133,7 @@ test("resuming a draft after inspecting suggestions preserves authored reference
       items: [{ canonical_work: { work_item_id: work.id, title: work.title, summary: work.summary,
         status: work.status, updated_at: work.updated_at, duplicate_member_count: 0 },
         matched_member: { id: work.id, title: work.title, status: work.status }, rank: 1, signals: ["lexical"] }],
-      limit: 5, mode: "lexical", semantic: { inference: { status: "unavailable", reason: "model_failure" }, candidate_scope: "none", partial_vectors: false, comparison_incomplete: true, retry: { max_attempts: 1, after_seconds: 1 }, cache_refresh: { status: "not_needed", reason: null } }, semantic_available: false, semantic_scope: "unavailable",
+      limit: 5, mode: "lexical", semantic: { inference: { status: "unavailable", reason: "model_failure" }, candidate_scope: "none", partial_vectors: false, comparison_incomplete: true, retry: null, cache_refresh: { status: "not_needed", reason: null } }, semantic_available: false, semantic_scope: "unavailable",
       composition_version: "duplicate-suggestion-v1", exact_title_group_total: 0, omitted_exact_title_group_count: 0
     })
   }));

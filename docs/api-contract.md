@@ -3,8 +3,8 @@
 Use [unified search](search.md) to retrieve work, artifacts, and transcripts in one
 ranked, filtered, paginated read through REST or MCP.
 
-This is application/API/MCP/dashboard `0.75.0`, plugin `0.44.0`, and migration
-`0048_force_claims`. The catalog has exactly 57 MCP tools, 17
+This is application/API/MCP/dashboard `0.76.0`, plugin `0.44.0`, and migration
+`0049_duplicate_embeddings`. The catalog has exactly 57 MCP tools, 17
 protected MCP writes, 24 REST receipt kinds, 21 protected browser mutations and
 24 work-event types. The 24 REST receipt kinds comprise 18 work operations, four artifact operations
 with filesystem recovery journals, and two transcript operations (rebuild and import). See
@@ -162,8 +162,10 @@ reviewed revisions, tokens, operation IDs, or arbitrary endpoint IDs.
 Suggestion-specific failures are `request_body_too_large` (413),
 `duplicate_suggestion_busy` (429 with `Retry-After: 1`), and
 `duplicate_suggestion_unavailable` (503). The suggestion operation is a safe
-read: its timeout/429/503 may be retried normally and never imply an unknown
-structural write. Creation remains independent.
+read: its timeout/429/503 never implies an unknown structural write. Only typed
+capacity exhaustion offers one immediate retry after one second; deadline, model
+and pending-vector results do not. Creation remains independent. Missing vectors
+queue background batches; see [search usability](search-agent-usability.md).
 
 Completion evidence adds sanitized `completion_evidence_unavailable` (503) for
 a history representation whose stored identity, generation, ordering, or size
@@ -1564,7 +1566,9 @@ Execution conflicts, malformed successes, and uncertain outcomes retain their
 existing guidance. The read-only `help(topic="")` tool lists the command catalog;
 `help(topic="complete_work")` gives compact arguments, while
 `help(topic="complete_work usage")` explains workflow. Subsequent field/variant
-names navigate deeper.
+names navigate deeper. `help(topic="search details")` opens bounded complete
+guidance with numbered continuations; advertised tool descriptions fit within
+2,048 characters and semantic field schemas explain prerequisites and coverage.
 Appending `schema` explicitly retrieves the complete registered input schema or a
 field's subtree with only its referenced definitions. Plain-text help appears
 once, with no duplicate structured output. All validation rules still apply,

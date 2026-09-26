@@ -64,6 +64,7 @@ from mnemonic_api.phase12_schemas import (
 from mnemonic_api.search_diagnostics import TermDiagnostics
 from mnemonic_api.search_disclosure import SearchDisclosure
 from mnemonic_api.search_exploration_schemas import SearchOptions
+from mnemonic_api.search_pagination import SearchPagination
 from mnemonic_api.search_query import QueryMode, parse_query
 from mnemonic_api.search_ranking import SearchHitRanking, SearchRanking, SemanticDisposition
 from mnemonic_api.transcript_locations import TranscriptLocation, TranscriptSources
@@ -2825,8 +2826,13 @@ class CompactWorkHit(WorkMatchEvidence, SearchHitRanking):
     rank: int = Field(ge=1, description="One-based rank within the complete work result set.")
     canonical_work_item_id: UUID
     search_status: WorkSearchStatus
-    ancestor_path: list[WorkIdentityPointer] = Field(default_factory=list)
-    ancestor_path_truncated: bool = False
+    ancestor_path: list[WorkIdentityPointer] = Field(
+        default_factory=list, exclude_if=lambda value: not value,
+    )
+    ancestor_path_truncated: bool = Field(
+        default=False, exclude_if=lambda value: not value,
+    )
+    excerpts_truncated: bool = Field(default=False, exclude_if=lambda value: not value)
     matched_member: WorkIdentityPointer | None = Field(
         default=None, exclude_if=lambda value: value is None,
     )
@@ -4266,7 +4272,7 @@ class ProjectListQuery(APIModel):
     offset: int = Field(default=0, ge=0)
 
 
-class WorkSearchPage(APIModel, SearchDisclosure, SearchRanking):
+class WorkSearchPage(APIModel, SearchDisclosure, SearchRanking, SearchPagination):
     term_diagnostics: TermDiagnostics = Field(default_factory=list)
     detail: Literal["compact", "full"]
     work_rank_scope: Literal["work_items"]
@@ -4289,7 +4295,7 @@ class WorkItemListQuery(APIModel, SearchOptions):
     query_mode: QueryMode = "terms"
     work_fields: WorkFields = Field(default_factory=lambda: list(WORK_FIELDS))
     external_url: ExternalURL | None = None
-    q: Annotated[str, StringConstraints(max_length=500), AfterValidator(no_nul)] | None = None
+    q: Annotated[str, StringConstraints(max_length=1000), AfterValidator(no_nul)] | None = None
     semantic: bool = False
     detail: Literal["compact", "full"] = "compact"
     status: Literal[
