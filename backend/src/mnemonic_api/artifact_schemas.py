@@ -161,7 +161,7 @@ class ArtifactHistory(ArtifactModel):
 
 
 class ArtifactListQuery(ArtifactModel):
-    q: str | None = Field(default=None, min_length=1, max_length=200)
+    q: str | None = Field(default=None, min_length=1, max_length=1000)
     work_item_id: UUID | None = None
     include_deleted: bool = False
     sort: Literal["filename", "created_at", "modified_at", "size_bytes", "revision"] = "filename"
@@ -171,6 +171,6 @@ class ArtifactListQuery(ArtifactModel):
 
 
 class ArtifactHistoryQuery(ArtifactModel):
-    q: str | None = Field(default=None, min_length=1, max_length=200)
+    q: str | None = Field(default=None, min_length=1, max_length=1000)
     limit: int = Field(default=50, ge=1, le=100)
     offset: int = Field(default=0, ge=0, le=1_000_000)

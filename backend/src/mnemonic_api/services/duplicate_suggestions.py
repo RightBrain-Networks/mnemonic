@@ -14,7 +14,6 @@ from typing import Any
 from uuid import UUID
 
 from sqlalchemy import func, select, text
-from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.engine import RowMapping
 from sqlalchemy.orm import Session
 
@@ -22,7 +21,7 @@ from mnemonic_api.config import Settings
 from mnemonic_api.database import begin_coherent_read
 from mnemonic_api.errors import duplicate_graph_invalid
 from mnemonic_api.external_references import ExternalReference
-from mnemonic_api.inference import inference_failure_reason
+from mnemonic_api.inference import inference_failure_reason, with_inference_deadline
 from mnemonic_api.models import WorkItem, WorkItemEmbedding, WorkStatus
 from mnemonic_api.pool_deadlines import pool_checkout_deadline
 from mnemonic_api.schemas import (
@@ -41,7 +40,7 @@ from mnemonic_api.search_ranking import (
     completed_semantic,
     unavailable_semantic,
 )
-from mnemonic_api.search_timing import refresh_cache, timed_phase
+from mnemonic_api.search_timing import timed_phase
 from mnemonic_api.semantic import (
     BGE_QUERY_PREFIX,
     EMBED_BATCH_SIZE,
@@ -55,6 +54,7 @@ from mnemonic_api.semantic import (
 )
 from mnemonic_api.services.duplicates import canonical_group_snapshot
 from mnemonic_api.services.work_items import missing_work_item, require_project
+from mnemonic_api.suggestion_deadlines import SUGGESTION_INTERACTIVE_SECONDS
 
 logger = logging.getLogger(__name__)
 
@@ -423,30 +423,52 @@ def capture_internal_suggestions(
     if on_result is not None:
         on_result(InternalSuggestionResult(
             _lexical_page(snapshot, payload.limit, reason="deadline_exceeded"), None))
+    deadline = min(deadline, monotonic() + SUGGESTION_INTERACTIVE_SECONDS)
+    embedder = with_inference_deadline(embedder, deadline)
+    refresh = _request_background_refresh(database, project_id, snapshot, deadline)
+    if snapshot.eligible_ids and not any(
+        item.cached_vector is not None for item in snapshot.vectors_by_id.values()
+    ):
+        page = _lexical_page(snapshot, payload.limit, reason="vectors_pending")
+        page.semantic.cache_refresh = refresh
+        query_vector = _query_vector(embedder, payload)[0] if payload.external_candidates else None
+        return InternalSuggestionResult(page, query_vector)
     query_vector, reason = _query_vector(embedder, payload)
     if query_vector is None:
-        return InternalSuggestionResult(_lexical_page(
-            snapshot, payload.limit, reason=reason or "model_failure"), query_vector)
+        page = _lexical_page(snapshot, payload.limit, reason=reason or "model_failure")
+        page.semantic.cache_refresh = refresh
+        return InternalSuggestionResult(page, None)
+    if any(item.cached_vector is not None and len(item.cached_vector) != len(query_vector)
+           for item in snapshot.vectors_by_id.values()):
+        refresh = _request_background_refresh(
+            database, project_id, snapshot, deadline, dimensions=len(query_vector))
     try:
         _remaining_deadline_milliseconds(deadline)
-        with timed_phase("duplicate_suggestions", "document_inference"):
-            page, updates = _semantic_page(
-                snapshot, payload.limit, query_vector, embedder, settings)
+        page = _semantic_page(snapshot, payload.limit, query_vector, settings)
     except Exception as exc:
         logger.warning("Duplicate suggestion semantic fallback (%s)", type(exc).__name__)
-        return InternalSuggestionResult(_lexical_page(
-            snapshot, payload.limit, reason=inference_failure_reason(exc)), query_vector)
-    if on_result is not None and updates:
-        # Publish an independent response before derived writes. A cache stall
-        # cannot replace a completed ranking with a lexical or generic failure.
-        retained = page.model_copy(deep=True)
-        retained.semantic.cache_refresh = CacheRefresh(
-            status="failed", reason="cache_refresh_failed")
-        on_result(InternalSuggestionResult(retained, query_vector))
-    page.semantic.cache_refresh = refresh_cache("duplicate_suggestions", bool(updates),
-        lambda: _persist_cache_updates(database, updates, dimensions=len(query_vector),
-                                        deadline=deadline))
+        page = _lexical_page(snapshot, payload.limit, reason=inference_failure_reason(exc))
+    page.semantic.cache_refresh = refresh
     return InternalSuggestionResult(page, query_vector)
+
+
+def _request_background_refresh(
+    database: Session, project_id: UUID, snapshot: CapturedSuggestionSnapshot, deadline: float,
+    *, dimensions: int | None = None,
+) -> CacheRefresh:
+    from mnemonic_api.duplicate_embedding_jobs import request_refresh
+
+    try:
+        with timed_phase("duplicate_suggestions", "cache_refresh"):
+            state = request_refresh(database, project_id, snapshot.vectors_by_id, deadline=deadline,
+                                    dimensions=dimensions)
+        if state == "queued":
+            return CacheRefresh(status="queued")
+        if state == "not_needed":
+            return CacheRefresh()
+    except Exception as error:
+        logger.warning("Duplicate refresh enrollment failed (%s)", type(error).__name__)
+    return CacheRefresh(status="failed", reason="cache_refresh_failed")
 
 
 def _query_vector(
@@ -812,6 +834,7 @@ def _capture_vectors(
         for row in database.scalars(
             select(WorkItemEmbedding).where(
                 WorkItemEmbedding.work_item_id.in_(ids),
+                WorkItemEmbedding.purpose == "duplicate_suggestions",
             )
         )
     }
@@ -882,9 +905,8 @@ def _semantic_page(
     snapshot: CapturedSuggestionSnapshot,
     limit: int,
     query_vector: Sequence[float],
-    embedder: Embedder,
     settings: Settings,
-) -> tuple[DuplicateSuggestionPage, list[CacheUpdate]]:
+) -> DuplicateSuggestionPage:
     all_cached = (
         snapshot.visible_member_count
         <= settings.duplicate_suggestion_full_population_ceiling
@@ -901,20 +923,14 @@ def _semantic_page(
             for work_item_id, candidate in snapshot.vectors_by_id.items()
             if candidate.cached_vector is not None
         }
-        return _hybrid_page(snapshot, limit, query_vector, vectors, mode="hybrid_full"), []
-    vectors, updates = _shortlist_vectors(snapshot, embedder, settings, len(query_vector))
-    return (
-        _hybrid_page(snapshot, limit, query_vector, vectors, mode="hybrid_shortlist"),
-        updates,
-    )
+        return _hybrid_page(snapshot, limit, query_vector, vectors, mode="hybrid_full")
+    vectors = _cached_shortlist_vectors(snapshot, len(query_vector))
+    return _hybrid_page(snapshot, limit, query_vector, vectors, mode="hybrid_shortlist")
 
 
-def _shortlist_vectors(
-    snapshot: CapturedSuggestionSnapshot,
-    embedder: Embedder,
-    settings: Settings,
-    dimensions: int,
-) -> tuple[dict[UUID, tuple[float, ...]], list[CacheUpdate]]:
+def _cached_shortlist_vectors(
+    snapshot: CapturedSuggestionSnapshot, dimensions: int,
+) -> dict[UUID, tuple[float, ...]]:
     candidate_ids = [
         snapshot.lexical_winner_by_root[root_id]
         for root_id in snapshot.lexical_root_order
@@ -927,30 +943,9 @@ def _shortlist_vectors(
         if candidate.cached_vector is not None
         and len(candidate.cached_vector) == dimensions
     }
-    missing = [candidate for candidate in candidates if candidate.work.id not in vectors]
-    logger.info("Suggestion vector cache ready=%d missing=%d", len(vectors), len(missing))
-    missing = missing[: settings.duplicate_suggestion_missing_vector_limit]
-    updates: list[CacheUpdate] = []
-    for start in range(0, len(missing), EMBED_BATCH_SIZE):
-        batch = missing[start : start + EMBED_BATCH_SIZE]
-        embedded = embedder.embed_documents([candidate.text for candidate in batch])
-        if len(embedded) != len(batch):
-            raise ValueError("Embedding model returned the wrong number of vectors")
-        for candidate, raw_vector in zip(batch, embedded, strict=True):
-            vector = tuple(float(value) for value in raw_vector)
-            if not _valid_vector(vector, dimensions):
-                raise ValueError("Embedding model returned an invalid vector")
-            vectors[candidate.work.id] = vector
-            updates.append(
-                CacheUpdate(
-                    work_item_id=candidate.work.id,
-                    project_id=candidate.work.project_id,
-                    work_version=candidate.work.version,
-                    digest=candidate.digest,
-                    vector=vector,
-                )
-            )
-    return vectors, updates
+    logger.info("Suggestion vector cache ready=%d missing=%d", len(vectors),
+                len(candidates) - len(vectors))
+    return vectors
 
 
 def _hybrid_page(
@@ -1157,51 +1152,6 @@ def _page(
     )
 
 
-def _persist_cache_updates(
-    database: Session,
-    updates: Sequence[CacheUpdate],
-    *,
-    dimensions: int,
-    deadline: float,
-) -> bool:
-    if not updates or monotonic() >= deadline:
-        return False
-    by_id = {update.work_item_id: update for update in updates}
-    with Session(bind=database.get_bind()) as cache_database:
-        with pool_checkout_deadline(deadline):
-            cache_database.connection()
-        _set_transaction_deadline(
-            cache_database,
-            deadline,
-            lock_timeout_milliseconds=SUGGESTION_CACHE_LOCK_TIMEOUT_MS,
-        )
-        current = list(
-            cache_database.scalars(
-                select(WorkItem)
-                .where(WorkItem.id.in_(by_id), WorkItem.deleted_at.is_(None))
-                .order_by(WorkItem.id)
-                .with_for_update(skip_locked=True)
-            )
-        )
-        compositions = _bounded_compositions(cache_database, [item.id for item in current])
-        rows = _current_cache_rows(current, compositions, by_id, dimensions)
-        if rows:
-            statement = insert(WorkItemEmbedding).values(rows)
-            cache_database.execute(
-                statement.on_conflict_do_update(
-                    index_elements=[WorkItemEmbedding.work_item_id],
-                    set_={
-                        "model": statement.excluded.model,
-                        "digest": statement.excluded.digest,
-                        "vector": statement.excluded.vector,
-                        "updated_at": func.clock_timestamp(),
-                    },
-                )
-            )
-        cache_database.commit()
-    return True
-
-
 def _set_transaction_deadline(
     database: Session,
     deadline: float,
@@ -1254,6 +1204,7 @@ def _current_cache_rows(
         rows.append(
             {
                 "work_item_id": work_item.id,
+                "purpose": "duplicate_suggestions",
                 "model": _cache_version(dimensions),
                 "digest": update.digest,
                 "vector": list(update.vector),

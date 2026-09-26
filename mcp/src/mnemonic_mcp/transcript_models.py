@@ -20,6 +20,7 @@ from pydantic.experimental.missing_sentinel import MISSING
 
 from .search_diagnostics import TermDiagnostics
 from .search_disclosure import SearchDetail, SearchDisclosure
+from .search_pagination import SearchPagination
 from .search_ranking import ScoreType, SearchRanking
 from .transcript_segments import (
     ContentKind,
@@ -35,7 +36,7 @@ TranscriptOffset = Annotated[StrictInt, Field(ge=0, le=10_000)]
 TranscriptTextOffset = Annotated[StrictInt, Field(ge=0, le=1_073_741_824)]
 TranscriptTextLimit = Annotated[StrictInt, Field(ge=1, le=20_000)]
 TranscriptHash = Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
-TranscriptQuery = Annotated[str, Field(min_length=1, max_length=200)]
+TranscriptQuery = Annotated[str, Field(min_length=1, max_length=1000)]
 TranscriptStatus = Literal["waiting", "pending", "processing", "ready", "failed"]
 
 
@@ -192,7 +193,7 @@ class CompactTranscriptRead(TranscriptNormalization):
         return self
 
 
-class TranscriptPage(TranscriptModel, SearchDisclosure, SearchRanking):
+class TranscriptPage(TranscriptModel, SearchDisclosure, SearchRanking, SearchPagination):
     sort_by: Literal["name", "size", "session", "indexing", "updated"] | None = None
     sort_direction: Literal["asc", "desc"] = "desc"
     unsegmented_content_omitted: Annotated[StrictInt, Field(ge=0)] = 0

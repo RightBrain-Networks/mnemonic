@@ -64,6 +64,7 @@ from .phase12_models import JobCompletionReportRead, reject_null_report
 from .response_validation import validate_page_bounds, validate_page_items
 from .search_diagnostics import TermDiagnostics
 from .search_disclosure import SearchDetail, SearchDisclosure
+from .search_pagination import SearchPagination
 from .search_query import WorkMatchEvidence
 from .search_ranking import SearchHitRanking, SearchRanking, SemanticDisposition
 from .transcript_work_models import WorkTranscriptLinks
@@ -2518,8 +2519,13 @@ class CompactWorkHit(CanonicalResponse, WorkMatchEvidence, SearchHitRanking):
     search_status: Literal[
         "pending", "active", "to-review", "dropped", "deferred", "done", "wont-do", "promoted",
     ]
-    ancestor_path: list[WorkIdentityPointer] = Field(default_factory=list)
-    ancestor_path_truncated: StrictBool = False
+    ancestor_path: list[WorkIdentityPointer] = Field(
+        default_factory=list, exclude_if=lambda value: not value,
+    )
+    ancestor_path_truncated: StrictBool = Field(
+        default=False, exclude_if=lambda value: not value,
+    )
+    excerpts_truncated: StrictBool = Field(default=False, exclude_if=lambda value: not value)
     matched_member: WorkIdentityPointer | None = Field(
         default=None, exclude_if=lambda value: value is None,
     )
@@ -2557,7 +2563,7 @@ class CompactHierarchyHit(CompactWorkHit):
         return self
 
 
-class WorkPage(CanonicalResponse, SearchDisclosure, SearchRanking):
+class WorkPage(CanonicalResponse, SearchDisclosure, SearchRanking, SearchPagination):
     term_diagnostics: TermDiagnostics = Field(default_factory=list)
     detail: SearchDetail
     work_rank_scope: Literal["work_items"]

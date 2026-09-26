@@ -30,6 +30,7 @@ from mnemonic_api.search_exploration_schemas import (
     TagCountPage,
     TagCountRequest,
 )
+from mnemonic_api.search_pagination import SearchPagination
 from mnemonic_api.search_query import QueryMode, parse_query
 from mnemonic_api.search_ranking import (
     FacetScoreTypes,
@@ -256,13 +257,16 @@ class ProjectSearchCoverage(APIModel):
     indexing_incomplete: bool
 
 
-class SearchPage(APIModel, SearchDisclosure):
+class SearchPage(APIModel, SearchDisclosure, SearchPagination):
     project_coverage: list[ProjectSearchCoverage] = Field(min_length=1, max_length=10)
     score_type: ScoreType
     total_kind: TotalKind | Literal["mixed"]
     facet_total_kinds: FacetTotalKinds
     facet_score_types: FacetScoreTypes
-    semantic: SemanticDisposition = Field(default_factory=SemanticDisposition)
+    semantic: SemanticDisposition = Field(
+        default_factory=SemanticDisposition,
+        exclude_if=lambda value: value.inference.status == "not_requested",
+    )
     detail: Literal["compact", "full"]
     work_rank_scope: Literal["work_items"]
     tag_counts: TagCountPage | None = None

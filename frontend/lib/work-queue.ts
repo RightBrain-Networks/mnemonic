@@ -84,6 +84,22 @@ export function loadedOffsets(loadedCount: number, pageSize: number): number[] {
   return Array.from({ length: pages }, (_, index) => index * pageSize);
 }
 
+/** Refresh a contiguous prefix even when the byte budget changes page boundaries. */
+export async function reloadWorkPages<T>(
+  fetchPage: (offset: number) => Promise<Page<T>>,
+  targetCount: number
+): Promise<Page<T>[]> {
+  const pages: Page<T>[] = [];
+  let offset = 0;
+  do {
+    const page = await fetchPage(offset);
+    pages.push(page);
+    if (page.next_offset === null || page.items.length === 0) break;
+    offset = page.next_offset ?? offset + page.items.length;
+  } while (offset < targetCount);
+  return pages;
+}
+
 export function mergeWorkPages<T extends WorkQueueEntry>(
   pages: ReadonlyArray<Page<T>>
 ): MergedWorkPages<T> {

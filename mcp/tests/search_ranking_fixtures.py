@@ -6,17 +6,20 @@ def semantic_disposition(status="not_requested", *, scope="none", partial=False,
     return {"inference": {"status": status, "reason": "model_failure" if status == "unavailable" else None},
             "candidate_scope": scope, "partial_vectors": partial,
             "comparison_incomplete": status == "unavailable" or partial or scope == "lexical_shortlist",
-            "retry": {"max_attempts": 1, "after_seconds": 1} if status == "unavailable" else None,
+            "retry": None,
             "cache_refresh": {"status": cache, "reason": "cache_refresh_failed" if cache == "failed" else None}}
 
 
 def add_ranking(page, source, query="", mode="terms", semantic=False):
+    count = len(page["items"])
+    end = page.get("offset", 0) + count
+    page.setdefault("next_offset", end if count and end < page["total"] else None)
+    page.setdefault("page_truncated", False)
     def kind(facet):
         return "browsed_records" if not query.strip() else "ranked_candidates" if semantic and facet == "work_items" else "lexical_matches"
     def score(facet):
         return "none" if not query.strip() else "hybrid_reciprocal_rank" if semantic and facet == "work_items" else "postgresql_lexical" if facet == "work_items" else "literal_presence" if mode == "literal" else "tantivy_relevance"
-    disposition = semantic_disposition("completed", scope="full_scope") if semantic and query.strip() else semantic_disposition()
-    page.setdefault("semantic", disposition)
+    _semantic_defaults(page, semantic and bool(query.strip()))
     _embedding_defaults(page, source)
     if source == "search":
         selected = page.get("search_scope", {}).get("searched_facets", [])
@@ -45,7 +48,22 @@ def add_ranking(page, source, query="", mode="terms", semantic=False):
         item.setdefault("score_type", score(facet))
         if facet == "transcripts" and item["score_type"] == "none" and query.strip(): item["score_type"] = score(facet)
         _evidence_defaults(item, facet, query)
+        _compact_work_defaults(item, facet)
     return page
+
+
+def _semantic_defaults(page, requested):
+    if requested:
+        page.setdefault("semantic", semantic_disposition("completed", scope="full_scope"))
+    elif page.get("semantic", {}).get("inference", {}).get("status") == "not_requested":
+        page.pop("semantic")
+
+
+def _compact_work_defaults(item, facet):
+    if facet == "work_items" and "summary" not in item:
+        for key in ("ancestor_path", "ancestor_path_truncated", "excerpts_truncated"):
+            if not item.get(key):
+                item.pop(key, None)
 
 
 def _evidence_defaults(item, facet, query):

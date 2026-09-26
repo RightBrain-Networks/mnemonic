@@ -117,7 +117,7 @@ def required_arguments() -> dict[str, object]:
 
 
 def test_advisory_package_version_is_coordinated():
-    assert __version__ == "0.75.0"
+    assert __version__ == "0.76.0"
 
 
 async def test_advisory_tool_schema_is_exact_and_capability_free(settings):
@@ -597,7 +597,7 @@ async def test_suggestion_transport_failure_has_no_structural_uncertainty_or_ret
     assert "duplicate_suggestion_unavailable" in message
     if failure == "timeout":
         assert "Duplicate comparison is incomplete" in message
-        assert "Retry once after one second" in message
+        assert "An immediate retry is not recommended" in message
     assert API_KEY not in message
     assert len(calls) == 1
 

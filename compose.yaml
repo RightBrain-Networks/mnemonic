@@ -210,7 +210,7 @@ services:
 
   worker:
     build: *backend-build
-    command: [uvicorn, 'mnemonic_api.job_worker:create_app', --factory, --host, 0.0.0.0, --port, '8002', --no-access-log]
+    command: [uvicorn, 'mnemonic_api.job_worker:create_app', --factory, --host, 0.0.0.0, --port, '8002', --no-access-log, --log-config, logging.json]
     environment:
       DATABASE_URL: postgresql+psycopg://mnemonic:${POSTGRES_PASSWORD}@postgres:5432/mnemonic
       MNEMONIC_API_KEY: ${MNEMONIC_API_KEY}

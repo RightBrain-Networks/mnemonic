@@ -3509,6 +3509,7 @@ async def test_search_passes_explicit_filters_and_pagination(settings, status):
     def handler(request):
         assert request.url.path == f"/api/v1/projects/{PROJECT_ID}/work-items"
         assert dict(request.url.params) == {
+            "q": "needle",
             "status": status, "tag": "search", "source_client": "opencode",
             "source_session_id": "ses_123/opaque", "view": "full", "detail": "full", "limit": "5",
             "duplicate_scope": "canonical", "offset": "10", "semantic": "true",
@@ -3520,6 +3521,7 @@ async def test_search_passes_explicit_filters_and_pagination(settings, status):
 
     await adapter(settings, handler).call_tool("search_work", {
         "project_id": PROJECT_ID, "status": status, "tag": "search", "source_client": "opencode",
+        "q": "needle",
         "source_session_id": "ses_123/opaque", "view": "full", "semantic": True,
         "limit": 5, "offset": 10,
     })

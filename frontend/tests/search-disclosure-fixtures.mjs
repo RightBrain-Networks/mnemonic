@@ -25,6 +25,9 @@ export function withholding(page) {
 }
 
 export function projectCoverage(page, projectId) {
+  const end = page.offset + page.items.length;
+  page.next_offset ??= page.items.length && end < page.total ? end : null;
+  page.page_truncated ??= false;
   withholding(page);
   page.project_coverage = [{ project_id: projectId, project_name: "Search project", project_slug: "search-project", facet_totals: page.facet_totals, coverage: page.coverage, indexing_incomplete: page.indexing_incomplete }];
   return page;

@@ -97,11 +97,17 @@ git pull --ff-only origin main
 
 Use Semantic Versioning (`MAJOR.MINOR.PATCH`) for application releases. `MAJOR` version bumps are reserved and require explicit human approval. Increment `MINOR` for user-facing changes and `PATCH` for all other changes.
 
-The current application/API/MCP/dashboard release is `0.75.0`, Claude plugin
-`0.44.0`, and Alembic head `0048_force_claims`. The catalog is exactly
+The current application/API/MCP/dashboard release is `0.76.0`, Claude plugin
+`0.44.0`, and Alembic head `0049_duplicate_embeddings`. The catalog is exactly
 57 MCP tools, 17 receipt-protected MCP writes, 24 REST receipt kinds, 21 protected
 browser mutations, 24 work-event types, and three plugin skills. The suggestion
-POST is a safe read. Completion evidence and job completion reports are nested
+POST is a safe read. Search accepts q/query aliases up to 1,000 characters;
+follow next_offset because 32,768-byte pages can contain fewer than limit items.
+Compact canonical identity, lifecycle/display state, and sensitive-content coverage
+remain explicit. Duplicate checks use purpose-separated vectors: missing vectors
+queue background duplicate_embed batches and report vectors_pending/queued. Only
+capacity_exhausted offers one immediate retry; deadline, model, and pending-vector
+failures do not. Native inference slots remain held until the actual call returns. Completion evidence and job completion reports are nested
 only in the existing closeout mutations; do not add standalone agent writes.
 Project lease settings default to 15 minutes, minimum 10, maximum 120; humans edit
 them in Workspace Project details. Immediately read assigned work with

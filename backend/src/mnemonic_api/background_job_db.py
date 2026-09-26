@@ -4,10 +4,13 @@ import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 
 
-def job_elements(*, artifact_embeddings: bool = False) -> list:
+def job_elements(*, artifact_embeddings: bool = False,
+                 duplicate_embeddings: bool = False) -> list:
     kinds = "'transcript_copy','transcript_index','backup_create'"
     if artifact_embeddings:
         kinds += ",'artifact_embed'"
+    if duplicate_embeddings:
+        kinds += ",'duplicate_embed'"
     return [
         sa.Column("id", UUID(as_uuid=True), primary_key=True),
         sa.Column("kind", sa.String(40), nullable=False),

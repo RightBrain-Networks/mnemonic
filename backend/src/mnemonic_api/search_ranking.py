@@ -10,7 +10,9 @@ ScoreType = Literal[
     "cosine_similarity",
 ]
 TotalKind = Literal["lexical_matches", "ranked_candidates", "browsed_records"]
-SemanticReason = Literal["capacity_exhausted", "deadline_exceeded", "model_failure"]
+SemanticReason = Literal[
+    "capacity_exhausted", "deadline_exceeded", "model_failure", "vectors_pending",
+]
 CandidateScope = Literal["none", "full_scope", "lexical_shortlist"]
 
 
@@ -35,7 +37,7 @@ class SemanticRetry(RankingModel):
 
 
 class CacheRefresh(RankingModel):
-    status: Literal["not_needed", "completed", "failed"] = "not_needed"
+    status: Literal["not_needed", "completed", "failed", "queued"] = "not_needed"
     reason: Literal["cache_refresh_failed"] | None = None
 
     @model_validator(mode="after")
@@ -62,18 +64,23 @@ class SemanticDisposition(RankingModel):
             self.candidate_scope == "lexical_shortlist")
         if self.comparison_incomplete != expected:
             raise ValueError("Comparison completeness must agree with inference and scope")
-        if (status == "unavailable") != (self.retry is not None):
-            raise ValueError("Only unavailable inference supplies bounded retry guidance")
-        if status != "completed" and (self.partial_vectors
-                                     or self.cache_refresh.status != "not_needed"):
-            raise ValueError("Vector coverage and cache refresh require completed inference")
+        retryable = status == "unavailable" and self.inference.reason == "capacity_exhausted"
+        if retryable != (self.retry is not None):
+            raise ValueError("Only exhausted inference capacity supplies an immediate retry")
+        if status != "completed" and self.partial_vectors:
+            raise ValueError("Partial vector comparisons require completed query inference")
+        if status == "not_requested" and self.cache_refresh.status != "not_needed":
+            raise ValueError("Unrequested inference cannot refresh vectors")
+        if status != "completed" and self.cache_refresh.status == "completed":
+            raise ValueError("A completed synchronous refresh requires completed inference")
         return self
 
 
 class SearchRanking(RankingModel):
     score_type: ScoreType
     total_kind: TotalKind
-    semantic: SemanticDisposition = Field(default_factory=SemanticDisposition)
+    semantic: SemanticDisposition = Field(default_factory=SemanticDisposition,
+        exclude_if=lambda value: value.inference.status == "not_requested")
 
 
 class SearchHitRanking(RankingModel):
@@ -103,7 +110,8 @@ def completed_semantic(scope: CandidateScope = "full_scope", *,
 
 def unavailable_semantic(reason: SemanticReason) -> SemanticDisposition:
     return SemanticDisposition(inference=SemanticInference(status="unavailable", reason=reason),
-        comparison_incomplete=True, retry=SemanticRetry())
+        comparison_incomplete=True,
+        retry=SemanticRetry() if reason == "capacity_exhausted" else None)
 
 
 def search_ranking(query: str | None, query_mode: str, *, work: bool = False,

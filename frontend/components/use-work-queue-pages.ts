@@ -11,7 +11,7 @@ import {
   WORK_PAGE_SIZE,
   appendWorkPage,
   hasMoreWork,
-  loadedOffsets,
+  reloadWorkPages,
   mergeWorkPages,
   type MergedWorkPages,
   type WorkQueueItem
@@ -162,14 +162,12 @@ export function useWorkQueuePages({
     const generation = generationRef.current;
     const controller = new AbortController();
     const current = dataRef.current;
-    const offsets = current?.viewKey === viewKey
-      ? loadedOffsets(current.loaded, WORK_PAGE_SIZE)
-      : [0];
+    const targetCount = current?.viewKey === viewKey ? current.loaded : 0;
     const requestedViewKey = viewKey;
     fetchingRef.current = true;
     setFetching(true);
     setFailure(null);
-    Promise.all(offsets.map((offset) => fetchPage(offset, controller.signal)))
+    reloadWorkPages((offset) => fetchPage(offset, controller.signal), targetCount)
       .then((pages) => {
         if (controller.signal.aborted || generationRef.current !== generation) return;
         setData({ viewKey: requestedViewKey, ...mergeWorkPages(pages) });

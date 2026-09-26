@@ -37,6 +37,20 @@ class TransportEffect(StrEnum):
 
 
 _APPLICATION_ERRORS = {
+    "transcript_search_capacity": (
+        "transcript_search_capacity: Selected transcript text exceeds the configured search "
+        "capacity. Narrow with created_after, work_item_id, or content_kinds "
+        "(content_kinds requires fulltext=true), or use metadata-only search."
+    ),
+    "transcript_search_busy": (
+        "transcript_search_busy: Another transcript content search is running. "
+        "Run transcript searches sequentially; retry after the active search finishes."
+    ),
+    "search_result_too_large": (
+        "search_result_too_large: One search result or its coverage envelope exceeds the "
+        "32768-byte page budget. Use detail=compact, diagnostics=off and a smaller "
+        "tag_counts.limit; retrieve selected records with their detail tools."
+    ),
     "transcript_not_found": "Transcript not found in this project.",
     "transcript_not_indexed": "Transcript text is not indexed yet. Read its indexing status.",
     "artifact_text_changed": "Artifact extracted text changed. Search again for a current revision and text hash.",
@@ -108,7 +122,7 @@ _APPLICATION_ERRORS = {
     "slug_conflict": "A project with this slug already exists. List projects before creating another.",
     "semantic_unavailable": (
         "Mnemonic semantic search is unavailable; comparison is incomplete. "
-        "Retry once after one second, then use lexical search with semantic disabled if needed."
+        "Use lexical search with semantic disabled while the cause is unresolved."
     ),
     "version_conflict": (
         "Version conflict. Recall the latest work item and review its changes before retrying."
@@ -210,9 +224,8 @@ _APPLICATION_ERRORS = {
     ),
     "duplicate_suggestion_unavailable": (
         "duplicate_suggestion_unavailable: Mnemonic duplicate suggestions are unavailable; "
-        "comparison is incomplete. Retry once after "
-        "one second, or continue creating the "
-        "distinct work item without suggestions."
+        "comparison is incomplete. An immediate retry is not recommended; "
+        "continue creating the distinct work item without suggestions."
     ),
 }
 UNKNOWN_CLAIM_OUTCOME = (
@@ -394,10 +407,11 @@ def _safe_uuid(value: object) -> str | None:
     return canonical if text == canonical else None
 
 
-def _semantic_error_message(context: dict[str, object]) -> str:
+def _semantic_error_message(context: dict[str, object],
+                            code: str = "semantic_unavailable") -> str:
     from .search_ranking import SemanticDisposition
 
-    message = _APPLICATION_ERRORS["semantic_unavailable"]
+    message = _APPLICATION_ERRORS[code]
     try:
         disposition = SemanticDisposition.model_validate(context.get("semantic"), strict=True)
     except ValueError:
@@ -407,9 +421,12 @@ def _semantic_error_message(context: dict[str, object]) -> str:
     ):
         return message
     reason = disposition.inference.reason
-    reasons = {"capacity_exhausted": "Semantic capacity is busy.",
+    if code == "duplicate_suggestion_unavailable" and reason == "capacity_exhausted":
+        message = "duplicate_suggestion_unavailable: Duplicate comparison is incomplete."
+    reasons = {"capacity_exhausted": "Semantic capacity is busy. Retry once after one second.",
                "deadline_exceeded": "Semantic inference exceeded its deadline.",
-               "model_failure": "Semantic inference failed."}
+               "model_failure": "Semantic inference failed.",
+               "vectors_pending": "Semantic vectors are being prepared in the background."}
     return message + " " + reasons.get(reason, "")
 
 
@@ -418,8 +435,8 @@ def _application_error_message(code: str, context: dict[str, object]) -> str | N
         revision = context.get("current_revision")
         if type(revision) is int and revision > 0:
             return f"Artifact revision changed; current_revision={revision}. Read current metadata."
-    if code == "semantic_unavailable":
-        return _semantic_error_message(context)
+    if code in {"semantic_unavailable", "duplicate_suggestion_unavailable"}:
+        return _semantic_error_message(context, code)
     if code.startswith("artifact_human_approval"):
         return artifact_approval_message(code, context)
     if code == "work_summary_too_long":
@@ -499,8 +516,9 @@ def _raise_request_error(method: str, *, effect: TransportEffect | None,
     if effect == TransportEffect.SAFE_READ:
         if path.endswith("/duplicate-suggestions"):
             raise ToolError("duplicate_suggestion_unavailable: " + _SAFE_READ_FAILURE +
-                            " Duplicate comparison is incomplete. Retry once after one second, "
-                            "or continue creating distinct work without a completed comparison.")
+                            " Duplicate comparison is incomplete. An immediate retry is not "
+                            "recommended; continue creating distinct work without a completed "
+                            "comparison.")
         raise ToolError(_SAFE_READ_FAILURE) from None
     if method not in {"POST", "PUT", "PATCH", "DELETE"}:
         raise ToolError(

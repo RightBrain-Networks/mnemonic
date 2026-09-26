@@ -2,6 +2,7 @@
 
 SUGGESTION_MAX_SECONDS = 45
 SUGGESTION_RESPONSE_RESERVE_SECONDS = 1.0
+SUGGESTION_INTERACTIVE_SECONDS = 4.0
 
 
 def suggestion_work_deadline(response_deadline: float, now: float) -> float:

@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, model_
 from .artifact_semantic import ArtifactEmbeddingCoverage, ArtifactMatchEvidence
 from .search_diagnostics import TermDiagnostics
 from .search_disclosure import SearchDetail, SearchDisclosure
+from .search_pagination import SearchPagination
 from .search_ranking import SearchHitRanking, SearchRanking
 
 MCP_ARTIFACT_MAX_BYTES = 64 * 1024 * 1024
@@ -18,7 +19,7 @@ ArtifactSort = Literal["filename", "created_at", "modified_at", "size_bytes", "r
 ArtifactLimit = Annotated[StrictInt, Field(ge=1, le=100)]
 ArtifactOffset = Annotated[StrictInt, Field(ge=0, le=1_000_000)]
 ArtifactRevision = Annotated[StrictInt, Field(ge=1)]
-ArtifactQuery = Annotated[str, Field(min_length=1, max_length=200)]
+ArtifactQuery = Annotated[str, Field(min_length=1, max_length=1000)]
 ArtifactSession = Annotated[str, Field(min_length=1, max_length=200)]
 ArtifactClient = Annotated[str, Field(min_length=1, max_length=80)]
 ArtifactFilename = Annotated[str, Field(min_length=1, max_length=255)]
@@ -202,7 +203,7 @@ class CompactArtifactMatch(ArtifactModel, SearchHitRanking, ArtifactMatchEvidenc
         return self
 
 
-class ArtifactContentSearch(ArtifactModel, SearchDisclosure, SearchRanking):
+class ArtifactContentSearch(ArtifactModel, SearchDisclosure, SearchRanking, SearchPagination):
     detail: SearchDetail
     embedding: ArtifactEmbeddingCoverage | None = None
     match_mode: Literal["all_terms", "phrase", "literal", "semantic_passages"]
@@ -262,6 +263,7 @@ class ArtifactToolSearchMatch(ArtifactModel, SearchHitRanking, ArtifactMatchEvid
 
 class ArtifactToolContentSearch(
     ArtifactPage[ArtifactToolSearchMatch | CompactArtifactMatch], SearchDisclosure, SearchRanking,
+    SearchPagination,
 ):
     detail: SearchDetail
     embedding: ArtifactEmbeddingCoverage | None = None

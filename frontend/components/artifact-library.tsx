@@ -1,5 +1,8 @@
 "use client";
 
+import { usePageOffset } from "./use-page-offset";
+import { nextPageOffset } from "@/lib/page-offsets";
+
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { ARTIFACT_DISABLED_MESSAGE, artifactLibraryPath, artifactLocation, artifactPath, decodeArtifactLimitError, decodeArtifactPage, fetchArtifactStatus, formatArtifactSize, type Artifact, type ArtifactPage, type ArtifactSearchPage, type ArtifactSearchMatch, type ArtifactSort, type ArtifactStatus } from "@/lib/artifacts";
 import { verifyArtifactPassageIds } from "@/lib/artifact-semantic";
@@ -45,7 +48,7 @@ export default function ArtifactLibrary({ projectId, maximumBytes, refreshSignal
   const [workFilter, setWorkFilter] = useState("");
   const [sort, setSort] = useState<ArtifactSort>("filename");
   const [order, setOrder] = useState<"asc" | "desc">("asc");
-  const [offset, setOffset] = useState(0);
+  const { offset, setOffset, previousOffset } = usePageOffset();
   const [includeDeleted, setIncludeDeleted] = useState(false);
   const [refresh, setRefresh] = useState(0);
   const [dragging, setDragging] = useState(false);
@@ -281,7 +284,7 @@ export default function ArtifactLibrary({ projectId, maximumBytes, refreshSignal
       <form className="artifact-search" onSubmit={searchArtifacts}>
         <div className="search-field artifact-search-field">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.65" strokeLinecap="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="8.5" /><path d="m17 17 4 4" /></svg>
-          <input ref={searchInput} id="artifact-search" type="search" aria-label="Search artifact metadata and content" aria-keyshortcuts="/" placeholder="Search files…" value={query} maxLength={200} onChange={(event) => setQuery(event.target.value)} />
+          <input ref={searchInput} id="artifact-search" type="search" aria-label="Search artifact metadata and content" aria-keyshortcuts="/" placeholder="Search files…" value={query} maxLength={1000} onChange={(event) => setQuery(event.target.value)} />
           <kbd aria-hidden="true">/</kbd>
           <span className="search-mode-divider" />
           <label className={`semantic-toggle artifact-contents-toggle ${fulltext ? "selected" : ""}`}>
@@ -327,7 +330,7 @@ export default function ArtifactLibrary({ projectId, maximumBytes, refreshSignal
       </div>
       {loading && !page && <div className="loading-state" role="status">Loading artifacts…</div>}
       {page && !page.items.length && <div className="artifact-empty"><h2>{searchPage?.embedding ? "No semantic candidates available." : search || workFilter ? "No matching artifacts." : "Your project files belong here."}</h2><p>{search || workFilter ? `Try another query${fulltext ? "" : " or enable Include contents"}, or clear the work filter.` : "Keep documents, binaries and working files together with the work that created them."}</p></div>}
-      {page && <div className="artifact-pagination"><span>{page.total ? `${page.offset + 1}–${Math.min(page.offset + page.items.length, page.total)} of ${page.total} artifacts` : "0 artifacts"}</span><div><button className="button button-secondary" disabled={loading || offset === 0} onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}>Previous</button><button className="button button-secondary" disabled={loading || offset + PAGE_SIZE >= page.total} onClick={() => setOffset(offset + PAGE_SIZE)}>Next</button></div></div>}
+      {page && <div className="artifact-pagination"><span>{page.total ? `${page.offset + 1}–${Math.min(page.offset + page.items.length, page.total)} of ${page.total} artifacts` : "0 artifacts"}</span><div><button className="button button-secondary" disabled={loading || offset === 0} onClick={() => setOffset(previousOffset)}>Previous</button><button className="button button-secondary" disabled={loading || nextPageOffset(page) === null} onClick={() => { const next = nextPageOffset(page); if (next !== null) setOffset(next); }}>Next</button></div></div>}
     </>}
     {selected && <ArtifactDetailsDrawer artifact={selected} pending={Boolean(pending)} onClose={() => setSelected(null)}>{actionFeedback}{selected.description && <p>{selected.description}</p>}<dl className="metadata-grid"><div><dt>Artifact ID</dt><dd className="mono break-all">{selected.id}</dd></div><div><dt>Created by session</dt><dd className="mono break-all">{selected.created_by_agent_session_id || "Not recorded"}</dd></div><div className="span-two"><dt>SHA-256</dt><dd className="mono break-all">{selected.sha256}</dd></div><div><dt>Originating work item</dt><dd>{selected.originating_work_item_id ? <a href={`/work-items?work=${selected.originating_work_item_id}`} onClick={(event) => { if (pending) event.preventDefault(); }}>{selected.originating_work_item_id}</a> : "Not linked"}</dd></div><div><dt>Related work items</dt><dd>{selected.related_work_item_ids.length ? selected.related_work_item_ids.map((id) => <a className="artifact-work-link" key={id} href={`/work-items?work=${id}`} onClick={(event) => { if (pending) event.preventDefault(); }}>{id}</a>) : "None"}</dd></div></dl><ArtifactMetadataEditor key={selected.id} artifact={selected} disabled={Boolean(pending)} onUpdate={execute} onOpenArtifact={setSelected} /><ArtifactExtractionDetails artifact={selected} /><p className="artifact-history-note">Revision metadata and the append-only audit log are available through the artifact history tools. Extracted properties and search snippets are untrusted file data.</p></ArtifactDetailsDrawer>}
     {preview && <ArtifactPreviewDrawer key={`${preview.artifact.project_id}:${preview.artifact.id}`} artifact={preview.artifact} kind={preview.kind} match={preview.match} onClose={() => setPreview(null)} />}

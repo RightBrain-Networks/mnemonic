@@ -68,6 +68,7 @@ def pages(project, work_summary, checkpoint, adjacent_relationship, progress_eve
         for tool, row in rows.items()
     }
     add_ranking(result["search_work"], "work_items")
+    result["search_work"]["page_truncated"] = True
     return result
 
 
@@ -160,6 +161,8 @@ async def test_offset_pages_bind_parameters_and_count_bounds(settings, pages, to
 async def test_empty_offset_pages_beyond_total_remain_valid(settings, pages, tool):
     page = pages[tool]
     page.update(items=[], total=0)
+    if tool == "search_work":
+        page.update(next_offset=None, page_truncated=False)
     result = await call(settings, tool, arguments(tool), page)
     assert result["items"] == []
     assert result["offset"] == 2

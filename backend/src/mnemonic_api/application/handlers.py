@@ -8,8 +8,9 @@ import logging
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from sqlalchemy.exc import SQLAlchemyError
+from starlette.requests import ClientDisconnect
 
 from mnemonic_api.application.validation import public_validation_errors
 
@@ -21,6 +22,12 @@ def install_exception_handlers(app: FastAPI) -> None:
     # for the exact exception class they are registered to receive.
     app.exception_handler(SQLAlchemyError)(database_failure)
     app.exception_handler(RequestValidationError)(invalid_request)
+    app.exception_handler(ClientDisconnect)(client_disconnected)
+
+
+async def client_disconnected(_: Request, exc: ClientDisconnect) -> Response:
+    """The caller closed its request body; there is no server traceback to report."""
+    return Response(status_code=499)
 
 
 async def database_failure(_: Request, exc: SQLAlchemyError) -> JSONResponse:

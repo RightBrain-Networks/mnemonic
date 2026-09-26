@@ -79,7 +79,8 @@ async def test_quoted_terms_are_honored_without_ignored_operator_warning(setting
 async def test_work_evidence_preserves_checkpoint_and_winning_alias_identity(settings, work_summary):
     page = exact_page("search_work", work_summary)
     item = page["items"][0]
-    item.update(matched_fields=["checkpoint"], excerpts_truncated=False,
+    item.pop("excerpts_truncated", None)
+    item.update(matched_fields=["checkpoint"],
                 matched_member={"id": OTHER_WORK_ID, "title": "Alias", "status": "done"},
                 excerpts=[{"field": "checkpoint", "text": "lease_token_mismatch",
                            "matched_member_id": OTHER_WORK_ID, "checkpoint_id": CHECKPOINT_ID,
@@ -101,14 +102,16 @@ async def test_work_evidence_preserves_checkpoint_and_winning_alias_identity(set
     ({"query_mode": "phrase", "q": "!!!"}, "query_phrase_requires_terms"),
     ({"semantic": True, "q": '"cookie"'}, "semantic_requires_unconstrained_work_query"),
     ({"semantic": True, "q": "cookie", "work_fields": ["title"]}, "semantic_requires_all_work_fields"),
+    ({"semantic": True}, "semantic_requires_query"),
+    ({"semantic": True, "q": ""}, "semantic_requires_query"),
+    ({"semantic": True, "q": "  "}, "semantic_requires_query"),
 ])
 async def test_query_refusals_are_static_and_local(settings, work_summary, args, code):
     with pytest.raises(ToolError, match=code):
         await native_call(settings, "search_work", args, {})
 
 
-@pytest.mark.parametrize("tool", ["search_work", "search"])
-async def test_ranked_corpus_and_cache_failure_are_not_reported_as_lexical_matches(settings, work_summary, tool):
+def semantic_work_page(tool, work_summary):
     page = response_page(tool, work_summary)
     args = {"q": "needle", "semantic": True} if tool == "search_work" else {"q": "needle", "filters": {"work_items": {"semantic": True}}}
     page["semantic"] = semantic_disposition("completed", scope="full_scope", cache="failed", partial=True)
@@ -120,24 +123,36 @@ async def test_ranked_corpus_and_cache_failure_are_not_reported_as_lexical_match
     else:
         page["facet_score_types"]["work_items"] = "hybrid_reciprocal_rank"
         page["facet_total_kinds"]["work_items"] = "ranked_candidates"
+    return page, args
+
+
+@pytest.mark.parametrize("tool", ["search_work", "search"])
+async def test_ranked_corpus_and_cache_failure_are_not_reported_as_lexical_matches(settings, work_summary, tool):
+    page, args = semantic_work_page(tool, work_summary)
     assert (await native_call(settings, tool, args, page))[0] == page
     page["semantic"]["comparison_incomplete"] = False
     with pytest.raises(ToolError, match="unexpected response"):
         await native_call(settings, tool, args, page)
 
 
-async def test_semantic_error_keeps_bounded_retry_and_never_reflects_provider_text(settings):
+@pytest.mark.parametrize("reason", [
+    "capacity_exhausted", "deadline_exceeded", "model_failure", "vectors_pending",
+])
+async def test_semantic_error_retry_follows_reason_and_never_reflects_provider_text(settings, reason):
     disposition = semantic_disposition("unavailable")
-    async def run(context):
+    disposition["inference"]["reason"] = reason
+    if reason == "capacity_exhausted":
+        disposition["retry"] = {"max_attempts": 1, "after_seconds": 1}
+    async def run(context, retryable):
         api = MnemonicAPI(settings, httpx.MockTransport(lambda request: httpx.Response(503, json={
             "detail": {"code": "semantic_unavailable", "message": "PRIVATE-PROVIDER", "context": context}})))
         with pytest.raises(ToolError) as caught:
             await build_server(settings, api).call_tool("search_work", {"project_id": PROJECT_ID, "q": "query", "semantic": True})
-        assert "Retry once after one second" in str(caught.value)
+        assert ("Retry once after one second" in str(caught.value)) is retryable
         assert "PRIVATE" not in str(caught.value)
-    await run({"semantic": disposition})
+    await run({"semantic": disposition}, reason == "capacity_exhausted")
     disposition["inference"]["reason"] = "PRIVATE-PROVIDER"
-    await run({"semantic": disposition})
+    await run({"semantic": disposition}, False)
 
 
 async def test_duplicate_fallback_keeps_incomplete_disposition(settings):
@@ -147,7 +162,7 @@ async def test_duplicate_fallback_keeps_incomplete_disposition(settings):
     result = await build_server(settings, api).call_tool("suggest_duplicate_work", required_arguments())
     result = result[1] if isinstance(result, tuple) else result
     assert result["semantic"]["comparison_incomplete"] is True
-    assert result["semantic"]["retry"] == {"max_attempts": 1, "after_seconds": 1}
+    assert result["semantic"]["retry"] is None
 
 
 @pytest.mark.parametrize("tool", ["search", "search_transcript_contents"])
@@ -179,6 +194,10 @@ async def test_exact_transcript_span_can_omit_excerpt_but_keep_pinned_segment(se
 @pytest.mark.parametrize("mutation", ["global_rank", "source_rank", "score_type", "unsearched_kind", "incomplete", "missing_semantic", "boolean_rank"])
 async def test_unified_rank_and_coverage_lies_fail_closed(settings, work_summary, mutation):
     page = response_page("search", work_summary)
+    args = {"q": "needle"}
+    if mutation == "missing_semantic":
+        page, args = semantic_work_page("search", work_summary)
+        assert (await native_call(settings, "search", args, page))[0] == page
     if mutation == "global_rank": page["items"][0]["rank"] = 2
     elif mutation == "source_rank": page["items"][0]["work_item"]["rank"] = 2
     elif mutation == "score_type": page["items"][0]["work_item"]["score_type"] = "cosine_similarity"
@@ -187,7 +206,7 @@ async def test_unified_rank_and_coverage_lies_fail_closed(settings, work_summary
     elif mutation == "missing_semantic": del page["semantic"]
     else: page["items"][0]["rank"] = True
     with pytest.raises(ToolError, match="unexpected response"):
-        await native_call(settings, "search", {"q": "needle"}, page)
+        await native_call(settings, "search", args, page)
 
 
 async def test_unified_validation_never_echoes_query_or_nested_filter_values(settings, work_summary, caplog):
@@ -200,7 +219,11 @@ async def test_unified_validation_never_echoes_query_or_nested_filter_values(set
 @pytest.mark.parametrize("missing", ["semantic", "rank", "score", "score_type", "cache_refresh", "partial_vectors"])
 async def test_work_ranking_cannot_synthesize_missing_disclosure(settings, work_summary, missing):
     page = response_page("search_work", work_summary, q="")
+    args = {}
+    if missing in {"semantic", "cache_refresh", "partial_vectors"}:
+        page, args = semantic_work_page("search_work", work_summary)
+    assert (await native_call(settings, "search_work", args, page))[0] == page
     target = page if missing == "semantic" else page["semantic"] if missing in {"cache_refresh", "partial_vectors"} else page["items"][0]
     del target[missing]
     with pytest.raises(ToolError, match="unexpected response"):
-        await native_call(settings, "search_work", {}, page)
+        await native_call(settings, "search_work", args, page)

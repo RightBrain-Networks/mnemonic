@@ -21,7 +21,7 @@ const key = JSON.stringify([id, 3, passage.text_sha256, passage.model, passage.c
 passage.passage_id = createHash("sha256").update(key).digest("hex");
 const match = { artifact, passage, snippet: text, matched_fields: ["content"], evidence: "semantic", rank: 1, score: 1 / 61, score_type: "semantic_reciprocal_rank" };
 const options = { q, fulltext: true, filters: { artifacts: { semantic: true } }, semantic: true };
-const page = { ...ranking(q, "artifacts", true), ...disclosure(project, ["artifacts"], options), detail: "full", match_mode: "semantic_passages", embedding: coverage, items: [match], total: 1, limit: 50, offset: 0, fulltext: true, term_diagnostics: [], indexing: { ready: 1, pending: 0, failed: 0, truncated: 0 }, sensitive_content_withheld: 0 };
+const page = { ...ranking(q, "artifacts", true), ...disclosure(project, ["artifacts"], options), next_offset: null, page_truncated: false, detail: "full", match_mode: "semantic_passages", embedding: coverage, items: [match], total: 1, limit: 50, offset: 0, fulltext: true, term_diagnostics: [], indexing: { ready: 1, pending: 0, failed: 0, truncated: 0 }, sensitive_content_withheld: 0 };
 const decode = (value = page) => decodeArtifactSearchPage(value, project, true, 50, 0, true, "terms", true);
 
 test("semantic artifact passages bind current evidence, Unicode offsets and deterministic identity", async () => {
@@ -103,7 +103,7 @@ test("artifact passage proxy permits only bounded pinned reads and forwards no a
 
 
 test("disabled artifact semantic search reports no inference and cannot manufacture embedding coverage", () => {
-  const disabled = projectCoverage({ ...unifiedRanking([], { q }), ...disclosure(project, [], { q }), detail: "full", work_rank_scope: "work_items", tag_counts: null,
+  const disabled = projectCoverage({ ...unifiedRanking([], { q }), ...disclosure(project, [], { q }), next_offset: null, page_truncated: false, detail: "full", work_rank_scope: "work_items", tag_counts: null,
     total: 0, items: [], limit: 50, offset: 0, term_diagnostics: [], facet_totals: { work_items: 0, artifacts: 0, transcripts: 0 },
     search_scope: { searched_facets: [], transcripts: "not_selected", transcript_search_hint: TRANSCRIPT_SEARCH_HINT },
     coverage: { artifacts: { enabled: false, indexing: { ready: 0, pending: 0, failed: 0, truncated: 0 }, sensitive_content_withheld: 0, embedding: null }, transcripts: { indexing_incomplete: false } }, indexing_incomplete: true }, project);

@@ -29,6 +29,8 @@ from .models import CompactWorkHit, DuplicateScope, SearchStatus, WorkSearchHit
 from .search_diagnostics import SearchScope, TermDiagnostics
 from .search_disclosure import SearchDetail, SearchDisclosure
 from .search_exploration import DateBounds, DiagnosticsMode, TagCountPage, TagCountRequest
+from .search_help import ARTIFACT_SEMANTIC_DESCRIPTION, WORK_SEMANTIC_DESCRIPTION
+from .search_pagination import SearchPagination, pagination_matches
 from .search_query import WORK_FIELDS, QueryMode, WorkFields, validate_query
 from .search_ranking import (
     FacetScoreTypes,
@@ -95,7 +97,7 @@ class WorkSearchFilters(DateBounds, SearchModel):
     duplicate_scope: DuplicateScope = "canonical"
     canonical_work_item_id: UUID | None = None
     external_url: ExternalURL | None = None
-    semantic: StrictBool = False
+    semantic: StrictBool = Field(default=False, description=WORK_SEMANTIC_DESCRIPTION)
 
     @model_validator(mode="after")
     def canonical_scope(self) -> Self:
@@ -105,7 +107,7 @@ class WorkSearchFilters(DateBounds, SearchModel):
 
 
 class ArtifactSearchFilters(DateBounds, SearchModel):
-    semantic: StrictBool = False
+    semantic: StrictBool = Field(default=False, description=ARTIFACT_SEMANTIC_DESCRIPTION)
     work_item_id: UUID | None = None
     artifact_id: UUID | None = None
     include_deleted: StrictBool = False
@@ -234,12 +236,15 @@ SearchHit = Annotated[
 ]
 
 
-class SearchPage(SearchModel, SearchDisclosure):
+class SearchPage(SearchModel, SearchDisclosure, SearchPagination):
     score_type: ScoreType
     total_kind: TotalKind | Literal["mixed"]
     facet_total_kinds: FacetTotalKinds
     facet_score_types: FacetScoreTypes
-    semantic: SemanticDisposition = Field(default_factory=SemanticDisposition)
+    semantic: SemanticDisposition = Field(
+        default_factory=SemanticDisposition,
+        exclude_if=lambda value: value.inference.status == "not_requested",
+    )
     tag_counts: TagCountPage | None = None
     detail: SearchDetail
     work_rank_scope: Literal["work_items"]
@@ -256,7 +261,7 @@ class SearchPage(SearchModel, SearchDisclosure):
 
     @model_validator(mode="after")
     def coherent_page(self) -> Self:
-        if len(self.items) != min(self.limit, max(0, self.total - self.offset)):
+        if not pagination_matches(self):
             raise ValueError("Search page length does not match total and pagination")
         identities = {(item.facet, item.id) for item in self.items}
         if len(identities) != len(self.items):
@@ -279,12 +284,15 @@ SearchToolHit = Annotated[
 ]
 
 
-class SearchToolPage(SearchModel, SearchDisclosure):
+class SearchToolPage(SearchModel, SearchDisclosure, SearchPagination):
     score_type: ScoreType
     total_kind: TotalKind | Literal["mixed"]
     facet_total_kinds: FacetTotalKinds
     facet_score_types: FacetScoreTypes
-    semantic: SemanticDisposition = Field(default_factory=SemanticDisposition)
+    semantic: SemanticDisposition = Field(
+        default_factory=SemanticDisposition,
+        exclude_if=lambda value: value.inference.status == "not_requested",
+    )
     tag_counts: TagCountPage | None = None
     detail: SearchDetail
     work_rank_scope: Literal["work_items"]

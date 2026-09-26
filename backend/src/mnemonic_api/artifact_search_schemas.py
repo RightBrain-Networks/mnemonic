@@ -15,13 +15,14 @@ from mnemonic_api.artifact_semantic_schemas import (
 from mnemonic_api.search_diagnostics import TermDiagnostics
 from mnemonic_api.search_disclosure import SearchDisclosure
 from mnemonic_api.search_exploration_schemas import SearchOptions
+from mnemonic_api.search_pagination import SearchPagination
 from mnemonic_api.search_query import QueryMode, parse_query
 from mnemonic_api.search_ranking import SearchHitRanking, SearchRanking
 from mnemonic_api.validation_rules import validation_rule
 
 
 class ArtifactSearchRequest(ArtifactAccessRequest, SearchOptions):
-    q: str = Field(min_length=1, max_length=200)
+    q: str = Field(min_length=1, max_length=1000)
     fulltext: bool = False
     semantic: bool = False
     query_mode: QueryMode = "terms"
@@ -92,7 +93,7 @@ class CompactArtifactMatch(ArtifactModel, SearchHitRanking):
     passage: ArtifactPassageEvidence | None = None
 
 
-class ArtifactSearchPage(ArtifactModel, SearchDisclosure, SearchRanking):
+class ArtifactSearchPage(ArtifactModel, SearchDisclosure, SearchRanking, SearchPagination):
     detail: Literal["compact", "full"]
     match_mode: Literal["all_terms", "phrase", "literal", "semantic_passages"] = "all_terms"
     embedding: ArtifactEmbeddingCoverage | None = None

@@ -216,8 +216,9 @@ def test_query_inference_failure_is_unavailable_instead_of_empty_result(
     semantic = result.json()["detail"]["context"]["semantic"]
     assert semantic["inference"] == {"status": "unavailable", "reason": reason}
     assert semantic["comparison_incomplete"] is True
-    assert semantic["retry"] == {"max_attempts": 1, "after_seconds": 1}
-    assert result.headers["retry-after"] == "1"
+    assert semantic["retry"] is None
+    assert "retry-after" not in result.headers
+    assert semantic["candidate_scope"] == "none"
     assert "private native" not in result.text and "private native" not in caplog.text
 
 
@@ -534,9 +535,7 @@ def test_disabled_artifact_semantics_does_not_request_inference_or_hide_coverage
         assert page["query_interpretation"]["artifacts"] is None
         assert page["facet_score_types"]["artifacts"] is None
         assert page["facet_total_kinds"]["artifacts"] is None
-        assert page["semantic"]["inference"] == {"status": "not_requested", "reason": None}
-        assert page["semantic"]["candidate_scope"] == "none"
-        assert page["semantic"]["comparison_incomplete"] is False
+        assert "semantic" not in page
         assert all(term["matches"]["artifacts"] is None for term in page["term_diagnostics"])
         assert page["project_coverage"][0]["coverage"]["artifacts"]["enabled"] is False
         assert page["project_coverage"][0]["indexing_incomplete"] is True
@@ -567,7 +566,9 @@ def test_disabled_artifact_semantics_preserves_other_selected_work_search(
     page = response.json()
     assert page["total"] == 1 and page["items"][0]["facet"] == "work_items"
     assert page["search_scope"]["searched_facets"] == ["work_items"]
-    assert page["semantic"]["inference"] == {
-        "status": "completed" if work_semantic else "not_requested", "reason": None}
+    if work_semantic:
+        assert page["semantic"]["inference"] == {"status": "completed", "reason": None}
+    else:
+        assert "semantic" not in page
     assert page["coverage"]["artifacts"]["enabled"] is False
     assert page["indexing_incomplete"] is True

@@ -15,6 +15,7 @@ RUN uv sync --frozen --no-dev --no-install-project
 COPY backend/src ./src
 COPY backend/alembic ./alembic
 COPY backend/alembic.ini ./
+COPY backend/logging.json ./
 COPY prompts /app/prompts
 COPY scripts/migrate_transcript_copies.py /app/scripts/migrate_transcript_copies.py
 COPY scripts/reclaim_transcript_copies.py /app/scripts/reclaim_transcript_copies.py
@@ -36,4 +37,4 @@ RUN test "$MNEMONIC_API_UID" -gt 0 && test "$MNEMONIC_API_GID" -gt 0 && \
 ENV HF_HUB_OFFLINE=1
 USER mnemonic
 EXPOSE 8000
-CMD ["sh", "-c", "alembic upgrade head && exec uvicorn mnemonic_api.main:create_app --factory --host 0.0.0.0 --port 8000 --no-access-log --h11-max-incomplete-event-size 65536"]
+CMD ["sh", "-c", "alembic upgrade head && exec uvicorn mnemonic_api.main:create_app --factory --host 0.0.0.0 --port 8000 --no-access-log --log-config logging.json --h11-max-incomplete-event-size 65536"]

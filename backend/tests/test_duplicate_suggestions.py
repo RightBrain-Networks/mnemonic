@@ -423,7 +423,7 @@ def test_timeout_budget_is_typed_and_releases_request_slot(suggestion_request_cl
     semantic = json.loads(body)["detail"]["context"]["semantic"]
     assert semantic["inference"]["reason"] == "deadline_exceeded"
     assert semantic["comparison_incomplete"] is True
-    assert semantic["retry"] == {"max_attempts": 1, "after_seconds": 1}
+    assert semantic["retry"] is None
 
 
 @pytest.mark.parametrize("expire_before_downstream", [False, True])

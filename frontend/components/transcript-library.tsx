@@ -1,5 +1,8 @@
 "use client";
 
+import { usePageOffset } from "./use-page-offset";
+import { nextPageOffset } from "@/lib/page-offsets";
+
 import { transcriptCoverageDetails, transcriptCoverageNotes } from "@/lib/transcript-coverage";
 import TranscriptSettingsPanel from "@/components/transcript-settings";
 import TranscriptHealthNotice from "@/components/transcript-health-notice";
@@ -25,7 +28,7 @@ export default function TranscriptLibrary({ projectId, refreshSignal, onPendingC
   const [workFilter, setWorkFilter] = useState("");
   const [sortBy, setSortBy] = useState<TranscriptSort | null>(null);
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
-  const [offset, setOffset] = useState(0);
+  const { offset, setOffset, previousOffset } = usePageOffset();
   const [refresh, setRefresh] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -97,7 +100,7 @@ export default function TranscriptLibrary({ projectId, refreshSignal, onPendingC
       <form className="artifact-search" onSubmit={(event) => { event.preventDefault(); setSearch(query.trim()); setOffset(0); setRefresh((value) => value + 1); }}>
         <div className="search-field artifact-search-field">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.65" aria-hidden="true"><circle cx="10.5" cy="10.5" r="8.5" /><path d="m17 17 4 4" /></svg>
-          <input ref={searchInput} id="transcript-search" type="search" aria-label="Search transcript metadata and content" aria-keyshortcuts="/" placeholder="Search transcripts…" value={query} maxLength={200} onChange={(event) => setQuery(event.target.value)} />
+          <input ref={searchInput} id="transcript-search" type="search" aria-label="Search transcript metadata and content" aria-keyshortcuts="/" placeholder="Search transcripts…" value={query} maxLength={1000} onChange={(event) => setQuery(event.target.value)} />
           <kbd aria-hidden="true">/</kbd><span className="search-mode-divider" />
           <label className={`semantic-toggle artifact-contents-toggle ${fulltext ? "selected" : ""}`}><input type="checkbox" role="switch" checked={fulltext} onChange={(event) => { setFulltext(event.target.checked); if (!event.target.checked) setContentKind(""); setOffset(0); try { localStorage.setItem(dashboardStorageKeys.transcriptContents, String(event.target.checked)); } catch { /* Storage is optional. */ } }} /><span className="semantic-switch" aria-hidden="true"><span /></span><span>Include contents</span></label>
         </div>
@@ -122,7 +125,7 @@ export default function TranscriptLibrary({ projectId, refreshSignal, onPendingC
       </div>
       {loading && !page && <div className="loading-state" role="status">Loading transcripts…</div>}
       {page && !page.items.length && <div className="artifact-empty"><h2>{search || workFilter ? "No matching transcripts." : "Your agent sessions belong here."}</h2><p>{search || workFilter ? "Try another query, include contents, or clear the work filter." : "Agents report transcript locations when starting work and add subagent locations at closeout."}</p></div>}
-      {page && <div className="artifact-pagination"><span>{page.total ? `${offset + 1}–${Math.min(offset + page.items.length, page.total)} of ${page.total} transcripts` : "0 transcripts"}</span><div><button className="button button-secondary" disabled={loading || offset === 0} onClick={() => setOffset(Math.max(0, offset - TRANSCRIPT_PAGE_SIZE))}>Previous</button><button className="button button-secondary" disabled={loading || offset + TRANSCRIPT_PAGE_SIZE >= page.total} onClick={() => setOffset(offset + TRANSCRIPT_PAGE_SIZE)}>Next</button></div></div>}
+      {page && <div className="artifact-pagination"><span>{page.total ? `${offset + 1}–${Math.min(offset + page.items.length, page.total)} of ${page.total} transcripts` : "0 transcripts"}</span><div><button className="button button-secondary" disabled={loading || offset === 0} onClick={() => setOffset(previousOffset)}>Previous</button><button className="button button-secondary" disabled={loading || nextPageOffset(page) === null} onClick={() => { const next = nextPageOffset(page); if (next !== null) setOffset(next); }}>Next</button></div></div>}
     </>}
     {selected && <TranscriptDetails key={selected.id} transcript={selected} onClose={() => setSelected(null)} />}
     {match && <TranscriptDrawer title={match.filename} preview conversation onClose={() => setMatch(null)}><TranscriptConversation key={`${match.id}:${match.normalized_revision}:${match.segment_id}`} transcript={match} /></TranscriptDrawer>}

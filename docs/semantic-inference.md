@@ -4,6 +4,21 @@ Application/API/MCP/dashboard 0.73.0 replaces the Phase 9 one-slot, 50 ms
 admission policy. No schema migration, wire-format change, or client retry
 change is required. The Claude plugin remains 0.43.0.
 
+## Current 0.76.0 amendment
+
+The pool sizing evidence below describes the 0.73.0 delivery. Current 0.76.0
+requires migration `0049_duplicate_embeddings`, separates work-search and
+duplicate cache rows, and processes duplicate document vectors in background
+worker batches. Warm duplicate query inference stays synchronous, within a
+four-second work budget after coherent lexical snapshot retention. Source capture
+keeps the existing outer 45/50-second API/MCP response ceilings. Missing vectors
+report `vectors_pending` and queued cache refresh. Only `capacity_exhausted`
+permits one immediate retry after one second; deadline, model and pending-vector
+failures carry no immediate retry guidance. The model permit remains held until
+an already-running native call finishes. See
+[search usability](search-agent-usability.md) for current behavior and deployment
+coordination; the API queue settings below remain valid.
+
 ## Behavior and configuration
 
 All API semantic searches (work, artifact, unified, and multi-project) and
@@ -32,7 +47,8 @@ A full queue or an expired capacity wait preserves the existing
 `capacity_exhausted` reason. Expiry of the enclosing request or external
 comparison deadline remains `deadline_exceeded`. Duplicate suggestions retain
 their lexical fallback; explicit semantic searches return the existing typed
-503 error. The response continues to permit one retry after one second.
+503 error. Since 0.76.0, only `capacity_exhausted` permits one retry after
+one second; other semantic failure reasons do not.
 
 The suggestion request limit remains four, with a 250 ms admission wait. The
 0.74.0 [response deadline amendment](duplicate-suggestion-deadlines.md) replaces
@@ -55,9 +71,14 @@ An installation still setting
 `INFERENCE_SLOTS=1` and `INFERENCE_WAIT_MS=50` keeps those choices after upgrade.
 To use the new defaults, set the four fully prefixed variables to the table's
 values (or remove old overrides and use Compose defaults), then rebuild/recreate
-the API. Configuration is read at process startup. No database migration or
-embedding-cache invalidation is needed. Query vectors and document composition
+the API. Configuration is read at process startup. The original 0.73.0 admission
+change needed no migration or cache invalidation. The current 0.76.0 upgrade
+requires `0049_duplicate_embeddings`; query vectors and document composition
 remain unchanged.
+
+`MNEMONIC_DUPLICATE_SUGGESTION_MISSING_VECTOR_LIMIT` is deprecated and ignored
+in 0.76.0. Existing values from 1–128 remain accepted; duplicate document vectors
+are refreshed by the worker in batches of at most 16.
 
 The source model lock remains per model instance. Increasing the slot count now
 creates independent model instances rather than placing more callers behind one

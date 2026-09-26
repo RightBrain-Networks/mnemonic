@@ -58,8 +58,8 @@ async def test_content_query_alias_preserves_wire_query_and_scope(settings, tool
     ({"q": None}, "q (string_type)"),
     ({"query": ""}, "query (string_too_short)"),
     ({"q": ""}, "q (string_too_short)"),
-    ({"query": PRIVATE * 30}, "query (string_too_long)"),
-    ({"q": PRIVATE * 30}, "q (string_too_long)"),
+    ({"query": PRIVATE * 100}, "query (string_too_long)"),
+    ({"q": PRIVATE * 100}, "q (string_too_long)"),
     ({"q": {PRIVATE: PRIVATE}}, "q (string_type)"),
 ])
 async def test_content_query_refusals_are_local_and_value_free(settings, tool, arguments, expected,
@@ -79,7 +79,7 @@ async def test_both_query_spellings_are_discoverable_and_equally_bounded(setting
         for field in ("query", "q"):
             assert schema["properties"][field]["type"] == "string"
             assert schema["properties"][field]["minLength"] == 1
-            assert schema["properties"][field]["maxLength"] == 200
+            assert schema["properties"][field]["maxLength"] == 1000
         assert "exactly one of query" in tools[name].description
     for name in (*CONTENT_TOOLS, "search"):
         description = tools[name].description

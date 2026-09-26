@@ -8,7 +8,12 @@ import pytest
 
 from mnemonic_api.inference import InferenceResources
 
-from .test_duplicate_suggestions_postgres import DeterministicEmbedder, save, suggest
+from .test_duplicate_suggestions_postgres import (
+    DeterministicEmbedder,
+    cache_project_vectors,
+    save,
+    suggest,
+)
 
 pytestmark = pytest.mark.postgres
 
@@ -32,7 +37,7 @@ def test_cache_publication_does_not_reserve_model_capacity(
     module_path, name = {
         "work": ("application.routes.work_search", "persist_embedding_updates"),
         "unified": ("services.search", "persist_embedding_updates"),
-        "duplicates": ("services.duplicate_suggestions", "_persist_cache_updates"),
+        "duplicates": ("duplicate_embedding_jobs", "request_refresh"),
     }[endpoint]
     module = import_module("mnemonic_api." + module_path)
     original = getattr(module, name)
@@ -68,10 +73,11 @@ def test_cache_publication_does_not_reserve_model_capacity(
 
 
 def test_competing_duplicate_request_waits_for_search_inference_and_completes(
-    api, project, work_payload, monkeypatch,
+    api, project, work_payload, monkeypatch, postgres_engine,
 ):
     save(api, project, work_payload, title="Cache capacity candidate",
          prompt="cache [dense-target]")
+    cache_project_vectors(postgres_engine, project["id"], None)
     entered, release, queued = Event(), Event(), Event()
     first_call = Lock()
 
@@ -122,6 +128,9 @@ def test_document_batch_capacity_failure_preserves_its_reason(
         response = suggest(api, project)
         assert response.status_code == 200, response.text
         semantic = response.json()["semantic"]
+        assert semantic["inference"] == {"status": "unavailable", "reason": "vectors_pending"}
+        assert semantic["cache_refresh"]["status"] == "queued"
+        return
     else:
         response = semantic_search(api, project) if endpoint == "work" else api.post(
             f"/api/v1/projects/{project['id']}/search", json={

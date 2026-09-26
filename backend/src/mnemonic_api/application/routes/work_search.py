@@ -21,6 +21,7 @@ from mnemonic_api.schemas import (
     WorkSearchPage,
 )
 from mnemonic_api.search_exploration import date_conditions
+from mnemonic_api.search_pagination import bound_search_page
 from mnemonic_api.search_ranking import search_ranking
 from mnemonic_api.search_timing import refresh_cache
 from mnemonic_api.semantic import (
@@ -65,13 +66,13 @@ def search_work(
         roots, total = hierarchy_page(database, project_id, filters)
         for rank, item in enumerate(roots, filters.offset + 1):
             item.rank = rank
-        return WorkSearchPage(
+        return bound_search_page(WorkSearchPage(
             **search_ranking(None, "terms", work=True).model_dump(),
             work_rank_scope="work_items",
             **work_search_disclosure(project_id, filters).model_dump(),
             detail=filters.detail, items=roots, total=total,
             limit=filters.limit, offset=filters.offset,
-        )
+        ))
 
     query = (filters.q or "").strip()
     embedder = embedder_of(request)
@@ -142,7 +143,7 @@ def search_work(
             as_of=as_of,
         )
         response.term_diagnostics = diagnostics
-        return response
+        return bound_search_page(response)
 
     selections = _lexical_selections(scoped, filters, projections, lexical_rows, query)
     total = len(selections)
@@ -156,7 +157,7 @@ def search_work(
         database, filters, scoped, projections,
         all_visible if filters.duplicate_scope == "canonical" else scoped, total,
     )
-    return response
+    return bound_search_page(response)
 
 
 def _semantic_response(

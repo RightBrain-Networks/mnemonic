@@ -265,7 +265,8 @@ def capture_embedding_candidates(
         row.work_item_id: row
         for row in database.scalars(
             select(WorkItemEmbedding).where(
-                WorkItemEmbedding.work_item_id.in_([item.id for item in work_items])
+                WorkItemEmbedding.work_item_id.in_([item.id for item in work_items]),
+                WorkItemEmbedding.purpose == "work_search",
             )
         )
     }
@@ -397,6 +398,7 @@ def persist_embedding_updates(
             rows = [
                 {
                     "work_item_id": work_item.id,
+                    "purpose": "work_search",
                     "model": EMBED_CONFIG,
                     "digest": update.digest,
                     "vector": list(update.vector),
@@ -411,7 +413,7 @@ def persist_embedding_updates(
                 statement = insert(WorkItemEmbedding).values(rows)
                 cache_database.execute(
                     statement.on_conflict_do_update(
-                        index_elements=[WorkItemEmbedding.work_item_id],
+                        index_elements=[WorkItemEmbedding.work_item_id, WorkItemEmbedding.purpose],
                         set_={
                             "model": statement.excluded.model,
                             "digest": statement.excluded.digest,

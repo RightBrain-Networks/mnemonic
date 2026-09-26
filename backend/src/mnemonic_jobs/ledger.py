@@ -13,7 +13,9 @@ from sqlalchemy.orm import Session
 
 from mnemonic_jobs.models import BackgroundJob
 
-KINDS = frozenset({"transcript_copy", "transcript_index", "backup_create", "artifact_embed"})
+KINDS = frozenset({
+    "transcript_copy", "transcript_index", "backup_create", "artifact_embed", "duplicate_embed",
+})
 
 
 class PermanentJobError(Exception):
@@ -53,10 +55,11 @@ class JobContext:
 
 
 def _validate_payload(kind: str, payload: dict[str, Any]) -> None:
-    identifier_key = {"backup_create": "project_id", "artifact_embed": "passage_index_id"}.get(
+    identifier_key = {"backup_create": "project_id", "artifact_embed": "passage_index_id",
+                      "duplicate_embed": "refresh_id"}.get(
         kind, "transcript_id",
     )
-    counter = "offset" if kind == "artifact_embed" else "generation"
+    counter = "offset" if kind in {"artifact_embed", "duplicate_embed"} else "generation"
     allowed = {identifier_key} if kind == "backup_create" else {identifier_key, counter}
     if kind not in KINDS or set(payload) != allowed:
         raise ValueError("Job payload must contain only the required identifiers")

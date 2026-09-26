@@ -19,7 +19,23 @@ test("semantic availability, partial scope, retry and cache refresh remain indep
   for (const patch of [{ inference: { status: "unavailable", reason: null } }, { partial_vectors: true }, { candidate_scope: "lexical_shortlist" }, { comparison_incomplete: true }, { retry: { max_attempts: 20, after_seconds: 1 } }, { cache_refresh: { status: "failed", reason: "private upstream text" } }, { unexpected: "ignored" }]) assert.throws(() => decodeSemantic({ ...ready, ...patch }));
   const unavailable = semanticDisposition("unavailable");
   assert.throws(() => decodeSemantic({ ...unavailable, comparison_incomplete: false }));
-  assert.throws(() => decodeSemantic({ ...unavailable, retry: null }));
+  assert.throws(() => decodeSemantic({ ...unavailable, retry: { max_attempts: 1, after_seconds: 1 } }));
+});
+
+test("only capacity failures invite an immediate retry; queued vectors disclose pending work", () => {
+  const unavailable = semanticDisposition("unavailable");
+  const retry = { max_attempts: 1, after_seconds: 1 };
+  const busy = { ...unavailable, inference: { status: "unavailable", reason: "capacity_exhausted" }, retry };
+  assert.deepEqual(decodeSemantic(busy), busy);
+  assert.throws(() => decodeSemantic({ ...busy, retry: null }));
+  for (const reason of ["deadline_exceeded", "model_failure", "vectors_pending"]) {
+    const row = { ...unavailable, inference: { status: "unavailable", reason }, retry: null };
+    assert.deepEqual(decodeSemantic(row), row);
+    assert.throws(() => decodeSemantic({ ...row, retry }));
+  }
+  const pending = { ...unavailable, inference: { status: "unavailable", reason: "vectors_pending" }, cache_refresh: { status: "queued", reason: null } };
+  assert.match(comparisonNotice(decodeSemantic(pending)), /background.*without an immediate retry/);
+  assert.match(comparisonNotice(decodeSemantic({ ...pending, cache_refresh: { status: "failed", reason: "cache_refresh_failed" } })), /could not be scheduled/);
 });
 
 test("native score meaning is bound to query mode and candidate totals", () => {

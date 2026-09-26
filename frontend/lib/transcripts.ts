@@ -1,3 +1,4 @@
+import { validSearchPagination, type SearchPagination } from "./search-pagination.ts";
 import { transcriptCoverageLabel } from "./transcript-coverage.ts";
 import type { QueryMode } from "./search-evidence.ts";
 import { validateSourceRanking, decodeSearchRanking, decodeHitRanking, validScoreType, type SearchRanking, type ScoreType } from "./search-ranking.ts";
@@ -51,7 +52,7 @@ export interface Transcript extends TranscriptNormalization {
   score_type: ScoreType;
   matched_fields: ("metadata" | "content")[];
 }
-export interface TranscriptPage extends SearchDisclosure, SearchRanking {
+export interface TranscriptPage extends SearchDisclosure, SearchRanking, SearchPagination {
   unsegmented_content_omitted: number;
   detail: "full";
   term_diagnostics: TermDiagnostic[];
@@ -130,7 +131,7 @@ export function decodeTranscript(value: unknown, projectId: string, transcriptId
 export function decodeTranscriptPage(value: unknown, projectId: string, offset = 0, fulltext = false, workItemId?: string, contentKinds?: TranscriptContentKind[], queryMode: QueryMode = "terms"): TranscriptPage {
   const page = objectValue(value);
   if (!page || page.detail !== "full" || !Array.isArray(page.items) || !finiteInteger(page.total) || page.limit !== TRANSCRIPT_PAGE_SIZE
-    || page.offset !== offset || page.items.length !== Math.min(page.limit, Math.max(0, page.total - offset))
+    || page.offset !== offset || !validSearchPagination(page)
     || typeof page.indexing_incomplete !== "boolean") throw new Error("Mnemonic returned an invalid transcript listing.");
   const disclosure = decodeSearchDisclosure(page, projectId, ["transcripts"]);
   decodeTermDiagnostics(page.term_diagnostics, page.total as number, ["transcripts"], disclosure.diagnostics, disclosure.query_interpretation.q);
