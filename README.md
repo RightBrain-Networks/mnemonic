@@ -20,6 +20,12 @@ Tested with Claude Code, OpenAI Codex, and OpenCode. Probably works with any sim
 
 - You don't want the complexity of a full orchestration platform like OpenClaw and/or prefer a strong human-in-the-loop workflow.
 
+### Why it might **not** be right for you
+
+- **The human is the harness** `mnemonic` requires an attentive human operator. Work is delegated out to agents by manually copying and pasting pre-written prompts into your MCP client/IDE and you have to be willing to be a part of the decision loop. If vibe coding is more your speed, where you're comfortable with nearly all decisions being made by the clankers, then `mnemonic` is going to feel like a lot of work. **The upside though, is that you understand what's being built and why** and you use your existing Claude Code/Codex/OpenCode, et al UI rather than an unobservable, headless harness.
+
+- **It's not exactly lightweight** `mnemonic` imports, normalizes, and indexes agent transcripts and creates embeddings of the text. This doesn't require a GPU, but it's not likely to run well on a Raspberry Pi and can consume quite a bit (tens of GB) of diskspace. Plus the Docker Compose stack is 6-7 containers (depending on your config). And: the dashboard UX take a while fully master and there are over 50+ MCP tools. **`mnemonic` was designed to help bring engineering rigor to AI-enabled development workflows** but doesn't pretend that cost is free. It's a tool for experienced developers.
+
 ## Basic concepts
 The included agent skills encourage the LLM to default to using `mnemonic` to save hand-off prompts and self-discovered follow-up tasks, rather than your bug/issue tracker, Markdown docs, or ephemeral "Suggested task chips". U
 
@@ -49,6 +55,8 @@ If an agent hits a blocker that needs a human-needed decision, the work is parke
 - **Session transcript archival** -- Once an agent transitions a work item to *Done*, `mnemonic` copies that transcript (and any subagent transcripts) into the mnemonic project store. Each transcript is normalized to a common, cross-vendor format and indexed. This allows Codex agents to search and read Claude Code agents' past work activity and vice versa.
 
 -  **Unified search** -- Agents can search across work items, artifacts, and session transcripts to retrieve relevant information in one-shot, with results being ranked using an intelligent, composite score. This saves time, tokens, and agent context space. This hybrid search is powered by a combination of *Apache Tika*, *Tantivy*, and embeddings for semantic search.
+
+---
 
 ## Run it
 
