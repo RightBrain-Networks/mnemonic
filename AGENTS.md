@@ -97,7 +97,7 @@ git pull --ff-only origin main
 
 Use Semantic Versioning (`MAJOR.MINOR.PATCH`) for application releases. `MAJOR` version bumps are reserved and require explicit human approval. Increment `MINOR` for user-facing changes and `PATCH` for all other changes.
 
-The current application/API/MCP/dashboard release is `0.76.0`, Claude plugin
+The current application/API/MCP/dashboard release is `0.77.0`, Claude plugin
 `0.44.0`, and Alembic head `0049_duplicate_embeddings`. The catalog is exactly
 57 MCP tools, 17 receipt-protected MCP writes, 24 REST receipt kinds, 21 protected
 browser mutations, 24 work-event types, and three plugin skills. The suggestion
@@ -251,9 +251,10 @@ call Tika or inherit the artifact extraction budget. Keep native record/segment 
 and the explicit PostgreSQL text capacity failure. Retained copies remain readable
 if later capture policy tightens. The default native limit is 512 MiB, maximum 1 GiB.
 Use a rebuildable Tantivy transcript index. Compose stores
-the derived index in the private `MNEMONIC_TRANSCRIPT_INDEX_DIR` bind; the search
-content budget uses `MNEMONIC_TRANSCRIPT_SEARCH_MAX_BYTES`. Native processes with
-no index directory retain a RAM cache. Rebuilds have their own
+the derived index in the private `MNEMONIC_TRANSCRIPT_INDEX_DIR` bind. Transcript
+search streams metadata and content without aggregate archive-size caps;
+`MNEMONIC_TRANSCRIPT_SEARCH_MAX_BYTES` is retired and ignored. Native processes
+without an index directory use a private temporary disk index cleaned up on close. Rebuilds have their own
 `transcript_rebuilds` receipt journal; preserve the operation UUID across uncertain retries.
 Workspace imports recursively discover existing Claude Code and Codex JSONL beneath allowed roots.
 Imports are project-owned, deduplicated by normalized source path against enrolled sources,

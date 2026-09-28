@@ -31,16 +31,18 @@ The POST is a safe read and needs no operation UUID. JSON is limited to 16 KiB;
 queries to 1000 characters; limits to 1–100; offsets to 0–1,000,000. Unknown fields,
 duplicate JSON keys, duplicate facets, invalid sorts, control characters, and
 query-string parameters are rejected. Responses use `Cache-Control: no-store`.
-Transcript search bounds metadata to 10,000 records and 32,000,000 bytes. Content
-has a separate 512 MiB default budget, configured with
-`MNEMONIC_TRANSCRIPT_SEARCH_MAX_BYTES` (1 byte–2 GiB). Cold builds stream bodies
-into the configured transcript index; unchanged corpora are cached and snippets load only for the
-global page. Metadata-only searches never fetch bodies or use the content budget.
-Exceeding a bound returns an explicit error without partial results. Narrow the
-transcript filters or raise the content budget with sufficient server memory.
+Transcript search streams metadata and content into a disk-backed Tantivy index.
+It has no aggregate transcript-count, metadata-size, or content-size admission cap;
+`MNEMONIC_TRANSCRIPT_SEARCH_MAX_BYTES` is retired and ignored. The same behavior
+applies to terms, phrases, literal text, content-kind filters, and multi-project
+search. Cold builds stream documents; unchanged corpora reuse the index, and only
+the global page loads full metadata and snippets. Metadata-only searches never
+fetch bodies. Matches retain their complete counts, ranking, and coverage.
 `MNEMONIC_TRANSCRIPT_INDEX_DIR` selects the private disk directory and its API bind
 mount in Compose. A matching cached corpus reopens after restart; the database
-remains authoritative. See [transcript search deployment](transcripts.md#dashboard-settings-and-retrieval).
+remains authoritative. Native processes without a configured directory use a
+private temporary disk index, removed on shutdown. See
+[transcript search deployment](transcripts.md#dashboard-settings-and-retrieval).
 
 ## Empty conjunctions and source scope
 

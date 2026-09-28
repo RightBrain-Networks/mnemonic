@@ -1,5 +1,32 @@
 # Mnemonic validation record
 
+## Transcript search without archive-size admission caps (0.77.0)
+
+Transcript search no longer rejects a scope by total text bytes, metadata bytes,
+or transcript count. Metadata cursors retain only the current records, and cold
+builds stream documents into private disk indexes. Native processes use temporary
+disk storage when no persistent path is configured. The retired
+`MNEMONIC_TRANSCRIPT_SEARCH_MAX_BYTES` setting is ignored. No migration or reimport
+is needed; the derived cache regenerates automatically on its next search.
+
+Real PostgreSQL regressions search a 520 MiB archive through all three transcript
+entry points, including end-of-body markers and warm pagination. Another fixture
+searches 10,001 records with over 32 MB of metadata while retaining at most three
+transcript ORM records at once. Existing coverage verifies exact/phrase boundaries,
+content-kind filters, scope isolation, coherent snapshots, complete diagnostics,
+global page hydration, persisted cache reuse, and disk failure recovery.
+
+The isolated full backend run passed 3,525 cases; its only failure was the release
+version in the OpenAPI snapshot, which was regenerated and passed its targeted
+check (3,526 cases total). Frontend validation passed 505 tests, type checking,
+and the production build under Node 24. Backend lint/type checks and the secret
+scan passed. The Docker mount harness built the API and passed base, TLS, and
+saved-overlay configurations using synthetic private files and isolated containers.
+The full MCP run passed 2,031 cases and found the same stale OpenAPI version in
+its stack checker; that contract passes after regeneration (2,032 cases total).
+MCP lint and type checks also pass.
+Production deployment still requires separate authorization.
+
 ## Agent search and independent duplicate vectors (0.76.0)
 
 Application/API/MCP/dashboard 0.76.0 uses migration `0049_duplicate_embeddings`.

@@ -67,7 +67,6 @@ staged = store.stage(uuid4(), uuid4(), "sample.txt", [b"private artifact"])
 store.publish(staged)
 assert (settings.artifact_root / staged.relative_path).read_bytes() == b"private artifact"
 assert (settings.artifact_root / staged.relative_path).stat().st_uid == os.geteuid()
-assert settings.transcript_search_max_bytes == 1048576
 index = ArtifactSearchIndex(settings.transcript_index_dir)
 try:
     result = index.search("mount-probe", lambda: [SearchDocument("one", "probe", "needle")],
@@ -121,7 +120,6 @@ def check_config(
         assert not mounts[0]["bind"].get("create_host_path", False)
     index_root = env["MNEMONIC_TRANSCRIPT_INDEX_DIR"]
     assert api["environment"]["MNEMONIC_TRANSCRIPT_INDEX_DIR"] == index_root
-    assert int(api["environment"]["MNEMONIC_TRANSCRIPT_SEARCH_MAX_BYTES"]) == 1048576
     index_mount = next(m for m in api["volumes"] if m["target"] == index_root)
     assert index_mount["source"] == index_root and not index_mount.get("read_only", False)
     assert not index_mount["bind"].get("create_host_path", False)
@@ -244,7 +242,6 @@ def main() -> None:
             "MNEMONIC_PROMPT_DIR": str(directory / "prompts"),
             "MNEMONIC_TRANSCRIPT_INDEX_DIR": str(directory / "transcript-index"),
             "MNEMONIC_TRANSCRIPT_DIR": str(directory / "transcripts"),
-            "MNEMONIC_TRANSCRIPT_SEARCH_MAX_BYTES": "1048576",
             "MNEMONIC_BACKUP_DIR": str(directory / "backups"),
             "MNEMONIC_TLS_HOST": "transcript-test.invalid",
             "POSTGRES_PASSWORD": "synthetic-mount-test",

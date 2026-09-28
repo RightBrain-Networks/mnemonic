@@ -37,10 +37,10 @@ class TransportEffect(StrEnum):
 
 
 _APPLICATION_ERRORS = {
-    "transcript_search_capacity": (
-        "transcript_search_capacity: Selected transcript text exceeds the configured search "
-        "capacity. Narrow with created_after, work_item_id, or content_kinds "
-        "(content_kinds requires fulltext=true), or use metadata-only search."
+    "transcript_index_unavailable": (
+        "transcript_index_unavailable: Transcript index storage is unavailable. "
+        "Ask your operator to check its mount, free disk space, permissions, and "
+        "whether another API process is using the directory."
     ),
     "transcript_search_busy": (
         "transcript_search_busy: Another transcript content search is running. "

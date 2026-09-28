@@ -121,7 +121,7 @@ flowchart LR
 | Dashboard MB | 1 MB = 1,048,576 bytes. Existing non-integral MB values retain their exact byte count. |
 | Native records | Existing 8 MiB JSONL record, 16 MiB JSON export, nesting and 250,000 record/segment guards remain. Unsupported structure remains visible. |
 | Indexed text | Complete canonical text, below PostgreSQL's 1 GiB value limit. `transcript_text_too_large` is explicit failure, never silent prefix success. |
-| Search corpus | Independent `MNEMONIC_TRANSCRIPT_SEARCH_MAX_BYTES`, default 512 MiB. Capacity rejection remains explicit and does not discard stored text. |
+| Search corpus | As of 0.77.0, metadata and content stream to disk without an aggregate archive-size cap. The former `MNEMONIC_TRANSCRIPT_SEARCH_MAX_BYTES` setting is retired. |
 | MCP retrieval | At most 20,000 characters per page; full conversations remain pageable. Base64 download remains explicitly bounded to 32 MiB. |
 | Browser/REST download | Streamed, length checked, and pinned to one retained text snapshot. |
 | Storage observations | Allocated blocks include directories and retained superseded snapshots; hard links count once and symlinks are not followed. Scans have entry/time limits and a 30-second cache. |
@@ -174,14 +174,12 @@ preserves explicit project settings and all existing content/receipts.
 **An existing `MNEMONIC_TRANSCRIPT_MAX_BYTES=67108864` remains 64 MiB after upgrade.**
 Raise that explicit operator policy in both API and worker to `536870912` when
 512 MiB is intended; also raise any explicit project limit in Transcript indexing.
-The audited installation has no explicit capture override, so the new Compose
-default takes effect on recreation. Its API already has
-`MNEMONIC_TRANSCRIPT_SEARCH_MAX_BYTES=1073741824` (1 GiB). Raise it to
-`2147483648` (2 GiB) for the measured complete corpus including all five recovered
-oversized entries. This is an explicit deployment policy change; the application
-does not silently override an existing operator budget.
-The search budget controls admitted content, not a disk quota or an exact
-process-memory ceiling. Eligible oversized failures recheck within five minutes. Historical truncated
+The audited installation had no explicit capture override, so the new Compose
+default took effect on recreation. The historical recommendation to raise
+`MNEMONIC_TRANSCRIPT_SEARCH_MAX_BYTES` repeatedly is superseded by 0.77.0:
+[search now streams to disk without an aggregate corpus cap](transcripts.md#dashboard-settings-and-retrieval).
+This does not change native capture limits or require reimporting retained text.
+Eligible oversized failures recheck within five minutes. Historical truncated
 ready text refreshes automatically; verify progress and coverage rather than
 clearing its flag manually. Missing native sources, nonregular assertions and
 historical task journals require actual source restoration or

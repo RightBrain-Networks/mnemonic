@@ -86,7 +86,7 @@ def test_changed_corpus_and_explicit_clear_discard_old_disk_cache(index, directo
 
 
 @pytest.mark.parametrize("failure", [OSError("private disk failure"),
-                                     ApplicationError(503, "transcript_search_capacity", "Limit")])
+                                     ApplicationError(503, "transcript_search_busy", "Busy")])
 def test_failed_build_is_never_reused_and_next_search_recovers(index, directory, failure):
     def broken():
         yield SearchDocument("one", "partial", "needle")

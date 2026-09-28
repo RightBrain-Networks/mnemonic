@@ -264,62 +264,23 @@ def test_worker_reclaims_expired_jobs_and_bounds_transient_retries(
     assert read(api, project, record)["error_code"] == "extraction_unavailable"
 
 
-@pytest.mark.parametrize("fulltext", [False, True])
-def test_capacity_preflight_rejects_before_loading_corpus(
-    api, project, work_payload, tmp_path, postgres_engine, monkeypatch, fulltext,
-):
-    work, _, record, _ = register(api, project, work_payload, tmp_path)
-    expire_lease(postgres_engine, work["id"])
-    assert run(api)
-    with api.app.state.session_factory() as database:
-        row = database.get(Transcript, UUID(record["id"]))
-        if fulltext:
-            row.normalized_text = "🦊" * 2000
-            row.text_sha256 = hashlib.sha256(row.normalized_text.encode()).hexdigest()
-        else:
-            row.extracted_metadata = {"synthetic": ["m" * 4000]}
-        database.commit()
-    if fulltext:
-        api.app.state.settings.transcript_search_max_bytes = 4096
-    else:
-        monkeypatch.setattr(transcript_service, "_SEARCH_MAX_BYTES", 4096)
-    body_queries = []
-
-    def before_cursor(_conn, _cursor, _statement, _parameters, context, _executemany):
-        columns = getattr(getattr(context.compiled, "statement", None), "column_descriptions", [])
-        if any(column.get("entity") is Transcript and column.get("name") == "Transcript"
-               for column in columns):
-            body_queries.append(context.execution_options.get("yield_per"))
-
-    event.listen(postgres_engine, "before_cursor_execute", before_cursor)
-    try:
-        response = api.get(
-            collection(project),
-            params={"detail": "full", "query": "anything", "fulltext": fulltext},
-        )
-    finally:
-        event.remove(postgres_engine, "before_cursor_execute", before_cursor)
-    assert response.status_code == 503, response.text
-    assert response.json()["detail"]["code"] == "transcript_search_capacity"
-    assert body_queries == []
-
-
 def test_corpus_cursor_fetches_one_document_from_a_coherent_snapshot(
     api, project, work_payload, tmp_path, postgres_engine, monkeypatch,
 ):
     work, _, record, _ = register(api, project, work_payload, tmp_path)
     expire_lease(postgres_engine, work["id"])
     assert run(api)
-    preflight = transcript_service._preflight_corpus
+    fingerprint = transcript_service._corpus_key
     batches = []
 
-    def grow_after_preflight(database, statement, fulltext, maximum_content_bytes):
-        preflight(database, statement, fulltext, maximum_content_bytes)
+    def grow_after_fingerprint(*args, **kwargs):
+        key = fingerprint(*args, **kwargs)
         with api.app.state.session_factory() as writer:
             value = "🦊" * 2000
             writer.execute(update(Transcript).where(Transcript.id == UUID(record["id"])).values(
                 normalized_text=value, text_sha256=hashlib.sha256(value.encode()).hexdigest()))
             writer.commit()
+        return key
 
     def before_cursor(_conn, _cursor, _statement, _parameters, context, _executemany):
         columns = getattr(getattr(context.compiled, "statement", None), "column_descriptions", [])
@@ -327,8 +288,7 @@ def test_corpus_cursor_fetches_one_document_from_a_coherent_snapshot(
                for column in columns):
             batches.append(context.execution_options.get("yield_per"))
 
-    monkeypatch.setattr(transcript_service, "_preflight_corpus", grow_after_preflight)
-    api.app.state.settings.transcript_search_max_bytes = 4096
+    monkeypatch.setattr(transcript_service, "_corpus_key", grow_after_fingerprint)
     event.listen(postgres_engine, "before_cursor_execute", before_cursor)
     try:
         response = api.get(
@@ -339,12 +299,11 @@ def test_corpus_cursor_fetches_one_document_from_a_coherent_snapshot(
     assert response.status_code == 200, response.text
     assert response.json()["total"] == 1
     assert "needle" in response.json()["items"][0]["snippet"]
-    assert batches == [1]
+    assert batches and all(batch == 1 for batch in batches)
     changed = api.get(
         collection(project), params={"detail": "full", "query": "needle", "fulltext": True}
     )
-    assert changed.status_code == 503
-    assert changed.json()["detail"]["code"] == "transcript_search_capacity"
+    assert changed.status_code == 200 and changed.json()["total"] == 0, changed.text
 
 
 def test_search_admission_bounds_parallel_corpus_loading(
@@ -354,16 +313,16 @@ def test_search_admission_bounds_parallel_corpus_loading(
     expire_lease(postgres_engine, work["id"])
     assert run(api)
     entered, release = Event(), Event()
-    bounded = transcript_service._bounded_records
+    fingerprint = transcript_service._corpus_key
     calls = []
 
-    def pause_load(database, statement, fulltext, maximum_content_bytes):
+    def pause_load(*args, **kwargs):
         calls.append(True)
         entered.set()
         assert release.wait(5)
-        return bounded(database, statement, fulltext, maximum_content_bytes)
+        return fingerprint(*args, **kwargs)
 
-    monkeypatch.setattr(transcript_service, "_bounded_records", pause_load)
+    monkeypatch.setattr(transcript_service, "_corpus_key", pause_load)
     with ThreadPoolExecutor(max_workers=2) as executor:
         first = executor.submit(api.get, collection(project),
                                 params={"query": "needle", "fulltext": True})

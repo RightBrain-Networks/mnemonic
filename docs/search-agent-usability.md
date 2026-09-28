@@ -106,7 +106,7 @@ work items. Caller-supplied external candidates remain a separate bounded lane.
 
 The API logs content-free search phase timings and cache counts at its default
 log configuration. Expected `ClientDisconnect` exceptions no longer produce a
-server traceback. Typed transcript capacity/busy and search result-size errors
+server traceback. Typed transcript storage/busy and search result-size errors
 retain their actionable MCP causes instead of reporting an API outage.
 
 Repository validation and merging do not deploy or interrupt production services.
