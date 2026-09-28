@@ -6,10 +6,10 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from mnemonic_api.artifact_index import SearchDocument, literal_terms
-from mnemonic_api.errors import ApplicationError
 from mnemonic_api.models import Transcript
 from mnemonic_api.transcript_normalization import Segment, segment_text
 from mnemonic_api.transcript_normalized_storage import SEGMENTS
+from mnemonic_api.transcript_search_corpus import TranscriptCorpus
 
 
 def segment_scope(record: Transcript, content_kinds: Sequence[str] | None = None):
@@ -20,39 +20,22 @@ def segment_scope(record: Transcript, content_kinds: Sequence[str] | None = None
     return scope
 
 
-def filtered_documents(database: Session, records: list[Transcript], content_kinds: Sequence[str],
-                       maximum: int, metadata) -> Iterator[SearchDocument]:
-    scope = SEGMENTS.join(Transcript.__table__,
-        (Transcript.id == SEGMENTS.c.transcript_id)
-        & (Transcript.normalized_revision == SEGMENTS.c.revision))
-    size = database.scalar(select(func.sum(func.octet_length(SEGMENTS.c.text)))
-        .select_from(scope).where(Transcript.status == "ready",
-                                 Transcript.id.in_([record.id for record in records]),
-                                 SEGMENTS.c.content_kind.in_(content_kinds))) or 0
-    if size > maximum:
-        raise ApplicationError(503, "transcript_search_capacity",
-                               "Selected transcript content exceeds search capacity.")
-    measured = 0
+def filtered_documents(database: Session, records: TranscriptCorpus,
+                       content_kinds: Sequence[str], metadata) -> Iterator[SearchDocument]:
     for record in records:
-        if record.status != "ready":
-            yield SearchDocument(str(record.id), metadata(record))
-            continue
-        rows = database.scalars(select(SEGMENTS.c.segment_data.op("-")("payload")).where(
-            segment_scope(record, content_kinds)).order_by(SEGMENTS.c.ordinal)
-            .execution_options(yield_per=1))
-        # One transcript body at a time; no retained corpus of hydrated bodies.
-        parts = []
-        try:
-            for value in rows:
-                part = segment_text(Segment(**value))
-                measured += len(part.encode("utf-8")) + 2
-                if measured > maximum:
-                    raise ApplicationError(503, "transcript_search_capacity",
-                                           "Selected transcript content exceeds search capacity.")
-                parts.append(part)
-        finally:
-            rows.close()
-        yield SearchDocument(str(record.id), metadata(record), "\n\n".join(parts))
+        parts = () if record.status != "ready" else _filtered_parts(database, record, content_kinds)
+        yield SearchDocument(str(record.id), metadata(record), content_parts=parts)
+
+
+def _filtered_parts(database: Session, record: Transcript, content_kinds: Sequence[str]):
+    rows = database.scalars(select(SEGMENTS.c.segment_data.op("-")("payload")).where(
+        segment_scope(record, content_kinds)).order_by(SEGMENTS.c.ordinal)
+        .execution_options(yield_per=1))
+    try:
+        for value in rows:
+            yield segment_text(Segment(**value))
+    finally:
+        rows.close()
 
 
 def matching_segment(database: Session, record: Transcript, query: str,

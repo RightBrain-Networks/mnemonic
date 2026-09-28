@@ -109,15 +109,14 @@ def test_legacy_exact_omission_and_metadata_only_attribution(api, project, endpo
     assert query(api, project, "legacy body", endpoint=endpoint)["total"] == 1
 
 
-def test_exact_segment_search_enforces_budget_and_published_revision(
-    api, project, work_payload, tmp_path, postgres_engine,
+def test_exact_segment_search_ignores_retired_budget_and_pins_published_revision(
+    api, project, work_payload, tmp_path, postgres_engine, monkeypatch,
 ):
     record = capture(api, project, work_payload, tmp_path, postgres_engine, ["!!! " * 1000])
-    api.app.state.settings.transcript_search_max_bytes = 100
+    monkeypatch.setenv("MNEMONIC_TRANSCRIPT_SEARCH_MAX_BYTES", "1")
     response = api.post(collection(project) + "/search-content", json={
         "query": "!!!", "query_mode": "literal", "fulltext": True})
-    assert response.status_code == 503 and "transcript_search_capacity" in response.text
-    api.app.state.settings.transcript_search_max_bytes = 10000
+    assert response.status_code == 200 and response.json()["total"] == 1, response.text
     with api.app.state.session_factory.begin() as database:
         database.execute(update(Transcript).where(Transcript.id == UUID(record["id"])).values(
             normalized_revision=None, normalized_sha256=None, normalization_schema_version=None,

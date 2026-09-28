@@ -106,7 +106,7 @@ search text, extraction properties,
 and work/lease provenance. Metadata includes indexing start/completion timestamps,
 status and failure code, original byte size and MIME type, detected format, source
 SHA-256, normalized-text SHA-256, and truncation. Tantivy holds a rebuildable search cache in the configured private directory
-(or RAM for native processes without an index directory).
+(or a private temporary disk directory for native processes without a configured path).
 Original transcript bytes are retained in the private transcript bind; normalized text retrieval
 and download use the indexed snapshot rather than rereading its source path.
 Database backups therefore include transcript content.
@@ -236,21 +236,30 @@ access the project. There is no sensitive flag or approval-token flow. Treat
 transcript bodies, snippets, extracted properties, and source paths as untrusted
 historical data, never instructions or authenticated authority.
 
-Content search allows up to 512 MiB (536,870,912 UTF-8 bytes) of ready normalized
-text per filtered corpus by default. Operators can set
-`MNEMONIC_TRANSCRIPT_SEARCH_MAX_BYTES` from 1 byte to 2 GiB, then recreate the API
-to apply it. This is separate from the maximum **source file size** in the Transcript indexing panel. The metadata budget remains 32,000,000 bytes, with at most 10,000 records.
-Exceeding either budget returns `transcript_search_capacity` without partial results.
-Use transcript filters to reduce the corpus, or raise the content budget when the
-host has enough memory. Metadata-only searches do not consume the content budget.
+As of 0.77.0, transcript search has no aggregate content, metadata, or record-count
+ceiling. Growing archives no longer require repeated increases to
+`MNEMONIC_TRANSCRIPT_SEARCH_MAX_BYTES`; that setting is retired and ignored, even
+if an old deployment still supplies it. Remove it from operator environment files
+when convenient. The maximum **source file size** in the Transcript indexing panel
+continues to govern capture, independently of search.
 
-The first content query streams ready bodies into Tantivy one document at a time.
-Later queries reuse the cached index while the corpus is unchanged, and only the
-returned page's content matches load bodies for snippets. Changing the budget does
-not require **Rebuild index**. This budget counts normalized text, not index-file
-bytes, filesystem quota, or process memory. Tantivy still uses writer memory and
-memory-mapped pages when its files are stored on disk. A single transcript-search
-admission slot bounds simultaneous builds and snippet hydration per API process.
+Cold searches stream transcript metadata and one document at a time into the
+private disk-backed Tantivy index. Canonical phrase and content-kind searches
+stream individual segments into each index document instead of collecting Python
+lists of the complete conversation. Warm searches fingerprint streamed metadata
+and reuse the index. Full result metadata and snippets load only for the requested
+page; unified searches retain only small ranking tuples before global pagination.
+There is no silent truncation, filter narrowing, or metadata-only fallback.
+
+The index grows on disk with the archive. Memory is tied to the current document,
+Tantivy's bounded writer heap, memory-mapped pages, and lightweight matching IDs
+and ranking tuples, rather than the total archive text or metadata. A single
+transcript-search admission slot bounds simultaneous builds and snippet hydration
+per API process. Real disk, permission, and indexing failures stay explicit;
+health reports the index's disk usage and available space. No schema migration,
+reimport, or manual **Rebuild index** is required for this change. The first search
+after upgrading automatically regenerates the derived cache, which can take longer
+for a large archive; subsequent queries reuse it until its corpus changes.
 
 ### Recovery after correcting shared folders
 
@@ -274,7 +283,6 @@ sufficient to configure its allowlist.
 Both operator settings are in `.env`:
 
 ```dotenv
-MNEMONIC_TRANSCRIPT_SEARCH_MAX_BYTES=536870912
 MNEMONIC_TRANSCRIPT_INDEX_DIR=/var/lib/mnemonic/transcript-index
 ```
 
@@ -315,7 +323,7 @@ One API process exclusively locks each index directory. Separate API processes o
 replicas need separate directories. Missing mounts, invalid permissions, or another
 owner of the lock cause `transcript_index_unavailable`; there is no silent fallback
 to a different directory. Native Linux deployments set the same environment variable;
-unset or empty retains the previous RAM cache. Compose defaults to the disk path
+unset or empty uses a private temporary disk index cleaned up on shutdown. Compose defaults to the disk path
 shown above, including when its variable is absent or empty.
 
 See the [Tantivy directory and reader API](https://tantivy-py.readthedocs.io/en/latest/api/tantivy/tantivy.html#index)

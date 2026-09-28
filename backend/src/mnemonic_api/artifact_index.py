@@ -28,7 +28,7 @@ class SearchDocument:
     metadata: str
     content: str = ""
     metadata_parts: tuple[str, ...] | None = None
-    content_parts: tuple[str, ...] | None = None
+    content_parts: Iterable[str] | None = None
 
 
 @dataclass(frozen=True)
@@ -129,6 +129,10 @@ class ArtifactSearchIndex:
         self._schema = _schema()
         self._analyzer = _analyzer()
 
+    @property
+    def directory(self) -> Path | None:
+        return self._storage.directory if self._storage is not None else None
+
     def _build(self, documents: Iterable[SearchDocument]) -> tantivy.Index:
         path = self._storage.prepare() if self._storage is not None else None
         index = tantivy.Index(self._schema, path=path, reuse=False)
@@ -137,13 +141,17 @@ class ArtifactSearchIndex:
         writer = index.writer(heap_size=15_000_000, num_threads=1)
         try:
             for document in documents:
-                writer.add_document(tantivy.Document(
+                value = tantivy.Document(
                     identity=document.identity,
                     metadata=list(document.metadata_parts) if document.metadata_parts is not None
                     else document.metadata,
-                    content=list(document.content_parts) if document.content_parts is not None
-                    else document.content
-                ))
+                )
+                if document.content_parts is None:
+                    value.add_text("content", document.content)
+                else:
+                    for part in document.content_parts:
+                        value.add_text("content", part)
+                writer.add_document(value)
             writer.commit()
         except BaseException:
             writer.rollback()
@@ -243,7 +251,7 @@ class ArtifactSearchIndex:
     def _load_or_build(self, key: str, documents: Callable[[], Iterable[SearchDocument]]):
         # Generation-isolated disk layout invalidates the old flat derived
         # cache; PostgreSQL documents remain the source of truth.
-        storage_key = f"{version('tantivy')}:schema1:generation2:{key}"
+        storage_key = f"{version('tantivy')}:schema1:generation3:{key}"
         if self._storage is not None and self._storage.reusable(storage_key):
             try:
                 # The constructor's reuse=True also creates an empty index
@@ -326,5 +334,5 @@ class ArtifactSearchIndex:
 
 def _storage_error() -> ApplicationError:
     return ApplicationError(503, "transcript_index_unavailable",
-        "Transcript index storage is unavailable. Check its mount, permissions, "
+        "Transcript index storage is unavailable. Check its mount, free disk space, permissions, "
         "and whether another API process is using the directory.")

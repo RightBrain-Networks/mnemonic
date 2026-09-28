@@ -7,52 +7,44 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from mnemonic_api.artifact_index import SearchDocument, SearchHit, literal_terms
-from mnemonic_api.errors import ApplicationError
 from mnemonic_api.models import Transcript
 from mnemonic_api.search_query import QueryIntent, analyzer
 from mnemonic_api.search_snippets import phrase_span, supporting_snippet
 from mnemonic_api.transcript_normalization import ContentKind
 from mnemonic_api.transcript_normalized_storage import SEGMENTS
+from mnemonic_api.transcript_search_corpus import TranscriptCorpus
 from mnemonic_api.transcript_segment_search import segment_scope
 
 
-def _published(records: Sequence[Transcript]):
+def _published(records: TranscriptCorpus):
     return (SEGMENTS.join(Transcript.__table__,
         (Transcript.id == SEGMENTS.c.transcript_id)
         & (Transcript.normalized_revision == SEGMENTS.c.revision)),
-        (Transcript.id.in_([row.id for row in records])) & (Transcript.status == "ready"))
+        (Transcript.id.in_(records.ids)) & (Transcript.status == "ready"))
 
 
-def preflight_segments(database: Session, records: Sequence[Transcript],
-                       kinds: Sequence[str] | None, maximum: int) -> None:
-    joined, scope = _published(records)
-    if kinds:
-        scope &= SEGMENTS.c.content_kind.in_(kinds)
-    size = database.scalar(select(func.sum(func.octet_length(SEGMENTS.c.text) + 2))
-        .select_from(joined).where(scope)) or 0
-    if size > maximum:
-        raise ApplicationError(503, "transcript_search_capacity",
-                               "Selected transcript content exceeds search capacity.")
-
-
-def exact_documents(database: Session, records: Sequence[Transcript], fulltext: bool,
+def exact_documents(database: Session, records: TranscriptCorpus, fulltext: bool,
                     kinds: Sequence[str] | None,
                     metadata: Callable[[Transcript], tuple[str, ...]]) -> Iterator[SearchDocument]:
     for record in records:
         parts = ()
         if fulltext and record.status == "ready" and record.normalized_revision is not None:
-            rows = database.scalars(select(SEGMENTS.c.text).where(segment_scope(record, kinds))
-                .order_by(SEGMENTS.c.ordinal).execution_options(yield_per=1))
-            try:
-                parts = tuple(rows)
-            finally:
-                rows.close()
+            parts = _exact_parts(database, record, kinds)
         fields = metadata(record)
         yield SearchDocument(str(record.id), "\n".join(fields),
                              metadata_parts=fields, content_parts=parts)
 
 
-def literal_hits(database: Session, records: Sequence[Transcript], query: str, fulltext: bool,
+def _exact_parts(database: Session, record: Transcript, kinds: Sequence[str] | None):
+    rows = database.scalars(select(SEGMENTS.c.text).where(segment_scope(record, kinds))
+        .order_by(SEGMENTS.c.ordinal).execution_options(yield_per=1))
+    try:
+        yield from rows
+    finally:
+        rows.close()
+
+
+def literal_hits(database: Session, records: TranscriptCorpus, query: str, fulltext: bool,
                  kinds: Sequence[str] | None,
                  metadata: Callable[[Transcript], tuple[str, ...]]) -> list[SearchHit]:
     metadata_ids = {record.id for record in records
@@ -69,11 +61,6 @@ def literal_hits(database: Session, records: Sequence[Transcript], query: str, f
                       identity in metadata_ids, identity in content_ids)
             for identity in metadata_ids | content_ids]
     return sorted(hits, key=lambda hit: (-hit.score, hit.identity))
-
-
-def omitted_legacy(records: Sequence[Transcript], fulltext: bool, intent: QueryIntent) -> int:
-    return sum(record.status == "ready" and record.normalized_revision is None for record in records
-               ) if fulltext and intent.constrained else 0
 
 
 def exact_evidence(database: Session, record: Transcript, intent: QueryIntent,
@@ -93,7 +80,7 @@ def exact_evidence(database: Session, record: Transcript, intent: QueryIntent,
 
 def _phrase_evidence(database: Session, record: Transcript, intent: QueryIntent,
                      kinds: Sequence[str] | None) -> tuple[str, ContentKind, str | None] | None:
-    # Corpus admission already bounds these texts; payloads never leave SQL.
+    # Stream published segments one at a time; payloads never leave SQL.
     rows = database.execute(select(SEGMENTS.c.segment_id, SEGMENTS.c.content_kind, SEGMENTS.c.text)
         .where(segment_scope(record, kinds)).order_by(SEGMENTS.c.ordinal)
         .execution_options(yield_per=1))

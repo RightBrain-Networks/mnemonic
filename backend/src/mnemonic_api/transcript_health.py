@@ -209,10 +209,10 @@ def transcript_health(database: Session, project_id: UUID,
     unique = {item.model_dump_json(): item for item in [*warnings, *workers, *copies]}
     worker = database.scalar(select(TranscriptWorkerHealth).order_by(
         TranscriptWorkerHealth.checked_at.desc()).limit(1))
+    index_directory = index.directory if index is not None else settings.transcript_index_dir
     storage = TranscriptUsage(
         transcripts=worker.report.get("native_storage") if worker else None,
-        index=directory_usage(settings.transcript_index_dir)
-            if settings.transcript_index_dir is not None else None,
+        index=directory_usage(index_directory) if index_directory is not None else None,
         database_bytes=database_usage(database))
     return TranscriptHealthRead(project_id=project_id, checked_at=now, worker_checked_at=checked,
         warnings=list(unique.values())[:MAX_WARNINGS],
@@ -222,9 +222,10 @@ def transcript_health(database: Session, project_id: UUID,
 
 def index_warnings(index: ArtifactSearchIndex | None,
                    settings: Settings) -> list[TranscriptWarning]:
-    if settings.transcript_index_dir is None:
+    directory = index.directory if index is not None else settings.transcript_index_dir
+    if directory is None:
         return []
-    issue = probe_storage(settings.transcript_index_dir)
+    issue = probe_storage(directory)
     if issue is not None:
         details = issue["details"]
         warning = warning_for(issue["code"], details, "api")
@@ -241,7 +242,7 @@ def index_warnings(index: ArtifactSearchIndex | None,
                 error.detail.get("code") != "transcript_search_busy"
             ):
                 return [TranscriptWarning(code="transcript_index_unavailable", service="api",
-                    path=str(settings.transcript_index_dir),
+                    path=str(directory),
                     message="Transcript search index could not be opened.",
                     action="Check private index ownership, permissions and available space. "
                     "Only one API process may own this index directory. Refresh after fixing it.")]

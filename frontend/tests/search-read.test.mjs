@@ -11,7 +11,7 @@ test("temporary transcript contention retries within a bounded cancellable budge
   assert.equal(calls,5);
 });
 test("other failures and cancelled searches are never retried", async () => {
-  for (const code of ["client_operation_unavailable","search_temporarily_unavailable","transcript_search_capacity"]) {
+  for (const code of ["client_operation_unavailable","search_temporarily_unavailable","transcript_index_unavailable"]) {
     let calls=0;
     await assert.rejects(transcriptSearchRead(async()=>{calls++;throw new ApiError("Failed",503,code);},new AbortController().signal,async()=>assert.fail("No retry")));
     assert.equal(calls,1);

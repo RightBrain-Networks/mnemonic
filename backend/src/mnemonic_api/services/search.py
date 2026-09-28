@@ -7,7 +7,6 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from mnemonic_api.artifact_index import ArtifactSearchIndex, literal_terms
-from mnemonic_api.config import DEFAULT_TRANSCRIPT_SEARCH_MAX_BYTES
 from mnemonic_api.models import Project
 from mnemonic_api.search_diagnostics import SearchScope, TermDiagnostic, TermMatchCounts
 from mnemonic_api.search_disclosure import (
@@ -235,7 +234,7 @@ def _search_locked(
     database: Session, project_id: ProjectSelection, request: SearchRequest,
     artifact_index: ArtifactSearchIndex, transcript_index: ArtifactSearchIndex,
     *, artifacts_enabled: bool, human_dashboard: bool, embedder: Embedder,
-    query_vector: tuple[float, ...] | None, maximum_transcript_content_bytes: int,
+    query_vector: tuple[float, ...] | None,
     artifact_chunk_config: str | None,
 ) -> tuple[SearchPage, list[EmbeddingCacheUpdate]]:
     as_of = database.scalar(select(func.clock_timestamp()))
@@ -259,7 +258,6 @@ def _search_locked(
         if "transcripts" in request.facets:
             sources["transcripts"], coverage.transcripts = stack.enter_context(transcript_source(
                 database, project_id, request, transcript_index,
-                maximum_content_bytes=maximum_transcript_content_bytes,
             ))
         projects = list(database.scalars(select(Project).where(
             Project.id.in_(selected_project_ids(project_id)),
@@ -273,7 +271,6 @@ def search(
     *, artifacts_enabled: bool, human_dashboard: bool, embedder: Embedder,
     query_vector: tuple[float, ...] | None = None,
     artifact_chunk_config: str | None = None,
-    maximum_transcript_content_bytes: int = DEFAULT_TRANSCRIPT_SEARCH_MAX_BYTES,
 ) -> SearchPage:
     # Transcript/work searches use one MVCC read snapshot without blocking writers.
     # Artifact searches retain the lock through sensitivity checks, hydration and
@@ -285,7 +282,6 @@ def search(
             database, project_id, request, artifact_index, transcript_index,
             artifacts_enabled=artifacts_enabled, human_dashboard=human_dashboard,
             embedder=embedder, query_vector=query_vector,
-            maximum_transcript_content_bytes=maximum_transcript_content_bytes,
             artifact_chunk_config=artifact_chunk_config,
         )
         database.commit()

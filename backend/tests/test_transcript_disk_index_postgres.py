@@ -19,9 +19,9 @@ pytestmark = pytest.mark.postgres
 
 
 @contextmanager
-def disk_api(api, engine, directory, *, limit=536_870_912):
+def disk_api(api, engine, directory):
     config = api.app.state.settings.model_copy(update={
-        "transcript_index_dir": directory, "transcript_search_max_bytes": limit,
+        "transcript_index_dir": directory,
     })
     with TestClient(create_app(config, engine=engine)) as client:
         client.headers["Authorization"] = api.headers["Authorization"]
@@ -34,8 +34,8 @@ def test_large_library_uses_configured_disk_directory(api, project, postgres_eng
         assert (snapshot_directory(tmp_path) / "meta.json").is_file()
 
 
-def test_restart_reuses_validated_corpus_but_still_enforces_configured_budget(
-    api, project, postgres_engine, tmp_path,
+def test_restart_reuses_validated_corpus_with_retired_budget_environment(
+    api, project, postgres_engine, tmp_path, monkeypatch,
 ):
     body = "needle " + "🦊" * 2000
     seed_transcripts(api, project, body)
@@ -46,12 +46,13 @@ def test_restart_reuses_validated_corpus_but_still_enforces_configured_budget(
         assert response.status_code == 200, response.text
         assert response.json()["total"] == 1
         assert reads == [None]  # Reopen on disk; fetch only the page's snippet body.
-    with disk_api(api, postgres_engine, tmp_path, limit=4096) as client:
+    monkeypatch.setenv("MNEMONIC_TRANSCRIPT_SEARCH_MAX_BYTES", "1")
+    with disk_api(api, postgres_engine, tmp_path) as client:
         with body_reads(postgres_engine) as reads:
             response = search(client, project, "unified")
-            assert response.status_code == 503, response.text
-            assert response.json()["detail"]["code"] == "transcript_search_capacity"
-            assert reads == []
+            assert response.status_code == 200 and response.json()["total"] == 1, response.text
+            assert reads == [None]
+            reads.clear()
             assert search(client, project, query="archive", fulltext=False).json()["total"] == 1
             assert reads == []
 

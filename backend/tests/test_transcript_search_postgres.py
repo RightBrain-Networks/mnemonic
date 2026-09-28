@@ -47,8 +47,10 @@ def body_reads(engine):
 
     def before_cursor(_conn, _cursor, _statement, _parameters, context, _executemany):
         columns = getattr(getattr(context.compiled, "statement", None), "column_descriptions", [])
-        if any(column.get("entity") is Transcript and column.get("name") == "normalized_text"
-               for column in columns):
+        selects_body = "transcripts.normalized_text" in _statement.split("FROM")[0]
+        if selects_body and any(column.get("entity") is Transcript
+                and column.get("name") in {"Transcript", "normalized_text"}
+                for column in columns):
             reads.append(context.execution_options.get("yield_per"))
 
     event.listen(engine, "before_cursor_execute", before_cursor)
@@ -89,26 +91,24 @@ def test_large_library_search_reuses_streamed_index_and_fetches_only_page_bodies
 
 
 @pytest.mark.parametrize("endpoint", ["list", "content", "unified"])
-def test_content_budget_uses_utf8_bytes_and_applies_even_to_warm_cache(
-    api, project, postgres_engine, endpoint,
+def test_retired_content_budget_never_limits_cold_or_warm_search(
+    api, project, postgres_engine, endpoint, monkeypatch,
 ):
+    monkeypatch.setenv("MNEMONIC_TRANSCRIPT_SEARCH_MAX_BYTES", "1")
     body = "needle " + "🦊" * 2000
     seed_transcripts(api, project, body)
-    settings = api.app.state.settings
-    settings.transcript_search_max_bytes = len(body.encode())
-    assert search(api, project, endpoint).status_code == 200
-    settings.transcript_search_max_bytes -= 1
     with body_reads(postgres_engine) as reads:
-        response = search(api, project, endpoint)
-        assert response.status_code == 503, response.text
-        assert response.json()["detail"]["code"] == "transcript_search_capacity"
-        assert "configured size limit" in response.json()["detail"]["message"]
-        assert reads == []
+        cold = search(api, project, endpoint)
+        assert cold.status_code == 200 and cold.json()["total"] == 1, cold.text
+        assert reads == [1, None]
+        reads.clear()
+        warm = search(api, project, endpoint)
+        assert warm.status_code == 200 and warm.json()["total"] == 1, warm.text
+        assert reads == [None]
+        reads.clear()
         metadata = search(api, project, endpoint, query="archive", fulltext=False)
         assert metadata.status_code == 200 and metadata.json()["total"] == 1
-        assert reads == []  # An oversized body never blocks or loads during metadata search.
-    settings.transcript_search_max_bytes += 1
-    assert search(api, project, endpoint).status_code == 200
+        assert reads == []
 
 
 def test_unified_pagination_does_not_load_transcript_snippets_outside_global_page(

@@ -31,8 +31,8 @@ Explicit multi-project requests check combined corpus bounds before hydration:
 10,000 work records, 10,000 artifact records, 32 MB metadata per source, and 128 MiB
 permitted current artifact body text. Exceeding a bound returns the safe
 `multi_project_search_capacity` error with a narrower-selection hint. Transcript
-bodies retain the configured `MNEMONIC_TRANSCRIPT_SEARCH_MAX_BYTES` budget across
-the entire selection. Metadata-only requests do not load bodies, and sensitive
+metadata and bodies stream across the entire selection into a disk-backed index,
+without an aggregate archive-size limit. Metadata-only requests do not load bodies, and sensitive
 artifact bodies remain withheld without fresh request-bound approval.
 
 No schema migration, new MCP tool, receipt kind, or write operation is introduced.

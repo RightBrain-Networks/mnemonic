@@ -1,4 +1,4 @@
-"""Operator bounds for the transcript content corpus are independent of source files."""
+"""Transcript source and disk-index settings; archive-size search caps are retired."""
 
 import json
 
@@ -25,23 +25,14 @@ def settings():
                     api_key="synthetic-test-key" * 3)
 
 
-def test_transcript_search_budget_default_and_environment_override(monkeypatch):
-    monkeypatch.delenv("MNEMONIC_TRANSCRIPT_SEARCH_MAX_BYTES", raising=False)
-    assert settings().transcript_search_max_bytes == 536_870_912
-    monkeypatch.setenv("MNEMONIC_TRANSCRIPT_SEARCH_MAX_BYTES", "1073741824")
-    configured = settings()
-    assert configured.transcript_search_max_bytes == 1_073_741_824
-    assert configured.transcript_max_bytes == 536_870_912
-
-
-@pytest.mark.parametrize("value", ["0", "-1", "2147483649", "invalid"])
-def test_transcript_search_budget_rejects_invalid_limits(monkeypatch, value):
+@pytest.mark.parametrize("value", ["1", "536870912", "2147483648", "invalid"])
+def test_retired_search_budget_cannot_limit_or_break_search(monkeypatch, value):
     monkeypatch.setenv("MNEMONIC_TRANSCRIPT_SEARCH_MAX_BYTES", value)
-    with pytest.raises(ValidationError, match="MNEMONIC_TRANSCRIPT_SEARCH_MAX_BYTES"):
-        settings()
+    assert "transcript_search_max_bytes" not in Settings.model_fields
+    assert settings().transcript_max_bytes == 536_870_912
 
 
-def test_transcript_index_directory_environment_and_memory_default(monkeypatch, tmp_path):
+def test_transcript_index_directory_environment_and_temporary_default(monkeypatch, tmp_path):
     monkeypatch.delenv("MNEMONIC_TRANSCRIPT_INDEX_DIR", raising=False)
     assert settings().transcript_index_dir is None
     monkeypatch.setenv("MNEMONIC_TRANSCRIPT_INDEX_DIR", str(tmp_path / "private index"))

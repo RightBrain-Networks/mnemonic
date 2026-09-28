@@ -15,7 +15,7 @@ from mnemonic_api.application.routes.artifacts import (
     storage_errors,
     storage_of,
 )
-from mnemonic_api.application.state import embedder_of, settings_of
+from mnemonic_api.application.state import embedder_of
 from mnemonic_api.application.validation import raise_reviewed_body_validation
 from mnemonic_api.artifact_tokenizer import passage_tokenizer
 from mnemonic_api.database import Database
@@ -168,7 +168,6 @@ async def _execute_search(
             artifacts_enabled=artifacts_enabled, human_dashboard=human_dashboard,
             embedder=embedder, query_vector=query_vector,
             artifact_chunk_config=artifact_chunk_config,
-            maximum_transcript_content_bytes=settings_of(request).transcript_search_max_bytes,
         )
 
     return bound_search_page(await run_in_threadpool(execute))

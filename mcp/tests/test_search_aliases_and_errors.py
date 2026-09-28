@@ -53,7 +53,7 @@ async def test_discovery_alias_refusals_do_not_send_http_or_echo_values(settings
 
 
 @pytest.mark.parametrize("code,status,remedy", [
-    ("transcript_search_capacity", 503, "created_after, work_item_id, or content_kinds"),
+    ("transcript_index_unavailable", 503, "free disk space"),
     ("transcript_search_busy", 503, "sequentially"),
     ("search_result_too_large", 413, "detail=compact"),
 ])

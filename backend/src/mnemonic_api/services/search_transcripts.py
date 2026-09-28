@@ -4,11 +4,10 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import case, func
 from sqlalchemy.orm import Session
 
 from mnemonic_api.artifact_index import ArtifactSearchIndex
-from mnemonic_api.config import DEFAULT_TRANSCRIPT_SEARCH_MAX_BYTES
 from mnemonic_api.errors import ApplicationError
 from mnemonic_api.models import Transcript
 from mnemonic_api.search_exploration import date_conditions
@@ -23,7 +22,6 @@ from mnemonic_api.search_schemas import (
 from mnemonic_api.services.search_sources import SearchCandidate, SearchSource
 from mnemonic_api.services.transcripts import (
     _SEARCH_SLOT,
-    _bounded_records,
     _search_read,
     _search_records,
     has_content_kind,
@@ -31,7 +29,7 @@ from mnemonic_api.services.transcripts import (
     transcript_query,
     transcript_search_read,
 )
-from mnemonic_api.transcript_exact_search import omitted_legacy
+from mnemonic_api.transcript_search_corpus import TranscriptCorpus
 
 
 def _filtered_statement(project_id: ProjectSelection, request: SearchRequest):
@@ -49,66 +47,67 @@ def _filtered_statement(project_id: ProjectSelection, request: SearchRequest):
     return statement
 
 
-def _incomplete_records(rows) -> bool:
-    return any(record.status != "ready" or record.copy_status != "ready"
-        or record.reindex_status is not None or record.truncated
-        or record.normalization_status != "ready" or record.normalization_incomplete
-        or record.extracted_metadata.get("transcript:metadata_limited") == ["true"]
-        for record in rows)
-
-
-def _coverage(rows, fulltext, intent) -> TranscriptSearchCoverage:
-    return TranscriptSearchCoverage(indexing_incomplete=_incomplete_records(rows),
-        unsegmented_content_omitted=omitted_legacy(rows, fulltext, intent))
+def _coverage(database, statement, project_id, fulltext, intent):
+    incomplete = (Transcript.status != "ready") | (Transcript.copy_status != "ready") | (
+        Transcript.reindex_status.is_not(None)) | Transcript.truncated | (
+        Transcript.normalization_status != "ready") | Transcript.normalization_incomplete | (
+        Transcript.extracted_metadata.contains({"transcript:metadata_limited": ["true"]}))
+    legacy = (Transcript.status == "ready") & Transcript.normalized_revision.is_(None)
+    rows = database.execute(statement.with_only_columns(
+        transcript_project_id(), func.bool_or(incomplete), func.sum(case((legacy, 1), else_=0)))
+        .group_by(transcript_project_id()))
+    projects = {identity: TranscriptSearchCoverage()
+                for identity in selected_project_ids(project_id)}
+    for identity, unfinished, omitted in rows:
+        projects[identity] = TranscriptSearchCoverage(indexing_incomplete=bool(unfinished),
+            unsegmented_content_omitted=omitted if fulltext and intent.constrained else 0)
+    return TranscriptSearchCoverage(
+        indexing_incomplete=any(value.indexing_incomplete for value in projects.values()),
+        unsegmented_content_omitted=sum(value.unsegmented_content_omitted
+                                       for value in projects.values()),
+    ), projects
 
 
 def _source(
     database: Session, project_id: ProjectSelection, request: SearchRequest,
     index: ArtifactSearchIndex,
-    maximum_content_bytes: int,
 ) -> tuple[SearchSource, TranscriptSearchCoverage]:
     intent = parse_query(request.q, request.query_mode)
     fulltext = bool(request.q and request.fulltext)
     content_kinds = request.filters.transcripts.content_kinds
-    rows = _bounded_records(database, _filtered_statement(project_id, request),
-                            fulltext and not content_kinds and not intent.constrained,
-                            maximum_content_bytes)
-    owners = {identity: owner for identity, owner in database.execute(
-        transcript_query(project_id).with_only_columns(Transcript.id, transcript_project_id())
-        .where(Transcript.id.in_([record.id for record in rows])))
-    }
-    coverage = _coverage(rows, fulltext, intent)
-    project_coverage = {
-        identity: _coverage([record for record in rows if owners[record.id] == identity],
-                            fulltext, intent)
-        for identity in selected_project_ids(project_id)
-    }
+    statement = _filtered_statement(project_id, request)
+    coverage, project_coverage = _coverage(database, statement, project_id, fulltext, intent)
     if content_kinds:
-        eligible = set(database.scalars(select(Transcript.id).where(
-            Transcript.id.in_([row.id for row in rows]), has_content_kind(content_kinds),
-        )))
-        rows = [row for row in rows if row.id in eligible]
-    records = {str(record.id): record for record in rows}
+        statement = statement.where(has_content_kind(content_kinds))
+    corpus = TranscriptCorpus(database, statement)
     hits = {}
     searcher = None
+    matches = corpus
     if request.q:
-        result = _search_records(database, rows, request.q, fulltext, index,
-                                 maximum_content_bytes, content_kinds, request.query_mode,
-                                 request.diagnostics)
+        result = _search_records(database, corpus, request.q, fulltext, index,
+                                 content_kinds, request.query_mode, request.diagnostics)
         hits = {hit.identity: hit for hit in result.hits}
         searcher = result.searcher
-    candidates = [SearchCandidate(
-        facet="transcripts", id=record.id, project_id=owners[record.id],
-        created_at=record.created_at,
-        updated_at=record.last_updated_at or record.created_at,
-        score=hits[identity].score if request.q else 0.0,
-    ) for identity, record in records.items() if not request.q or identity in hits]
-
+        matches = corpus.matching([UUID(identity) for identity in hits])
+    # Only small ranking tuples survive the cursor. Full metadata and snippets
+    # are fetched for the globally selected page, never the complete library.
+    rows = database.execute(matches.statement.with_only_columns(
+        Transcript.id, transcript_project_id(), Transcript.created_at,
+        func.coalesce(Transcript.last_updated_at, Transcript.created_at))
+        .execution_options(yield_per=100))
+    try:
+        candidates = [SearchCandidate(
+            facet="transcripts", id=identity, project_id=owner, created_at=created,
+            updated_at=updated, score=hits[str(identity)].score if request.q else 0.0,
+        ) for identity, owner, created, updated in rows]
+    finally:
+        rows.close()
 
     def hydrate(page: list[SearchCandidate]) -> dict[UUID, SearchHit]:
+        records = {record.id: record for record in corpus.matching([item.id for item in page])}
         rendered: dict[UUID, SearchHit] = {}
         for item in page:
-            record = records[str(item.id)]
+            record = records[item.id]
             transcript = (_search_read(database, item.project_id, record, hits[str(item.id)],
                                        request.q, index, searcher, content_kinds,
                                        detail=request.detail, query_mode=request.query_mode)
@@ -128,12 +127,11 @@ def _source(
 def transcript_source(
     database: Session, project_id: ProjectSelection, request: SearchRequest,
     index: ArtifactSearchIndex,
-    *, maximum_content_bytes: int = DEFAULT_TRANSCRIPT_SEARCH_MAX_BYTES,
 ) -> Iterator[tuple[SearchSource, TranscriptSearchCoverage]]:
     if not _SEARCH_SLOT.acquire(timeout=0.25):
         raise ApplicationError(503, "transcript_search_busy",
                                "Transcript search is busy. Try this read again shortly.")
     try:
-        yield _source(database, project_id, request, index, maximum_content_bytes)
+        yield _source(database, project_id, request, index)
     finally:
         _SEARCH_SLOT.release()
