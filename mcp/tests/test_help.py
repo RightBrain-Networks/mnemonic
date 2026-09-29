@@ -43,7 +43,7 @@ async def test_help_is_local_read_only_and_returns_one_plain_text_page(settings)
 
 def test_index_lists_every_command_and_gives_exact_navigation(catalog):
     page = render_help("", catalog)
-    assert len(catalog) == 57
+    assert len(catalog) == 58
     assert catalog.keys() == GUIDES.keys()
     for name in catalog:
         assert name in page
@@ -63,8 +63,8 @@ def test_every_command_has_compact_overview_and_workflow(catalog):
         assert len(overview) < 1800, name
         assert len(usage) < 1100, name
         assert '"$defs"' not in overview + usage
-        if "client_operation_id" in tool.inputSchema.get("required", []):
-            assert "Freeze every argument" in usage
+        if "client_operation_id" in tool.inputSchema.get("properties", {}):
+            assert "Omit the retry ID" in usage
 
 
 def test_complete_work_pages_cover_shapes_and_semantic_rules(catalog):
@@ -103,6 +103,14 @@ def test_field_help_includes_exact_constraints_and_accepts_dotted_paths(catalog)
     assert "allowed=" in page
     assert "build_artifact" in page  # All enums remain discoverable beyond the overview's preview.
     assert page == render_help("complete_work completion_evidence artifact_references artifact_type", catalog)
+
+
+def test_automatic_uuid_help_distinguishes_prepared_upload_intents(catalog):
+    assert "Omit the retry ID" in render_help("create_work client_operation_id", catalog)
+    assert "Omit the retry ID" in render_help("claim_work claim_request_id", catalog)
+    nested = render_help("authorize_artifact_upload intent client_operation_id", catalog)
+    assert "helper's frozen client_operation_id" in nested
+    assert "Omit the retry ID" not in nested
 
 
 def test_every_field_and_discriminator_is_navigable(catalog):

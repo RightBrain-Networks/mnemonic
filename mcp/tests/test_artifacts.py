@@ -243,8 +243,9 @@ async def test_artifact_catalog_annotations_and_required_receipt_provenance(sett
     tools = {item.name: item for item in await build_server(settings).list_tools()}
     for name in ("upload_artifact", "replace_artifact", "delete_artifact"):
         required = tools[name].inputSchema["required"]
-        assert {"client_operation_id", "agent_session_id", "actor_client"} <= set(required)
-        assert tools[name].annotations.idempotentHint
+        assert {"agent_session_id", "actor_client"} <= set(required)
+        assert "client_operation_id" not in required
+        assert tools[name].annotations.idempotentHint is False
         assert not tools[name].annotations.readOnlyHint
     assert tools["replace_artifact"].annotations.destructiveHint
     assert tools["delete_artifact"].annotations.destructiveHint

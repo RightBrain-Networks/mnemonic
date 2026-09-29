@@ -11,6 +11,7 @@ from conftest import (
     PROJECT_ID,
 )
 from mcp.server.fastmcp.exceptions import ToolError
+from mcp.types import CallToolResult
 
 from mnemonic_mcp.api import UNKNOWN_IDEMPOTENT_MUTATION_OUTCOME, MnemonicAPI
 from mnemonic_mcp.input_errors import InputValidationError
@@ -19,6 +20,18 @@ from mnemonic_mcp.server import build_server
 
 def reject_http(request):
     pytest.fail("Locally invalid arguments must not reach the API")
+
+
+async def rejected_message(server, name, arguments):
+    try:
+        result = await server.call_tool(name, arguments)
+    except ToolError as error:
+        return str(error)
+    # Omitted retry IDs return the same sanitized diagnostic with a recovery envelope.
+    assert isinstance(result, CallToolResult) and result.isError
+    assert result.meta["mnemonic_generated_ids"]
+    assert PRIVATE_EXTRA_VALUE not in str(result)
+    return result.content[0].text
 
 
 def create_work_arguments():
@@ -34,9 +47,9 @@ def create_work_arguments():
 async def test_every_tool_rejection_gives_bounded_hints_without_values(settings):
     server = build_server(settings, MnemonicAPI(settings, httpx.MockTransport(reject_http)))
     for tool in await server.list_tools():
-        with pytest.raises(ToolError) as caught:
-            await server.call_tool(tool.name, {PRIVATE_EXTRA_FIELD: PRIVATE_EXTRA_VALUE})
-        message = str(caught.value)
+        message = await rejected_message(
+            server, tool.name, {PRIVATE_EXTRA_FIELD: PRIVATE_EXTRA_VALUE},
+        )
         assert "Input schema" not in message and '"$defs"' not in message
         assert "help(" in message
         assert len(message) < 1200, tool.name
@@ -110,9 +123,7 @@ async def test_manual_input_rejection_retains_guidance_and_adds_help(
     settings, name, arguments, guidance,
 ):
     server = build_server(settings, MnemonicAPI(settings, httpx.MockTransport(reject_http)))
-    with pytest.raises(ToolError) as caught:
-        await server.call_tool(name, arguments)
-    message = str(caught.value)
+    message = await rejected_message(server, name, arguments)
     assert guidance in message
     assert f'help({{"topic":"{name}"}})' in message
     assert "Input schema" not in message

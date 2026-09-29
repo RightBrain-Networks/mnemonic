@@ -714,9 +714,9 @@ async def test_report_input_errors_hide_prose_and_arbitrary_keys(settings, work_
     assert "private-" not in message
 
 
-async def test_catalog_is_56_tools_17_protected_and_report_omission_is_replay_only(settings):
+async def test_catalog_is_58_tools_17_protected_and_report_omission_is_replay_only(settings):
     tools = {tool.name: tool for tool in await build_server(settings).list_tools()}
-    assert len(tools) == 57
+    assert len(tools) == 58
     protected = [tool for tool in tools.values() if "client_operation_id" in tool.inputSchema["properties"]]
     assert len(protected) == 17
     assert "dismiss_job_completion_report" not in tools
@@ -732,7 +732,7 @@ async def test_catalog_is_56_tools_17_protected_and_report_omission_is_replay_on
         assert "get_project_settings" in tools[name].description
     for name in ("get_activity", "get_project_settings", "list_job_completion_reports", "get_job_completion_report"):
         assert tools[name].annotations.readOnlyHint
-        assert tools[name].annotations.idempotentHint
+        assert tools[name].annotations.idempotentHint is True
 
 
 def test_plugin_fixed_authoring_and_human_action_contract():

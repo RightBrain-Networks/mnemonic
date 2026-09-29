@@ -94,7 +94,10 @@ the existing lease, version, human-gate, repository-freshness and evidence
 rules. Immediately before authoring, obtain current settings. Freeze one exact
 intent containing report text, ordered FYIs, prompt revision, expected work
 version, truthful actor or checkpoint provenance, checkpoint/evidence for Done,
-lease token when applicable, and one `client_operation_id`.
+lease token when applicable, and any explicit `client_operation_id`. Fresh MCP
+calls may omit the ID for automatic minting; retain the returned
+`_meta.mnemonic_generated_ids` with this intent and supply it explicitly for an
+exact retry. Never repeat an omitted-ID call after losing the whole response.
 
 Submit the report inside `complete_work` or the reportable `update_work`
 transition. Confirm the returned report belongs to that exact work, outcome,

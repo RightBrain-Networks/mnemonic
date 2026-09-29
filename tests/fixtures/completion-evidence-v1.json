@@ -1095,7 +1095,7 @@
       "client_operation_id": "__omitted__",
       "surface_expectations": {
         "rest_openapi": true,
-        "mcp": false,
+        "mcp": true,
         "browser": false
       }
     },
@@ -1105,7 +1105,7 @@
       "client_operation_id": "__omitted__",
       "surface_expectations": {
         "rest_openapi": true,
-        "mcp": false,
+        "mcp": true,
         "browser": false
       }
     },
@@ -1115,7 +1115,7 @@
       "client_operation_id": "__omitted__",
       "surface_expectations": {
         "rest_openapi": false,
-        "mcp": false,
+        "mcp": true,
         "browser": false
       }
     },

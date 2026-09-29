@@ -119,8 +119,8 @@ from bounded recall slices as absence.
 
 Use one stable identity for the agent actually making the call. For
 `source_session_id`, prefer a distinct session identifier exposed by its host,
-or one supplied for this agent by the user. If none is available, generate one
-UUID once and use `mnemonic-<UUID>` as this agent's explicitly local Mnemonic
+or one supplied for this agent by the user. If none is available, use
+`generate_uuid` once and use `mnemonic-<UUID>` as this agent's explicitly local Mnemonic
 coordination session. Retain the client/session pair in session context or
 private orchestration notes, including compacted/restored context. Reuse it for
 this agent's calls, claim renewals, exact retries, and originating-session
@@ -166,7 +166,7 @@ provenance.
 
 ## Retain protected mutation intents privately
 
-These thirteen canonical mutations require a caller-generated
+These thirteen canonical mutations use a receipt-protected
 `client_operation_id`: `create_work`, `add_checkpoint`, `append_event`,
 `add_relationship`, `update_work`, `complete_work`, `delete_work`,
 `remove_relationship`, `release_claim`, `request_human_input`, `merge_work`,
@@ -179,9 +179,21 @@ context before independent findings freeze; follow
 coordination exception. An optional recommendation answer belongs to its
 originating client/session; do not impersonate an abandoned author.
 
-Before the first attempt, generate one fresh UUID and retain it together with
-the complete tool name and complete immutable argument object in secure,
-client-local orchestration state. The retained arguments include every target,
+On a fresh MCP write, omit `client_operation_id` to let Mnemonic mint a random
+UUIDv4 automatically. Fresh claims likewise may omit `claim_request_id`. The
+result exposes the generated ID in `_meta.mnemonic_generated_ids` and a text
+block, including on tool errors. Retain that ID together with the complete tool
+name and immutable argument object in secure, client-local orchestration state.
+If an ID is needed before dispatch, call `generate_uuid` once and retain its
+`uuid`; never hand-type a supposedly random UUID. Explicit IDs remain supported.
+Prepared artifact uploads keep the ID already frozen by the upload helper.
+
+If the whole MCP response is lost, do not repeat an omitted-ID call: another
+invocation creates a new intent. Reconcile using safe reads and request direction
+if needed. `generate_uuid` cannot recover a lost ID. Tool idempotence annotations
+are false because fresh calls with omitted IDs must not be automatically repeated.
+For an exact retry, supply the returned ID explicitly, preserving every other
+argument and omission. Generation changes no eligibility or human approval rules. The retained arguments include every target,
 provenance field, explicit or defaulted value, metadata object, expected
 version, and any lease token. Make one tool call per attempt. A retry after a
 timeout, disconnect, malformed success, backend `5xx`, or
@@ -212,13 +224,15 @@ bound no receipt; correct it as a new intent with a new UUID.
 The UUID is private retry-control data, not provenance or durable work content.
 Never copy it or the pending argument object into Mnemonic work text,
 checkpoint prompts/source metadata, event body/metadata, relationship context,
-tool output, chat, logs, traces, URLs, or shell history. Secure orchestration
+chat, logs, traces, URLs, or shell history. The generated-ID MCP recovery
+envelope is the deliberate exception for returning a newly minted control. Secure orchestration
 state may hold sensitive arguments such as checkpoint text and release tokens
 only for the recovery lifetime. After any successful original or replayed
 result, read the affected work or relationship again when current state matters:
 the returned result is the historical snapshot from the first success.
 
-`merge_work` is permanent and therefore always requires its UUID, even for direct REST callers.
+`merge_work` is permanent and always executes with a UUID. MCP can mint it when
+omitted on a fresh call; direct REST callers must still supply it.
 Its retained intent includes the exact source and destination IDs, both complete
 `MergeReviewRevision` objects, direction, rationale, asserted merge provenance, and any source lease
 token. Review both exact contexts before freezing that intent. A stale revision, reconciled source

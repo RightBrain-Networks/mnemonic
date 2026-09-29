@@ -42,6 +42,7 @@ from pydantic import AnyUrl, ValidationError
 from mcp import ClientSession
 
 CANONICAL_TOOLS = {
+    "generate_uuid",
     "help",
     "list_transcripts", "search_transcript_contents", "get_transcript",
     "get_transcript_text", "download_transcript",
@@ -1127,7 +1128,7 @@ async def phase12_human_report_flow(
 def validate_rest_contract(document: Any) -> None:
     """Reject a healthy but contract-incompatible pre-Phase-12 API."""
     try:
-        require(document["info"]["version"] == "0.77.0", "Unexpected REST API version.")
+        require(document["info"]["version"] == "0.78.0", "Unexpected REST API version.")
         schemas = document["components"]["schemas"]
         unified_search = document["paths"]["/api/v1/projects/{project_id}/search"]["post"]
         require(
@@ -1363,8 +1364,8 @@ def validate_mcp_catalog(catalog: Any) -> None:
     """Require the exact tool set, annotations, and operation-ID boundaries."""
     tools_by_name = {entry.name: entry for entry in catalog.tools}
     require(
-        len(catalog.tools) == 57
-        and len(tools_by_name) == 57
+        len(catalog.tools) == 58
+        and len(tools_by_name) == 58
         and len(PROTECTED_MUTATION_TOOLS) == 17
         and set(tools_by_name) == CANONICAL_TOOLS,
         "Unexpected MCP tool catalog.",
@@ -1378,8 +1379,8 @@ def validate_mcp_catalog(catalog: Any) -> None:
         expected_annotations = (
             name in READ_ONLY_TOOLS,
             name in DESTRUCTIVE_TOOLS,
-            name != "authorize_artifact_download"
-            and name in READ_ONLY_TOOLS | PROTECTED_MUTATION_TOOLS,
+            name not in {"authorize_artifact_download", "generate_uuid"}
+            and name in READ_ONLY_TOOLS,
             False,
         )
         actual_annotations = (
@@ -1394,9 +1395,9 @@ def validate_mcp_catalog(catalog: Any) -> None:
         )
         if name in PROTECTED_MUTATION_TOOLS:
             require(
-                "client_operation_id" in required
+                "client_operation_id" not in required
                 and properties.get("client_operation_id", {}).get("format") == "uuid",
-                f"MCP {name} does not require a UUID client operation ID.",
+                f"MCP {name} does not accept an optional UUID client operation ID.",
             )
         else:
             require(
@@ -1636,15 +1637,15 @@ async def check(args: argparse.Namespace, key: str) -> None:
                 initialized = await session.initialize()
                 require(
                     initialized.serverInfo.name == "Mnemonic"
-                    and initialized.serverInfo.version == "0.77.0",
+                    and initialized.serverInfo.version == "0.78.0",
                     "Unexpected MCP server identity or version.",
                 )
                 catalog = await session.list_tools()
                 validate_mcp_catalog(catalog)
                 await tool(session, "list_projects", {})
                 print(
-                    "PASS: REST 0.77.0 cross-project relationship contract shape, work-move, "
-                    "code-review contract, real MCP initialization, 57-tool catalog, "
+                    "PASS: REST 0.78.0 cross-project relationship contract shape, work-move, "
+                    "code-review contract, real MCP initialization, 58-tool catalog, "
                     "exact seventeen protected mutation "
                     "schemas/annotations, and REST-backed project listing"
                 )

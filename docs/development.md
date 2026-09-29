@@ -421,19 +421,19 @@ uv run ruff check .
 uv run ty check src/mnemonic_mcp
 ```
 
-The MCP suite verifies the exact 55-tool canonical catalog, strict unknown-field
+The MCP suite verifies the exact 58-tool canonical catalog, strict unknown-field
 rejection, nested checkpoint request bodies, canonical/grouped search hits,
 compact ready results, bounded recall, deterministic checkpoint/event
 pagination, versioned mutation receipts, typed graph and lease behavior, the
 `resume_work` prompt, and the work-item resource across direct, Streamable HTTP,
 and real stdio transports.
 
-Exactly seventeen mutation tools require a canonical `client_operation_id` and
-advertise truthful idempotency: `create_work`, `add_checkpoint`, `append_event`,
+Exactly seventeen mutation tools accept an optional canonical `client_operation_id` and
+advertise `idempotentHint=false` for fresh calls with omitted IDs: `create_work`, `add_checkpoint`, `append_event`,
 `add_relationship`, `update_work`, `complete_work`, `delete_work`,
 `remove_relationship`, `release_claim`, `request_human_input`, `merge_work`,
 `respond_to_work_follow_up`, `complete_code_review`, `upload_artifact`,
-`replace_artifact`, and `delete_artifact`. Tests prove
+`replace_artifact`, `update_artifact`, and `delete_artifact`. Tests prove
 exact one-attempt forwarding, strict coherent response decoding, sanitized
 same-key recovery guidance, and local rejection on excluded tools. Project
 creation, claim, claim-and-recall, and renewal retain separate non-idempotent
@@ -919,7 +919,7 @@ questions, cold/warm lease isolation, one atomic remediation and hard depth ceil
 exact historical and new receipt replay, protected lineage under direct SQL,
 bounded discovery/history, backup/restore audit, and both dashboard Done paths.
 Run `scripts/audit_code_reviews.py` read-only from a private database environment.
-The current inventory is 57 MCP tools, 17 protected MCP writes, 24 REST receipt
+The current inventory is 58 MCP tools, 17 protected MCP writes, 24 REST receipt
 kinds, 21 protected browser mutations and 24 work-event types. See
 [code reviews](code-reviews.md) for client and deployment rules.
 
@@ -944,7 +944,7 @@ Run the read-only live check from the repository root with the MCP environment:
 uv run --project mcp python scripts/check-stack.py
 ```
 
-Read-only mode verifies REST/MCP health, authentication, the exact 55-tool
+Read-only mode verifies REST/MCP health, authentication, the exact 58-tool
 catalog, the exact seventeen protected schemas and annotations, the absence of an MCP
 resolution tool, REST-backed project listing, the dashboard proxy's host/origin
 boundary, server-side key isolation, settings/activity/report read contracts, and the
@@ -1292,3 +1292,6 @@ history. Menu links retain their unsaved-work confirmation, and both menu links
 and Back/Forward keep pending operations on their originating screen. Run `sidebar-navigation.spec.ts` with `settings-navigation.spec.ts` when
 changing this lifecycle; the tests observe transient sidebar resets as well as
 final page content, work links, artifact project/filter links, and a pending backup.
+
+See [Automatic MCP UUIDs](automatic-uuids.md) for fresh-call generation, explicit
+retry recovery, and the local `generate_uuid` tool.

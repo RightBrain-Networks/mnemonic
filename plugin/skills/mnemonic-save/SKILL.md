@@ -164,7 +164,11 @@ The thirteen protected mutations are `create_work`, `add_checkpoint`,
 `append_event`, `add_relationship`, `update_work`, `complete_work`,
 `delete_work`, `remove_relationship`, `release_claim`, `request_human_input`,
 `merge_work`, `respond_to_work_follow_up`, and `complete_code_review`. Prepare
-each complete intent once and follow the canonical
+each complete intent once. Omit `client_operation_id` on a fresh call for automatic
+UUID generation; retain `_meta.mnemonic_generated_ids` with every argument for
+explicit exact retries. Never repeat an omitted-ID call after losing its whole
+response. `generate_uuid` supplies one-off UUIDs when needed before dispatch.
+Follow the canonical
 retention, exact-retry, conflict, and lost-intent rules in
 [authority-and-provenance.md](${CLAUDE_PLUGIN_ROOT}/reference/authority-and-provenance.md)
 under "Retain protected mutation intents privately". Never put an operation

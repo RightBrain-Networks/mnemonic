@@ -137,13 +137,17 @@ None of these outcomes establishes semantic correctness, safety, execution
 authority, a gate answer, or mutation permission. Never persist the assessment
 or automatically copy filenames into a checkpoint or event.
 
-Before beginning execution the user has already authorized, generate a fresh
-opaque `claim_request_id` for this attempt and call
+Before beginning execution the user has already authorized, call
 `claim_and_recall(project_id, work_item_id, holder_client, holder_session_id,
-claim_request_id, session_transcript, lease_minutes=default_minutes)` with this agent's established client/session pair. Prefer a
+session_transcript, lease_minutes=default_minutes)` with this agent's established client/session pair. Prefer a
 distinct host-exposed session ID; otherwise generate and privately retain one
 `mnemonic-<UUID>` for this independent agent, as described in
 [authority-and-provenance.md](${CLAUDE_PLUGIN_ROOT}/reference/authority-and-provenance.md).
+Omit `claim_request_id` on a fresh call for automatic UUID generation. Retain the
+returned `_meta.mnemonic_generated_ids` privately with every argument. On an
+uncertain outcome supply that ID explicitly; never repeat an omitted-ID call
+after losing its whole response. Use `generate_uuid` only when an ID is needed
+before dispatch.
 A successful claim is temporary exclusive responsibility; it adds no authorization
 beyond the user's request. Keep the returned `lease_token` only in private
 active-session state: never in checkpoint text, metadata, URLs, logs, chat

@@ -8,11 +8,12 @@ from typing import Any, ClassVar
 
 from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.exceptions import ToolError
-from mcp.types import AnyFunction, Icon, ToolAnnotations
+from mcp.types import AnyFunction, CallToolResult, Icon, TextContent, ToolAnnotations
 from pydantic import ConfigDict, ValidationError
 
 from .input_errors import InputValidationError
 from .input_hints import help_pointer, rejection_message
+from .operation_ids import RETRY_ID_FIELDS, allow_automatic_ids, generated_id_result, prepare_ids
 from .transport import bounded_stdio_server
 from .validation_rules import VALIDATION_RULES
 
@@ -467,6 +468,12 @@ class SanitizedFastMCP(FastMCP[Any]):
         if tool is None:  # pragma: no cover - registration either returns or raises
             raise RuntimeError("FastMCP did not retain the registered tool.")
         argument_model = tool.fn_metadata.arg_model
+        allow_automatic_ids(argument_model)
+        if tool.annotations is not None and any(
+            name in argument_model.model_fields for name in RETRY_ID_FIELDS
+        ):
+            # An omitted-ID invocation is a new intent; clients must not blindly retry it.
+            tool.annotations = tool.annotations.model_copy(update={"idempotentHint": False})
         argument_model.model_config = ConfigDict(
             **{
                 **argument_model.model_config,
@@ -478,6 +485,21 @@ class SanitizedFastMCP(FastMCP[Any]):
         tool.parameters = argument_model.model_json_schema(by_alias=True)
 
     async def call_tool(self, name: str, arguments: dict[str, Any]) -> Any:
+        tool = self._tool_manager.get_tool(name)
+        prepared, generated = prepare_ids(tool.parameters["properties"], arguments) if tool else (
+            arguments, {}
+        )
+        try:
+            result = await self._call_validated_tool(name, prepared)
+        except ToolError as error:
+            if not generated:
+                raise
+            result = CallToolResult(
+                isError=True, content=[TextContent(type="text", text=str(error))],
+            )
+        return generated_id_result(result, generated) if generated else result
+
+    async def _call_validated_tool(self, name: str, arguments: dict[str, Any]) -> Any:
         tool = self._tool_manager.get_tool(name)
         try:
             _validate_subagent_closeout(name, arguments)

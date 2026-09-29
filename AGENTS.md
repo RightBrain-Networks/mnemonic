@@ -97,9 +97,17 @@ git pull --ff-only origin main
 
 Use Semantic Versioning (`MAJOR.MINOR.PATCH`) for application releases. `MAJOR` version bumps are reserved and require explicit human approval. Increment `MINOR` for user-facing changes and `PATCH` for all other changes.
 
-The current application/API/MCP/dashboard release is `0.77.0`, Claude plugin
-`0.44.0`, and Alembic head `0049_duplicate_embeddings`. The catalog is exactly
-57 MCP tools, 17 receipt-protected MCP writes, 24 REST receipt kinds, 21 protected
+Fresh MCP writes and claims mint omitted top-level retry IDs as UUIDv4. Retain
+`_meta.mnemonic_generated_ids` from the response and supply that ID explicitly on
+an exact retry with every other argument unchanged. Never repeat a keyless call
+after losing its whole response. Use the local `generate_uuid` MCP tool for a
+one-off ID needed before dispatch. Explicit IDs and REST receipts retain their
+contracts; prepared upload intents keep their helper-generated IDs. See
+`docs/automatic-uuids.md`. The tool idempotence hint is false for these calls.
+
+The current application/API/MCP/dashboard release is `0.78.0`, Claude plugin
+`0.45.0`, and Alembic head `0049_duplicate_embeddings`. The catalog is exactly
+58 MCP tools, 17 receipt-protected MCP writes, 24 REST receipt kinds, 21 protected
 browser mutations, 24 work-event types, and three plugin skills. The suggestion
 POST is a safe read. Search accepts q/query aliases up to 1,000 characters;
 follow next_offset because 32,768-byte pages can contain fewer than limit items.
