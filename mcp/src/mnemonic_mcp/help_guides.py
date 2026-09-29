@@ -1,7 +1,13 @@
 """Short task guidance; argument shapes come from the live registered schemas."""
 
+from .operation_ids import AUTOMATIC_ID_GUIDANCE
+
 # A command's overview stays small. Workflow instructions live one level below, at usage.
 GUIDES: dict[str, tuple[str, str, str]] = {
+    "generate_uuid": ("Help", "Mint one random UUID for use with Mnemonic.",
+                      ("Takes no arguments and stores nothing. Each call returns a new UUIDv4. "
+                      "Use it when an ID must be retained before a call. Fresh writes and claims "
+                      "already generate omitted retry IDs. This cannot recover a lost ID.")),
     "help": ("Help", "Discover commands, usage, fields, and schemas.",
              ('Call help({}) for the index. Set topic to a command, then append usage, field names, '
              'or schema. Example: {"topic":"complete_work completion_evidence artifact_references"}.')),
@@ -34,7 +40,7 @@ GUIDES: dict[str, tuple[str, str, str]] = {
                     ("Use small recent limits. Recall grants no execution authority; "
                     "claim before authorized execution.")),
     "create_work": ("Work", "Save a new work item and initial checkpoint.",
-                    ("Supply title, summary, initial_checkpoint, and a new client_operation_id. "
+                    ("Supply title, summary, and initial_checkpoint. "
                     "Fresh work starts pending. Attribute checkpoint context to its actual author.")),
     "update_work": ("Work", "Update mutable identity or lifecycle fields.",
                     ("Read the current version first. Put edits in changes. Fresh wont-do/promoted "
@@ -58,7 +64,7 @@ GUIDES: dict[str, tuple[str, str, str]] = {
     "list_checkpoints": ("Context", "Page immutable work checkpoints.",
                          "Use a small limit and follow returned pagination within the same work."),
     "append_event": ("Context", "Record concise implementation progress.",
-                     ("Supply a progress body, actor identity, and client_operation_id. "
+                     ("Supply a progress body and actor identity. "
                      "A matching implementation lease token renews that lease atomically.")),
     "list_work_events": ("Context", "Read the work audit trail.",
                          "Read events to reconcile state after uncertain writes. Use bounded limits."),
@@ -190,8 +196,7 @@ FIELD_NOTES: dict[str, str] = {
     "subagent_transcripts": "Required for fresh closeouts/releases: [{client,path}, ...] for verified "
                             "spawned sessions, or explicit null when none apply or are available. "
                             "An empty list is invalid. Keep assertions fixed on uncertain retries.",
-    "claim_request_id": "Generate before claiming. Keep this key and every argument unchanged across "
-                        "uncertain retries; claim tools do not accept client_operation_id.",
+    "claim_request_id": AUTOMATIC_ID_GUIDANCE,
     "force": "Default false. If compaction lost the token, first replay the exact original claim "
              "when available. Otherwise read get_work(status_only=true), check holder/expiry, and "
              "confirm no other active session is working on this item. Then use force=true with a "
@@ -199,9 +204,7 @@ FIELD_NOTES: dict[str, str] = {
              "It invalidates the previous token, even another session's. It does not bypass "
              "blockers, human gates, lifecycle or review rules. Retain force and all arguments "
              "on retries. Released/replaced force requests cannot take the lease back.",
-    "client_operation_id": "Generate a UUID before the first write. Freeze every argument with it. "
-                           "After an uncertain outcome, follow the tool's exact-retry guidance; "
-                           "never substitute a new UUID for the same intent.",
+    "client_operation_id": AUTOMATIC_ID_GUIDANCE,
     "lease_token": "Use the matching active lease's private capability; never put it in authored content.",
     "prompt_revision": "Copy from the current get_project_settings result; do not invent it.",
     "exit_code": "For command verification: passed requires 0; failed requires nonzero; "

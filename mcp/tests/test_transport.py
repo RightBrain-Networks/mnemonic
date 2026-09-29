@@ -38,6 +38,7 @@ INITIALIZE = {
 }
 
 CANONICAL_TOOL_NAMES = {
+    "generate_uuid",
     "help",
     "authorize_artifact_download",
     "authorize_artifact_upload",
@@ -139,12 +140,12 @@ def assert_serialized_tool_contract(tools: list[dict[str, object]]) -> None:
         assert annotations == {
             "readOnlyHint": name in READ_ONLY_TOOL_NAMES,
             "destructiveHint": name in DESTRUCTIVE_TOOL_NAMES,
-            "idempotentHint": (name in READ_ONLY_TOOL_NAMES | PROTECTED_TOOL_NAMES
+            "idempotentHint": ((name in READ_ONLY_TOOL_NAMES and name != "generate_uuid")
                                and name != "authorize_artifact_download"),
             "openWorldHint": False,
         }
         if name in PROTECTED_TOOL_NAMES:
-            assert "client_operation_id" in required
+            assert "client_operation_id" not in required
             assert properties["client_operation_id"]["format"] == "uuid"
         else:
             assert "client_operation_id" not in required
@@ -165,7 +166,7 @@ def test_http_protocol_initialize_list_and_call(settings, work_context):
         initialized = client.post("/mcp", json=INITIALIZE, headers=JSON_HEADERS)
         assert initialized.status_code == 200
         assert initialized.json()["result"]["serverInfo"]["name"] == "Mnemonic"
-        assert initialized.json()["result"]["serverInfo"]["version"] == "0.77.0"
+        assert initialized.json()["result"]["serverInfo"]["version"] == "0.78.0"
         instructions = initialized.json()["result"]["instructions"]
         # Clients truncate this block, so it must stay short and lead with the
         # trigger condition. Per-tool doctrine lives in the tool descriptions.
@@ -194,7 +195,7 @@ def test_http_protocol_initialize_list_and_call(settings, work_context):
         listed = client.post("/mcp", json={"jsonrpc": "2.0", "id": 2, "method": "tools/list"}, headers=JSON_HEADERS)
         assert listed.status_code == 200
         listed_tools = listed.json()["result"]["tools"]
-        assert len(listed_tools) == 57
+        assert len(listed_tools) == 58
         assert_serialized_tool_contract(listed_tools)
         assert all(
             tool["inputSchema"].get("additionalProperties") is False
@@ -461,12 +462,12 @@ async def test_stdio_transport_handshake_and_catalog():
         ):
             initialized = await session.initialize()
             assert initialized.serverInfo.name == "Mnemonic"
-            assert initialized.serverInfo.version == "0.77.0"
+            assert initialized.serverInfo.version == "0.78.0"
             assert initialized.instructions is not None
             assert len(initialized.instructions) <= 1200
             assert "unimplemented" not in initialized.instructions.casefold()
             result = await session.list_tools()
-            assert len(result.tools) == 57
+            assert len(result.tools) == 58
             assert all(tool.outputSchema is not None for tool in result.tools if tool.name != "help")
             assert next(tool for tool in result.tools if tool.name == "help").outputSchema is None
             assert all(

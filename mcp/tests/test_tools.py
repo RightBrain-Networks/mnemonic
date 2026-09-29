@@ -668,7 +668,7 @@ async def test_safety_doctrine_lives_in_the_tool_descriptions(settings):
     for name in protected:
         description = described[name]
         for required in (
-            "Generate client_operation_id before the first attempt",
+            "Omit client_operation_id on fresh calls for an automatic UUID",
             "complete immutable tool arguments",
             "every argument unchanged",
             "never invent a replacement",
@@ -682,7 +682,7 @@ async def test_tool_catalog_schemas_and_annotations(settings):
     server = build_server(settings)
     tools = {tool.name: tool for tool in await server.list_tools()}
     assert set(tools) == {
-        "help", "search",
+        "help", "generate_uuid", "search",
         "list_transcripts", "search_transcript_contents", "get_transcript",
         "get_transcript_text", "download_transcript",
         "list_artifacts", "get_artifact", "get_artifact_text",
@@ -798,10 +798,10 @@ async def test_tool_catalog_schemas_and_annotations(settings):
         "remove_relationship",
         "merge_work",
     }
-    assert len(tools) == 57
+    assert len(tools) == 58
     for name in mutating:
-        assert tools[name].annotations.idempotentHint is (name in protected)
-    for name in tools.keys() - mutating - {"authorize_artifact_download"}:
+        assert tools[name].annotations.idempotentHint is False
+    for name in tools.keys() - mutating - {"authorize_artifact_download", "generate_uuid"}:
         assert tools[name].annotations.idempotentHint is True
 
     for name, tool in tools.items():
@@ -814,7 +814,7 @@ async def test_tool_catalog_schemas_and_annotations(settings):
         ) == (
             name not in mutating,
             name in destructive,
-            name != "authorize_artifact_download" and (name not in mutating or name in protected),
+            name not in {"authorize_artifact_download", "generate_uuid"} and name not in mutating,
             False,
         )
 
@@ -841,7 +841,7 @@ async def test_tool_catalog_operation_and_claim_schemas(settings):
     for name, tool in tools.items():
         properties = tool.inputSchema["properties"]
         if name in protected:
-            assert "client_operation_id" in tool.inputSchema["required"]
+            assert "client_operation_id" not in tool.inputSchema["required"]
             assert properties["client_operation_id"]["format"] == "uuid"
         else:
             assert "client_operation_id" not in properties
@@ -850,7 +850,7 @@ async def test_tool_catalog_operation_and_claim_schemas(settings):
     assert project_page_schema["additionalProperties"] is False
     assert project_page_schema["$defs"]["Project"]["additionalProperties"] is False
 
-    for name in tools.keys() - {"help", "list_projects", "create_project", "authorize_artifact_upload", "search"}:
+    for name in tools.keys() - {"help", "generate_uuid", "list_projects", "create_project", "authorize_artifact_upload", "search"}:
         assert "project_id" in tools[name].inputSchema["required"]
     search_properties = tools["search"].inputSchema["properties"]
     assert search_properties["project_id"]["default"] is None
@@ -869,7 +869,6 @@ async def test_tool_catalog_operation_and_claim_schemas(settings):
         "work_item_id",
         "holder_client",
         "holder_session_id",
-        "claim_request_id",
     }
     for name in ("claim_work", "claim_and_recall"):
         assert set(tools[name].inputSchema["required"]) == claim_fields
@@ -916,7 +915,6 @@ async def test_tool_catalog_operation_and_claim_schemas(settings):
         "lease_token",
         "actor_client",
         "actor_session_id",
-        "client_operation_id",
     }
     for name in ("renew_claim", "release_claim"):
         token_schema = tools[name].inputSchema["properties"]["lease_token"]
@@ -951,7 +949,6 @@ async def test_tool_catalog_mutation_and_relationship_schemas(settings):
         "title",
         "summary",
         "initial_checkpoint",
-        "client_operation_id",
     } <= set(create_required)
     checkpoint_schema = tools["create_work"].inputSchema["$defs"]["CheckpointInput"]
     assert {"prompt", "source_client", "source_session_id"} <= set(
@@ -1029,7 +1026,6 @@ async def test_tool_catalog_mutation_and_relationship_schemas(settings):
         "relationship_type",
         "created_by_client",
         "created_by_session_id",
-        "client_operation_id",
     }
     assert set(add_relationship_schema["properties"]["relationship_type"]["enum"]) == (
         relationship_types
@@ -1112,7 +1108,6 @@ async def test_tool_catalog_ready_event_and_gate_schemas(settings):
         "body",
         "actor_client",
         "actor_session_id",
-        "client_operation_id",
     }
     assert append_input["properties"]["metadata"]["default"] == {}
     assert "event_type" not in append_input["properties"]
@@ -1146,7 +1141,6 @@ async def test_tool_catalog_ready_event_and_gate_schemas(settings):
         "question",
         "requested_by_client",
         "requested_by_session_id",
-        "client_operation_id",
     }
     assert set(request_gate_input["properties"]) == {
         "gate_id",
@@ -1284,7 +1278,7 @@ async def test_all_protected_mutations_forward_one_canonical_top_level_uuid(sett
         assert json.dumps(payload).count('"client_operation_id"') == 1
 
 
-async def test_all_protected_mutations_reject_missing_or_invalid_uuid_locally(settings):
+async def test_all_protected_mutations_reject_invalid_uuid_locally(settings):
     calls = []
 
     def handler(request):
@@ -1293,14 +1287,6 @@ async def test_all_protected_mutations_reject_missing_or_invalid_uuid_locally(se
 
     server = adapter(settings, handler)
     for tool_name, valid_arguments in protected_tool_arguments().items():
-        missing = {
-            name: value
-            for name, value in valid_arguments.items()
-            if name != "client_operation_id"
-        }
-        with pytest.raises(ToolError, match=r"client_operation_id \(missing\)"):
-            await server.call_tool(tool_name, missing)
-
         invalid_marker = f"private-invalid-operation-id-{tool_name}"
         with pytest.raises(
             ToolError, match=r"client_operation_id \(uuid_parsing\)"
@@ -3659,7 +3645,7 @@ async def test_update_rejects_empty_and_immutable_fields(settings, arguments):
         pytest.fail("Invalid or immutable fields must not cross the HTTP boundary")
 
     with pytest.raises(ToolError):
-        await adapter(settings, handler).call_tool("update_work", arguments)
+        await adapter(settings, handler).call_tool("update_work", {**arguments, **OPERATION_ARGUMENT})
 
 
 async def test_delete_passes_version_and_conflict_is_not_retried(settings):
@@ -4871,7 +4857,6 @@ async def test_phase9_core_catalog_exposes_exact_merge_and_search_contracts(sett
         "rationale",
         "merged_by_client",
         "merged_by_session_id",
-        "client_operation_id",
     }
     revision = merge_input["$defs"]["MergeReviewRevision"]
     assert revision["additionalProperties"] is False

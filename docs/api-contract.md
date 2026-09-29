@@ -3,8 +3,8 @@
 Use [unified search](search.md) to retrieve work, artifacts, and transcripts in one
 ranked, filtered, paginated read through REST or MCP.
 
-This is application/API/MCP/dashboard `0.77.0`, plugin `0.44.0`, and migration
-`0049_duplicate_embeddings`. The catalog has exactly 57 MCP tools, 17
+This is application/API/MCP/dashboard `0.78.0`, plugin `0.45.0`, and migration
+`0049_duplicate_embeddings`. The catalog has exactly 58 MCP tools, 17
 protected MCP writes, 24 REST receipt kinds, 21 protected browser mutations and
 24 work-event types. The 24 REST receipt kinds comprise 18 work operations, four artifact operations
 with filesystem recovery journals, and two transcript operations (rebuild and import). See
@@ -1367,7 +1367,7 @@ as "No longer needed".
 
 ## MCP contract
 
-The catalog is exactly 55 tools:
+The catalog is exactly 58 tools:
 
 `search` is the shared safe read over work, artifacts and transcripts; see
 [the request, ranking, facet, pagination and coverage contract](search.md).
@@ -1462,9 +1462,12 @@ list_code_reviews, get_code_review, complete_code_review
 Exactly `create_work`, `add_checkpoint`, `append_event`, `add_relationship`,
 `update_work`, `complete_work`, `delete_work`, `remove_relationship`,
 `release_claim`, `request_human_input`, `merge_work`, `respond_to_work_follow_up`,
-and `complete_code_review` require a
-caller-generated `client_operation_id` and are annotated as idempotent
-mutations. Prepare the complete arguments once and retain them privately. After
+`complete_code_review`, `upload_artifact`, `replace_artifact`, `update_artifact`,
+and `delete_artifact` use `client_operation_id`. Fresh MCP calls may omit it for
+automatic UUID generation. Retain `_meta.mnemonic_generated_ids` and supply the
+returned ID explicitly on retries. The tools advertise `idempotentHint=false`
+because repeating an omitted-ID call creates a new intent. Explicit IDs keep
+their existing receipt replay semantics. Prepare the complete arguments once and retain them privately. After
 an unknown outcome, make at most one retry with that exact tool, UUID, and
 argument object. If that retry also has an unknown outcome, stop retrying and
 use applicable safe reads to reconcile observable state. Never generate or
@@ -1483,8 +1486,8 @@ create report follow-ups; those are human REST/browser actions.
 `complete_work` accepts the same strict optional evidence object as REST and
 validates the complete response against the exact frozen request, including
 canonical timestamp equivalence, child ownership, positions, order, and record
-time. The MCP tool always requires its operation UUID, including with no
-evidence. `list_completion_evidence` is a `safe_read`: it makes only the
+time. The MCP adapter mints an omitted operation UUID on a fresh call, including
+with no evidence. `list_completion_evidence` is a `safe_read`: it makes only the
 documented GET, follows opaque cursors without modification, and returns the
 complete strict page. Neither tool executes commands, opens artifact URLs, or
 turns evidence into authority.
@@ -2075,3 +2078,7 @@ provenance (`review_request_requires_human`), mixed fields (`review_request_inva
 and an already requested/currently reviewed episode (`code_review_already_requested`).
 Remediation depth and eligibility limits remain enforced. See [human review
 requests](code-reviews.md#human-review-requests-0540) for the full workflow.
+
+MCP callers may omit top-level retry IDs on fresh calls. The adapter mints and
+returns them before using these unchanged REST receipt contracts. See
+[Automatic MCP UUIDs](automatic-uuids.md) for recovery and `generate_uuid`.

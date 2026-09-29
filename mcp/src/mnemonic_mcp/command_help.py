@@ -76,7 +76,10 @@ def _notes(name: str, path: tuple[str, ...], schema: Schema, root: Schema) -> li
         lines.append(description)
     if path and name in SEARCH_TOOLS and path[-1] in SEARCH_FIELD_NOTES:
         lines.append(SEARCH_FIELD_NOTES[path[-1]])
-    if path and path[-1] in FIELD_NOTES:
+    if len(path) > 1 and path[-1] == "client_operation_id":
+        lines.append("Prepared upload intents require the helper's frozen client_operation_id; "
+                     "never omit or regenerate it. Automatic minting applies only at tool top level.")
+    elif path and path[-1] in FIELD_NOTES:
         lines.append(FIELD_NOTES[path[-1]])
     if not path and name == "complete_work":
         lines.append("Fresh calls also require job_completion_report and explicit "
@@ -116,8 +119,8 @@ def _page(tool: Tool, path: tuple[str, ...], schema: Schema) -> str:
 def _usage(tool: Tool) -> str:
     guide = GUIDES.get(tool.name)
     lines = [tool.name + " usage", guide[2] if guide else "See the command's registered description."]
-    required = tool.inputSchema.get("required", [])
-    if "client_operation_id" in required:
+    properties = tool.inputSchema.get("properties", {})
+    if "client_operation_id" in properties or "claim_request_id" in properties:
         lines.append(FIELD_NOTES["client_operation_id"])
     if tool.name == "complete_work":
         lines.append("After an unknown outcome: at most one identical retry, then reconcile with safe "
