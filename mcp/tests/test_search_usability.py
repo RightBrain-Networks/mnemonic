@@ -119,9 +119,14 @@ async def test_claim_operation_id_refusal_teaches_correct_retry_key(settings, to
                  "session_transcript": None, "client_operation_id": CLIENT_OPERATION_ID}
     if retry_key_present:
         arguments["claim_request_id"] = PRIVATE
-    with pytest.raises(ToolError) as caught:
-        await server.call_tool(tool, arguments)
-    message = str(caught.value)
+        with pytest.raises(ToolError) as caught:
+            await server.call_tool(tool, arguments)
+        message = str(caught.value)
+    else:
+        result = await server.call_tool(tool, arguments)
+        assert result.isError
+        assert result.meta["mnemonic_generated_ids"]["claim_request_id"]
+        message = result.content[0].text
     assert "client_operation_id (extra_forbidden)" in message
     assert "Claim tools use claim_request_id as the retry key" in message
     assert "client_operation_id is not accepted" in message

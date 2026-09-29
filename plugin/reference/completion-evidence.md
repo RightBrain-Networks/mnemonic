@@ -29,12 +29,14 @@ Reports on Won’t do/Promoted use `update_work` and never invent evidence. Its 
 `completion_evidence` contains ordered `verification_results` and
 `artifact_references`. There is no evidence append, update, delete, correction,
 or replacement tool. A non-empty object is part of the protected completion
-intent and requires its existing `client_operation_id`.
+intent and uses the same `client_operation_id` as the closeout.
 
 Before the first attempt, freeze the complete checkpoint, evidence object,
 optional-field presence, row order, expected work version, lease token when
-applicable, and one operation UUID. An unknown outcome must be retried only
-with that same UUID and byte-equivalent semantic intent. Changing, adding,
+applicable, and any explicit operation UUID. Fresh MCP calls may omit that UUID;
+retain the adapter-generated ID from `_meta.mnemonic_generated_ids` with the
+frozen arguments. An unknown outcome must be retried only by explicitly supplying
+that same UUID and byte-equivalent semantic intent. Changing, adding,
 removing, or reordering evidence creates a new intent only after the earlier
 outcome is definitively resolved. Never generate a new UUID merely because a
 response was lost.

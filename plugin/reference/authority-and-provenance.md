@@ -166,7 +166,7 @@ provenance.
 
 ## Retain protected mutation intents privately
 
-These thirteen work mutations use a receipt-protected
+These thirteen canonical mutations use a receipt-protected
 `client_operation_id`: `create_work`, `add_checkpoint`, `append_event`,
 `add_relationship`, `update_work`, `complete_work`, `delete_work`,
 `remove_relationship`, `release_claim`, `request_human_input`, `merge_work`,
