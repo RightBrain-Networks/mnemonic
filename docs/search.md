@@ -1,5 +1,19 @@
 # Unified search
 
+Dashboard 0.80.0 lets people pin work cards with the icon in each card's upper
+right corner. Pins persist per project in the current browser (up to 100). They
+remain ahead of other matches for every sort, while lifecycle, tag, provenance,
+and text filters still apply. Pinned children appear at the top level and are
+omitted from expanded child lists to avoid duplicate cards. Unpinning restores
+their normal place in the hierarchy.
+
+The dashboard supplies `pinned_work_item_ids` as repeated UUID query parameters
+to work/children browsing, or as a top-level UUID array to work-only REST search.
+The server applies pin precedence before pagination, independently of ascending
+or descending search order. Pins do not edit work records or alter agent queues.
+Tasks → Work items and Tasks → Code reviews show positive Pending counts from
+the same live task overview used by the dashboard; zero counts have no pip.
+
 Application/API/MCP/dashboard `0.43.0` and plugin `0.26.0` add one project search
 surface across work items, artifacts, and transcripts. No migration or new
 configuration was required for that release. Current release 0.60.0 uses migration

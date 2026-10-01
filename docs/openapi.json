@@ -8850,6 +8850,14 @@
             "title": "Id",
             "type": "string"
           },
+          "mode": {
+            "enum": [
+              "cold",
+              "warm"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
           "priority": {
             "maximum": 100.0,
             "minimum": 0.0,
@@ -16029,6 +16037,10 @@
             "description": "Optional caller-generated UUID for durable replay of this mutation. Reuse it only with the exact same operation and semantic arguments after an unknown outcome.",
             "title": "Client Operation Id"
           },
+          "code_review_handoff": {
+            "$ref": "#/components/schemas/CodeReviewHandoffInput",
+            "title": "Code Review Handoff"
+          },
           "expected_code_review_version": {
             "maximum": 2147483647.0,
             "minimum": 1.0,
@@ -16090,6 +16102,19 @@
             "description": "Dashboard human request; queues Done work or earmarks its next completion.",
             "title": "Request Code Review",
             "type": "boolean"
+          },
+          "request_code_review_checkpoint_id": {
+            "format": "uuid",
+            "title": "Request Code Review Checkpoint Id",
+            "type": "string"
+          },
+          "request_code_review_mode": {
+            "enum": [
+              "cold",
+              "warm"
+            ],
+            "title": "Request Code Review Mode",
+            "type": "string"
           },
           "review_decision": {
             "$ref": "#/components/schemas/HumanReviewDecisionInput",
@@ -17649,7 +17674,7 @@
   "info": {
     "description": "Durable project-scoped work with immutable agent checkpoints.",
     "title": "Mnemonic API",
-    "version": "0.79.0"
+    "version": "0.80.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -20921,6 +20946,15 @@
                     "title": "Offset",
                     "type": "integer"
                   },
+                  "pinned_work_item_ids": {
+                    "items": {
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "maxItems": 100,
+                    "title": "Pinned Work Item Ids",
+                    "type": "array"
+                  },
                   "q": {
                     "default": "",
                     "maxLength": 1000,
@@ -22383,6 +22417,20 @@
           },
           {
             "in": "query",
+            "name": "pinned_work_item_ids",
+            "required": false,
+            "schema": {
+              "items": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "maxItems": 100,
+              "title": "Pinned Work Item Ids",
+              "type": "array"
+            }
+          },
+          {
+            "in": "query",
             "name": "status_scope",
             "required": false,
             "schema": {
@@ -23253,6 +23301,20 @@
               "format": "uuid",
               "title": "Work Item Id",
               "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "pinned_work_item_ids",
+            "required": false,
+            "schema": {
+              "items": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "maxItems": 100,
+              "title": "Pinned Work Item Ids",
+              "type": "array"
             }
           },
           {
@@ -25631,6 +25693,15 @@
                     "minimum": 0.0,
                     "title": "Offset",
                     "type": "integer"
+                  },
+                  "pinned_work_item_ids": {
+                    "items": {
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "maxItems": 100,
+                    "title": "Pinned Work Item Ids",
+                    "type": "array"
                   },
                   "project_ids": {
                     "items": {

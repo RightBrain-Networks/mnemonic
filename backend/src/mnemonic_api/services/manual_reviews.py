@@ -43,6 +43,9 @@ def _require_request(database: Session, work: WorkItem, payload: WorkItemPatch) 
         "actor",
         "client_operation_id",
         "request_code_review",
+        "request_code_review_mode",
+        "request_code_review_checkpoint_id",
+        "code_review_handoff",
     }:
         raise ApplicationError(422, "review_request_invalid", "Submit the review request alone.")
     if work.remediation_depth >= 2:
@@ -57,8 +60,16 @@ def _require_request(database: Session, work: WorkItem, payload: WorkItemPatch) 
 
 def request_manual_review(database: Session, work: WorkItem, payload: WorkItemPatch) -> None:
     _require_request(database, work, payload)
+    if work.status != "done" and (
+        payload.code_review_handoff is not None
+        or payload.request_code_review_checkpoint_id is not None
+    ):
+        raise conflict("review_request_invalid", "This summary no longer represents Done work.")
     if work.status == "done":
-        require_unreviewed_episode(database, work)
+        checkpoint = require_unreviewed_episode(database, work)
+        if (payload.request_code_review_checkpoint_id is not None
+                and payload.request_code_review_checkpoint_id != checkpoint.id):
+            raise conflict("review_request_invalid", "This summary is from a prior completion.")
     assert payload.actor is not None
     now, request_id = database_now(database), uuid4()
     work.version += 1
@@ -82,10 +93,11 @@ def request_manual_review(database: Session, work: WorkItem, payload: WorkItemPa
         event_id=str(event.id),
         work_version=work.version,
         priority=work.priority,
+        mode=payload.request_code_review_mode,
     ).model_dump(mode="json")
     database.flush()
     if work.status == "done":
-        create_manual_review(database, work)
+        create_manual_review(database, work, payload.code_review_handoff)
 
 
 def require_unreviewed_episode(database: Session, work: WorkItem) -> Checkpoint:
@@ -191,6 +203,11 @@ def create_manual_review(
 
 
 def require_claim_scope(database: Session, review: CodeReview, payload: WorkClaimCreate) -> None:
+    mode = (review.manual_request or {}).get("mode")
+    if mode is not None and payload.mode != mode:
+        raise ApplicationError(
+            422, "review_request_invalid", f"The human requested a {mode} review."
+        )
     handoff = payload.code_review_handoff
     if review.scope_sha256 is None:
         if handoff is None or payload.mode != "warm":

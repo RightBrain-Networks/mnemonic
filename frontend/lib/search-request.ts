@@ -39,7 +39,9 @@ function validFilters(value: unknown): boolean {
 }
 export function validSearchRequest(value: unknown): boolean {
   const body = objectValue(value);
-  if (!body || !allowed(body, ["q", "query_mode", "facets", "fulltext", "detail", "filters", "sort", "facet_order", "limit", "offset", "diagnostics", "tag_counts"])) return false;
+  if (!body || !allowed(body, ["q", "query_mode", "facets", "fulltext", "detail", "filters", "sort", "facet_order", "limit", "offset", "diagnostics", "tag_counts", "pinned_work_item_ids"])) return false;
+  if (!optional(body.pinned_work_item_ids, (value) => Array.isArray(value) && value.length <= 100
+    && value.every(validUuid) && (!value.length || Array.isArray(body.facets) && body.facets.length === 1 && body.facets[0] === "work_items"))) return false;
   if (!optional(body.query_mode, validQueryMode) || !optional(body.q, (value) => typeof value === "string" && Array.from(value).length <= 1000 && !/[\u0000-\u001f]/u.test(value))
     || !optional(body.facets, (value) => Array.isArray(value) && value.length > 0 && value.length <= 3 && new Set(value).size === value.length && value.every((item) => facets.includes(item)))
     || !optional(body.fulltext, (value) => typeof value === "boolean")

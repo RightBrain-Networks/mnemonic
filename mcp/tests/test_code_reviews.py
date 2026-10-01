@@ -452,12 +452,16 @@ def manual_request():
     }
 
 
-async def test_manual_review_can_be_read_without_inferred_scope_or_historical_policy(settings):
+@pytest.mark.parametrize("mode", [None, "warm", "cold"])
+async def test_manual_review_can_be_read_without_inferred_scope_or_historical_policy(settings, mode):
     response = review_detail()
-    response.update(policy_decision=None, scope=None, handoff=None)
+    response["policy_decision"] = None
+    if mode != "cold":
+        response.update(scope=None, handoff=None)
     response["review"] = review(
         request_reason="manual", requesting_client="dashboard", requesting_session_id="human-tab",
-        manual_request=manual_request(), policy_decision_id=None, scope_sha256=None,
+        manual_request={**manual_request(), **({"mode": mode} if mode else {})},
+        policy_decision_id=None, scope_sha256=scope_digest() if mode == "cold" else None,
     )
     arguments = {"project_id": PROJECT_ID, "work_item_id": WORK_ID, "review_id": REVIEW_ID}
     actual, requests = await call(settings, "get_code_review", arguments, response)

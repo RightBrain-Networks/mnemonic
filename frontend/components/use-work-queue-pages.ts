@@ -30,6 +30,7 @@ export type WorkQueuePagesInput = {
   sourceClient: string;
   sourceSessionId: string;
   refresh: number;
+  pinnedWorkItemIds: readonly string[];
 };
 
 export type WorkQueuePages = {
@@ -65,7 +66,8 @@ export function useWorkQueuePages({
   tag,
   sourceClient,
   sourceSessionId,
-  refresh
+  refresh,
+  pinnedWorkItemIds
 }: WorkQueuePagesInput): WorkQueuePages {
   const viewKey = JSON.stringify([
     projectId,
@@ -77,7 +79,8 @@ export function useWorkQueuePages({
     canonicalWorkItemId,
     tag,
     sourceClient,
-    sourceSessionId
+    sourceSessionId,
+    pinnedWorkItemIds
   ]);
   const flatSearch = isFlatWorkSearch({ query: search, duplicateScope, canonicalWorkItemId });
   const [data, setData] = useState<LoadedView | null>(null);
@@ -109,6 +112,7 @@ export function useWorkQueuePages({
       tag,
       sourceClient,
       sourceSessionId,
+      pinnedWorkItemIds,
       duplicateScope,
       ...(canonicalWorkItemId ? { canonicalWorkItemId } : {})
     };
@@ -131,6 +135,7 @@ export function useWorkQueuePages({
     duplicateScope,
     flatSearch,
     projectId,
+    pinnedWorkItemIds,
     search,
     semantic,
     sort,

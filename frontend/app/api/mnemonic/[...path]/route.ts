@@ -2,6 +2,7 @@ import { decodePromptResponse } from "@/lib/prompts";
 import {
   DEFINITIVE_PROXY_ERRORS,
   allowedQueryKeys,
+  validQueryValues,
   clientOperationMatchesSecret,
   configuredOrigins,
   forbiddenControlTransport,
@@ -109,7 +110,7 @@ async function proxy(request: Request, context: Context): Promise<Response> {
   const evidenceRoute = isCompletionEvidenceRoute(route, request.method);
   const query = new URL(request.url).searchParams;
   for (const key of query.keys()) {
-    if (!keys.includes(key) || query.getAll(key).length !== 1) {
+    if (!keys.includes(key) || !validQueryValues(key, query.getAll(key))) {
       return definitiveFail(DEFINITIVE_PROXY_ERRORS.unsupportedQuery, evidenceRoute);
     }
   }

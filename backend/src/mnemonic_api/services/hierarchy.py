@@ -130,7 +130,7 @@ def hierarchy_page(
                   WHERE duplicate_merge.project_id = :project_id
                     AND duplicate_merge.source_work_item_id = root.id
               )
-              AND NOT EXISTS (
+              AND (root.id = ANY(CAST(:pinned_work_item_ids AS uuid[])) OR NOT EXISTS (
                   SELECT 1
                   FROM work_relationships AS parent_edge
                   JOIN work_items AS local_parent
@@ -139,7 +139,7 @@ def hierarchy_page(
                    AND local_parent.deleted_at IS NULL
                   WHERE parent_edge.relationship_type = 'parent-child'
                     AND parent_edge.target_work_item_id = root.id
-              )
+              ))
         """
     else:
         candidate_sql = """
@@ -157,6 +157,7 @@ def hierarchy_page(
              )
             WHERE child_edge.relationship_type = 'parent-child'
               AND child_edge.source_work_item_id = :parent_work_item_id
+              AND NOT child.id = ANY(CAST(:pinned_work_item_ids AS uuid[]))
         """
 
     root_ordering = {
@@ -164,11 +165,15 @@ def hierarchy_page(
         "created": "root.created_at DESC, root.id DESC",
         "priority": "root.priority DESC, root.updated_at DESC, root.id DESC",
     }[filters.sort]
+    root_ordering = "(root.id = ANY(CAST(:pinned_work_item_ids AS uuid[]))) DESC, " + root_ordering
     page_ordering = {
         "updated": "page_rows.updated_at DESC, page_rows.id DESC",
         "created": "page_rows.created_at DESC, page_rows.id DESC",
         "priority": ("page_rows.priority DESC, page_rows.updated_at DESC, page_rows.id DESC"),
     }[filters.sort]
+    page_ordering = (
+        "(page_rows.id = ANY(CAST(:pinned_work_item_ids AS uuid[]))) DESC, " + page_ordering
+    )
     compact = isinstance(filters, WorkItemListQuery) and filters.detail == "compact"
     match_sql, match_parameters = _hierarchy_match_sql(filters)
     dialect = database.get_bind().dialect
@@ -660,6 +665,7 @@ def hierarchy_page(
                     "compact": compact,
                     "limit": filters.limit,
                     "offset": filters.offset,
+                    "pinned_work_item_ids": filters.pinned_work_item_ids,
                     **match_parameters,
                 },
             )

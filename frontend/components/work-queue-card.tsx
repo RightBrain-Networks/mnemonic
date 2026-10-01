@@ -18,8 +18,11 @@ import { StatusActionButton } from "@/components/work-detail-pane";
 import { discoveryLabel, hierarchyBranchTotals } from "@/lib/hierarchy-presentation";
 import type { HierarchyPresentation, Project, WorkSummary } from "@/lib/types";
 import type { ManualStatusAction } from "@/lib/work-status-actions";
+import { MAX_PINNED_WORK } from "@/lib/pinned-work";
 
 export type QueueOptions = {
+  pinnedWorkItemIds: readonly string[];
+  onTogglePin: (id: string) => void;
   selectedId: string | null;
   copiedKey: string | null;
   projects: readonly Project[];
@@ -65,6 +68,8 @@ type Props = {
 
 export default function WorkQueueCard({ summary, presentation, depth = 0 }: Props) {
   const {
+    pinnedWorkItemIds,
+    onTogglePin,
     selectedId,
     copiedKey,
     projects,
@@ -84,6 +89,7 @@ export default function WorkQueueCard({ summary, presentation, depth = 0 }: Prop
   const id = work.id;
   const titleId = useId();
   const selected = selectedId === id;
+  const pinned = pinnedWorkItemIds.includes(id);
   const copied = copiedKey === `${id}:pointer`;
   const descendants = presentation?.descendant_count ?? 0;
   const mutationBlocked = isMutationBlocked(summary);
@@ -139,6 +145,14 @@ export default function WorkQueueCard({ summary, presentation, depth = 0 }: Prop
         <span className="sep">·</span>
         <time dateTime={work.updated_at}>{formatDateTime(work.updated_at)}</time>
       </span>
+      <button type="button" className="queue-pin-button" aria-pressed={pinned}
+        aria-label={`${pinned ? "Unpin" : "Pin"} ${work.title}`}
+        title={pinned ? "Unpin from the top" : pinnedWorkItemIds.length >= MAX_PINNED_WORK ? "Unpin an item before adding another pin" : "Pin to the top"}
+        disabled={!pinned && pinnedWorkItemIds.length >= MAX_PINNED_WORK}
+        onClick={(event) => { event.stopPropagation(); onTogglePin(id); }}
+        onKeyDown={(event) => { if (isActivationKey(event)) event.stopPropagation(); }}>
+        <svg width="15" height="15" viewBox="0 0 24 24" fill={pinned ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m16 3 5 5-4 1-3 5v3l-3-1-3-3 1-3 5-3 2-4ZM8 16l-5 5" /></svg>
+      </button>
     </div>
     <h2 className="queue-card-title" id={titleId}>{work.title}</h2>
     <p className="queue-card-summary">{work.summary}</p>

@@ -49,6 +49,8 @@ import WorkDetailPane from "@/components/work-detail-pane";
 import WorkItemList from "@/components/work-item-list";
 import { usePaneCrossfade } from "@/components/use-pane-crossfade";
 import { useWorkQueuePages } from "@/components/use-work-queue-pages";
+import { usePinnedWork } from "@/components/use-pinned-work";
+import { useTaskPage } from "@/components/use-task-page";
 import { StatusBadge, formatDate } from "@/components/work-item-card";
 import { setDisplayTimeZone } from "@/lib/display-time";
 import { draftFromWork, type WorkEditDraft } from "@/components/work-item-editor";
@@ -441,8 +443,12 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
     if (route.rejected) setNotice({ message: route.rejected, error: true });
   }, [route.rejected]);
   const project = projects.find((item) => item.id === activeId);
+  const pins = usePinnedWork(activeId);
+  const { page: sidebarTasks } = useTaskPage(activeId, refresh, "pending", undefined, 0, undefined,
+    Boolean(activeId) && activityReadyProjectId === activeId);
   const queue = useWorkQueuePages({
-    enabled: view === "library" && Boolean(activeId) && activityReadyProjectId === activeId && preferencesReady,
+    enabled: view === "library" && Boolean(activeId) && activityReadyProjectId === activeId && preferencesReady && pins.ready,
+    pinnedWorkItemIds: pins.ids,
     projectId: activeId,
     status,
     sort,
@@ -2728,6 +2734,11 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
       const latest = decodeWorkContext(value, projectId, summary.work_item.id);
       if (recordRequest.current !== requestGeneration) return;
       const review = latest.code_review_context?.current_review;
+      if (review?.manual_request?.mode === "cold") {
+        const prompt = await renderedPrompt(projectId, "cold-code-review", summary.work_item.id, review.id);
+        if (recordRequest.current === requestGeneration) await copyText(prompt, `${summary.work_item.id}:pointer`, "Cold review pointer copied.");
+        return;
+      }
       const parts = await Promise.all([
         renderedPrompt(projectId, "recall-pointer", summary.work_item.id),
         ...(review ? [renderedPrompt(projectId, "warm-code-review", summary.work_item.id, review.id)] : [])
@@ -2914,7 +2925,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
         <SidebarNavGroup className="tasks-nav" label="Tasks"
           storageKey={dashboardStorageKeys.tasksMenu}
           activeId={view === "library" ? "work-items" : view === "reviews" ? "code-reviews" : undefined}
-          items={[{ id: "work-items", label: "Work items", href: "/work-items" }, { id: "code-reviews", label: "Code reviews", href: "/code-reviews" }]}
+          items={[{ id: "work-items", label: "Work items", href: "/work-items", pendingCount: sidebarTasks?.work_items.pending }, { id: "code-reviews", label: "Code reviews", href: "/code-reviews", pendingCount: sidebarTasks?.code_reviews.pending }]}
           icon={<Icon name="library" />} onNavigate={blockNavigationWhilePending} />
         <Link className={`nav-item ${view === "attention" ? "active" : ""}`} href="/attention" aria-current={view === "attention" ? "page" : undefined} onClick={blockNavigationWhilePending}><Icon name="attention" /><span>Needs Attention</span>{attentionCount !== null && attentionCount > 0 && <span className="attention-nav-count" aria-label={`${attentionCount} unresolved human question${attentionCount === 1 ? "" : "s"}`}>{attentionCount}</span>}<Icon name="arrow" size={15} /></Link>
         <Link className={`nav-item ${view === "summaries" ? "active" : ""}`} href="/summaries" aria-current={view === "summaries" ? "page" : undefined} onClick={blockNavigationWhilePending}><Icon name="box" /><span>Summaries</span>{reportCount !== null && reportCount !== "0" && <span className="summary-nav-count" aria-label={`${reportCount} undismissed summaries`}>{reportCount}</span>}<Icon name="arrow" size={15} /></Link>
@@ -2991,6 +3002,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
           />
           {project && activityReadyProjectId === project.id
             ? <JobReportList key={project.id} projectId={project.id} refreshSignal={reportRefresh}
+                repositoryUrl={project.repository_url}
                 onChanged={() => { setReportRefresh((value) => value + 1); setRefresh((value) => value + 1); }}
                 onOpenWork={(workItemId, preferredProjectId) => {
                   void navigateToCurrentWorkPlacement(workItemId, preferredProjectId ?? null);
@@ -3019,6 +3031,8 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
             projectsLoading && !projects.length ? <>{libraryChrome}<div className="loading-state" role="status"><span className="spinner" />Opening your workspace…</div></> :
             !projects.length ? <>{libraryChrome}<section className="empty-state onboarding"><div className="empty-art"><Icon name="library" size={34} /><span /></div><div className="eyebrow">A DURABLE PLACE TO CONTINUE</div><h2>Create your first project.</h2><p>Projects hold stable objectives and the session checkpoints that move them forward.</p><button className="button button-primary" onClick={() => setProjectDialog(true)}><Icon name="plus" size={17} />Create your first project</button></section></> : <>
               <WorkItemList
+                pinnedWorkItemIds={pins.ids}
+                onTogglePin={pins.toggle}
                 queuePaneRef={crossfade.queueRef}
                 introductoryContent={libraryChrome}
                 libraryToolsOpen={libraryToolsOpen}

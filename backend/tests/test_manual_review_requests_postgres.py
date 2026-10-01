@@ -33,6 +33,68 @@ def request_review(api, project, work, **overrides):
     return api.patch(path, json=body), body
 
 
+@pytest.mark.parametrize("mode", ["warm", "cold"])
+def test_summary_review_mode_scope_and_receipt(
+    api, project, work_payload, checkpoint_fields, postgres_engine, mode,
+):
+    from alembic import command
+    from alembic.config import Config
+
+    from tests.conftest import BACKEND_DIR
+    from tests.test_project_activity_audit_postgres import _audit
+
+    work = create(api, project, work_payload)
+    response, _ = close(api, project, work, checkpoint_fields)
+    completed = response.json()
+    work = completed["work_item"]
+    options = {"request_code_review_mode": mode,
+               "request_code_review_checkpoint_id": completed["checkpoint"]["id"]}
+    if mode == "cold":
+        options["code_review_handoff"] = handoff()
+    response, intent = request_review(api, project, work, **options)
+    assert response.status_code == 200, response.text
+    assert response.json()["manual_review_request"]["mode"] == mode
+    base = f"/api/v1/projects/{project['id']}/work-items/{work['id']}"
+    assert api.patch(base, json=intent).json() == response.json()
+    review = api.get(base + "/context").json()["code_review_context"]["current_review"]
+    detail = api.get(base + f"/code-reviews/{review['id']}").json()
+    assert detail["scope"] == (handoff()["scope"] if mode == "cold" else None)
+    claim = {"holder_client": "codex", "holder_session_id": "independent-reviewer",
+             "claim_request_id": str(uuid4()), "session_transcript": None,
+             "purpose": "code_review", "code_review_id": review["id"], "mode": mode}
+    if mode == "warm":
+        claim["code_review_handoff"] = handoff()
+    rejected = api.post(base + "/claim", json={
+        **claim, "mode": "cold" if mode == "warm" else "warm",
+    })
+    assert rejected.status_code == 422, rejected.text
+    claimed = api.post(base + "/claim", json=claim)
+    assert claimed.status_code == 200, claimed.text
+    assert claimed.json()["mode"] == mode
+    assert _audit(postgres_engine)["result"] == "pass"
+    config = Config(str(BACKEND_DIR / "alembic.ini"))
+    with pytest.raises(RuntimeError, match="Review mode history exists"):
+        with postgres_engine.begin() as connection:
+            config.attributes["connection"] = connection
+            command.downgrade(config, "0049_duplicate_embeddings")
+    assert api.patch(base, json=intent).json() == response.json()
+
+
+def test_summary_review_rejects_stale_episode_and_unscoped_cold(
+    api, project, work_payload, checkpoint_fields,
+):
+    work = create(api, project, work_payload)
+    response, _ = close(api, project, work, checkpoint_fields)
+    work = response.json()["work_item"]
+    rejected, _ = request_review(api, project, work, request_code_review_mode="cold")
+    assert rejected.status_code == 422
+    rejected, _ = request_review(api, project, work,
+                                 request_code_review_checkpoint_id=str(uuid4()))
+    assert rejected.status_code == 409
+    context = api.get(f"/api/v1/projects/{project['id']}/work-items/{work['id']}/context").json()
+    assert "manual_review_request" not in context["work_item"]
+
+
 @pytest.mark.parametrize(
     "before_done,threshold",
     [

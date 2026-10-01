@@ -29,6 +29,7 @@ export type SearchRequest = {
   facet_order?: { facet: SearchFacet; sort?: SearchSort }[];
   limit?: number;
   offset?: number;
+  pinned_work_item_ids?: readonly string[];
 };
 
 export function unifiedSearchPath(projectId: string): string {
@@ -49,7 +50,8 @@ export function workSearchRequest(input: WorkSearchOptions): SearchRequest {
   return {
     q, detail: "full", facets: ["work_items"], filters: { work_items: filters },
     sort: { by: q && input.semantic ? "relevance" : input.sort === "updated" ? "updated_at" : input.sort === "created" ? "created_at" : "priority", direction: "desc" },
-    limit: input.limit, offset: input.offset
+    limit: input.limit, offset: input.offset,
+    ...(input.pinnedWorkItemIds?.length ? { pinned_work_item_ids: input.pinnedWorkItemIds } : {})
   };
 }
 

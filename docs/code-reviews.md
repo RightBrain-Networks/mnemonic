@@ -295,10 +295,33 @@ inventing a historical completion policy.
 
 The browser uses `request_code_review=true` inside receipt-protected `update_work`,
 with a work version, dashboard actor, and operation UUID. This field is human-only
-and must be submitted alone. Exact retries return their original response. There
+and cannot accompany implementation edits. Exact retries return their original response. There
 are no new MCP tools, protected writes, receipt kinds, or work-event types.
 Upgrade API/MCP/dashboard to 0.60.0, plugin to 0.38.0, and Alembic to
 `0041_artifact_passages` together. Quiesce writers and back up first. Existing
 requests and receipts are unchanged; no reviews are inferred by migration.
 Downgrade is refused once human requests have been recorded. Run both integrity
 audits on the new schema, including after a restore.
+
+### Reviews from dashboard summaries (0.80.0)
+
+Each summary has a split review button. **Warm review** queues an unscoped manual
+review of the associated Done completion. **Cold review** opens the repository
+and base/head commit form, then queues a review with that immutable scope. Cold
+reviewers receive the scoped cold prompt without implementation notes. Existing
+review obligations cannot be duplicated or replaced by this action.
+
+These requests add `request_code_review_mode` (`warm` or `cold`) and
+`request_code_review_checkpoint_id` to the existing update. Cold requests also
+provide `code_review_handoff`; the dashboard retains the report summary and
+explicitly records that the request supplies no additional validation evidence.
+The checkpoint prevents an old report from requesting review of a later
+completion. The request's optional `mode` is retained with human provenance and
+enforced on claims. Requests with no declared mode retain their original
+contract. Scope and mode options require `request_code_review=true`; a supplied
+scope or checkpoint requires Done work.
+
+Application/API/MCP/dashboard 0.80.0 requires `0050_manual_review_modes` and a
+coordinated deployment. The migration updates JSON and lease guards without
+rewriting historical requests. Downgrade refuses to remove recorded mode history.
+The Claude plugin version and MCP tool catalog are unchanged.

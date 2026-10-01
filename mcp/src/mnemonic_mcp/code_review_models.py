@@ -292,6 +292,9 @@ class HumanReviewDecisionRead(HumanReviewDecision):
 
 
 class ManualReviewRequest(ReviewTimestamp):
+    mode: ReviewMode | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
     id: UUID
     actor_client: Literal["dashboard"]
     actor_session_id: SessionID

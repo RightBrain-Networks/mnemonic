@@ -1028,6 +1028,8 @@ html[data-theme="dark"] :is(.evidence-outcome.is-inconclusive, .evidence-outcome
 .defer-button { min-width: auto; padding: 9px 10px; color: #735d05; background: #fff8d8; border-color: #e2c771; font-size: 11px; }
 .defer-button:hover:not(:disabled) { color: #574400; background: #fff0ae; border-color: #cda82b; }
 .status-split-button { position: relative; display: inline-flex; align-items: stretch; }
+.summary-review-action { min-width: 0; }
+.summary-review-action .status-action-menu { z-index: 5; min-width: 150px; }
 .status-split-button .status-split-primary { border-radius: 7px 0 0 7px; }
 .status-split-button .status-split-toggle {
   width: 30px; padding: 0; justify-content: center; margin-left: -1px; border-radius: 0 7px 7px 0;
@@ -1554,6 +1556,9 @@ html[data-theme="dark"] :is(.evidence-outcome.is-inconclusive, .evidence-outcome
 .queue-card.is-selected { border-color: var(--accent); background: #fff7f2; }
 .queue-card-topline { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .queue-card-topline > .status-badge, .queue-card-topline > .operational-badge { flex: none; }
+.queue-pin-button { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 26px; height: 26px; margin-left: auto; padding: 4px; border: 0; border-radius: 5px; color: var(--muted); background: transparent; cursor: pointer; }
+.queue-pin-button:hover, .queue-pin-button[aria-pressed="true"] { color: var(--accent); background: var(--accent-soft); }
+.queue-pin-button:disabled { opacity: .45; cursor: default; }
 .queue-card-meta { display: flex; align-items: center; gap: 8px; flex: 1 1 auto; min-width: 0; overflow: hidden; color: var(--muted); font-size: 10px; white-space: nowrap; }
 .queue-card-meta > time { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .queue-card-meta .sep { flex: none; color: #b0b9b2; }

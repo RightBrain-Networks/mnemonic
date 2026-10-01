@@ -136,6 +136,9 @@ def _all_facets() -> list[SearchFacet]:
 
 
 class SearchRequest(SearchModel):
+    pinned_work_item_ids: list[UUID] = Field(
+        default_factory=list, max_length=100, exclude_if=lambda value: not value,
+    )
     query_mode: QueryMode = "terms"
     diagnostics: DiagnosticsMode = "on_empty"
     tag_counts: TagCountRequest | None = None
@@ -148,6 +151,12 @@ class SearchRequest(SearchModel):
     facet_order: SearchFacetOrder = Field(default_factory=list)
     limit: SearchLimit = 20
     offset: SearchOffset = 0
+
+    @model_validator(mode="after")
+    def valid_pin_scope(self) -> Self:
+        if self.pinned_work_item_ids and self.facets != ["work_items"]:
+            raise ValueError("Pinned work sorting requires only the work_items facet")
+        return self
 
     @model_validator(mode="after")
     def content_kind_requires_fulltext(self) -> Self:

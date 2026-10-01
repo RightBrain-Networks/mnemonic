@@ -64,6 +64,8 @@ function readingRecord(target: EventTarget | null): boolean {
 }
 
 export type WorkQueueProps = {
+  pinnedWorkItemIds: readonly string[];
+  onTogglePin: (id: string) => void;
   // The pane the lifecycle filter cross-dissolves; usePaneCrossfade owns it.
   paneRef: RefObject<HTMLDivElement | null>;
   items: WorkQueueItem[];
@@ -107,6 +109,8 @@ export type WorkQueueProps = {
 };
 
 export default function WorkQueue({
+  pinnedWorkItemIds,
+  onTogglePin,
   paneRef,
   items,
   flatSearch,
@@ -186,6 +190,8 @@ export default function WorkQueue({
     registryRef.current.delete(id);
   }, []);
   const options = useMemo<QueueOptions>(() => ({
+    pinnedWorkItemIds,
+    onTogglePin,
     selectedId,
     copiedKey,
     projects,
@@ -200,6 +206,8 @@ export default function WorkQueue({
     register,
     unregister
   }), [
+    pinnedWorkItemIds,
+    onTogglePin,
     copiedKey,
     isMutationBlocked,
     movingId,
@@ -344,6 +352,7 @@ export default function WorkQueue({
             hasData ? <>
               {flatSearch ? <section ref={searchMotionRef} className="work-list search-results" aria-label="Matching durable work records">{searchResults.map(({ summary: item, matched_member: matchedMember, ...evidence }) => <div className="search-result" data-work-item-id={item.work_item.id} key={item.work_item.id}><div className="matched-member" role="note"><span>{matchedMember.id.toLowerCase() === item.work_item.id.toLowerCase() ? "Matched record" : "Matched duplicate member"}</span><bdi dir="auto">{matchedMember.title}</bdi><code>{matchedMember.id}</code></div><SearchEvidence hit={{ ...evidence, summary: item, matched_member: matchedMember }} /><SearchBreadcrumb summary={item} /><WorkQueueCard summary={item} /></div>)}</section> :
                 <WorkHierarchy
+                  pinnedWorkItemIds={pinnedWorkItemIds}
                   items={hierarchyResults}
                   status={status}
                   sort={sort}

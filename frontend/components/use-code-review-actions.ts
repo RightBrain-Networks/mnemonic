@@ -75,10 +75,12 @@ export function useCodeReviewActions(projectId: string, onChanged: () => void, o
     try {
       const detail = decodeCodeReviewDetail(await api<unknown>(`/projects/${projectId}/work-items/${task.work_item_id}/code-reviews/${task.id}`), projectId, task.work_item_id, task.id);
       const runnable = detail.review.state === "requested" && (detail.review.human_decision?.status ?? "to-review") === "to-review";
-      const text = runnable ? (await Promise.all([
+      const text = !runnable ? retainedReviewPointer(detail) : detail.review.manual_request?.mode === "cold"
+        ? await renderedPrompt(projectId, "cold-code-review", task.work_item_id, task.id)
+        : (await Promise.all([
         renderedPrompt(projectId, "recall-pointer", task.work_item_id, task.id),
         renderedPrompt(projectId, "warm-code-review", task.work_item_id, task.id)
-      ])).join("\n\n") : retainedReviewPointer(detail);
+      ])).join("\n\n");
       if (!active.current) return;
       if (!navigator.clipboard?.writeText) throw new Error("Clipboard access is unavailable.");
       await navigator.clipboard.writeText(text);

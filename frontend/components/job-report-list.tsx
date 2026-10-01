@@ -10,8 +10,10 @@ import { useFailedReadRetry } from "@/components/use-failed-read-retry";
 import { useWorkItemMotion } from "@/components/use-work-item-motion";
 import JobReportContent from "@/components/job-report-content";
 import JobReportFollowUpForm from "@/components/job-report-follow-up-form";
+import SummaryReviewButton from "@/components/summary-review-button";
 
-export default function JobReportList({ projectId, refreshSignal, onChanged, onOpenWork }: {
+export default function JobReportList({ projectId, refreshSignal, onChanged, onOpenWork, repositoryUrl }: {
+  repositoryUrl?: string | null;
   projectId: string; refreshSignal: number; onChanged: () => void;
   onOpenWork: (workItemId: string, preferredProjectId?: string) => void | Promise<void>;
 }) {
@@ -151,6 +153,7 @@ export default function JobReportList({ projectId, refreshSignal, onChanged, onO
       return <article className="job-report-card" key={item.report.id} data-work-item-id={item.report.id} aria-label={`Report for ${item.report.work_title_at_closeout}`}>
         <JobReportContent item={item} />
         <div className="report-card-actions">
+          <SummaryReviewButton item={item} repositoryUrl={repositoryUrl} onChanged={onChanged} />
           {!item.source_work_state.deleted && <button type="button" className="button button-secondary" onClick={() => void onOpenWork(item.report.work_item_id, item.report.project_id)}>Open original work</button>}
           <button type="button" className="button button-secondary" disabled={blocked || followUpReport !== null} onClick={() => { setFollowUpReport(item); setCreated(null); }}>Create Follow-up</button>
           <button type="button" className="button button-primary" disabled={blocked || formOpen} onClick={() => void dismiss(item)}>Dismiss</button>
