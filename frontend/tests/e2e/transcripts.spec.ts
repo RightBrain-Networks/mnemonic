@@ -13,7 +13,7 @@ async function fixture(api: APIRequestContext, client = "claude-code", limitatio
   const projectResponse = await api.post("/api/v1/projects", { data: { name: `Transcript library ${runId.slice(0, 8)}` } });
   expect(projectResponse.ok(), await projectResponse.text()).toBe(true);
   const project = await projectResponse.json() as { id: string };
-  const workResponse = await api.post(`/api/v1/projects/${project.id}/work-items`, { data: { title: "Index primary and subagent sessions", summary: "Synthetic transcript acceptance fixture.", priority: 4, initial_checkpoint: { prompt: "Exercise transcript indexing.", source_client: "claude-code", source_session_id: runId } } });
+  const workResponse = await api.post(`/api/v1/projects/${project.id}/work-items`, { data: { title: "Index primary and subagent sessions", summary: "Synthetic transcript acceptance fixture.", priority: 4, discovered_from_work_item_id: null, initial_checkpoint: { prompt: "Exercise transcript indexing.", source_client: "claude-code", source_session_id: runId } } });
   expect(workResponse.ok(), await workResponse.text()).toBe(true);
   const { work_item: work } = await workResponse.json() as { work_item: { id: string; version: number } };
   const folder = `${transcriptRoot}/${runId}`;

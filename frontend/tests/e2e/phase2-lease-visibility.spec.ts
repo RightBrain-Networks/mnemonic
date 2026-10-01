@@ -31,6 +31,7 @@ test("an active lease is visible without exposing its capability and refreshes a
         summary: "Verify human-safe active-session visibility and expiry refresh.",
         status: "pending",
         priority: 23,
+        discovered_from_work_item_id: null,
         initial_checkpoint: {
           prompt: "This checkpoint must remain separate from the temporary lease.",
           source_client: "dashboard-e2e-seeder",
@@ -178,6 +179,7 @@ test("a human can move work through every manual status", async ({ page }, testI
         summary: "Verify the dashboard-only deferral workflow.",
         status: "pending",
         priority: 19,
+        discovered_from_work_item_id: null,
         initial_checkpoint: {
           prompt: "A human will temporarily hold this work out of the queue.",
           source_client: "dashboard-e2e-seeder",
@@ -342,6 +344,7 @@ test("a claim committed before an identity edit is reconciled in the visible det
         summary: "Ready work that will be claimed while its identity editor is open.",
         status: "pending",
         priority: 24,
+        discovered_from_work_item_id: null,
         initial_checkpoint: {
           prompt: "Open this ready work for editing before the direct API claim.",
           source_client: "dashboard-e2e-seeder",

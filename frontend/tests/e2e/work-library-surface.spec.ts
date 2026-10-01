@@ -150,6 +150,7 @@ async function createWork(
       summary: input.summary ?? `Work surface fixture for ${input.title}.`,
       status: "pending",
       priority: input.priority ?? 23,
+      discovered_from_work_item_id: null,
       initial_checkpoint: {
         prompt: input.prompt ?? `Immutable starting context for ${input.title}.`,
         source_client: "playwright-api",

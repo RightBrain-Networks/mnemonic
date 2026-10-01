@@ -27,6 +27,7 @@ from pydantic import (
     model_serializer,
     model_validator,
 )
+from pydantic.experimental.missing_sentinel import MISSING
 from pydantic.json_schema import SkipJsonSchema, WithJsonSchema
 
 from mnemonic_api.artifact_schemas import ArtifactRead
@@ -1476,6 +1477,13 @@ class InitialRelationshipCreate(APIModel):
 
 
 class WorkItemCreate(APIModel):
+    discovered_from_work_item_id: UUID | None | MISSING = Field(
+        default=MISSING,
+        description="Required for fresh agent creation: the work item that initiated this "
+        "session, or explicit null for a human prompt or external trigger. Creates an outgoing "
+        "discovered-from edge citing the origin's initial checkpoint; not a hierarchy parent. "
+        "Omission is accepted only for dashboard creation or historical receipt replay.",
+    )
     external_references: ExternalReferences = Field(
         default_factory=list, exclude_if=lambda value: not value,
     )

@@ -131,6 +131,7 @@ test("external API writes appear through live browser sync", async ({ page }, te
           title: workTitle,
           summary: "Created outside the dashboard for the live queue animation regression.",
           priority: 5,
+          discovered_from_work_item_id: null,
           initial_checkpoint: {
             prompt: "This item must arrive over the live invalidation connection.",
             source_client: "playwright-api",

@@ -1128,7 +1128,7 @@ async def phase12_human_report_flow(
 def validate_rest_contract(document: Any) -> None:
     """Reject a healthy but contract-incompatible pre-Phase-12 API."""
     try:
-        require(document["info"]["version"] == "0.78.0", "Unexpected REST API version.")
+        require(document["info"]["version"] == "0.79.0", "Unexpected REST API version.")
         schemas = document["components"]["schemas"]
         unified_search = document["paths"]["/api/v1/projects/{project_id}/search"]["post"]
         require(
@@ -1637,14 +1637,14 @@ async def check(args: argparse.Namespace, key: str) -> None:
                 initialized = await session.initialize()
                 require(
                     initialized.serverInfo.name == "Mnemonic"
-                    and initialized.serverInfo.version == "0.78.0",
+                    and initialized.serverInfo.version == "0.79.0",
                     "Unexpected MCP server identity or version.",
                 )
                 catalog = await session.list_tools()
                 validate_mcp_catalog(catalog)
                 await tool(session, "list_projects", {})
                 print(
-                    "PASS: REST 0.78.0 cross-project relationship contract shape, work-move, "
+                    "PASS: REST 0.79.0 cross-project relationship contract shape, work-move, "
                     "code-review contract, real MCP initialization, 58-tool catalog, "
                     "exact seventeen protected mutation "
                     "schemas/annotations, and REST-backed project listing"
@@ -1713,6 +1713,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                             "project_id": project_id,
                             "title": f"Temporary primary work check {primary_marker}",
                             "summary": synthetic_summary(marker),
+                            "discovered_from_work_item_id": None,
                             "initial_checkpoint": checkpoint_input,
                             "priority": 90,
                             "initial_relationships": [],
@@ -2155,6 +2156,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                             "project_id": project_id,
                             "title": f"Temporary blocker work check {blocker_marker}",
                             "summary": synthetic_summary(marker),
+                            "discovered_from_work_item_id": None,
                             "initial_checkpoint": blocker_checkpoint,
                             "priority": 70,
                             "initial_relationships": [],
@@ -2185,6 +2187,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                             "title": f"Temporary ready work check {ready_marker}",
                             "summary": synthetic_summary(marker),
                             "priority": 50,
+                            "discovered_from_work_item_id": None,
                             "initial_checkpoint": ready_checkpoint,
                             "initial_relationships": [],
                         }
@@ -2557,6 +2560,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                             "summary": synthetic_summary(marker),
                             "priority": 30,
                             "status": "pending",
+                            "discovered_from_work_item_id": None,
                             "initial_checkpoint": {
                                 **checkpoint_input,
                                 "prompt": f"Synthetic terminal candidate for run {run_id}.",
@@ -3013,6 +3017,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                             "project_id": project_id,
                             "title": f"Temporary child work check {child_marker}",
                             "summary": synthetic_summary(marker),
+                            "discovered_from_work_item_id": None,
                             "initial_checkpoint": child_checkpoint,
                             "priority": 10,
                             "initial_relationships": [
@@ -3617,6 +3622,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                                 ),
                                 "summary": synthetic_summary(marker),
                                 "priority": 0,
+                                "discovered_from_work_item_id": None,
                                 "initial_checkpoint": {
                                     **checkpoint_input,
                                     "prompt": (
@@ -3640,6 +3646,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                                 ),
                                 "summary": synthetic_summary(marker),
                                 "priority": 0,
+                                "discovered_from_work_item_id": None,
                                 "initial_checkpoint": {
                                     **checkpoint_input,
                                     "prompt": (

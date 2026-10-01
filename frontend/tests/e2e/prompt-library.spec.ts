@@ -123,6 +123,7 @@ test("project prompt edits drive both clipboard actions, preserve unknown macros
     const otherOriginal = await readPrompt(api, other.id);
     const create = await api.post(`/api/v1/projects/${selected.id}/work-items`, { data: {
       title: "Prompt clipboard acceptance", summary: "A literal $PROJECT_ID in a work summary.", priority: 23,
+      discovered_from_work_item_id: null,
       initial_checkpoint: { prompt: "Check both clipboard actions.", source_client: "playwright-api", source_session_id: "prompt-library" }
     }});
     expect(create.ok(), await create.text()).toBe(true);
@@ -198,6 +199,7 @@ test("report instructions initialize during typing and changed instructions stil
     const selected = await project(api);
     const response = await api.post(`/api/v1/projects/${selected.id}/work-items`, { data: {
       title: "Report prompt initialization", summary: "Keep the report revision while the author types.", priority: 1,
+      discovered_from_work_item_id: null,
       initial_checkpoint: { prompt: "Verify report authoring instructions.", source_client: "playwright-api", source_session_id: "report-prompt-race" }
     }});
     expect(response.ok(), await response.text()).toBe(true);

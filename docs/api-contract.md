@@ -3,7 +3,7 @@
 Use [unified search](search.md) to retrieve work, artifacts, and transcripts in one
 ranked, filtered, paginated read through REST or MCP.
 
-This is application/API/MCP/dashboard `0.78.0`, plugin `0.45.0`, and migration
+This is application/API/MCP/dashboard `0.79.0`, plugin `0.46.0`, and migration
 `0049_duplicate_embeddings`. The catalog has exactly 58 MCP tools, 17
 protected MCP writes, 24 REST receipt kinds, 21 protected browser mutations and
 24 work-event types. The 24 REST receipt kinds comprise 18 work operations, four artifact operations
@@ -46,6 +46,24 @@ FastAPI's structured list remains the validation-error format. Invalid input is
 project are 404, lifecycle/version conflicts are 409, and bad or missing
 authorization is 401. Error context never contains
 checkpoint text, metadata, credentials, or request bodies.
+
+## Required agent work lineage
+
+Fresh agent `POST /projects/{project_id}/work-items` / MCP `create_work` requests
+must include `discovered_from_work_item_id` as the session's initiating work UUID,
+or explicit null for a human prompt or external trigger. Omission returns
+422 `discovered_from_work_item_id_required` after historical receipt lookup.
+Dashboard-authored REST creation may omit the field. Null, omission, and an ID
+remain distinct in receipt hashes; keep the original assertion on exact retries.
+The server cannot independently verify a caller's external session trigger.
+
+A non-null ID adds an outgoing `discovered-from` edge atomically, citing the
+origin's initial checkpoint, with ordinary endpoint events and cross-project
+mutation locks. An explicit same-origin discovery edge reuses its supplied
+checkpoint; up to ten requested initial relationships remain available in
+addition to the generated edge. Missing/deleted origins fail without persisting
+work, events, or a receipt. This field does not add a `parent-child` edge.
+Existing rows are not backfilled. No migration or configuration change is needed.
 
 ## Configurable work summaries
 
@@ -426,6 +444,7 @@ move write.
 
 ```json
 {
+  "discovered_from_work_item_id": "11111111-1111-4111-8111-111111111111",
   "title": "Investigate stale cache entries",
   "summary": "Cached state survives invalidation after a branch switch.",
   "priority": 40,

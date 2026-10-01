@@ -136,6 +136,7 @@ VALIDATION_FIELDS = frozenset(
         "priority",
         "initial_checkpoint",
         "initial_relationships",
+        "discovered_from_work_item_id",
         "checkpoint",
         "completion_evidence",
         "job_completion_report",
@@ -483,6 +484,10 @@ class SanitizedFastMCP(FastMCP[Any]):
         )
         argument_model.model_rebuild(force=True)
         tool.parameters = argument_model.model_json_schema(by_alias=True)
+        if tool_name == "create_work":
+            # Sparse historical calls still reach receipt replay; fresh execution
+            # requires the assertion at the API. Advertise the fresh contract.
+            tool.parameters.setdefault("required", []).append("discovered_from_work_item_id")
 
     async def call_tool(self, name: str, arguments: dict[str, Any]) -> Any:
         tool = self._tool_manager.get_tool(name)

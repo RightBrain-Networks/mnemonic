@@ -105,8 +105,8 @@ one-off ID needed before dispatch. Explicit IDs and REST receipts retain their
 contracts; prepared upload intents keep their helper-generated IDs. See
 `docs/automatic-uuids.md`. The tool idempotence hint is false for these calls.
 
-The current application/API/MCP/dashboard release is `0.78.0`, Claude plugin
-`0.45.0`, and Alembic head `0049_duplicate_embeddings`. The catalog is exactly
+The current application/API/MCP/dashboard release is `0.79.0`, Claude plugin
+`0.46.0`, and Alembic head `0049_duplicate_embeddings`. The catalog is exactly
 58 MCP tools, 17 receipt-protected MCP writes, 24 REST receipt kinds, 21 protected
 browser mutations, 24 work-event types, and three plugin skills. The suggestion
 POST is a safe read. Search accepts q/query aliases up to 1,000 characters;
@@ -131,6 +131,11 @@ is working on the item before `claim_work`/`claim_and_recall(force=true)` with a
 new request ID. Force invalidates the prior token without bypassing eligibility
 or human gates. Keep force and every argument unchanged on uncertain retries;
 released or replaced force requests cannot take back a later lease.
+Every fresh agent `create_work` declares `discovered_from_work_item_id`: the exact
+work item that initiated the session, or explicit null for a human/external trigger.
+Preserve this origin through compaction and delegation; later reads do not change it.
+The API atomically adds `discovered-from` with the origin's initial checkpoint;
+this does not create `parent-child`. Sparse omission is only for receipt replay.
 Fresh work starts pending. Every actual Done, Won’t do, or Promoted closeout
 requires a report and operation UUID. Sparse historical requests remain
 parseable exclusively for permanent receipt replay before fresh domain guards.

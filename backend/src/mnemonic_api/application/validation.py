@@ -24,6 +24,7 @@ PUBLIC_LOCATION_SEGMENTS = frozenset(
     filters facets work_items artifacts transcripts
     content_kinds segment_id expected_normalized_revision expected_text_sha256 before
     created_after created_before updated_after updated_before diagnostics tag_counts
+    discovered_from_work_item_id
     view detail sort limit offset min_priority parent_work_item_id direction type order
     event_type recent_limit recent_event_limit title summary priority expected_version
     initial_checkpoint initial_relationships checkpoint kind prompt source_model

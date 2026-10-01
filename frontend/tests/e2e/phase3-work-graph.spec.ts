@@ -49,6 +49,7 @@ test("hierarchy navigation and the relationship editor preserve graph semantics"
         summary: `Phase 3 graph fixture for ${title}.`,
         status: "pending",
         priority: 31,
+        discovered_from_work_item_id: null,
         initial_checkpoint: {
           prompt: `Immutable starting context for ${title}.`,
           source_client: "playwright-api",
@@ -373,6 +374,7 @@ test("the relationship editor links work across projects and opens the target pr
         summary: `Cross-project relationship fixture for ${title}.`,
         status: "pending",
         priority: 31,
+        discovered_from_work_item_id: null,
         initial_checkpoint: {
           prompt: `Immutable starting context for ${title}.`,
           source_client: "playwright-api",

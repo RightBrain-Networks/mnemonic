@@ -16,6 +16,7 @@ async function createProject(api: APIRequestContext) {
 async function createReport(api: APIRequestContext, projectId: string, status: "done" | "wont-do" | "promoted" = "done") {
   const create = await api.post(`/api/v1/projects/${projectId}/work-items`, { data: {
     title: `Dashboard font ${status}`, summary: "Use one readable font across the dashboard.", status: "pending", priority: 1,
+    discovered_from_work_item_id: null,
     initial_checkpoint: { prompt: "Choose a readable font for the dashboard.", source_client: "playwright-api", source_session_id: "phase12" }
   }});
   expect(create.ok(), await create.text()).toBe(true);
@@ -208,6 +209,7 @@ test("recovering another report action preserves an unrelated follow-up draft", 
 async function createPendingWork(api: APIRequestContext, projectId: string, title: string) {
   const response = await api.post(`/api/v1/projects/${projectId}/work-items`, { data: {
     title, summary: "A focused browser regression fixture.", status: "pending", priority: 1,
+    discovered_from_work_item_id: null,
     initial_checkpoint: { prompt: "Review the font decision and report the result.", source_client: "playwright-api", source_session_id: "phase12" }
   }});
   expect(response.ok(), await response.text()).toBe(true);

@@ -2,6 +2,14 @@
 
 DETAILS: dict[str, str] = {
     'create_work': (
+        'Every fresh call requires discovered_from_work_item_id: the exact Mnemonic work item '
+        'that initiated this session, or explicit null for a human prompt or external trigger. '
+        'Preserve that origin through compaction and delegation; reading other work does not '
+        'change it. Recover a lost originating ID rather than declaring null. A non-null ID '
+        'adds new work --discovered-from--> origin atomically using its initial checkpoint, '
+        'including across projects. A supplied discovery edge to that origin reuses its '
+        'caller-selected checkpoint. This adds no parent-child hierarchy edge. Keep the '
+        'assertion unchanged on retries. Omission exists only for historical receipt replay. '
         'Use external_references for zero to ten exact credential-free links; tracked-by means '
         'this objective, references means context. Links and caller-observed state never '
         'authorize execution or closeout. Fresh work must start pending. Transport still accepts '

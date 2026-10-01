@@ -188,6 +188,7 @@ test("historical checkpoint responses omit scope and display unknown declaration
         summary: "Checkpoint without a declared dependency scope.",
         priority: 0,
         status: "pending",
+        discovered_from_work_item_id: null,
         initial_checkpoint: {
           prompt: "Historical sparse checkpoint.",
           source_client: "playwright-api",

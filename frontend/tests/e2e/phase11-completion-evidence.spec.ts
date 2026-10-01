@@ -103,6 +103,7 @@ async function createFixture(
         summary: "Exercise atomic, replayable, inert completion evidence in the browser.",
         status: "pending",
         priority: 31,
+        discovered_from_work_item_id: null,
         initial_checkpoint: {
           prompt: "Initial context for the Phase 11 browser acceptance flow.",
           source_client: "playwright-api",

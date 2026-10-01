@@ -48,6 +48,7 @@ from mnemonic_api.services.work_events import (
     stage_work_deleted,
     stage_work_moved_events,
 )
+from mnemonic_api.services.work_lineage import creation_endpoint_ids, creation_relationships
 from mnemonic_api.summary_limits import (
     DEFAULT_WORK_SUMMARY_MAX_CHARS,
     require_work_summary_length,
@@ -124,12 +125,13 @@ def create_work_records(
     )
     if payload.status != "pending":
         raise ApplicationError(422, "initial_status_must_be_pending", "New work must be pending.")
-    if payload.initial_relationships:
+    endpoint_ids = creation_endpoint_ids(payload)
+    if endpoint_ids:
         lock_project_graph(database, project_id)
         lock_relationship_graph(database)
         locked_work_items = lock_global_endpoint_work_items(
             database,
-            [item.other_work_item_id for item in payload.initial_relationships],
+            endpoint_ids,
         )
     else:
         require_project(database, project_id)
@@ -160,11 +162,12 @@ def create_work_records(
     database.flush()
 
     relationships: list[WorkRelationship] = []
-    if payload.initial_relationships:
+    initial_relationships = creation_relationships(payload, locked_work_items)
+    if initial_relationships:
         locked_work_items[work_item.id] = work_item
         seen_relationship_ids: set[UUID] = set()
         ordered = sorted(
-            payload.initial_relationships,
+            initial_relationships,
             key=lambda item: (
                 item.type,
                 "outgoing" if item.type == "related" else item.direction,

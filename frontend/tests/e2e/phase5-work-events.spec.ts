@@ -26,6 +26,7 @@ async function createFixtureWork(
       summary: "Disposable Phase 5 browser acceptance fixture.",
       status: "pending",
       priority: 17,
+      discovered_from_work_item_id: null,
       initial_checkpoint: {
         prompt: `Initial context for ${title}.`,
         source_client: "playwright-api",
@@ -100,6 +101,7 @@ test("activity is live, safe text, actor-attributed, and usable at both viewport
         summary: "Disposable work-event dashboard acceptance fixture.",
         status: "pending",
         priority: 42,
+        discovered_from_work_item_id: null,
         initial_checkpoint: {
           prompt: `Initial checkpoint text must stay out of activity rows for ${suffix}.`,
           source_client: "playwright-api",
@@ -117,6 +119,7 @@ test("activity is live, safe text, actor-attributed, and usable at both viewport
         summary: "Counterpart used to verify actor-bearing relationship removal.",
         status: "pending",
         priority: 1,
+        discovered_from_work_item_id: null,
         initial_checkpoint: {
           prompt: `Counterpart context for ${suffix}.`,
           source_client: "playwright-api",

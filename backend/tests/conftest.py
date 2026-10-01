@@ -411,6 +411,7 @@ def checkpoint_fields() -> dict:
 @pytest.fixture
 def work_payload(checkpoint_fields: dict) -> dict:
     return {
+        "discovered_from_work_item_id": None,
         "title": "Investigate stale cache entries",
         "summary": "Cached state survives invalidation after a branch switch.",
         "priority": 30,
