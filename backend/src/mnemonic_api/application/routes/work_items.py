@@ -17,6 +17,7 @@ from fastapi.responses import JSONResponse
 from mnemonic_api.application.mutations import run_registered_mutation
 from mnemonic_api.application.state import settings_of
 from mnemonic_api.database import Database, begin_coherent_read
+from mnemonic_api.errors import ApplicationError
 from mnemonic_api.schemas import (
     ChildrenListQuery,
     CompletionCheckpointRead,
@@ -61,6 +62,7 @@ from mnemonic_api.services.work_items import (
     require_work_item,
     update_work_record,
 )
+from mnemonic_api.services.work_lineage import creation_endpoint_ids
 
 router = APIRouter()
 
@@ -73,7 +75,7 @@ def create_work(
     database: Database,
 ) -> JSONResponse:
     # The item, its first checkpoint, and any initial edges share one transaction.
-    endpoint_ids = [item.other_work_item_id for item in payload.initial_relationships]
+    endpoint_ids = creation_endpoint_ids(payload)
     endpoint_projects: tuple[UUID, ...] = ()
 
     def mutation_scope() -> tuple[UUID, ...]:
@@ -82,6 +84,13 @@ def create_work(
         return endpoint_projects
 
     def execute(domain_payload: WorkItemCreate) -> WorkCreation:
+        if ("discovered_from_work_item_id" not in payload.model_fields_set
+                and payload.initial_checkpoint.source_client != "dashboard"):
+            raise ApplicationError(
+                422, "discovered_from_work_item_id_required",
+                "Supply discovered_from_work_item_id with the work item that initiated this "
+                "session, or explicit null for a human prompt or external trigger.",
+            )
         require_relationship_endpoint_project_scope(
             database, endpoint_ids, endpoint_projects
         )

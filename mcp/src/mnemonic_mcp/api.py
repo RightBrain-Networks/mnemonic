@@ -57,6 +57,10 @@ _APPLICATION_ERRORS = {
     "artifact_semantic_capacity": "Artifact semantic capacity reached. Narrow the artifact filters before retrying.",
     "transcript_content_changed": "Transcript text changed. Read metadata before a new text snapshot.",
     "subagent_transcripts_required": "Closeout requires subagent transcript locations or explicit null.",
+    "discovered_from_work_item_id_required": (
+        "Create work requires discovered_from_work_item_id: the item that initiated this session, "
+        "or explicit null when the session came from a human prompt or external trigger."
+    ),
     "gate_question_changed": "The question changed. Read its latest version before a new intent.",
     "artifact_not_found": "Artifact not found in this project.",
     "artifact_revision_conflict": "Artifact revision changed. Read its metadata before a new intent.",

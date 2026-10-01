@@ -131,6 +131,7 @@ test("external API writes appear through live browser sync", async ({ page }, te
           title: workTitle,
           summary: "Created outside the dashboard for the live queue animation regression.",
           priority: 5,
+          discovered_from_work_item_id: null,
           initial_checkpoint: {
             prompt: "This item must arrive over the live invalidation connection.",
             source_client: "playwright-api",
@@ -661,10 +662,10 @@ test("one work item groups immutable checkpoints through its full dashboard life
   await page.getByLabel("Search work items").fill(title);
   await expect(card).toHaveCount(1);
   await card.getByRole("button", { name: /Copy recall pointer/ }).click();
-  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toContain("recall_work");
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toContain("claim_and_recall");
   const pointer = await page.evaluate(() => navigator.clipboard.readText());
   expect(pointer).toContain("work_item_id");
-  expect(pointer).toContain("recall_work");
+  expect(pointer).toContain("claim_and_recall");
 
   pane = await selectWork(page, title);
   await pane.getByRole("button", { name: "Edit work item" }).click();

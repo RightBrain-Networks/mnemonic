@@ -147,6 +147,7 @@ async function createWork(
       summary,
       status: "pending",
       priority: 37,
+      discovered_from_work_item_id: null,
       initial_checkpoint: {
         prompt,
         source_client: "playwright-api",

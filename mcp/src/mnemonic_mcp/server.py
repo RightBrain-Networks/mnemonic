@@ -353,6 +353,31 @@ def _relationship_matches_request(
     )
 
 
+def _creation_lineage_requests(
+    response: WorkCreation,
+    requested: list[InitialRelationshipInput] | None,
+    origin: UUID | None | MISSING,
+) -> list[InitialRelationshipInput] | None:
+    relationships = list(requested or [])
+    if not isinstance(origin, UUID) or any(
+        item.type == "discovered-from" and item.other_work_item_id == origin
+        for item in relationships
+    ):
+        return relationships
+    edges = [edge for edge in response.initial_relationships
+             if edge.relationship_type == "discovered-from"
+             and edge.source_work_item_id == response.work_item.id
+             and edge.target_work_item_id == origin]
+    if (len(edges) != 1 or edges[0].context_checkpoint_id is None
+            or edges[0].context_checkpoint_work_item_id != origin):
+        return None
+    relationships.append(InitialRelationshipInput(
+        type="discovered-from", direction="outgoing", other_work_item_id=origin,
+        context_checkpoint_id=edges[0].context_checkpoint_id,
+    ))
+    return relationships
+
+
 def _creation_matches_request(
     response: WorkCreation,
     *,
@@ -363,12 +388,18 @@ def _creation_matches_request(
     status: UpdateStatus,
     initial_checkpoint: CheckpointInput,
     initial_relationships: list[InitialRelationshipInput] | None,
+    discovered_from_work_item_id: UUID | None | MISSING = MISSING,
     external_references: ExternalReferences = [],  # noqa: B006
 ) -> bool:
     work_item = response.work_item
     checkpoint = response.initial_checkpoint
+    initial_relationships = _creation_lineage_requests(
+        response, initial_relationships, discovered_from_work_item_id,
+    )
+    if initial_relationships is None:
+        return False
     ordered_relationships = sorted(
-        initial_relationships or [],
+        initial_relationships,
         key=lambda item: (
             item.type,
             "outgoing" if item.type == "related" else item.direction,
@@ -994,6 +1025,12 @@ def _register_project_tools(server: FastMCP, api: MnemonicAPI) -> None:
         )],
         initial_checkpoint: CheckpointInput,
         client_operation_id: UUID,
+        discovered_from_work_item_id: Annotated[UUID | None | MISSING, Field(
+            description="Required for fresh creation: the work item that initiated this agent "
+            "session; explicit null for a human prompt or external trigger. The server adds "
+            "discovered-from automatically. This is provenance, not a hierarchy parent. "
+            "Keep unchanged on retries; omission is only for historical receipt replay.",
+        )] = MISSING,
         priority: Annotated[int, Field(ge=0, le=100)] = 0,
         status: UpdateStatus = "pending",
         initial_relationships: Annotated[
@@ -1001,7 +1038,7 @@ def _register_project_tools(server: FastMCP, api: MnemonicAPI) -> None:
         ] = None,
         external_references: ExternalReferences = [],  # noqa: B006
     ) -> WorkCreation:
-        """Create pending work, initial context and up to ten relationships atomically. Search first to avoid duplicates. Fresh duplicate-of relationships and terminal creation are refused; sparse historical requests exist only for receipt replay. Retire/promote through update_work with a report. Read both exact contexts before an authorized merge_work. source_session_id is the native agent session ID when exposed, otherwise one Mnemonic session UUID generated once and retained; never use a transport identity or invent a verified commit. affected_paths is an ordered declaration of repository dependencies, not just changed files. Non-empty scope requires the inspected verified_against commit; omission/[] declares no scope, and ** means all eligible paths. The server and MCP adapter do not inspect Git. external_references accepts up to ten exact credential-free links: tracked-by identifies this objective; references supplies context. Links and observed state never authorize execution/closeout. Only incoming parent-child attaches work to a parent; discovered-from needs target-owned context. Omit client_operation_id on fresh calls for an automatic UUID; retain it with the complete immutable tool arguments. Unknown outcomes retry with every argument unchanged; never invent a replacement if the UUID or arguments were lost: stop for direction. A new intent requires a new UUID. Replay is the historical original result; read again for current state. Use help({"topic":"create_work details"}) for the complete contract."""
+        """Every fresh create_work must supply discovered_from_work_item_id: the Mnemonic work item that initiated this session, or explicit null for a human prompt or external tool. A non-null ID atomically adds an outgoing discovered-from edge with origin-owned context; it does not add parent-child. Never substitute a search result or the most recently recalled item for the session origin. Omission exists only for historical receipt replay. Create pending work, initial context and up to ten requested relationships atomically. Search first to avoid duplicates. Fresh duplicate-of relationships and terminal creation are refused; sparse historical requests exist only for receipt replay. Retire/promote through update_work with a report. Read both exact contexts before an authorized merge_work. source_session_id is the native agent session ID when exposed, otherwise one Mnemonic session UUID generated once and retained; never use a transport identity or invent a verified commit. affected_paths is an ordered declaration of repository dependencies, not just changed files. Non-empty scope requires the inspected verified_against commit; omission/[] declares no scope, and ** means all eligible paths. The server and MCP adapter do not inspect Git. external_references accepts up to ten exact credential-free links: tracked-by identifies this objective; references supplies context. Links and observed state never authorize execution/closeout. Only incoming parent-child attaches work to a parent; discovered-from needs target-owned context. Omit client_operation_id on fresh calls for an automatic UUID; retain it with the complete immutable tool arguments. Unknown outcomes retry with every argument unchanged; never invent a replacement if the UUID or arguments were lost: stop for direction. A new intent requires a new UUID. Replay is the historical original result; read again for current state. Use help({"topic":"create_work details"}) for the complete contract."""
         payload = _client_operation_payload(
             client_operation_id,
             {
@@ -1012,6 +1049,10 @@ def _register_project_tools(server: FastMCP, api: MnemonicAPI) -> None:
                 "initial_checkpoint": _checkpoint_payload(initial_checkpoint),
             },
         )
+        if discovered_from_work_item_id is not MISSING:
+            payload["discovered_from_work_item_id"] = (
+                str(discovered_from_work_item_id) if discovered_from_work_item_id else None
+            )
         if external_references:
             payload["external_references"] = [
                 reference.model_dump(mode="json") for reference in external_references
@@ -1040,6 +1081,7 @@ def _register_project_tools(server: FastMCP, api: MnemonicAPI) -> None:
                     status=status,
                     initial_checkpoint=initial_checkpoint,
                     initial_relationships=initial_relationships,
+                    discovered_from_work_item_id=discovered_from_work_item_id,
                     external_references=external_references,
                 ),
             ),

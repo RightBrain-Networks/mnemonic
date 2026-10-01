@@ -15901,6 +15901,19 @@
             "description": "Optional caller-generated UUID for durable replay of this mutation. Reuse it only with the exact same operation and semantic arguments after an unknown outcome.",
             "title": "Client Operation Id"
           },
+          "discovered_from_work_item_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Required for fresh agent creation: the work item that initiated this session, or explicit null for a human prompt or external trigger. Creates an outgoing discovered-from edge citing the origin's initial checkpoint; not a hierarchy parent. Omission is accepted only for dashboard creation or historical receipt replay.",
+            "title": "Discovered From Work Item Id"
+          },
           "external_references": {
             "items": {
               "$ref": "#/components/schemas/ExternalReference"
@@ -17636,7 +17649,7 @@
   "info": {
     "description": "Durable project-scoped work with immutable agent checkpoints.",
     "title": "Mnemonic API",
-    "version": "0.78.0"
+    "version": "0.79.0"
   },
   "openapi": "3.1.0",
   "paths": {

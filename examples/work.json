@@ -1,4 +1,5 @@
 {
+  "discovered_from_work_item_id": null,
   "title": "Illustrative work: verify backup restoration",
   "summary": "Example only: verify that a database backup restores durable work and checkpoint provenance into an isolated database.",
   "priority": 0,

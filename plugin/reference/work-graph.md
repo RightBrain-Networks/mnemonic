@@ -13,6 +13,29 @@ Relationships are globally identified graph facts and may connect work in
 separate projects; they are never semantic guesses. Every edge retains its
 immutable creation project as the authority route even if an endpoint moves.
 
+## Declare the session origin
+
+Every fresh `create_work` call must include `discovered_from_work_item_id`.
+Use the exact Mnemonic work item that initiated this agent session. Use explicit
+`null` when the session began with a human prompt, an external tool, or another
+non-Mnemonic trigger. Preserve this origin through delegation, handoffs, and
+compaction; recalling another item or switching projects does not change it.
+Never infer an origin from search results, related wording, or the most recently
+read item. If the session began from work but its ID was lost, recover that ID
+before creating work; null must not stand for unknown lineage.
+
+A non-null origin automatically creates `new work --discovered-from--> origin`
+in the same transaction, citing the origin's immutable initial checkpoint.
+The origin may be in another project. No separate relationship call is needed.
+An explicitly supplied discovery edge to the same origin is reused with its
+caller-selected origin-owned checkpoint. Up to ten additional
+`initial_relationships` remain available. Add an incoming `parent-child` edge
+only when the new work also belongs under a hierarchy parent.
+
+Freeze the origin ID or null with the complete creation intent and retry UUID.
+Fresh omission is rejected; unchanged sparse requests exist only to replay
+completed historical receipts. Existing lineage is not guessed or backfilled.
+
 ## Direction is source-to-target
 
 Every directed edge reads source → target:

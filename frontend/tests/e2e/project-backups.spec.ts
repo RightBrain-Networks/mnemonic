@@ -22,6 +22,7 @@ async function createProject(api: APIRequestContext, label: string): Promise<Pro
 async function createWork(api: APIRequestContext, project: Project, title: string): Promise<Work> {
   const response = await api.post(`/api/v1/projects/${project.id}/work-items`, {
     data: { title, summary: "Project backup acceptance", priority: 12,
+      discovered_from_work_item_id: null,
       initial_checkpoint: { prompt: "Preserve this work during a project restore.", source_client: "playwright-api", source_session_id: `backup-${crypto.randomUUID()}`, tags: ["backup-acceptance"], source_metadata: {} } }
   });
   expect(response.ok(), await response.text()).toBe(true);

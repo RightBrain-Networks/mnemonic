@@ -852,8 +852,8 @@ type ResponseMatcher = Callable[[UUID, Mapping[str, str], APIModel, APIModel], b
 def _expected_initial_relationships(
     request: WorkItemCreate,
     work_item_id: UUID,
-) -> dict[tuple[str, UUID, UUID], InitialRelationshipCreate]:
-    expected: dict[tuple[str, UUID, UUID], InitialRelationshipCreate] = {}
+) -> dict[tuple[str, UUID, UUID], InitialRelationshipCreate | None]:
+    expected: dict[tuple[str, UUID, UUID], InitialRelationshipCreate | None] = {}
     for relationship in sorted(request.initial_relationships, key=_initial_relationship_order):
         if relationship.direction == "outgoing":
             source, target = work_item_id, relationship.other_work_item_id
@@ -863,6 +863,9 @@ def _expected_initial_relationships(
             _normalized_relationship_identity(relationship.type, source, target),
             relationship,
         )
+    if isinstance(request.discovered_from_work_item_id, UUID):
+        expected.setdefault(("discovered-from", work_item_id,
+                             request.discovered_from_work_item_id), None)
     return expected
 
 
@@ -888,13 +891,18 @@ def _initial_relationships_match(
                 relationship.source_work_item_id,
                 relationship.target_work_item_id,
             }
-            or expected is None
+            or identity not in expected_relationships
+            or (expected is None and (
+                relationship.context_checkpoint_id is None
+                or relationship.context_checkpoint_work_item_id != relationship.target_work_item_id
+            ))
             or not _created_relationship_matches_request(
                 relationship,
                 created_by_client=request.initial_checkpoint.source_client,
                 created_by_session_id=request.initial_checkpoint.source_session_id,
                 created_by_model=request.initial_checkpoint.source_model,
-                context_checkpoint_id=expected.context_checkpoint_id,
+                context_checkpoint_id=(expected.context_checkpoint_id if expected is not None
+                                       else relationship.context_checkpoint_id),
             )
         ):
             return False

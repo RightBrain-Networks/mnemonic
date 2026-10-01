@@ -10,6 +10,7 @@ export async function createProject(api: APIRequestContext) {
 export async function createWork(api: APIRequestContext, projectId: string, title: string) {
   const response = await api.post(`/api/v1/projects/${projectId}/work-items`, { data: {
     title, summary: "Preserve agent context across sessions and verify the completed changes.",
+    discovered_from_work_item_id: null,
     initial_checkpoint: { prompt: "Implement and validate the requested change.", source_client: "codex", source_session_id: "task-author" }
   } });
   expect(response.ok(), await response.text()).toBe(true);

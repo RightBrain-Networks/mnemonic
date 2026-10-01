@@ -12,6 +12,13 @@ operator-provisioned `MNEMONIC_API_URL` and `MNEMONIC_API_KEY`; ask the operator
 when those are absent. For a file-only task, use that procedure without loading
 the work lifecycle or deep artifact reference unless needed.
 
+When a Mnemonic work item initiates this session, retain its exact ID as the
+session origin through compaction and any delegation. Every new `create_work`
+uses that ID in `discovered_from_work_item_id`, even for work in another project.
+A human prompt or external trigger uses explicit null instead. Merely recalling
+another item does not change the session origin. See
+[work lineage](${CLAUDE_PLUGIN_ROOT}/reference/work-graph.md#declare-the-session-origin).
+
 When assigned an existing work item, immediately call
 `get_work(project_id, work_item_id, status_only=true)` before investigating or
 acting. Assess its current status/readiness and the returned `lease_settings`:

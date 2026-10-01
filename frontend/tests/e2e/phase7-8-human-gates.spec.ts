@@ -51,6 +51,7 @@ async function createWork(
       summary: "Disposable Phase 7–8 human-gate browser fixture.",
       status: "pending",
       priority: 67,
+      discovered_from_work_item_id: null,
       initial_checkpoint: {
         prompt: `Exact current context for ${title}.`,
         source_client: "playwright-api",
