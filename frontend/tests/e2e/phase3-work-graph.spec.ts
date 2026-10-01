@@ -41,7 +41,8 @@ test("hierarchy navigation and the relationship editor preserve graph semantics"
 
   async function createWork(
     title: string,
-    status: "pending" | "wont-do" | "promoted" = "pending"
+    status: "pending" | "wont-do" | "promoted" = "pending",
+    originId: string | null = null
   ) {
     const response = await client.post(`/api/v1/projects/${state.projectId}/work-items`, {
       data: {
@@ -49,7 +50,7 @@ test("hierarchy navigation and the relationship editor preserve graph semantics"
         summary: `Phase 3 graph fixture for ${title}.`,
         status: "pending",
         priority: 31,
-        discovered_from_work_item_id: null,
+        discovered_from_work_item_id: originId,
         initial_checkpoint: {
           prompt: `Immutable starting context for ${title}.`,
           source_client: "playwright-api",
@@ -63,10 +64,20 @@ test("hierarchy navigation and the relationship editor preserve graph semantics"
     const created = await response.json() as {
       work_item: { id: string };
       initial_checkpoint: { id: string };
+      initial_relationships: Array<Record<string, unknown>>;
     };
+    if (originId) {
+      expect(created.initial_relationships).toEqual([expect.objectContaining({
+        relationship_type: "discovered-from",
+        source_work_item_id: created.work_item.id,
+        target_work_item_id: originId,
+        context_checkpoint_id: initialCheckpoints.get(originId),
+        context_checkpoint_work_item_id: originId
+      })]);
+    }
     if (status !== "pending") {
       const retired = await client.patch(`/api/v1/projects/${state.projectId}/work-items/${created.work_item.id}`, {
-        data: { expected_version: 1, status, actor: { actor_client: "playwright-api", actor_session_id: `phase3-${suffix}` },
+        data: { expected_version: 1, status, subagent_transcripts: null, actor: { actor_client: "playwright-api", actor_session_id: `phase3-${suffix}` },
           client_operation_id: crypto.randomUUID(), job_completion_report: await reportForFixture(client, state.projectId) }
       });
       expect(retired.ok(), await retired.text()).toBe(true);
@@ -110,7 +121,7 @@ test("hierarchy navigation and the relationship editor preserve graph semantics"
     const collapsedRootId = await createWork(titles.collapsedRoot);
     const collapsedChildId = await createWork(titles.collapsedChild);
     const discoveryRootId = await createWork(titles.discoveryRoot);
-    const discoveredChildId = await createWork(titles.discoveredChild);
+    const discoveredChildId = await createWork(titles.discoveredChild, "pending", discoveryRootId);
     const completed = await client.post(
       `/api/v1/projects/${state.projectId}/work-items/${doneRootId}/complete`,
       {
@@ -136,14 +147,6 @@ test("hierarchy navigation and the relationship editor preserve graph semantics"
     await addRelationship("parent-child", doneRootId, doneChildId);
     await addRelationship("parent-child", collapsedRootId, collapsedChildId);
     await addRelationship("parent-child", discoveryRootId, discoveredChildId);
-    const discoveryCheckpointId = initialCheckpoints.get(discoveryRootId);
-    if (!discoveryCheckpointId) throw new Error("Discovery origin checkpoint was not retained.");
-    await addRelationship(
-      "discovered-from",
-      discoveredChildId,
-      discoveryRootId,
-      discoveryCheckpointId
-    );
 
     const claimed = await client.post(`/api/v1/projects/${state.projectId}/work-items/${childId}/claim`, {
       data: {
