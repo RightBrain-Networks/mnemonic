@@ -1026,6 +1026,7 @@ def _update_work_matches(
         "actor",
         "client_operation_id",
         "job_completion_report", "review_decision", "request_code_review", "subagent_transcripts",
+        "request_code_review_mode", "request_code_review_checkpoint_id", "code_review_handoff",
         "supersede_code_review_id", "expected_code_review_version",
         "supersede_follow_up_id", "expected_follow_up_version",
     }
@@ -1049,6 +1050,7 @@ def _manual_review_matches(result: WorkUpdateRead, request: WorkItemPatch) -> bo
         and actual.actor_client == actor.actor_client
         and actual.actor_session_id == actor.actor_session_id
         and actual.actor_model == actor.actor_model
+        and actual.mode == request.request_code_review_mode
     )
 
 

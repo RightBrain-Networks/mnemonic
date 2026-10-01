@@ -105,8 +105,8 @@ one-off ID needed before dispatch. Explicit IDs and REST receipts retain their
 contracts; prepared upload intents keep their helper-generated IDs. See
 `docs/automatic-uuids.md`. The tool idempotence hint is false for these calls.
 
-The current application/API/MCP/dashboard release is `0.79.0`, Claude plugin
-`0.46.0`, and Alembic head `0049_duplicate_embeddings`. The catalog is exactly
+The current application/API/MCP/dashboard release is `0.80.0`, Claude plugin
+`0.46.0`, and Alembic head `0050_manual_review_modes`. The catalog is exactly
 58 MCP tools, 17 receipt-protected MCP writes, 24 REST receipt kinds, 21 protected
 browser mutations, 24 work-event types, and three plugin skills. The suggestion
 POST is a safe read. Search accepts q/query aliases up to 1,000 characters;
@@ -298,6 +298,9 @@ immediately and other work queues at completion. Preserve human requester proven
 Unscoped manual reviews require a verified handoff with their first warm claim;
 preserve that handoff and all claim arguments on uncertain retries. Later claims
 omit it. Cold review requires an already pinned scope.
+Summary cards request warm reviews or collect a cold review scope. Optional
+manual-request mode is immutable and claims must match it. The originating
+completion checkpoint protects summary requests from later completion episodes.
 Reviews belong to original Done work and require purpose-bound review leases.
 Dashboard humans can defer, close, or return the review episode to To review through
 `update_work.review_decision`; its append-only history preserves implementation Done.

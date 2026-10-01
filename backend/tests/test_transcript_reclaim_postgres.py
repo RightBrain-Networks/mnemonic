@@ -79,7 +79,7 @@ def test_shared_migration_preserves_legacy_snapshots_and_refuses_unsafe_downgrad
             command.downgrade(config, '0045_transcript_capacity')
     with postgres_engine.connect() as connection:
         assert connection.scalar(text('SELECT version_num FROM alembic_version')) == (
-            '0049_duplicate_embeddings')
+            '0050_manual_review_modes')
     for row in snapshots(factory):
         with storage.open_copy(row.copy):
             pass

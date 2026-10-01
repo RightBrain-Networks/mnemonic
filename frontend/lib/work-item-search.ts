@@ -52,6 +52,7 @@ export type WorkSearchOptions = {
   sourceSessionId?: string;
   duplicateScope?: DuplicateScope;
   canonicalWorkItemId?: string;
+  pinnedWorkItemIds?: readonly string[];
 };
 
 export function isFlatWorkSearch(input: Pick<
@@ -87,7 +88,8 @@ export function workSearchParams({
   sourceClient,
   sourceSessionId,
   duplicateScope = "canonical",
-  canonicalWorkItemId
+  canonicalWorkItemId,
+  pinnedWorkItemIds
 }: WorkSearchOptions): URLSearchParams {
   if (canonicalWorkItemId && duplicateScope === "canonical") {
     throw new Error("Canonical-group filtering requires aliases or all members.");
@@ -107,6 +109,7 @@ export function workSearchParams({
     if (semantic) params.set("semantic", "true");
   }
   if (statusScope) params.set("status_scope", statusScope);
+  for (const id of pinnedWorkItemIds ?? []) params.append("pinned_work_item_ids", id);
   addHierarchyFilters(params, { tag, sourceClient, sourceSessionId });
   if (canonicalWorkItemId) params.set("canonical_work_item_id", canonicalWorkItemId);
   return params;
@@ -120,12 +123,14 @@ export function childSearchParams({
   offset,
   tag,
   sourceClient,
-  sourceSessionId
+  sourceSessionId,
+  pinnedWorkItemIds
 }: Pick<
   WorkSearchOptions,
-  "statusScope" | "status" | "sort" | "limit" | "offset" | "tag" | "sourceClient" | "sourceSessionId"
+  "statusScope" | "status" | "sort" | "limit" | "offset" | "tag" | "sourceClient" | "sourceSessionId" | "pinnedWorkItemIds"
 >): URLSearchParams {
   const params = new URLSearchParams({ status, sort, limit: String(limit), offset: String(offset) });
+  for (const id of pinnedWorkItemIds ?? []) params.append("pinned_work_item_ids", id);
   if (statusScope) params.set("status_scope", statusScope);
   addHierarchyFilters(params, { tag, sourceClient, sourceSessionId });
   return params;

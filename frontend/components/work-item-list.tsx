@@ -33,6 +33,8 @@ function Icon({ name, size = 18 }: { name: keyof typeof iconPaths; size?: number
 }
 
 export type WorkItemListProps = {
+  pinnedWorkItemIds: readonly string[];
+  onTogglePin: (id: string) => void;
   // The queue pane the lifecycle filter cross-dissolves; usePaneCrossfade owns it.
   queuePaneRef: RefObject<HTMLDivElement | null>;
   // Everything above the lifecycle filters, including the page heading.
@@ -95,6 +97,8 @@ export type WorkItemListProps = {
 };
 
 export default function WorkItemList({
+  pinnedWorkItemIds,
+  onTogglePin,
   queuePaneRef,
   introductoryContent,
   libraryToolsOpen,
@@ -240,6 +244,8 @@ export default function WorkItemList({
 
     <section ref={workSplit.surfaceRef} className={`work-surface ${workSplit.resizing ? "is-resizing" : ""}`} style={workSplit.surfaceStyle} aria-label="Work surface">
       <WorkQueue
+        pinnedWorkItemIds={pinnedWorkItemIds}
+        onTogglePin={onTogglePin}
         paneRef={queuePaneRef}
         items={items}
         flatSearch={flatSearch}

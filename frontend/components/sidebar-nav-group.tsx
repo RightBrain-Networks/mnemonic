@@ -8,7 +8,7 @@ type Props = {
   label: string;
   storageKey: string;
   activeId?: string;
-  items: ReadonlyArray<{ id: string; label: string; href: string }>;
+  items: ReadonlyArray<{ id: string; label: string; href: string; pendingCount?: number }>;
   icon: ReactNode;
   onNavigate: (event: MouseEvent<HTMLAnchorElement>) => void;
 };
@@ -47,13 +47,15 @@ export default function SidebarNavGroup({ className, label, storageKey, activeId
     </button>
     <div id={submenuId} className="nav-group-collapse" inert={!expanded} aria-hidden={!expanded}>
       <ul className="nav-group-leaves">
-        {items.map(({ id, label, href }) => <li key={id}>
+        {items.map(({ id, label, href, pendingCount }) => <li key={id}>
           <Link
             className={`nav-item nav-group-leaf ${activeId === id ? "active" : ""}`}
             href={href}
+            aria-label={label}
+            aria-describedby={pendingCount ? `${submenuId}-${id}-pending` : undefined}
             aria-current={activeId === id ? "page" : undefined}
             onClick={onNavigate}
-          ><span>{label}</span></Link>
+          ><span>{label}</span>{pendingCount !== undefined && pendingCount > 0 && <span id={`${submenuId}-${id}-pending`} className="attention-nav-count" aria-label={`${pendingCount} pending ${label.toLowerCase()}`}>{pendingCount}</span>}</Link>
         </li>)}
       </ul>
     </div>

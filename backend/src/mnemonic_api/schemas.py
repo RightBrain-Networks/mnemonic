@@ -1522,10 +1522,30 @@ class RelationshipCreate(APIModel):
 
 
 class WorkItemPatch(APIModel):
+    request_code_review_mode: ReviewMode | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
+    request_code_review_checkpoint_id: UUID | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
+    code_review_handoff: CodeReviewHandoffInput | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
     request_code_review: Literal[True] | SkipJsonSchema[None] = Field(
         default=None, exclude_if=lambda value: value is None,
         description="Dashboard human request; queues Done work or earmarks its next completion.",
     )
+
+    @model_validator(mode="after")
+    def manual_review_options(self) -> Self:
+        options = {"request_code_review_mode", "request_code_review_checkpoint_id",
+                   "code_review_handoff"}
+        if self.model_fields_set & options and self.request_code_review is not True:
+            raise ValueError("Review options require request_code_review")
+        if self.request_code_review_mode == "cold" and self.code_review_handoff is None:
+            raise ValueError("Cold review requires a pinned scope and handoff")
+        return self
+
     review_decision: HumanReviewDecisionInput | SkipJsonSchema[None] = Field(
         default=None, exclude_if=lambda value: value is None,
     )
@@ -4299,6 +4319,7 @@ class WorkSearchPage(APIModel, SearchDisclosure, SearchRanking, SearchPagination
 
 
 class WorkItemListQuery(APIModel, SearchOptions):
+    pinned_work_item_ids: list[UUID] = Field(default_factory=list, max_length=100)
     status_scope: Literal["effective", "work_item"] = "effective"
     query_mode: QueryMode = "terms"
     work_fields: WorkFields = Field(default_factory=lambda: list(WORK_FIELDS))
@@ -4362,6 +4383,7 @@ class RelationshipListQuery(APIModel):
 
 
 class ChildrenListQuery(APIModel):
+    pinned_work_item_ids: list[UUID] = Field(default_factory=list, max_length=100)
     status_scope: Literal["effective", "work_item"] = "effective"
     status: Literal[
         "pending", "active", "to-review", "dropped", "deferred", "done",

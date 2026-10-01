@@ -282,7 +282,7 @@ export function allowedQueryKeys(path: string, method: string): string[] | null 
         "q", "semantic", "status", "status_scope", "sort", "tag", "source_client",
         "external_url", "source_session_id", "view", "detail", "duplicate_scope", "canonical_work_item_id",
         "created_after", "created_before", "updated_after", "updated_before", "diagnostics", "query_mode", "work_fields",
-        "limit", "offset"
+        "limit", "offset", "pinned_work_item_ids"
       ];
     }
     if (method === "POST") return [];
@@ -296,7 +296,7 @@ export function allowedQueryKeys(path: string, method: string): string[] | null 
     return ["recent_limit", "recent_event_limit"];
   }
   if (WORK_CHILDREN.test(path) && method === "GET") {
-    return ["status", "status_scope", "sort", "tag", "source_client", "source_session_id", "limit", "offset"];
+    return ["status", "status_scope", "sort", "tag", "source_client", "source_session_id", "limit", "offset", "pinned_work_item_ids"];
   }
   if (WORK_RELATIONSHIPS.test(path) && method === "GET") {
     return ["direction", "type", "limit", "offset"];
@@ -325,6 +325,12 @@ export function allowedQueryKeys(path: string, method: string): string[] | null 
   if (WORK_MOVE.test(path) && method === "POST") return [];
   if (WORK_MERGE.test(path) && method === "POST") return [];
   return null;
+}
+
+export function validQueryValues(key: string, values: string[]): boolean {
+  return key === "pinned_work_item_ids"
+    ? values.length > 0 && values.length <= 100 && values.every(validUuid)
+    : values.length === 1;
 }
 
 export function forbiddenMutationField(value: unknown): string | null {
@@ -525,6 +531,18 @@ export function clientOperationMatchesSecret(bodyText: string | undefined, secre
   }
 }
 
+function validManualReviewRequest(body: Record<string, unknown>): boolean {
+  const options = ["request_code_review_mode", "request_code_review_checkpoint_id", "code_review_handoff"];
+  if (!("request_code_review" in body)) return options.every((key) => !(key in body));
+  return body.request_code_review === true
+    && allowedKeys(body, ["expected_version", "actor", "client_operation_id", "request_code_review", ...options])
+    && jsonObject(body.actor)?.actor_client === "dashboard" && jsonObject(body.actor)?.actor_model == null
+    && (!("request_code_review_mode" in body) || ["warm", "cold"].includes(String(body.request_code_review_mode)))
+    && (!("request_code_review_checkpoint_id" in body) || validUuid(body.request_code_review_checkpoint_id))
+    && (!("code_review_handoff" in body) || validReviewHandoff(body.code_review_handoff))
+    && (body.request_code_review_mode !== "cold" || validReviewHandoff(body.code_review_handoff));
+}
+
 export function invalidMutationBody(path: string, method: string, value: unknown): string | null {
   const body = jsonObject(value);
   if (!body) return DEFINITIVE_PROXY_ERRORS.jsonObjectRequired.detail;
@@ -620,6 +638,7 @@ export function invalidMutationBody(path: string, method: string, value: unknown
     if (
       !allowedKeys(body, [
         "expected_version", "title", "summary", "priority", "status", "actor", "job_completion_report", "external_references", "review_decision", "request_code_review",
+        "request_code_review_mode", "request_code_review_checkpoint_id", "code_review_handoff",
         "supersede_code_review_id", "expected_code_review_version", "supersede_follow_up_id", "expected_follow_up_version",
         "subagent_transcripts", CLIENT_OPERATION_FIELD
       ])
@@ -628,9 +647,7 @@ export function invalidMutationBody(path: string, method: string, value: unknown
       || !validActor(body.actor)
       || (Object.hasOwn(body, "job_completion_report") && !validJobReportInput(body.job_completion_report))
       || !validReviewSupersession(body)
-      || ("request_code_review" in body && (body.request_code_review !== true
-        || !allowedKeys(body, ["expected_version", "actor", "client_operation_id", "request_code_review"])
-        || jsonObject(body.actor)?.actor_client !== "dashboard" || jsonObject(body.actor)?.actor_model != null))
+      || !validManualReviewRequest(body)
       || ("review_decision" in body && !validHumanReviewDecision(body))
       || !["title", "summary", "priority", "status", "external_references", "review_decision", "request_code_review"].some((key) => key in body)
       || (Object.hasOwn(body, "external_references") && !validExternalReferences(body.external_references))

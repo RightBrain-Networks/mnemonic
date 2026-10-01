@@ -585,6 +585,7 @@ function decodeSuccess<K extends MutationKind>(
       const request = workItem.manual_review_request;
       const actor = objectValue(body.actor);
       if (!request || !actor || request.work_version !== workItem.version
+        || request.mode !== body.request_code_review_mode
         || request.actor_client !== actor.actor_client || request.actor_session_id !== actor.actor_session_id
         || request.actor_model !== (actor.actor_model ?? null) || request.created_at !== workItem.updated_at) {
         throw new Error("Mnemonic returned an incoherent human review request.");

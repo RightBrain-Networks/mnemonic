@@ -337,6 +337,8 @@ def _update_implementation_record(
         exclude_unset=True,
         exclude={"expected_version", "lease_token", "actor", "client_operation_id",
                  "job_completion_report", "review_decision", "request_code_review",
+                 "request_code_review_mode", "request_code_review_checkpoint_id",
+                 "code_review_handoff",
                  "subagent_transcripts",
                  *SUPERSESSION_FIELDS},
     )

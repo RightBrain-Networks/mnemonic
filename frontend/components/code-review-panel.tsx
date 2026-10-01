@@ -49,6 +49,7 @@ export function ReviewResult({
         Requested {formatDateTime(review.created_at)} ·{" "}
         {review.requesting_client === "dashboard" && review.requesting_model === null ? "Human operator" : `Agent · ${review.requesting_client}`}
         {result ? ` · ${result.mode} review (reviewer reported)` : ""}
+        {!result && review.manual_request?.mode ? ` · ${review.manual_request.mode} review requested` : ""}
       </p>
       {detail.source_work_state.deleted && (
         <p className="field-hint">

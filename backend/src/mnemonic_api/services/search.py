@@ -88,6 +88,8 @@ def order_candidates(sources: dict[SearchFacet, SearchSource], request: SearchRe
     trailing = [item for facet, source in sources.items() if facet not in grouped
                 for item in source.candidates]
     candidates.extend(sort_candidates(trailing, request.sort))
+    pins = set(request.pinned_work_item_ids)
+    candidates.sort(key=lambda item: item.facet == "work_items" and item.id in pins, reverse=True)
     return candidates
 
 

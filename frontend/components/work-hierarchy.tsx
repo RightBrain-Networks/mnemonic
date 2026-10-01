@@ -13,6 +13,7 @@ import type { HierarchySummary, Page, StatusFilter, WorkSort, WorkSummary } from
 export const CHILD_PAGE_SIZE = 50;
 
 type Actions = {
+  pinnedWorkItemIds: readonly string[];
   onFlatSearch: (summary: WorkSummary) => void;
 };
 
@@ -121,7 +122,8 @@ function HierarchyBranch(props: BranchProps) {
       offset,
       tag: allDescendants ? undefined : props.tag,
       sourceClient: allDescendants ? undefined : props.sourceClient,
-      sourceSessionId: allDescendants ? undefined : props.sourceSessionId
+      sourceSessionId: allDescendants ? undefined : props.sourceSessionId,
+      pinnedWorkItemIds: props.pinnedWorkItemIds
     });
     setLoading(true);
     setLoadFailure(null);

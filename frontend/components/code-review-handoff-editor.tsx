@@ -38,10 +38,12 @@ export default function CodeReviewHandoffEditor({
   value,
   onChange,
   disabled = false,
+  scopeOnly = false,
 }: {
   value: CodeReviewHandoff;
   onChange: (value: CodeReviewHandoff) => void;
   disabled?: boolean;
+  scopeOnly?: boolean;
 }) {
   const id = useId();
   function repository(index: number, update: Partial<RepositoryRange>) {
@@ -60,12 +62,10 @@ export default function CodeReviewHandoffEditor({
   }
   return (
     <fieldset className="review-handoff-editor" disabled={disabled}>
-      <legend>Code review scope and handoff</legend>
+      <legend>{scopeOnly ? "Cold review scope" : "Code review scope and handoff"}</legend>
       <p className="field-hint">
-        Record the complete change using exact Git commit IDs. Reviewers inspect
-        the base-to-head tree difference. Mnemonic does not inspect Git or infer
-        commits. Handoff notes are available to warm reviewers; cold prompts
-        omit them.
+        {scopeOnly ? "Enter exact Git commit IDs for the complete change. The reviewer inspects the difference between the base and head commits."
+          : "Record the complete change using exact Git commit IDs. Reviewers inspect the base-to-head tree difference. Mnemonic does not inspect Git or infer commits. Handoff notes are available to warm reviewers; cold prompts omit them."}
       </p>
       {value.scope.repositories.map((row, index) => (
         <section
@@ -205,7 +205,7 @@ export default function CodeReviewHandoffEditor({
           Add repository
         </button>
       )}
-      <label className="field">
+      {!scopeOnly && <><label className="field">
         Change summary
         <textarea
           required
@@ -314,10 +314,10 @@ export default function CodeReviewHandoffEditor({
           secrets, raw logs or transcripts.
         </span>
       </label>
+      </>}
       {!validReviewHandoff(value) && (
         <p className="field-hint" role="status">
-          Complete valid repository ranges, change summary and validation notes
-          before submitting.
+          {scopeOnly ? "Enter the repository and complete base and head commit IDs." : "Complete valid repository ranges, change summary and validation notes before submitting."}
         </p>
       )}
     </fieldset>

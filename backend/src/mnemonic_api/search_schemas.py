@@ -114,6 +114,7 @@ class SearchFilters(APIModel):
 
 
 class SearchRequest(APIModel):
+    pinned_work_item_ids: list[UUID] = Field(default_factory=list, max_length=100)
     query_mode: QueryMode = "terms"
     diagnostics: DiagnosticsMode = "on_empty"
     tag_counts: TagCountRequest | None = None
@@ -159,6 +160,12 @@ class SearchRequest(APIModel):
                 raise validation_rule("content_kinds_requires_fulltext")
             if len(set(kinds)) != len(kinds):
                 raise ValueError("content_kinds must contain unique kinds")
+        return self
+
+    @model_validator(mode="after")
+    def valid_pin_scope(self) -> Self:
+        if self.pinned_work_item_ids and self.facets != ["work_items"]:
+            raise ValueError("Pinned work sorting requires only the work_items facet")
         return self
 
     @model_validator(mode="after")

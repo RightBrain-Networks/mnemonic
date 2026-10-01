@@ -1,6 +1,7 @@
 import { boundedText, exactKeys, finiteInteger, objectValue, validUtcDateTime, validUuid } from "./wire-guards.ts";
 
 export interface ManualReviewRequest {
+  mode?: "warm" | "cold";
   id: string;
   actor_client: "dashboard";
   actor_session_id: string;
@@ -13,7 +14,8 @@ export interface ManualReviewRequest {
 
 export function decodeManualReviewRequest(value: unknown): ManualReviewRequest {
   const row = objectValue(value);
-  if (!row || !exactKeys(row, ["id", "actor_client", "actor_session_id", "actor_model", "created_at", "event_id", "work_version", "priority"])
+  if (!row || !exactKeys(row, ["id", "actor_client", "actor_session_id", "actor_model", "created_at", "event_id", "work_version", "priority", ...(Object.hasOwn(row, "mode") ? ["mode"] : [])])
+    || Object.hasOwn(row, "mode") && row.mode !== "warm" && row.mode !== "cold"
     || !validUuid(row.id) || row.actor_client !== "dashboard" || row.actor_model !== null
     || !boundedText(row.actor_session_id, 200) || !validUtcDateTime(row.created_at)
     || typeof row.event_id !== "string" || !/^[1-9][0-9]*$/.test(row.event_id)

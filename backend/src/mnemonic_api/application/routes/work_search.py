@@ -146,6 +146,8 @@ def search_work(
         return bound_search_page(response)
 
     selections = _lexical_selections(scoped, filters, projections, lexical_rows, query)
+    pins = set(filters.pinned_work_item_ids)
+    selections.sort(key=lambda item: item.work_item.id in pins, reverse=True)
     total = len(selections)
     page = selections[filters.offset : filters.offset + filters.limit]
     pointers = {
@@ -202,6 +204,8 @@ def _semantic_response(
             selections.append(SearchSelection(by_id[root_id], member_id, scores[member_id]))
         elif member_id in by_id:
             selections.append(SearchSelection(by_id[member_id], member_id, scores[member_id]))
+    pins = set(filters.pinned_work_item_ids)
+    selections.sort(key=lambda item: item.work_item.id in pins, reverse=True)
     total = len(selections)
     page = selections[filters.offset : filters.offset + filters.limit]
     pointers = {
