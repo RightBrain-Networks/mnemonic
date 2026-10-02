@@ -421,7 +421,7 @@ uv run ruff check .
 uv run ty check src/mnemonic_mcp
 ```
 
-The MCP suite verifies the exact 58-tool canonical catalog, strict unknown-field
+The MCP suite verifies the exact 59-tool canonical catalog, strict unknown-field
 rejection, nested checkpoint request bodies, canonical/grouped search hits,
 compact ready results, bounded recall, deterministic checkpoint/event
 pagination, versioned mutation receipts, typed graph and lease behavior, the
@@ -919,7 +919,7 @@ questions, cold/warm lease isolation, one atomic remediation and hard depth ceil
 exact historical and new receipt replay, protected lineage under direct SQL,
 bounded discovery/history, backup/restore audit, and both dashboard Done paths.
 Run `scripts/audit_code_reviews.py` read-only from a private database environment.
-The current inventory is 58 MCP tools, 17 protected MCP writes, 24 REST receipt
+The current inventory is 59 MCP tools, 17 protected MCP writes, 24 REST receipt
 kinds, 21 protected browser mutations and 24 work-event types. See
 [code reviews](code-reviews.md) for client and deployment rules.
 
@@ -944,7 +944,7 @@ Run the read-only live check from the repository root with the MCP environment:
 uv run --project mcp python scripts/check-stack.py
 ```
 
-Read-only mode verifies REST/MCP health, authentication, the exact 58-tool
+Read-only mode verifies REST/MCP health, authentication, the exact 59-tool
 catalog, the exact seventeen protected schemas and annotations, the absence of an MCP
 resolution tool, REST-backed project listing, the dashboard proxy's host/origin
 boundary, server-side key isolation, settings/activity/report read contracts, and the

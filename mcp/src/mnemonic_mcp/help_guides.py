@@ -15,7 +15,14 @@ GUIDES: dict[str, tuple[str, str, str]] = {
     "create_project": ("Projects", "Create a workspace project.",
                        "Supply a name; slug, description, and repository URL are optional."),
     "get_project_settings": ("Projects", "Read project rules and report instructions.",
-                             "Read before authoring a closeout report; retain its prompt_revision."),
+                             ("Read before authoring a closeout report; retain its prompt_revision. "
+                              "The priority rubric is omitted; request get_priority_rubric when needed.")),
+    "get_priority_rubric": ("Projects", "Read the current project priority rubric.",
+                            ("Call with project_id when choosing, explaining, or reassessing a priority. "
+                             "Returns the full Markdown edited in Settings > Workspace. "
+                             "Honor explicit user scores and record a brief rationale. "
+                             "Reading guidance does not authorize reprioritization. "
+                             "Ordinary project settings and help omit the rubric text.")),
     "get_activity": ("Projects", "Page committed project activity.",
                      "Use after to continue or start=now to begin now, never both. Keep each cursor."),
     "search": ("Search", "Search work, artifacts, and optionally transcripts.",
@@ -41,9 +48,11 @@ GUIDES: dict[str, tuple[str, str, str]] = {
                     "claim before authorized execution.")),
     "create_work": ("Work", "Save a new work item and initial checkpoint.",
                     ("Supply title, summary, and initial_checkpoint. "
+                    "Use get_priority_rubric to choose priority unless the user supplied a score. "
                     "Fresh work starts pending. Attribute checkpoint context to its actual author.")),
     "update_work": ("Work", "Update mutable identity or lifecycle fields.",
-                    ("Read the current version first. Put edits in changes. Fresh wont-do/promoted "
+                    ("Read the current version first. Use get_priority_rubric for an authorized "
+                    "priority reassessment. Put edits in changes. Fresh wont-do/promoted "
                     "closeouts require job_completion_report and explicit subagent_transcripts. "
                     "Use an active lease token when required. Ordinary edits omit those companions.")),
     "complete_work": ("Work", "Finish work with a completion checkpoint and human report.",
@@ -178,6 +187,8 @@ GUIDES: dict[str, tuple[str, str, str]] = {
 }
 
 FIELD_NOTES: dict[str, str] = {
+    "priority": "Honor an explicit user score; otherwise call get_priority_rubric(project_id) "
+                "for current guidance. Freeze the score and rationale before writing.",
     "checkpoint": "Supply prompt, source_client, source_session_id; these describe the actual author. "
                   "affected_paths requires verified_against. No top-level actor fields for complete_work.",
     "initial_checkpoint": "Record the initial context and its actual source_client/source_session_id.",

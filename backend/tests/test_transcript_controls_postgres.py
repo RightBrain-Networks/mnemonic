@@ -77,14 +77,14 @@ def test_storage_usage_measures_allocated_files_without_following_links(tmp_path
 
 @pytest.mark.postgres
 def test_health_reports_worker_native_storage_and_api_index_storage_separately(
-    api, project, tmp_path,
+    api, project,
 ):
     settings = api.app.state.settings
     settings.transcript_root.mkdir(parents=True, exist_ok=True, mode=0o700)
-    settings.transcript_index_dir = tmp_path / "index"
-    settings.transcript_index_dir.mkdir(mode=0o700)
+    index_directory = api.app.state.transcript_search_index.directory
+    assert index_directory is not None
     (settings.transcript_root / "orphaned-snapshot").write_bytes(b"native" * 1000)
-    (settings.transcript_index_dir / "derived-index").write_bytes(b"index" * 1000)
+    (index_directory / "derived-index").write_bytes(b"index" * 1000)
     with api.app.state.session_factory.begin() as database:
         TranscriptHealthReporter().publish(database, settings)
     response = api.get(collection(project) + "/health")

@@ -85,8 +85,10 @@ the initial Default/Minimum/Maximum is 15/10/120 minutes.
 5. For genuinely new work, prepare a protected mutation intent, then call
    `create_work` with its title, retrieval summary, explicit priority, `pending` status, a
    complete nested initial checkpoint, and any relationships that must exist
-   atomically with the new record. Choose priority and record its rationale using
-   the shared [priority rubric](../plugin/reference/priority.md).
+   atomically with the new record. Honor an explicit user score; otherwise call
+   `get_priority_rubric(project_id)` to choose priority and record its rationale.
+   Humans edit this project's Markdown in Settings > Workspace. Ordinary settings
+   reads and help omit the rubric body, so fetch it only when needed.
 6. Supply the actual `source_client` and `source_session_id` for the session
    writing that checkpoint. Add model, session URL, branch, checked commit,
    useful tags, and JSON metadata only when known. If the checkpoint's

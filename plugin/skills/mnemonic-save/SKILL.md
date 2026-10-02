@@ -84,12 +84,14 @@ from a draft.
 
 ## Assign a deliberate priority
 
-Before creating work or changing its priority, read
-[priority.md](${CLAUDE_PLUGIN_ROOT}/reference/priority.md). Choose a consequence
-band and its anchor, refine using concrete impact, reach, workaround, and urgency,
-and record a brief rationale in the checkpoint. Honor an explicit user score;
-otherwise assign one deliberately across 0–100, including below 10 for cosmetic
-nits and above 90 for confirmed applicable security vulnerabilities.
+Honor an explicit user score. Otherwise, before choosing a new priority or
+making an authorized priority change, call `get_priority_rubric(project_id)`.
+Use the current project Markdown returned by that dedicated read and record a
+brief rationale in the checkpoint. Humans edit the rubric in Settings >
+Workspace; `get_project_settings` does not include it. Do not use a bundled
+static rubric or copy nearby scores. If the read fails, report that guidance is
+unavailable rather than silently substituting defaults. Freeze the score and
+rationale before writing; uncertain retries retain the original intent.
 
 ## Compare a complete draft before creating
 

@@ -9255,6 +9255,58 @@
         "title": "PriorityChange",
         "type": "object"
       },
+      "PriorityRubricPatch": {
+        "additionalProperties": false,
+        "properties": {
+          "content": {
+            "maxLength": 100000,
+            "minLength": 1,
+            "title": "Content",
+            "type": "string"
+          },
+          "expected_revision": {
+            "maxLength": 19,
+            "minLength": 1,
+            "title": "Expected Revision",
+            "type": "string"
+          }
+        },
+        "required": [
+          "content",
+          "expected_revision"
+        ],
+        "title": "PriorityRubricPatch",
+        "type": "object"
+      },
+      "PriorityRubricRead": {
+        "additionalProperties": false,
+        "properties": {
+          "content": {
+            "maxLength": 100000,
+            "minLength": 1,
+            "title": "Content",
+            "type": "string"
+          },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "revision": {
+            "maxLength": 19,
+            "minLength": 1,
+            "title": "Revision",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "content",
+          "revision"
+        ],
+        "title": "PriorityRubricRead",
+        "type": "object"
+      },
       "ProgressEventCreate": {
         "additionalProperties": false,
         "properties": {
@@ -17674,7 +17726,7 @@
   "info": {
     "description": "Durable project-scoped work with immutable agent checkpoints.",
     "title": "Mnemonic API",
-    "version": "0.80.0"
+    "version": "0.81.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -19817,6 +19869,104 @@
           }
         ],
         "summary": "Follow Up"
+      }
+    },
+    "/api/v1/projects/{project_id}/priority-rubric": {
+      "get": {
+        "operationId": "get_priority_rubric_api_v1_projects__project_id__priority_rubric_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PriorityRubricRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Priority Rubric"
+      },
+      "patch": {
+        "operationId": "update_priority_rubric_api_v1_projects__project_id__priority_rubric_patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PriorityRubricPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PriorityRubricRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Update Priority Rubric"
       }
     },
     "/api/v1/projects/{project_id}/prompts": {
