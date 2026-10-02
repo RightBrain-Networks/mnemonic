@@ -9,6 +9,7 @@ Pass an optional `topic` string. Each successive word selects a child page:
 | MCP call | Result |
 | --- | --- |
 | `help({})` | All registered commands, grouped by task, plus navigation syntax |
+| `help({"topic":"get_priority_rubric"})` | How to explicitly retrieve the current project priority rubric |
 | `help({"topic":"complete_work"})` | Purpose, required arguments, optional argument names, and important fresh-call requirements |
 | `help({"topic":"complete_work usage"})` | Workflow and retry guidance |
 | `help({"topic":"search details"})` | First bounded page of complete search guidance; follow its Next link |
@@ -20,6 +21,11 @@ Pass an optional `topic` string. Each successive word selects a child page:
 | `help({"topic":"complete_work schema"})` | The exact full registered input JSON Schema |
 | `help({"topic":"complete_work completion_evidence schema"})` | Only that field's schema and its transitively referenced definitions |
 | `help({"topic":"claim_work force"})` | Lost-token recovery, checks for another active session, and exact force-claim retries |
+
+Priority guidance is fetched only through `get_priority_rubric(project_id)`;
+humans edit its Markdown in Settings > Workspace. Help and
+`get_project_settings` do not return the rubric body. Use the dedicated read when
+choosing or reassessing a score, and honor an explicit user-supplied priority.
 
 Overview pages list immediate fields rather than recursively expanding them.
 Array pages describe their items; discriminated unions list selectable variants.

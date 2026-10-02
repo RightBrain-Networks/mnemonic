@@ -12,7 +12,7 @@ import os
 from sqlalchemy import Connection, create_engine, text
 from sqlalchemy.exc import SQLAlchemyError
 
-HEAD = "0050_manual_review_modes"
+HEAD = "0051_priority_rubrics"
 REVIEW_HEAD = "0024_code_reviews"
 SUPPORTED_HEADS = (REVIEW_HEAD, "0025_cross_project_relationships", "0026_artifact_library",
                    "0027_artifact_fulltext", "0028_work_summary_limit",

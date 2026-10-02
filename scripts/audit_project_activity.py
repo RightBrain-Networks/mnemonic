@@ -21,7 +21,7 @@ from mnemonic_api.transcript_recovery_db import RECOVERY_FINDINGS
 from sqlalchemy import Connection, create_engine, text
 from sqlalchemy.exc import SQLAlchemyError
 
-HEAD = "0050_manual_review_modes"
+HEAD = "0051_priority_rubrics"
 PROMPT_LIBRARY_HEADS = (
     "0035_prompt_library", "0036_transcript_copies", "0037_background_jobs",
     "0038_transcript_recovery", "0039_manual_review_requests", "0040_normalized_transcripts", "0041_artifact_passages", "0042_transcript_health", "0046_shared_transcript_copies", "0047_artifact_transfer", "0048_force_claims", "0049_duplicate_embeddings", HEAD,

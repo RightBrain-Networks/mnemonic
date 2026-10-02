@@ -6,6 +6,7 @@ import CodeReviewSettingsPanel from "@/components/code-review-settings";
 import ProjectBackupsPanel from "@/components/project-backups";
 import { api, ApiError, errorMessage } from "@/lib/api";
 import PromptLibrary from "@/components/prompt-library";
+import PriorityRubricSettings from "@/components/priority-rubric-settings";
 import type { SettingsSection } from "@/lib/settings-navigation";
 import type { Project, ProjectSettings } from "@/lib/types";
 
@@ -238,6 +239,8 @@ export default function ProjectSettingsPanel({
         settings={settings} loading={loading} loadError={loadError}
         onSaved={onSaved} onRetry={onRetry} onNotice={onNotice} />
     </section>}
+    {section === "workspace" && <PriorityRubricSettings key={selectedProject.id}
+      projectId={selectedProject.id} refreshSignal={backupRefreshSignal} onNotice={onNotice} />}
     {section === "prompts" && <PromptLibrary key={selectedProject.id} project={selectedProject} onNotice={onNotice} onPendingChange={onPromptPendingChange} />}
     {section === "backups" && <ProjectBackupsPanel key={selectedProject.id} project={selectedProject} maximumBytes={backupMaximumBytes} refreshSignal={backupRefreshSignal} onPendingChange={onBackupPendingChange} />}
   </div>;

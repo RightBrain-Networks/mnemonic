@@ -1,6 +1,7 @@
 import { invalidPromptBody, isPromptRenderRoute, promptQueryKeys, PROMPT_RESPONSE_MAX_BYTES } from "./prompts.ts";
 import { LEASE_SETTINGS_FIELDS, validLeaseMinutes } from "./work-lease-settings.ts";
 import { validSearchRequest } from "./search-request.ts";
+import { PRIORITY_RUBRIC_RESPONSE_BYTES, validPriorityRubricContent } from "./priority-rubric.ts";
 import { validExternalCandidates, validExternalReferences } from "./external-references.ts";
 import { validHumanGateRevision, validMergeReviewRevision } from "./revision-codecs.ts";
 import { validReviewThreshold } from "./code-review-policy.ts";
@@ -80,6 +81,10 @@ export const DEFINITIVE_PROXY_ERRORS = {
   invalidProjectSettingsPatch: {
     status: 400,
     detail: "The project-settings patch does not match the dashboard allowlist."
+  },
+  invalidPriorityRubricPatch: {
+    status: 400,
+    detail: "The priority-rubric patch does not match the dashboard allowlist."
   },
   invalidProjectPatch: {
     status: 400,
@@ -178,6 +183,7 @@ const JOB_REPORT_DISMISS = new RegExp(`^projects/${UUID}/job-completion-reports/
 const JOB_REPORT_FOLLOW_UPS = new RegExp(`^projects/${UUID}/job-completion-reports/${UUID}/follow-ups$`);
 const WORK_REPORT_FOLLOW_UPS = new RegExp(`^projects/${UUID}/work-items/${UUID}/report-follow-ups$`);
 const PROJECT_SETTINGS = new RegExp(`^projects/${UUID}/settings$`);
+const PRIORITY_RUBRIC = new RegExp(`^projects/${UUID}/priority-rubric$`);
 const WORK_ITEMS = new RegExp(`^projects/${UUID}/work-items$`);
 const DUPLICATE_SUGGESTIONS = new RegExp(`^projects/${UUID}/duplicate-suggestions$`);
 const UNIFIED_SEARCH = new RegExp(`^projects/${UUID}/search$`);
@@ -275,6 +281,7 @@ export function allowedQueryKeys(path: string, method: string): string[] | null 
   if (PROJECT.test(path) && (method === "GET" || method === "PATCH")) return [];
   if (PROJECT_SETTINGS.test(path) && method === "GET") return ["work_item_id"];
   if (PROJECT_SETTINGS.test(path) && method === "PATCH") return [];
+  if (PRIORITY_RUBRIC.test(path) && (method === "GET" || method === "PATCH")) return [];
   if (DUPLICATE_SUGGESTIONS.test(path) && method === "POST") return [];
   if (WORK_ITEMS.test(path)) {
     if (method === "GET") {
@@ -598,6 +605,12 @@ export function invalidMutationBody(path: string, method: string, value: unknown
         && body.repository_url !== null
         && !validProjectUrl(body.repository_url))
     ) return DEFINITIVE_PROXY_ERRORS.invalidProjectPatch.detail;
+  }
+  if (PRIORITY_RUBRIC.test(path) && method === "PATCH") {
+    if (!allowedKeys(body, ["content", "expected_revision"])
+      || !validPriorityRubricContent(body.content) || !decimalString(body.expected_revision, true)) {
+      return DEFINITIVE_PROXY_ERRORS.invalidPriorityRubricPatch.detail;
+    }
   }
   if (WORK_ITEMS.test(path) && method === "POST") {
     if (
@@ -956,5 +969,6 @@ export function phase12ResponseLimitBytes(path: string, method = "GET"): number 
   if (JOB_REPORT_FOLLOW_UPS.test(path)) return method === "GET" ? 262_144 : 1_048_576;
   if (JOB_REPORT_DISMISS.test(path)) return 16_384;
   if (PROJECT_SETTINGS.test(path)) return PROMPT_RESPONSE_MAX_BYTES;
+  if (PRIORITY_RUBRIC.test(path)) return PRIORITY_RUBRIC_RESPONSE_BYTES;
   return null;
 }

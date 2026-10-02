@@ -250,8 +250,9 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const reviewRead = /\/(code-reviews|work-agent-follow-ups|agent-follow-ups)(?:[/?]|$)/.test(path);
   const searchRead = /\/search$/.test(path);
   const promptRead = /\/prompts(?:[/?]|$)/.test(path);
-  const phase12 = promptRead || searchRead || reviewRead || /\/(activity|job-completion-reports|report-follow-ups|settings)(?:[/?]|$)/.test(path);
-  const maximumBytes = promptRead ? 4 * 1024 * 1024 : searchRead ? 16 * 1024 * 1024 : reviewRead ? /\/agent-follow-ups\//.test(path) ? 65_536
+  const rubricRead = /\/priority-rubric$/.test(path);
+  const phase12 = rubricRead || promptRead || searchRead || reviewRead || /\/(activity|job-completion-reports|report-follow-ups|settings)(?:[/?]|$)/.test(path);
+  const maximumBytes = rubricRead ? 2 * 1024 * 1024 : promptRead ? 4 * 1024 * 1024 : searchRead ? 16 * 1024 * 1024 : reviewRead ? /\/agent-follow-ups\//.test(path) ? 65_536
     : /\/code-reviews\//.test(path) ? 786_432 : 524_288
     : path.includes("/activity") ? 524_288
     : /job-completion-reports\/count(?:\?|$)/.test(path) ? 1_024

@@ -105,11 +105,15 @@ one-off ID needed before dispatch. Explicit IDs and REST receipts retain their
 contracts; prepared upload intents keep their helper-generated IDs. See
 `docs/automatic-uuids.md`. The tool idempotence hint is false for these calls.
 
-The current application/API/MCP/dashboard release is `0.80.0`, Claude plugin
-`0.46.0`, and Alembic head `0050_manual_review_modes`. The catalog is exactly
-58 MCP tools, 17 receipt-protected MCP writes, 24 REST receipt kinds, 21 protected
-browser mutations, 24 work-event types, and three plugin skills. The suggestion
-POST is a safe read. Search accepts q/query aliases up to 1,000 characters;
+The current application/API/MCP/dashboard release is `0.81.0`, Claude plugin
+`0.47.0`, and Alembic head `0051_priority_rubrics`. The catalog is exactly
+59 MCP tools, 17 receipt-protected MCP writes, 24 REST receipt kinds, 21 protected
+browser mutations, 24 work-event types, and three plugin skills. Project priority
+guidance is editable in Settings > Workspace; agents explicitly call
+`get_priority_rubric(project_id)` when needed. Ordinary settings/work reads omit
+the rubric. Migration 0051 seeds existing and new projects from the shipped
+Markdown; customized content lives in PostgreSQL.
+The suggestion POST is a safe read. Search accepts q/query aliases up to 1,000 characters;
 follow next_offset because 32,768-byte pages can contain fewer than limit items.
 Compact canonical identity, lifecycle/display state, and sensitive-content coverage
 remain explicit. Duplicate checks use purpose-separated vectors: missing vectors

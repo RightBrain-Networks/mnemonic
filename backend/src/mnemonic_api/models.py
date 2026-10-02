@@ -41,6 +41,7 @@ from mnemonic_api.artifact_passage_db import (
 )
 from mnemonic_api.background_job_db import job_elements
 from mnemonic_api.duplicate_embedding_db import refresh_elements
+from mnemonic_api.priority_rubric import PRIORITY_RUBRIC_CHECK, PRIORITY_RUBRIC_DEFAULT_SQL
 from mnemonic_api.transcript_health_db import diagnostic_columns, worker_health_elements
 from mnemonic_api.transcript_metadata_db import metadata_columns
 from mnemonic_api.transcript_normalization_db import normalization_elements, segment_elements
@@ -85,6 +86,7 @@ class ProjectSettings(Base):
 
     __tablename__ = "project_settings"
     __table_args__ = (
+        CheckConstraint(PRIORITY_RUBRIC_CHECK, name="priority_rubric_valid"),
         CheckConstraint("revision > 0", name="revision_positive"),
         CheckConstraint(
             "lease_minimum_minutes > 0 AND lease_minimum_minutes <= lease_default_minutes "
@@ -101,6 +103,9 @@ class ProjectSettings(Base):
 
     project_id: Mapped[UUID] = mapped_column(
         ForeignKey("projects.id", ondelete="RESTRICT"), primary_key=True
+    )
+    priority_rubric: Mapped[str] = mapped_column(
+        Text, server_default=text(PRIORITY_RUBRIC_DEFAULT_SQL), deferred=True,
     )
     lease_default_minutes: Mapped[int] = mapped_column(Integer, default=15, server_default="15")
     lease_minimum_minutes: Mapped[int] = mapped_column(Integer, default=10, server_default="10")

@@ -2569,6 +2569,7 @@ html[data-theme="dark"] .review-policy-summary, html[data-theme="dark"] .review-
 .transcript-tools.is-open .library-tools-region { grid-template-rows: 1fr; }
 .transcript-tools.is-open .library-tools-chevron { transform: rotate(0); }
 .transcript-tools-content { padding: 0 16px 16px; }
+.priority-rubric-editor { font-family: var(--mono); line-height: 1.6; resize: vertical; }
 .transcript-settings-row { display: flex; align-items: end; gap: 16px; flex-wrap: wrap; }
 .transcript-settings-row .field { max-width: 260px; margin: 0; }
 .transcript-settings-row .transcript-enabled { padding-bottom: 10px; }

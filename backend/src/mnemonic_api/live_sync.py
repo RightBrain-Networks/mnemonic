@@ -40,7 +40,7 @@ def mutation_event(method: str, path: str) -> MutationEvent | None:
         return None
     if len(remaining) == 1:
         return MutationEvent("projects") if method == "PATCH" else None
-    if remaining[1:] == ["settings"]:
+    if remaining[1:] in (["settings"], ["priority-rubric"]):
         return MutationEvent("projects") if method == "PATCH" else None
     if remaining[1] == "relationships":
         return MutationEvent("work-items")

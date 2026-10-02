@@ -1,10 +1,21 @@
 # Mnemonic API contract
 
+Project priority guidance has a dedicated `GET /projects/{project_id}/priority-rubric`
+read, returning `{project_id, content, revision}`. Dashboard humans edit the exact
+Markdown with `PATCH` on the same path and `{content, expected_revision}`. Content
+must be nonblank, valid Unicode without NUL, and at most 100,000 characters. The
+revision is the project's positive decimal settings revision; stale saves return
+409 `priority_rubric_changed`. Successful changed saves advance that revision and
+emit the existing settings activity. Ordinary project/settings/work reads omit
+the rubric. MCP exposes only the dedicated `get_priority_rubric(project_id)` read.
+Migration `0051_priority_rubrics` seeds existing and future projects from the
+previous bundled rubric. Edits are retained in PostgreSQL and project backups.
+
 Use [unified search](search.md) to retrieve work, artifacts, and transcripts in one
 ranked, filtered, paginated read through REST or MCP.
 
-This is application/API/MCP/dashboard `0.80.0`, plugin `0.46.0`, and migration
-`0050_manual_review_modes`. The catalog has exactly 58 MCP tools, 17
+This is application/API/MCP/dashboard `0.81.0`, plugin `0.47.0`, and migration
+`0051_priority_rubrics`. The catalog has exactly 59 MCP tools, 17
 protected MCP writes, 24 REST receipt kinds, 21 protected browser mutations and
 24 work-event types. The 24 REST receipt kinds comprise 18 work operations, four artifact operations
 with filesystem recovery journals, and two transcript operations (rebuild and import). See
@@ -1386,7 +1397,7 @@ as "No longer needed".
 
 ## MCP contract
 
-The catalog is exactly 58 tools:
+The catalog is exactly 59 tools:
 
 `search` is the shared safe read over work, artifacts and transcripts; see
 [the request, ranking, facet, pagination and coverage contract](search.md).
@@ -1473,7 +1484,7 @@ update_work, complete_work, list_completion_evidence, delete_work,
 claim_work, claim_and_recall, renew_claim, release_claim,
 add_relationship, get_relationship, list_relationships, remove_relationship,
 merge_work, suggest_duplicate_work,
-get_activity, get_project_settings, list_job_completion_reports, get_job_completion_report,
+get_activity, get_project_settings, get_priority_rubric, list_job_completion_reports, get_job_completion_report,
 list_work_follow_ups, get_work_follow_up, respond_to_work_follow_up,
 list_code_reviews, get_code_review, complete_code_review
 ```
