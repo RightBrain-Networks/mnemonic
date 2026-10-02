@@ -100,10 +100,20 @@ def test_reads_are_explicit_and_settings_writes_cannot_edit_rubric(api, project)
     "content", ["", "\u2003", "x" * 100001], ids=["empty", "blank", "oversize"],
 )
 def test_database_content_constraints(postgres_engine, project, content):
+    with pytest.raises(IntegrityError) as error, postgres_engine.begin() as connection:
+        connection.execute(text(
+            "UPDATE project_settings SET priority_rubric=:content, revision=revision+1 "
+            "WHERE project_id=:id"
+        ), {"content": content, "id": project["id"]})
+    assert error.value.orig.diag.constraint_name == "ck_project_settings_priority_rubric_valid"
+
+
+def test_database_rubric_edits_require_a_revision_increment(postgres_engine, project):
     with pytest.raises(IntegrityError), postgres_engine.begin() as connection:
         connection.execute(text(
-            "UPDATE project_settings SET priority_rubric=:content WHERE project_id=:id"
-        ), {"content": content, "id": project["id"]})
+            "UPDATE project_settings SET priority_rubric='A valid but unversioned edit' "
+            "WHERE project_id=:id"
+        ), {"id": project["id"]})
 
 
 def test_migration_seeds_existing_projects_and_keeps_customizations_on_upgrade(
