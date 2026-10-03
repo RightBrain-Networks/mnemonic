@@ -145,8 +145,8 @@ None of these outcomes establishes semantic correctness, safety, execution
 authority, a gate answer, or mutation permission. Never persist the assessment
 or automatically copy filenames into a checkpoint or event.
 
-Before beginning execution the user has already authorized, call
-`claim_and_recall(project_id, work_item_id, holder_client, holder_session_id,
+Before beginning implementation the user has already authorized, call
+`claim_work(project_id, work_item_id, holder_client, holder_session_id,
 session_transcript, lease_minutes=default_minutes)` with this agent's established client/session pair. Prefer a
 distinct host-exposed session ID; otherwise generate and privately retain one
 `mnemonic-<UUID>` for this independent agent, as described in
@@ -162,7 +162,20 @@ active-session state: never in checkpoint text, metadata, URLs, logs, chat
 output, shell history, or copied pointers, and treat MCP client traces as
 sensitive.
 
-Read the refusals as facts, not obstacles:
+After retaining the small lease receipt privately, call
+`recall_work(project_id, work_item_id)` and inspect current readiness, blockers,
+and human questions before acting. Keeping acquisition separate prevents a large
+context result from carrying the lease token into a client's overflow file.
+These are two requests: a gate or blocker may appear after acquisition, so stop
+dependent work and release when appropriate. If recall fails, the claim may still
+be active; retry the safe read or release the retained claim, never acquire again
+just to retrieve context. Keep `claim_and_recall` for warm reviews; cold reviews
+use only `claim_work` before findings freeze. Exact retries of an earlier combined
+claim retain its original tool and arguments.
+
+Read the refusals as facts, not obstacles. The shared
+[refusal codes and remedies](${CLAUDE_PLUGIN_ROOT}/reference/work-graph.md#refusal-codes-and-remedies)
+cover claims, renewals, transcript assertions, and closeout requirements:
 
 - **Unresolved human input** (the item is waiting): a person has not yet
   answered a question on it. Recall it, show the user every open question and
@@ -187,7 +200,7 @@ guess a lost token from search or recall.
 
 If compaction lost the token and the exact claim arguments, read
 `get_work(status_only=true)` and confirm that no other active session is working
-on this item before calling `claim_work` or `claim_and_recall` with `force=true`
+on this item before calling `claim_work` with `force=true` for implementation
 and a new `claim_request_id`. This invalidates the previously held token,
 including another session's. Read the shared
 [lost-token recovery procedure](${CLAUDE_PLUGIN_ROOT}/reference/work-graph.md#recover-a-lost-lease-token)

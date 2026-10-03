@@ -1553,12 +1553,13 @@ test("the work item ID copies from the pane header", async ({ page }, testInfo) 
 
     // The pane's primary pointer copy still produces a recall pointer.
     await pane.getByRole("button", { name: "Copy recall pointer", exact: true }).click();
-    await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toContain("claim_and_recall");
+    await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toContain("claim_work");
     const pointer = await page.evaluate(() => navigator.clipboard.readText());
     expect(pointer).toContain(work.id);
     expect(pointer).toContain("get_work");
     expect(pointer).toContain("status_only=true");
-    expect(pointer).toContain("claim_and_recall");
+    expect(pointer).toContain("claim_work");
+    expect(pointer).toContain("recall_work");
     await expect(pane.getByRole("button", { name: "Copied", exact: true })).toBeVisible();
     await expect(copyId).not.toHaveClass(/is-copied/);
   } finally {
@@ -1794,7 +1795,8 @@ test("c copies the open record's recall pointer, but not from inside the pane", 
     expect(pointer).toContain(work.id);
     expect(pointer).toContain("get_work");
     expect(pointer).toContain("status_only=true");
-    expect(pointer).toContain("claim_and_recall");
+    expect(pointer).toContain("claim_work");
+    expect(pointer).toContain("recall_work");
     await expect(cardCopy).toHaveClass(/is-copied/);
 
     // Caps Lock reports an uppercase letter with no Shift held, so it copies too. The

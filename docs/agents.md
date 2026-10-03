@@ -252,8 +252,9 @@ Use `list_ready_work` only when the question is which work appears actionable
 now. It returns a bounded priority-first pointer list with optional priority,
 tag, and direct-parent filters. A result is advisory, not a reservation, lease,
 instruction, or grant of user authority. Choose deliberately, then call
-`claim_and_recall`; that transaction rechecks lifecycle, blockers, active
-leases, and unresolved human gates. Concurrent queue changes can shift offset pages, so
+`claim_work`; that transaction rechecks lifecycle, blockers, active
+leases, and unresolved human gates. Retain the small lease receipt privately,
+then `recall_work` and inspect readiness again before implementation. Concurrent queue changes can shift offset pages, so
 restart at offset zero when a complete scan matters.
 
 Pending means work has not started or remains incomplete. Active is Pending
@@ -526,11 +527,17 @@ canonical ID as if the caller had supplied it.
 
 ## Claim before authorized execution
 
-When the user has authorized execution, generate a fresh opaque
-`claim_request_id` and call `claim_and_recall` with the selected project/work
-IDs, `lease_minutes` chosen from the status response, and the truthful current
-`holder_client` and `holder_session_id`. It
-atomically returns both the lease receipt and bounded context. A successful
+When the user has authorized implementation, call `claim_work` with the selected
+project/work IDs, the verified `session_transcript` or explicit null, initial
+`lease_minutes=default_minutes` from the status response, and the truthful current
+`holder_client` and `holder_session_id`. Omit `claim_request_id` on a fresh call
+and retain the generated ID and exact arguments for retries. Keep the small lease
+receipt privately, then call `recall_work` and inspect current readiness. This
+keeps potentially large context separate from the lease token when a client
+saves oversized tool results to a file. If recall fails, retry only that safe
+read or release the retained lease; acquisition is not undone. Warm reviews may
+use `claim_and_recall`; cold reviews use only `claim_work` before findings freeze.
+Exact retries of earlier combined claims keep the original tool and arguments. A successful
 claim prevents cooperative sessions from starting the same work; it does not
 grant authority beyond the user's request. A blocked item rejects new claims;
 inspect its incoming blockers rather than retrying around `work_blocked`. A

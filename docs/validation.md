@@ -1,5 +1,35 @@
 # Mnemonic validation record
 
+## Separate implementation claims and refusal guidance (0.82.0)
+
+MCP instructions, command help, shipped resume prompts, and plugin 0.48.0 direct
+implementation sessions through `claim_work` followed by `recall_work`. Warm
+reviews retain the combined tool, cold reviews retain minimal coordination, and
+existing combined claims and their exact retries remain supported. The plugin
+links a code/meaning/remedy table for claim, renewal, transcript, and closeout
+refusals. `transcript_source_missing` now has a specific, sanitized adapter remedy.
+There is no schema migration or change to lease acquisition semantics.
+
+Migration 0035 embeds the shipped recall template's SHA-256 in two functions.
+Independent old/new migration runs across all 13 audited prompt-library heads
+verified that their only definition difference is that literal hash. The catalog
+fixture retains the deployed fingerprints and adds the 26 verified fresh-install
+fingerprints. A database regression accepts the deployed default while rejecting
+an unknown replacement hash; guard logic and all other catalog entries are unchanged.
+The focused PostgreSQL audit, migration, prompt, backup, and review suite passed
+162 tests, and both deployed-default/unknown-default regression cases passed.
+
+The selected MCP, transport, review, plugin, and portable-export suite passed
+440 tests. Coverage includes a handoff exceeding 67 KB with a separate lease
+receipt below 2 KB, no token in recalled context, missing-source refusals on both
+claim tools and completion, unchanged exact-retry guidance for uncertain server
+failures, and client description-size budgets. MCP Ruff and type checks pass.
+Eight focused dashboard prompt/version tests pass in an isolated Node 24 container.
+
+Existing project prompt overrides remain owner-managed. Consuming repositories
+can reassess their implementation-claim overrides after upgrading the MCP service
+and plugin or portable skills. Production deployment requires separate authorization.
+
 ## Transcript search without archive-size admission caps (0.77.0)
 
 Transcript search no longer rejects a scope by total text bytes, metadata bytes,

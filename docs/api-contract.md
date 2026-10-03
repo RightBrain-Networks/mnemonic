@@ -14,7 +14,7 @@ previous bundled rubric. Edits are retained in PostgreSQL and project backups.
 Use [unified search](search.md) to retrieve work, artifacts, and transcripts in one
 ranked, filtered, paginated read through REST or MCP.
 
-This is application/API/MCP/dashboard `0.81.0`, plugin `0.47.0`, and migration
+This is application/API/MCP/dashboard `0.82.0`, plugin `0.48.0`, and migration
 `0051_priority_rubrics`. The catalog has exactly 59 MCP tools, 17
 protected MCP writes, 24 REST receipt kinds, 21 protected browser mutations and
 24 work-event types. The 24 REST receipt kinds comprise 18 work operations, four artifact operations
@@ -1543,7 +1543,8 @@ substitution. Use `aliases` or `all` only for explicit audit, and use
 `canonical_work_item_id` only with those scopes. Every summary carries the
 root-to-parent `ancestor_path`, including blank-query pages. `list_ready_work`
 returns strict compact pointers and directs an already-authorized selection to
-`claim_and_recall`; it is not retrieval, reservation, or authority, and excludes
+`claim_work` followed by `recall_work` for implementation; it is not a
+reservation or authority, and excludes
 waiting work.
 
 `suggest_duplicate_work` accepts the resolved project plus exactly the six

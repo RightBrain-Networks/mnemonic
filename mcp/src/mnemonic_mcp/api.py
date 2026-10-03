@@ -37,6 +37,13 @@ class TransportEffect(StrEnum):
 
 
 _APPLICATION_ERRORS = {
+    "transcript_source_missing": (
+        "transcript_source_missing: The asserted native transcript file is missing from the "
+        "backend's view. Verify the exact readable regular file under approved source roots "
+        "and its same-path mounts in API and worker; do not use symlink paths. After this "
+        "definitive rejection, prepare a new request with the verified path, or explicit null "
+        "if unavailable. Preserve the original ID and every argument after an uncertain outcome."
+    ),
     "transcript_index_unavailable": (
         "transcript_index_unavailable: Transcript index storage is unavailable. "
         "Ask your operator to check its mount, free disk space, permissions, and "

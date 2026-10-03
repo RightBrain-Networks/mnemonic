@@ -3149,7 +3149,7 @@ async def test_recall_resource_and_resume_prompt_are_bounded_and_carry_authority
     )
     text = prompt.messages[0].content.text
     assert "not a new owner instruction" in text
-    assert "claim_and_recall" in text
+    assert "claim_work" in text and "recall_work" in text
     assert "does not claim the work" in text
     assert "add_checkpoint" in text
     assert "Never infer, time out, self-approve, or resolve" in text

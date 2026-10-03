@@ -88,11 +88,14 @@ A ready row is not a reservation, lease, instruction, or grant of execution
 authority. Concurrent changes can shift offset pages and invalidate a choice.
 After selecting one item whose execution the user already authorized, immediately
 call `get_work(status_only=true)` to assess current status and lease settings, then
-`claim_and_recall` with the project Default `lease_minutes`. Every fresh acquisition atomically rechecks lifecycle,
+`claim_work` with the project Default `lease_minutes`. Retain its small lease
+receipt privately, then call `recall_work` for implementation context. Use
+`claim_and_recall` for warm reviews; cold reviews must not recall before findings
+freeze. Every fresh acquisition atomically rechecks lifecycle,
 blockers, lease time, and unresolved human gates. An identical still-active
 claim request replays its retained receipt even if a blocker or gate was added
 after acquisition. This recovers the existing capability; it does not make
-blocked or waiting work safe to continue. Inspect the returned question, stop
+blocked or waiting work safe to continue. Inspect the recalled readiness and questions, stop
 dependent work, and release when appropriate.
 
 Pending work has not started or remains incomplete. Active and Dropped are
@@ -113,7 +116,12 @@ reviewers before findings freeze. Ordinary `get_work` and `recall_work` also
 include the same lease settings, but remain contextual reads.
 
 For initial session startup and investigation, explicitly pass the returned
-`default_minutes` as `lease_minutes` to `claim_work` or `claim_and_recall`.
+`default_minutes` as `lease_minutes` to `claim_work` (or `claim_and_recall` for a
+warm review). Implementation then calls `recall_work` separately, keeping a large
+context result from taking the token into a client's overflow file. If recall
+fails, retain the lease and retry only that safe read, or release it; a failed
+recall does not undo acquisition. Recheck readiness after recall because these
+two requests do not share an atomic snapshot.
 This is agent workflow guidance: Mnemonic accepts any requested whole-minute
 duration inside the project's inclusive minimum and maximum, including for an
 initial claim. Omission uses the current project default; explicit null is invalid.
@@ -148,6 +156,35 @@ A changed claim duration is a new intent and needs a new request ID only after t
 outcome is known. Renewals are time-relative and non-idempotent; inspect current
 safe coordination state after uncertainty before deciding on another renewal.
 
+## Refusal codes and remedies
+
+These codes describe different states; they are not a reason to repeat a claim
+until it succeeds. After a definitive rejection, follow its remedy below; a
+corrected argument makes a new intent with a new retry ID. An unknown outcome
+instead requires the original
+tool, ID, and every argument unchanged, including transcript assertions and
+omissions. Never change a combined claim into a minimal claim on an uncertain
+retry. See [authority and exact retries](authority-and-provenance.md#retain-protected-mutation-intents-privately).
+Cold reviewers must keep to metadata-only status and minimal coordination until
+findings freeze; the contextual remedies below do not waive that restriction.
+
+| Code | Meaning | Remedy |
+| --- | --- | --- |
+| `work_gated` | The item has unresolved human input. | Inspect every open question; direct the human to Needs Attention. Stop dependent work and do not retry around the gate or answer it yourself. |
+| `work_blocked` | An incoming `blocks` edge points to unfinished work. | Inspect incoming blockers. Wait until each is Done or its edge is legitimately removed; release when dependent work cannot continue. |
+| `work_not_pending` | The lifecycle is ineligible for implementation. | Read current status. Return Deferred to Pending only on current explicit human direction for that item; never reopen terminal work implicitly. Review claims use their separate purpose and episode. |
+| `lease_held` | An active claim already exists. | Inspect the safe holder and expiry. Wait if another session is working; lost-token recovery requires the ownership checks below before any force claim. |
+| `lease_expired` | The retained claim has expired. | Stop acting as holder. Resolve any uncertain mutation first, then read status and acquire a new eligible claim if work remains authorized. Renewal cannot revive an expired lease. |
+| `lease_token_mismatch` | The token does not identify the retained claim. | Stop and reconcile ownership; do not automatically force or keep writing with that token. A replaced lease invalidates the old token. |
+| `claim_request_expired` | The original claim request cannot recover an active lease. | Reconcile current ownership before a new acquisition with a new request ID. Do not change the ID merely to repeat an uncertain mutation. |
+| `claim_request_mismatch` | A claim request ID was reused with different arguments. | Recover the exact original tool and arguments, including force, transcript assertion, and lease duration or omission. Never patch an uncertain retry. |
+| `transcript_source_missing` | The asserted native file is absent from the backend's filesystem view. | Verify the exact readable regular file beneath approved roots and its same-path API/worker mounts. Do not retry as a transient lease failure. After a definitive rejection, use the verified path or explicit null if unavailable on a fresh request; never change an uncertain assertion. See [transcript verification](transcripts.md). |
+| `job_completion_report_required` | A fresh Done, Won't do, or Promoted closeout omitted its report. | Fetch `get_project_settings` immediately before authoring the nested summary and FYIs with its prompt revision, then prepare a new closeout intent. |
+| `subagent_transcripts_required` | A fresh closeout omitted its additional-session assertion. | Supply verified `subagent_transcripts` or explicit null when none apply or are available. Preserve original omissions on historical receipt replays. |
+| `code_review_handoff_required` | The completion policy requires a pinned review scope and handoff before Done. | Verify the exact repository ranges and prepare `code_review_handoff` under the [review protocol](code-reviews.md); submit a corrected new completion intent. |
+| `code_review_handoff_not_applicable` | This completion policy does not accept a mandatory-review handoff. | Recheck current settings and omit that field from a new completion intent. Optional reviews follow the returned originating-session recommendation question. |
+| `job_report_prompt_changed` | The report's prompt revision no longer matches current project settings. | After this definitive rejection, fetch settings again, review the report against the current prompt, and freeze a new closeout intent and operation UUID. |
+
 ## Recover a lost lease token
 
 If compaction loses your `lease_token`, replay the exact original claim when its
@@ -159,7 +196,8 @@ user when needed. An Active label or matching holder ID alone does not establish
 that another session is idle. If another session is working, wait or choose other
 work; if its activity is uncertain, resolve that uncertainty before proceeding.
 
-Then call `claim_work(..., force=true)` or `claim_and_recall(..., force=true)` with
+Then call `claim_work(..., force=true)` for implementation or cold review
+(warm reviews may use `claim_and_recall(..., force=true)`) with
 a **new** `claim_request_id`, your actual client/session identity, an in-range
 `lease_minutes`, and a freshly verified `session_transcript` (explicit null only
 when unavailable). Force replaces the existing lease even if another session
