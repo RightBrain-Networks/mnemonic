@@ -10,6 +10,15 @@ links a code/meaning/remedy table for claim, renewal, transcript, and closeout
 refusals. `transcript_source_missing` now has a specific, sanitized adapter remedy.
 There is no schema migration or change to lease acquisition semantics.
 
+Migration 0035 embeds the shipped recall template's SHA-256 in two functions.
+Independent old/new migration runs across all 13 audited prompt-library heads
+verified that their only definition difference is that literal hash. The catalog
+fixture retains the deployed fingerprints and adds the 26 verified fresh-install
+fingerprints. A database regression accepts the deployed default while rejecting
+an unknown replacement hash; guard logic and all other catalog entries are unchanged.
+The focused PostgreSQL audit, migration, prompt, backup, and review suite passed
+162 tests, and both deployed-default/unknown-default regression cases passed.
+
 The selected MCP, transport, review, plugin, and portable-export suite passed
 440 tests. Coverage includes a handoff exceeding 67 KB with a separate lease
 receipt below 2 KB, no token in recalled context, missing-source refusals on both

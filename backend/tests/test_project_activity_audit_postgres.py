@@ -1,5 +1,6 @@
 """Operational Phase 12 audit and restore-incarnation regression coverage."""
 
+import hashlib
 import runpy
 from uuid import uuid4
 
@@ -8,6 +9,8 @@ from alembic import command
 from alembic.config import Config
 from sqlalchemy import Engine, create_engine, text
 from sqlalchemy.orm import Session
+
+from mnemonic_api.prompt_storage import default_prompt
 
 from .code_review_database_fixtures import close_work, create_work, finish_review, policy
 from .conftest import BACKEND_DIR, reset_disposable_schema
@@ -31,6 +34,36 @@ def _audit(engine: Engine, expected_head: str | None = None):
         if expected_head is None:
             return audit["audit_snapshot"](connection)
         return audit["audit_snapshot"](connection, expected_head)
+
+
+@pytest.mark.parametrize("recall_hash, expected_drift", [
+    # The shipped recall pointer through 0.81.0 remains in existing databases.
+    ("6e6e6dab6302030a1cb3f4a9f437b9a771cf1f5ba16bb78a24a1f4f0e5c5b56f", 0),
+    ("a" * 64, 2),
+], ids=["deployed-default", "unknown-default"])
+def test_recall_default_catalog_preserves_deployed_guards_and_rejects_unknown_hashes(
+    postgres_engine: Engine, recall_hash: str, expected_drift: int,
+):
+    reset_disposable_schema(postgres_engine)
+    current_hash = hashlib.sha256(default_prompt("recall-pointer").encode()).hexdigest()
+    try:
+        assert _audit(postgres_engine)["result"] == "pass"
+        with postgres_engine.begin() as connection:
+            for name in (
+                "mnemonic_guard_job_report_settings", "mnemonic_job_report_project_source",
+            ):
+                definition = connection.scalar(text(
+                    "SELECT pg_get_functiondef(p.oid) FROM pg_proc p "
+                    "JOIN pg_namespace n ON n.oid=p.pronamespace "
+                    "WHERE n.nspname=current_schema() AND p.proname=:name"
+                ), {"name": name})
+                assert definition.count(current_hash) == 1
+                connection.execute(text(definition.replace(current_hash, recall_hash)))
+        report = _audit(postgres_engine)
+        assert report["blocking_findings"].get("catalog_functions_drift", 0) == expected_drift
+        assert report["result"] == ("blocked" if expected_drift else "pass")
+    finally:
+        reset_disposable_schema(postgres_engine)
 
 
 # PostgreSQL renders catalog definitions through these session settings, so an audit
