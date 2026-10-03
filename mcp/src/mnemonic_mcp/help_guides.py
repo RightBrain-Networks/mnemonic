@@ -81,7 +81,8 @@ GUIDES: dict[str, tuple[str, str, str]] = {
                                 ("Page evidence with the returned cursor. Evidence is an assertion, "
                                 "not independent proof of correctness.")),
     "claim_work": ("Leases", "Claim work with minimal returned context.",
-                   ("Use claim_request_id, not client_operation_id. Verify the actual native "
+                   ("For implementation, retain the small receipt, then recall_work and recheck readiness. "
+                   "Use claim_request_id. Verify the actual native "
                    "session_transcript or explicitly use null if unavailable. Start with the project "
                    "default lease. Code review requires purpose=code_review, code_review_id, and mode. "
                    "Cold review uses this tool, never claim_and_recall. Lost token: confirm no other "
@@ -89,7 +90,8 @@ GUIDES: dict[str, tuple[str, str, str]] = {
                    "This invalidates the old token; retain exact arguments on retries.")),
     "claim_and_recall": ("Leases", "Claim work and return its context.",
                          ("Use claim_request_id and an explicit verified session_transcript or null. "
-                         "Use only for authorized execution or warm review. Cold review uses claim_work. "
+                         "Use for warm review. Implementation uses claim_work then recall_work. "
+                         "Cold review uses claim_work. "
                          "Lost token: confirm no other active session is working on this item before "
                          "force=true with a new request ID. This invalidates the old token; retry exactly.")),
     "renew_claim": ("Leases", "Extend an active work or review lease.",

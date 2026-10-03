@@ -155,8 +155,11 @@ For example, Claude Code and Codex can claim separate Pending work in one projec
 while an OpenCode agent reviews original Done work:
 
 1. Each implementation agent resolves the project and selects work with
-   `list_ready_work`, then calls `claim_and_recall` with its own client/session
-   identity. A shared project does not mean shared claim tokens or operation UUIDs.
+   `list_ready_work`, then calls `claim_work` with its own client/session
+   identity. Retain the small lease receipt privately, then call `recall_work`
+   and recheck readiness before implementation. Warm reviews may use
+   `claim_and_recall`; cold reviews defer context until findings freeze. A shared
+   project does not mean shared claim tokens or operation UUIDs.
 2. Outside cold review, inspect `search_work(status=all, view=full)` pages and
    `summary.readiness.active_lease` to find current collaborators. This includes
    leases on Done work under review. For an exact related item, `get_work`

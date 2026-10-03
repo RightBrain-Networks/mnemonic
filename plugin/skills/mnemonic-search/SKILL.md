@@ -205,7 +205,8 @@ of low impact. Keep discovery read-only.
    ID. They are compact pointers to visible Pending work with no unresolved
    incoming `blocks` edge, no unresolved human gate, and no active lease at one
    server snapshot. They are not reservations, leases, or execution authority.
-   After the user authorizes one, call `claim_and_recall`; the claim revalidates
+   After the user authorizes one, call `claim_work`, retain the lease privately,
+   then `recall_work` and inspect readiness; the claim revalidates
    every eligibility fact atomically and may lose after a concurrent change.
 7. Use `limit` and `offset`, disclose partial pages, and restart at offset zero
    when completeness matters after queue changes. An empty high offset does not
@@ -255,12 +256,15 @@ user later authorizes a protected write such as `create_work`,
 `request_human_input`, switch to the `mnemonic-save` or `mnemonic-recall`
 skill: they prepare each intent once and follow the recovery rules in
 [authority-and-provenance.md](${CLAUDE_PLUGIN_ROOT}/reference/authority-and-provenance.md).
-`claim_and_recall` uses its own `claim_request_id`, not `client_operation_id`.
+`claim_work` and `claim_and_recall` use `claim_request_id`, not `client_operation_id`.
 
 When the user selects a result to view, call `recall_work`; when execution is
 already authorized, immediately check `get_work(status_only=true)`, then use
-`claim_and_recall` with the returned Default `lease_minutes` before investigating
-or acting. If several results
+`claim_work` with the returned Default `lease_minutes`, retain its small lease
+receipt privately, then `recall_work` before investigating or acting. This keeps
+large context separate from the lease token. Recheck readiness after recall; a
+failed read does not release the lease. Warm reviews may use `claim_and_recall`;
+cold reviews forbid contextual reads before findings freeze. If several results
 fit and selection changes the task, show compact choices. If immediate graph
 facts affect selection, use `list_relationships` with an explicit direction and
 type and paginate; use `get_relationship` for one edge; keep counterparts
@@ -304,8 +308,8 @@ lookup remains uncoordinated.
 
 If compaction loses the active token, replay the exact original claim when
 available. Otherwise, confirm no other active session is working on the same
-item before using `force=true` with a new `claim_request_id` on `claim_work` or
-`claim_and_recall`. This invalidates the old token, including another session's.
+item before using `force=true` with a new `claim_request_id` on `claim_work`
+for implementation (warm reviews may use `claim_and_recall`). This invalidates the old token, including another session's.
 Follow the shared [lost-token recovery procedure](${CLAUDE_PLUGIN_ROOT}/reference/work-graph.md#recover-a-lost-lease-token)
 for status checks, transcript verification, and exact retries. Recovery does not
 grant execution authority or bypass blockers, human gates, or review rules.

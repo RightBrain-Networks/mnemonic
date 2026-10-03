@@ -472,8 +472,8 @@ lookup remains uncoordinated.
 
 If compaction loses the active token, replay the exact original claim when
 available. Otherwise, confirm no other active session is working on the same
-item before using `force=true` with a new `claim_request_id` on `claim_work` or
-`claim_and_recall`. This invalidates the old token, including another session's.
+item before using `force=true` with a new `claim_request_id` on `claim_work`
+for implementation (warm reviews may use `claim_and_recall`). This invalidates the old token, including another session's.
 Follow the shared [lost-token recovery procedure](${CLAUDE_PLUGIN_ROOT}/reference/work-graph.md#recover-a-lost-lease-token)
 for status checks, transcript verification, and exact retries. Recovery does not
 grant execution authority or bypass blockers, human gates, or review rules.

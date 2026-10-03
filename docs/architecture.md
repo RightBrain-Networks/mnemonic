@@ -184,8 +184,10 @@ Ready discovery runs the same nonrecursive blocker/lease/gate/alias predicate us
 a fresh or replacement claim and returns only compact pointers. Its order is `priority DESC,
 created_at ASC, id ASC`; tag and direct-parent filters do not change
 eligibility. A page is one statement snapshot, not a reservation. Concurrent
-changes can shift offset pages, and `claim_and_recall` remains the authority
-that locks and revalidates before already-authorized execution.
+changes can shift offset pages. For authorized implementation, `claim_work`
+locks and revalidates acquisition, then `recall_work` supplies context separately
+from the lease token. Recheck readiness before acting; the two requests do not
+share an atomic snapshot. Warm reviews may use `claim_and_recall`.
 
 ## Invariants
 
