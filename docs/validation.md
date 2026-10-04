@@ -1,5 +1,32 @@
 # Mnemonic validation record
 
+## Native Codex source refusal guidance (0.82.1)
+
+A Codex rollout beneath a custom `/work/codex` home was rejected by the running
+API with HTTP 422 `transcript_path_not_allowed` and `attempt_not_committed=true`.
+Its approved roots and mounts still used `/home/jamie/.codex`. The MCP adapter
+hid that definitive rejection behind a generic recall-and-retry message.
+
+The adapter now reports the error code with static, sanitized guidance for
+matching the native path, read-only mounts, and allowlists in both API and worker.
+It retains the existing uncertainty rules for server failures. No claim guard,
+schema, receipt, transcript assertion, or stored history changes.
+
+The regression first failed in all five 422 cases: both claim tools in
+implementation and warm-review modes, plus completion. After the fix, all 76
+focused claim/review tests passed, including hostile error-context redaction and
+503 exact-retry controls. Thirteen backend OpenAPI/transcript-access checks and
+four Node 24 dashboard release checks passed. MCP Ruff, type checking, and the
+repository secret scan passed.
+
+A prepared host-specific Compose override was compared with the current
+configuration: only API/worker gained the two dedicated native Codex mounts and
+allowlist entries, with all existing settings and source mounts preserved. Two
+disposable network-isolated containers, using the deployed API and worker images
+and UID/GID 1026:1000, accepted the exact rollout under the proposed mounts. No
+production container was restarted or recreated. Applying that configuration or
+deploying the adapter patch requires explicit operator authorization.
+
 ## Separate implementation claims and refusal guidance (0.82.0)
 
 MCP instructions, command help, shipped resume prompts, and plugin 0.48.0 direct
