@@ -37,6 +37,16 @@ class TransportEffect(StrEnum):
 
 
 _APPLICATION_ERRORS = {
+    "transcript_path_not_allowed": (
+        "transcript_path_not_allowed: The asserted native transcript path is outside the "
+        "backend's approved source roots. Verify the client's actual transcript directory, "
+        "including any custom Codex home. Ask the operator to configure its dedicated read-only "
+        "mount and allowlist in API and worker at the same absolute path; production service "
+        "recreation requires explicit operator authorization. Do not substitute a symlink or "
+        "temporary copy. After this definitive rejection, prepare a new request with the "
+        "verified shared path, or explicit null if unavailable. Preserve the original ID and "
+        "every argument after an uncertain outcome."
+    ),
     "transcript_source_missing": (
         "transcript_source_missing: The asserted native transcript file is missing from the "
         "backend's view. Verify the exact readable regular file under approved source roots "

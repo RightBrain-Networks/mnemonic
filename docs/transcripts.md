@@ -144,9 +144,24 @@ Base Compose mounts each configured directory read-only at its original absolute
 path. Omit unavailable directories. Keep `MNEMONIC_TRANSCRIPT_SOURCE_DIR` set for
 an existing Claude library. An empty or omitted `MNEMONIC_TRANSCRIPT_ALLOWED_ROOTS`
 defaults to all configured sources; a nonempty explicit allowlist must include each
-configured source. Restart the API after changing mounts. Do not mount the entire
+configured source. Recreate both API and worker after changing mounts, with explicit
+operator authorization for production services. Do not mount the entire
 `.codex` directory: it also contains credentials and configuration. Matching the API
 UID/GID to the owner applies to private Codex files as well.
+
+Use the client's actual native source roots when `CODEX_HOME` is customized. For
+example, a rollout under `/work/codex/sessions` needs that exact directory mounted
+read-only and allowed at `/work/codex/sessions` in both services. A mount at
+`/home/jamie/.codex/sessions` does not authorize the other spelling, even if a host
+symlink points to the same files. Do not report the symlink or a copied rollout to
+work around the check. When retaining old source paths, preserve their mounts and
+allowlist entries while adding the verified new roots through an operator-managed
+Compose override.
+
+MCP reports `transcript_path_not_allowed` for this definitive assertion rejection.
+It includes mount and allowlist repair guidance without exposing backend error
+text or credentials. Server failures still require the original retry ID and
+identical arguments; they never authorize changing a transcript assertion.
 
 Claude Code can create owner-only (`0600`) files. The API image defaults to UID/GID
 10001, which cannot read files owned by a different host user. Set the build

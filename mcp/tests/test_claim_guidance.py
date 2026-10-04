@@ -7,6 +7,7 @@ import httpx
 import pytest
 from conftest import API_KEY, CLAIM_REQUEST_ID, PROJECT_ID, WORK_ID
 from mcp.server.fastmcp.exceptions import ToolError
+from test_code_reviews import REVIEW_ID
 from test_tools import adapter, protected_tool_arguments, structured
 
 from mnemonic_mcp.api import UNKNOWN_CLAIM_OUTCOME, UNKNOWN_IDEMPOTENT_MUTATION_OUTCOME
@@ -67,17 +68,25 @@ async def test_large_context_recall_does_not_carry_the_separately_acquired_token
     assert requests == [("POST", root + "/claim"), ("GET", root + "/context")]
 
 
-@pytest.mark.parametrize("tool", ["claim_work", "claim_and_recall", "complete_work"])
+@pytest.mark.parametrize("tool,purpose", [
+    ("claim_work", "implementation"), ("claim_work", "code_review"),
+    ("claim_and_recall", "implementation"), ("claim_and_recall", "code_review"),
+    ("complete_work", None),
+])
 @pytest.mark.parametrize("status", [422, 503])
-async def test_missing_transcript_has_a_specific_remedy_without_weakening_unknown_retries(
-    settings, tool, status,
+@pytest.mark.parametrize("code,remedy", [
+    ("transcript_source_missing", "same-path mounts in API and worker"),
+    ("transcript_path_not_allowed", "dedicated read-only mount and allowlist in API and worker"),
+])
+async def test_transcript_refusal_has_a_specific_remedy_without_weakening_unknown_retries(
+    settings, tool, purpose, status, code, remedy,
 ):
     requests = []
 
     def handler(request):
         requests.append(request)
         return httpx.Response(status, json={"detail": {
-            "code": "transcript_source_missing", "message": f"private {API_KEY}",
+            "code": code, "message": f"private {API_KEY}",
             "context": {"attempt_not_committed": True, "instructions": API_KEY},
         }})
 
@@ -90,14 +99,16 @@ async def test_missing_transcript_has_a_specific_remedy_without_weakening_unknow
             "claim_request_id": CLAIM_REQUEST_ID,
             "session_transcript": {"client": "codex", "path": "/approved/rollout.jsonl"},
         }
+        if purpose == "code_review":
+            arguments.update(purpose=purpose, mode="warm", code_review_id=REVIEW_ID)
     with pytest.raises(ToolError) as caught:
         await adapter(settings, handler).call_tool(tool, arguments)
     message = str(caught.value)
     assert API_KEY not in message
     assert len(requests) == 1
     if status == 422:
-        assert "transcript_source_missing:" in message
-        assert "same-path mounts in API and worker" in message
+        assert f"{code}:" in message
+        assert remedy in message
         assert "explicit null" in message
         assert "definitive rejection" in message
     else:
