@@ -1,12 +1,15 @@
 """Browser writes retain the same PostgreSQL receipts, history, and publication rules."""
 
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+from threading import Barrier
 from uuid import uuid4
 
 import pytest
 from sqlalchemy import text
 
 from mnemonic_api.application.browser_responses import BrowserResponse
+from mnemonic_api.application.routes import work_items
 from mnemonic_api.live_sync import MutationEvent
 
 from .code_review_fixtures import configure
@@ -328,3 +331,62 @@ def test_browser_relationship_noop_preserves_activity_and_suppresses_publication
     assert api.post(path, json=noop_body, headers=HEADERS).json() == noop.json()
     assert snapshot(postgres_engine) == after_noop
     assert len(publications) == 1
+
+
+def test_concurrent_browser_updates_apply_one_version_and_replay_the_winner(
+    api, project, work_payload, postgres_engine, monkeypatch,
+):
+    seed = Seed(api, project, work_payload)
+    work = seed.create()
+    path = seed.work_path(work).replace("/api/v1/", "/api/mnemonic/", 1)
+    bodies = [{
+        "expected_version": work["version"], "title": f"Concurrent browser edit {index}",
+        "actor": ACTOR, "client_operation_id": str(uuid4()),
+    } for index in range(2)]
+    before = snapshot(postgres_engine)
+    publications = []
+
+    async def publish(event):
+        publications.append(event)
+
+    monkeypatch.setattr(api.app.state.live_sync_hub, "publish", publish)
+    both_admitted = Barrier(2)
+    run_mutation = work_items.run_registered_mutation
+
+    def concurrent_mutation(*args, **kwargs):
+        # Both requests must pass browser admission before either starts its
+        # transaction; keep the real receipt and project-lock behavior intact.
+        both_admitted.wait(timeout=5)
+        return run_mutation(*args, **kwargs)
+
+    with monkeypatch.context() as simultaneous:
+        simultaneous.setattr(work_items, "run_registered_mutation", concurrent_mutation)
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            futures = [pool.submit(api.patch, path, json=body, headers=HEADERS) for body in bodies]
+            responses = [future.result(timeout=10) for future in futures]
+
+    assert sorted(response.status_code for response in responses) == [200, 409]
+    winner_body, winner = next(
+        (body, response) for body, response in zip(bodies, responses, strict=True)
+        if response.status_code == 200
+    )
+    rejected = next(response for response in responses if response.status_code == 409)
+    assert rejected.json()["detail"] == {
+        "code": "version_conflict",
+        "message": "This work item changed. Recall it again before editing or deleting.",
+        "context": {},
+    }
+    final = api.get(path, headers=HEADERS).json()["work_item"]
+    assert final["title"] == winner.json()["title"] == winner_body["title"]
+    assert final["version"] == winner.json()["version"] == work["version"] + 1
+    committed = snapshot(postgres_engine)
+    for table in ("work_events", "project_activity", "client_operations"):
+        assert committed[table][0] == before[table][0] + 1
+    assert publications == [MutationEvent("work-items")]
+    assert receipt(postgres_engine, winner_body["client_operation_id"])["mutation_applied"] is True
+
+    replay = api.patch(path, json=winner_body, headers=HEADERS)
+    assert replay.status_code == 200, replay.text
+    assert replay.content == winner.content
+    assert snapshot(postgres_engine) == committed
+    assert publications == [MutationEvent("work-items")]
