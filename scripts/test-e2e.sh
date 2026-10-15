@@ -5,6 +5,11 @@ script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 repo_root=$(cd -- "$script_dir/.." && pwd)
 compose_file="$repo_root/compose.e2e.yaml"
 run_browser=true
+browser_transports=false
+if [[ "${1:-}" == "--browser-transports" ]]; then
+  browser_transports=true
+  shift
+fi
 if [[ "${1:-}" == "--backup-service-only" ]]; then
   run_browser=false
   shift
@@ -21,6 +26,11 @@ if [[ ! "$MNEMONIC_E2E_COMPOSE_PROJECT" =~ ^mnemonic-e2e-[a-z0-9-]+$ ]]; then
   echo "Refusing to manage an unexpected Compose project name." >&2
   exit 2
 fi
+compose=(docker compose -p "$MNEMONIC_E2E_COMPOSE_PROJECT" -f "$compose_file")
+if [[ "$browser_transports" == true ]]; then
+  compose+=(-f "$repo_root/compose.browser-transports-e2e.yaml")
+fi
+export MNEMONIC_E2E_BROWSER_TRANSPORTS="$browser_transports"
 
 repo_lock_key=$(printf '%s' "$repo_root" | sha256sum | cut -c1-16)
 lock_file="${TMPDIR:-/tmp}/mnemonic-e2e-$repo_lock_key.lock"
@@ -112,9 +122,9 @@ cleanup() {
   local status=$?
   trap - EXIT INT TERM
   if (( status != 0 )); then
-    docker compose -p "$MNEMONIC_E2E_COMPOSE_PROJECT" -f "$compose_file" logs --no-color --tail 200 api web worker rabbitmq || true
+    "${compose[@]}" logs --no-color --tail 200 api web worker rabbitmq || true
   fi
-  docker compose -p "$MNEMONIC_E2E_COMPOSE_PROJECT" -f "$compose_file" down -v --remove-orphans >/dev/null 2>&1 || true
+  "${compose[@]}" down -v --remove-orphans >/dev/null 2>&1 || true
   clean_disposable_directory "$MNEMONIC_E2E_ARTIFACT_DIR" || true
   clean_disposable_directory "$MNEMONIC_E2E_BACKUP_DIR" || true
   clean_disposable_directory "$MNEMONIC_E2E_PROMPT_DIR" || true
@@ -136,9 +146,12 @@ docker run --rm --user 0 \
 services=(api worker tika rabbitmq)
 if [[ "$run_browser" == true ]]; then
   services+=(web)
+  if [[ "$browser_transports" == true ]]; then
+    services+=(browser-proxy)
+  fi
 fi
-if ! docker compose -p "$MNEMONIC_E2E_COMPOSE_PROJECT" -f "$compose_file" up -d --build --wait "${services[@]}"; then
-  docker compose -p "$MNEMONIC_E2E_COMPOSE_PROJECT" -f "$compose_file" logs --no-color api web worker rabbitmq
+if ! "${compose[@]}" up -d --build --wait "${services[@]}"; then
+  "${compose[@]}" logs --no-color api web worker rabbitmq
   exit 1
 fi
 if [[ "$run_browser" == true ]]; then
@@ -147,7 +160,9 @@ if [[ "$run_browser" == true ]]; then
     npm run test:e2e -- "$@"
   )
 fi
-docker compose -p "$MNEMONIC_E2E_COMPOSE_PROJECT" -f "$compose_file" exec -T --user 0 \
-  -e "MNEMONIC_TEST_API_KEY=$MNEMONIC_E2E_API_KEY" \
-  -e "MNEMONIC_E2E_COMPOSE_PROJECT=$MNEMONIC_E2E_COMPOSE_PROJECT" \
-  worker python - < "$repo_root/scripts/test_project_backups.py"
+if [[ "$browser_transports" == false ]]; then
+  "${compose[@]}" exec -T --user 0 \
+    -e "MNEMONIC_TEST_API_KEY=$MNEMONIC_E2E_API_KEY" \
+    -e "MNEMONIC_E2E_COMPOSE_PROJECT=$MNEMONIC_E2E_COMPOSE_PROJECT" \
+    worker python - < "$repo_root/scripts/test_project_backups.py"
+fi

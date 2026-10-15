@@ -1,0 +1,24 @@
+# Test-only routing for the additive FastAPI browser transports.
+# Invoke with scripts/test-e2e.sh --browser-transports.
+services:
+  web:
+    ports: !reset []
+
+  browser-proxy:
+    image: nginx:1.27-alpine
+    ports:
+      - '127.0.0.1:${MNEMONIC_E2E_WEB_PORT:?Run through scripts/test-e2e.sh}:8080'
+    volumes:
+      - ./deploy/nginx/test/browser-transports.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      api:
+        condition: service_healthy
+      web:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, http://127.0.0.1:8080/healthz]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+    restart: "no"
+    security_opt: [no-new-privileges:true]
