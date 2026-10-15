@@ -243,7 +243,7 @@ test("transcript rebuild definitive proxy rejection releases navigation without 
     await expect(page.locator("#project-select")).toBeEnabled();
     await page.getByRole("button", { name: "Tasks", exact: true }).click();
     await page.getByRole("link", { name: "Work items", exact: true }).click();
-    await expect(page).toHaveURL(/\/$/);
+    await expect(page).toHaveURL(/\/work-items(?:\?|$)/);
   } finally { await api.dispose(); }
 });
 
