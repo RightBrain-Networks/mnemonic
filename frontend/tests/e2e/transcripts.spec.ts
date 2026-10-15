@@ -207,6 +207,7 @@ test("transcript rebuild retries preserve the request and block navigation after
     const retry = settings.getByRole("button", { name: "Retry pending rebuild" });
     await expect(retry).toBeEnabled();
     await expect(page.locator("#project-select")).toBeDisabled();
+    await page.getByRole("button", { name: "Tasks", exact: true }).click();
     await page.getByRole("link", { name: "Work items", exact: true }).click();
     await expect(page).toHaveURL(/\/transcripts(?:\?|$)/);
     await retry.click();
@@ -240,6 +241,7 @@ test("transcript rebuild definitive proxy rejection releases navigation without 
     await expect(settings.getByText("Invalid transcript settings request.", { exact: true })).toBeVisible();
     await expect(settings.getByRole("button", { name: "Retry pending rebuild" })).toHaveCount(0);
     await expect(page.locator("#project-select")).toBeEnabled();
+    await page.getByRole("button", { name: "Tasks", exact: true }).click();
     await page.getByRole("link", { name: "Work items", exact: true }).click();
     await expect(page).toHaveURL(/\/$/);
   } finally { await api.dispose(); }
@@ -318,6 +320,7 @@ test("workspace import retains exact retry requests and allows correcting fresh 
     await expect(retry).toBeEnabled();
     await expect(directory).toBeDisabled();
     await expect(page.locator("#project-select")).toBeDisabled();
+    await page.getByRole("button", { name: "Tasks", exact: true }).click();
     await page.getByRole("link", { name: "Work items", exact: true }).click();
     await expect(page).toHaveURL(/\/transcripts(?:\?|$)/);
     await retry.click();

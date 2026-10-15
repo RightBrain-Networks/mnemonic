@@ -11,9 +11,10 @@ These transports are additive frontend migration stages. The existing Next.js ro
 layouts, and WebSocket rewrite remain active, so the deployed dashboard continues
 to use its current transport. Adding FastAPI routes does not redirect existing
 dashboard traffic or perform a production deployment. The
-[artifact browser transport](browser-artifact-api.md) also has an explicit FastAPI
-owner at `/api/artifacts`. Transcript and backup transports remain in their
-existing Next.js handlers and are outside this JSON foundation.
+[artifact browser transport](browser-artifact-api.md) and
+[transcript browser transport](browser-transcript-api.md) also have explicit FastAPI
+owners at `/api/artifacts` and `/api/transcripts`. Backup transport remains in its
+existing Next.js handler and is outside this JSON foundation.
 
 ## Ownership and trust
 
@@ -157,8 +158,8 @@ It must not substitute an internal upstream host or rely on `X-Forwarded-Host`
 to satisfy browser admission. Configure the exact public browser origin in
 `MNEMONIC_DASHBOARD_ORIGINS`, and keep the browser and machine transports distinct
 in reverse-proxy configuration. Existing raw artifact/transcript and backup
-locations must be migrated before Next.js can be removed. The artifact location
-can now use its FastAPI owner; transcript and backup locations still use Next.js.
+locations must be migrated before Next.js can be removed. Artifact and transcript
+locations can now use their FastAPI owners; backup locations still use Next.js.
 
 The source registry, browser policy, and behavioral tests must change together
 when the browser surface changes. Runtime and WebSocket tests cover public-field

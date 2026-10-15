@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy import func, select
 
+from mnemonic_api.application.browser_file_transport import ClosingStreamingResponse
 from mnemonic_api.application.guards import (
     reject_empty_read_request,
     reject_read_body_and_duplicate_query,
@@ -156,7 +157,7 @@ def download_transcript(
     size = database.scalar(select(func.octet_length(Transcript.normalized_text))
                            .where(Transcript.id == record.id))
 
-    return StreamingResponse(download_text_chunks(database, record),
+    return ClosingStreamingResponse(download_text_chunks(database, record),
         media_type="text/plain; charset=utf-8", headers={
         "Content-Disposition": f'attachment; filename="transcript-{transcript_id}.txt"',
         "Content-Length": str(size or 0), "X-Content-SHA256": record.text_sha256 or "",
