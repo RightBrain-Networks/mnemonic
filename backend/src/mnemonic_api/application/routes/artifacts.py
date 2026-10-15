@@ -18,6 +18,7 @@ from starlette.background import BackgroundTask
 from starlette.concurrency import run_in_threadpool
 
 from mnemonic_api.application.artifact_policy import artifact_status, require_artifacts_enabled
+from mnemonic_api.application.browser_file_transport import ClosingStreamingResponse
 from mnemonic_api.application.state import embedder_of, settings_of
 from mnemonic_api.application.validation import raise_reviewed_body_validation
 from mnemonic_api.artifact_access_schemas import ArtifactAccessRequest
@@ -647,7 +648,7 @@ def download_artifact(
             actor, access=access, human_dashboard=_human_dashboard(request),
             download_grant=_single_header(request, "x-artifact-download-grant"),
         )
-    return StreamingResponse(
+    return ClosingStreamingResponse(
         _file_chunks(content),
         media_type="application/octet-stream",
         headers={

@@ -7,12 +7,13 @@ transactions, validation, receipt replay, audit provenance, and response models.
 The machine REST transport keeps its bearer authentication and public OpenAPI
 contract. The browser registrations are excluded from that OpenAPI document.
 
-This is the first frontend migration stage. The existing Next.js route handlers,
+These transports are additive frontend migration stages. The existing Next.js route handlers,
 layouts, and WebSocket rewrite remain active, so the deployed dashboard continues
 to use its current transport. Adding FastAPI routes does not redirect existing
-dashboard traffic or perform a production deployment. Artifact, transcript, and
-backup transports remain in their existing Next.js handlers and are outside this
-JSON foundation.
+dashboard traffic or perform a production deployment. The
+[artifact browser transport](browser-artifact-api.md) also has an explicit FastAPI
+owner at `/api/artifacts`. Transcript and backup transports remain in their
+existing Next.js handlers and are outside this JSON foundation.
 
 ## Ownership and trust
 
@@ -156,7 +157,8 @@ It must not substitute an internal upstream host or rely on `X-Forwarded-Host`
 to satisfy browser admission. Configure the exact public browser origin in
 `MNEMONIC_DASHBOARD_ORIGINS`, and keep the browser and machine transports distinct
 in reverse-proxy configuration. Existing raw artifact/transcript and backup
-locations need their own migration work before Next.js can be removed.
+locations must be migrated before Next.js can be removed. The artifact location
+can now use its FastAPI owner; transcript and backup locations still use Next.js.
 
 The source registry, browser policy, and behavioral tests must change together
 when the browser surface changes. Runtime and WebSocket tests cover public-field
