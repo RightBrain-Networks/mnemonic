@@ -1,3 +1,3 @@
 """Mnemonic's REST-only Model Context Protocol adapter."""
 
-__version__ = "0.82.1"
+__version__ = "0.83.0"

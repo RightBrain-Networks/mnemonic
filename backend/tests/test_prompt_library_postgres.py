@@ -28,7 +28,7 @@ def test_library_metadata_conflicts_and_project_isolation(api, project):
     base = f"/api/v1/projects/{project['id']}"
     library = api.get(base + "/prompts")
     assert library.status_code == 200, library.text
-    assert len(library.json()["items"]) == 7
+    assert len(library.json()["items"]) == 8
     assert len(library.json()["macros"]) >= 8
     initial = api.get(base + "/prompts/recall-pointer").json()
     saved = save_prompt(api, base, "recall-pointer", "Recall $WORK_ITEM_ID 🧭")
@@ -143,7 +143,7 @@ def test_rendering_requires_project_owned_work_and_preserves_unknown_macros(
     base = f"/api/v1/projects/{project['id']}"
     save_prompt(api, base, "resume-work", "$PROJECT_NAME / $WORK_ITEM_TITLE / $UNKNOWN")
     response = api.post(base + "/prompts/resume-work/render", json={"work_item_id": work["id"]})
-    assert response.json() == {"content": f"{project['name']} / {work['title']} / $UNKNOWN"}
+    assert response.json()["content"] == f"{project['name']} / {work['title']} / $UNKNOWN"
     other = api.post("/api/v1/projects", json={"name": "Other", "slug": "other"}).json()
     assert (
         api.post(
@@ -178,9 +178,9 @@ def test_review_templates_render_scope_and_explicit_work_macros(
     customized = api.post(
         base + "/prompts/cold-code-review/render", json={"code_review_id": review["id"]}
     )
-    assert customized.json() == {
-        "content": f"{project['name']} / {work_payload['title']} / {review['id']}"
-    }
+    assert customized.json()["content"] == (
+        f"{project['name']} / {work_payload['title']} / {review['id']}"
+    )
     other = api.post("/api/v1/projects", json={"name": "Other", "slug": "other"}).json()
     assert (
         api.post(

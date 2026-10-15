@@ -10117,14 +10117,71 @@
       "PromptRenderRead": {
         "additionalProperties": false,
         "properties": {
+          "code_review_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code Review Id"
+          },
           "content": {
             "maxLength": 100000,
             "title": "Content",
             "type": "string"
+          },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "prompt_id": {
+            "title": "Prompt Id",
+            "type": "string"
+          },
+          "prompt_revision": {
+            "anyOf": [
+              {
+                "maxLength": 19,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompt Revision"
+          },
+          "revision": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Revision",
+            "type": "string"
+          },
+          "work_item_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Work Item Id"
           }
         },
         "required": [
-          "content"
+          "project_id",
+          "prompt_id",
+          "work_item_id",
+          "code_review_id",
+          "content",
+          "revision",
+          "prompt_revision"
         ],
         "title": "PromptRenderRead",
         "type": "object"
@@ -17726,7 +17783,7 @@
   "info": {
     "description": "Durable project-scoped work with immutable agent checkpoints.",
     "title": "Mnemonic API",
-    "version": "0.82.1"
+    "version": "0.83.0"
   },
   "openapi": "3.1.0",
   "paths": {

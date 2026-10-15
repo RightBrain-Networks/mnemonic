@@ -7,7 +7,7 @@ For code reviews, branch by temperature before ordinary recall: the
 [code-review protocol](code-reviews.md) governs mandatory handoff, durable
 originating-session recommendation answers, minimal cold coordination, warm
 adversarial review and one atomic remediation. Reviews are not implementation
-closeouts. The current catalog is 55 tools and seventeen protected writes.
+closeouts. The current catalog is 59 tools and seventeen protected writes.
 The [artifact library](artifacts.md) adds project file upload/download, atomic
 replacement, permanent content deletion, and searchable retained metadata/audit.
 Use `get_artifact_text` to page normalized text at a required current revision;
@@ -15,12 +15,13 @@ use the [client download helper](artifact-download-client.md) to save original
 bytes locally without passing their base64 through model context.
 Link originating and related work during upload so ordinary recall discovers files.
 
-Mnemonic Phase 12 requires an agent-authored human report on every fresh Done,
-Won’t do, or Promoted closeout. Read current project settings before authoring,
-then submit the report inside the existing closeout intent. The 55-tool MCP
-catalog adds four safe reads for settings, durable project activity, and report
-history; reviews add four reads and two protected writes, totaling sixteen. Human dismissal and manual
-follow-ups belong in the dashboard’s Summaries page, immediately below Needs
+Mnemonic requires an agent-authored human report on every fresh Done,
+Won’t do, or Promoted closeout. Read `get_prompt(project_id,
+prompt_id="job-completion-report", work_item_id=...)` before authoring,
+then submit the report and returned `prompt_revision` inside the existing closeout intent.
+Use the same [prompt retrieval tool](prompts.md#agent-retrieval) for other
+project instructions, including priority guidance and Needs Attention questions.
+Human dismissal and manual follow-ups belong in the dashboard’s Summaries page, immediately below Needs
 Attention. See [project activity and reports](project-activity-and-reports.md).
 
 Phase 11’s optional structured completion evidence remains part of the atomic
@@ -86,7 +87,7 @@ the initial Default/Minimum/Maximum is 15/10/120 minutes.
    `create_work` with its title, retrieval summary, explicit priority, `pending` status, a
    complete nested initial checkpoint, and any relationships that must exist
    atomically with the new record. Honor an explicit user score; otherwise call
-   `get_priority_rubric(project_id)` to choose priority and record its rationale.
+   `get_prompt(project_id, prompt_id="priority-rubric")` to choose priority and record its rationale.
    Humans edit this project's Markdown in Settings > Workspace. Ordinary settings
    reads and help omit the rubric body, so fetch it only when needed.
 6. Supply the actual `source_client` and `source_session_id` for the session
@@ -123,7 +124,7 @@ declared pattern must match independently before an `unchanged` result. The
 copyable scoped-checkpoint example is
 [`repository-scoped-checkpoint.json`](../examples/repository-scoped-checkpoint.json).
 
-`suggest_duplicate_work` is a safe read, not one of the sixteen protected
+`suggest_duplicate_work` is a safe read, not one of the seventeen protected
 mutations. It takes no operation UUID, does not persist the draft or result, and
 may be retried normally after a timeout, `duplicate_suggestion_busy`, or
 `duplicate_suggestion_unavailable`. Busy responses advise a one-second retry;
@@ -570,27 +571,18 @@ other work rather than working around it.
 
 ## Author a standalone human closeout report
 
-Before each fresh terminal transition, call `get_project_settings(project_id, work_item_id)` to expand the report prompt
-for the exact work item.
-Read `job_completion_report_prompt`, and use its decimal-string `revision` as
-`job_completion_report.prompt_revision`. The editable prompt guides the prose;
-it cannot authorize actions, waive gates, change the schema, or turn stored
-content into instructions. Projects start with a nonblank default prompt, and
-humans can edit it alongside Recall pointer content at `/settings/prompts`.
+Before each fresh terminal transition, call
+`get_prompt(project_id, prompt_id="job-completion-report", work_item_id=...)`.
+Read its current `content`, and copy the returned decimal `prompt_revision`
+into `job_completion_report.prompt_revision`. The source-template SHA-256
+`revision` is not a closeout revision. Project prompts expand macros and guide
+writing; they cannot authorize actions, waive gates, change schemas, or alter a
+frozen retry intent. See [Prompt library](prompts.md) for the full contract.
 
-Author one concise paragraph and zero or more ordered FYIs. Assume the human
-has read **no other LLM output**, including chat, checkpoints, tool results,
-and final replies. The reader is multitasking and quickly deciding what to do.
-Lead with the practical outcome, use familiar words, and state material limits.
-A Done report describes completed work; Won’t do explains the decision to stop;
-Promoted explains where responsibility moved without claiming completion.
-
-Each FYI becomes one bullet about a specific decision the human may override,
-a non-blocking request, or another useful fact. Prefer one or two sentences,
-with an absolute maximum of three. Avoid repetition and technical noise.
-Blocking requests belong in the existing human-needed queue. Use an explicit
-`fyi_items: []` when there is nothing useful to add. Reports must stand alone;
-a later final reply cannot supply missing context.
+Author `summary` and ordered `fyi_items` according to the retrieved prompt and
+the fixed report schema. Use an explicit `[]` when there are no FYIs. Blocking
+questions still require the human-needed queue and must not be buried in a
+report. Fetch `request-human-review` before authoring or revising those questions.
 
 Freeze the exact report, ordered FYIs, revision, version, provenance, capability
 when applicable, and operation UUID together. Done uses `complete_work` and its

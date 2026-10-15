@@ -34,8 +34,9 @@ narrow human-decision report that does not invent execution or verification:
 }
 ```
 
-Read the project settings immediately before authoring and use its returned
-revision. Include this object as `job_completion_report` in `complete_work`
+Retrieve `get_prompt` with `prompt_id="job-completion-report"` and the exact
+work ID immediately before authoring. Follow its `content` and use the returned
+`prompt_revision`. Include this object as `job_completion_report` in `complete_work`
 for Done, or in `update_work` with `status: "wont-do"` or `"promoted"`.
 Done still creates its completion checkpoint and optional evidence. Won’t do
 and Promoted do not invent a completion checkpoint or verification result.

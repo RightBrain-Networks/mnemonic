@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mnemonic-api"
-version = "0.82.1"
+version = "0.83.0"
 description = "Mnemonic's project-scoped work-item and immutable-checkpoint REST API"
 requires-python = ">=3.14,<3.15"
 dependencies = [
@@ -63,3 +63,4 @@ known-third-party = ["alembic"]
 "../prompts/review-recommendation.md" = "mnemonic_api/prompts/review-recommendation.md"
 "../prompts/review-remediation.md" = "mnemonic_api/prompts/review-remediation.md"
 "../prompts/resume-work.md" = "mnemonic_api/prompts/resume-work.md"
+"../prompts/request-human-review.md" = "mnemonic_api/prompts/request-human-review.md"

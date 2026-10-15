@@ -7,7 +7,7 @@ import {
 
 export const PROMPT_IDS = [
   "recall-pointer", "job-completion-report", "cold-code-review", "warm-code-review",
-  "review-remediation", "resume-work", "review-recommendation"
+  "review-remediation", "resume-work", "review-recommendation", "request-human-review"
 ] as const;
 export type PromptId = typeof PROMPT_IDS[number];
 export type PromptMetadata = {
@@ -98,7 +98,15 @@ export function decodePromptLibrary(value: unknown): PromptLibraryPage {
 
 export function decodeRenderedPrompt(value: unknown): string {
   const row = objectValue(value);
-  if (!row || !exactKeys(row, ["content"]) || !boundedText(row.content, 100_000)
+  if (!row || !exactKeys(row, ["project_id", "prompt_id", "work_item_id", "code_review_id", "content", "revision", "prompt_revision"])
+    || !validUuid(row.project_id) || !validPromptId(row.prompt_id) || !validRevision(row.revision)
+    || row.work_item_id !== null && !validUuid(row.work_item_id)
+    || row.code_review_id !== null && !validUuid(row.code_review_id)
+    || (row.prompt_id === "job-completion-report"
+      ? typeof row.prompt_revision !== "string" || !/^[1-9][0-9]{0,18}$/.test(row.prompt_revision)
+        || BigInt(row.prompt_revision) > 9223372036854775807n
+      : row.prompt_revision !== null)
+    || !boundedText(row.content, 100_000)
     || new TextEncoder().encode(row.content).length > 400_000) invalidResponse();
   return row.content;
 }
@@ -110,10 +118,15 @@ export function promptPath(projectId: string, promptId?: PromptId): string {
 export async function renderedPrompt(
   projectId: string, promptId: PromptId, workItemId: string, codeReviewId?: string
 ): Promise<string> {
-  return decodeRenderedPrompt(await api<unknown>(`${promptPath(projectId, promptId)}/render`, {
+  const value = await api<unknown>(`${promptPath(projectId, promptId)}/render`, {
     method: "POST",
     body: JSON.stringify({ work_item_id: workItemId, ...(codeReviewId ? { code_review_id: codeReviewId } : {}) })
-  }));
+  });
+  const content = decodeRenderedPrompt(value);
+  const row = objectValue(value)!;
+  if (row.project_id !== projectId || row.prompt_id !== promptId || row.work_item_id !== workItemId
+    || row.code_review_id !== (codeReviewId ?? null)) invalidResponse();
+  return content;
 }
 
 export function promptQueryKeys(path: string, method: string): string[] | null {

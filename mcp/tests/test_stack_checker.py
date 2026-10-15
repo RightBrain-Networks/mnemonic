@@ -193,13 +193,19 @@ async def test_synthetic_report_fetches_current_revision_before_intent(monkeypat
     async def read_tool(session, name, arguments):
         calls.append((name, arguments))
         return {
-            "project_id": "exact-project", "job_completion_report_prompt": "Use clear prose.",
-            "revision": "17",
+            "project_id": "exact-project", "work_item_id": "exact-work",
+            "content": "Use clear prose.",
+            "revision": "a" * 64, "prompt_revision": "17",
         }
 
     monkeypatch.setattr(checker, "tool", read_tool)
-    report = await checker.synthetic_job_report(None, "exact-project", "The disposable test ended.")
-    assert calls == [("get_project_settings", {"project_id": "exact-project"})]
+    report = await checker.synthetic_job_report(
+        None, "exact-project", "exact-work", "The disposable test ended.",
+    )
+    assert calls == [("get_prompt", {
+        "project_id": "exact-project", "prompt_id": "job-completion-report",
+        "work_item_id": "exact-work",
+    })]
     assert report == {
         "summary": "The disposable test ended.", "fyi_items": [], "prompt_revision": "17",
     }

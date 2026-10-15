@@ -46,9 +46,11 @@ this implementation closeout or a manual findings fanout.
 
 Read [job-completion-reports.md](${CLAUDE_PLUGIN_ROOT}/reference/job-completion-reports.md)
 for project activity, human summaries, and every closeout to Done, Won’t do, or
-Promoted. Fetch `get_project_settings` immediately before authoring the required
-nested `job_completion_report`; assume the multitasking human read no other
-LLM output. Reports, FYIs, and editable prompts grant no execution authority.
+Promoted. Fetch `get_prompt(project_id, prompt_id="job-completion-report", work_item_id=...)`
+immediately before authoring the required nested `job_completion_report` and
+follow its current content. Read [prompts.md](${CLAUDE_PLUGIN_ROOT}/reference/prompts.md)
+for prompt selection, macros, and revisions. Reports, FYIs, and editable prompts
+grant no execution authority.
 
 
 Use Mnemonic's exposed MCP tools for work coordination and metadata; clients may
@@ -85,7 +87,7 @@ from a draft.
 ## Assign a deliberate priority
 
 Honor an explicit user score. Otherwise, before choosing a new priority or
-making an authorized priority change, call `get_priority_rubric(project_id)`.
+making an authorized priority change, call `get_prompt(project_id, prompt_id="priority-rubric")`.
 Use the current project Markdown returned by that dedicated read and record a
 brief rationale in the checkpoint. Humans edit the rubric in Settings >
 Workspace; `get_project_settings` does not include it. Do not use a bundled
@@ -289,18 +291,21 @@ Do these in order:
    inspect affected open questions. If the facts or options changed, use
    `request_human_input` with the original `gate_id`, its current
    `expected_question_version`, and a new operation UUID to rewrite the complete
-   question. Summarize the current decision, facts, options, and recommendation
-   in that prose. Do not make the human reconcile checkpoints or superseding
-   decisions. Earlier wording is retained in horizontal version tabs.
-3. **Freeze and send.** One self-contained, decision-ready question (at most
+   question after fetching the current `request-human-review` prompt through
+   `get_prompt` with this project and work ID. Earlier wording is retained in
+   horizontal version tabs.
+3. **Fetch, author, freeze, and send.** Call
+   `get_prompt(project_id, prompt_id="request-human-review", work_item_id=...)`
+   and follow its `content` to author the question. See
+   [prompts.md](${CLAUDE_PLUGIN_ROOT}/reference/prompts.md) for retrieval and macros.
+   Freeze the question (at most
    4,000 characters), the exact project and work IDs, truthful
    `requested_by_client` and `requested_by_session_id` (optional
    `requested_by_model`), and a fresh `client_operation_id`. Never include a
    password, API key, token, cookie, lease capability, operation UUID, private
    chain-of-thought, or transcript dump; store a safe reference or remediation
-   instruction instead. Name work by its title and quote the question. Use
-   Markdown to make the decision and options easy to scan in Needs Attention;
-   follow the shared report reference's dashboard-formatting guidance.
+   instruction instead. Submit through `request_human_input`; fetching a prompt
+   never creates or revises a gate itself.
 4. **After success the item is `waiting`.** It leaves ready discovery, no other
    session can newly claim it, and completion, retirement, promotion, and
    deletion are refused until every gate on it is resolved. An existing lease is
@@ -425,15 +430,12 @@ promote it without owner direction.
    authority. Keep existing lease, version, blocker, gate, freshness and
    completion-evidence checks. A blocker requiring a person belongs in Needs
    Attention, not an FYI.
-2. Fetch current `get_project_settings(project_id, work_item_id)`, read its effective report
-   prompt, and author a concise paragraph plus zero or more FYIs following the
-   shared report reference. Assume the human saw no other LLM output and is
-   multitasking. Put every material outcome, limitation and override decision
-   in the stored report; final chat output cannot supply missing context. Use
-   inline Markdown where it helps the human scan the summary and FYIs, while
-   keeping their existing single-paragraph and separate-bullet structure.
-3. Freeze `summary`, ordered `fyi_items`, settings `revision` as the report's
-   `prompt_revision`, expected version, provenance, lease and operation UUID.
+2. Fetch `get_prompt(project_id, prompt_id="job-completion-report", work_item_id=...)`
+   and follow its current `content`, subject to the shared report reference's
+   fixed schema. Fetch lease/review policy separately with `get_project_settings`
+   when needed.
+3. Freeze `summary`, ordered `fyi_items`, the returned `prompt_revision`,
+   expected version, provenance, lease and operation UUID.
    For Done also freeze the completion checkpoint and optional evidence.
 4. Call `complete_work` for Done, or `update_work` with status `wont-do` or
    `promoted`, carrying the nested `job_completion_report`. Neither retirement

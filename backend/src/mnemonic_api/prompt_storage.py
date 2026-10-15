@@ -22,6 +22,9 @@ PROMPTS = {
     "review-recommendation": ("Review recommendation", "Ask whether completed work needs review."),
     "review-remediation": ("Review remediation", "Address all findings from a completed review."),
     "resume-work": ("Resume work", "Resume work with its current retained context."),
+    "request-human-review": (
+        "Request human review", "Write a decision for the human in Needs Attention.",
+    ),
 }
 MAX_BYTES = 400_000
 _DIRECTORY_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC

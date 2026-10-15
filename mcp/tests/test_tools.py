@@ -694,7 +694,7 @@ async def test_tool_catalog_schemas_and_annotations(settings):
         "list_work_follow_ups", "get_work_follow_up", "respond_to_work_follow_up",
         "get_activity",
         "get_project_settings",
-        "get_priority_rubric",
+        "get_prompt",
         "list_job_completion_reports",
         "get_job_completion_report",
         "list_projects",
@@ -3109,7 +3109,11 @@ async def test_recall_resource_and_resume_prompt_are_bounded_and_carry_authority
         if request.url.path.endswith("/prompts/resume-work/render"):
             assert request.method == "POST"
             assert json.loads(request.content) == {"work_item_id": WORK_ID}
-            return stream_json({"content": rendered_resume_prompt})
+            return stream_json({
+                "project_id": PROJECT_ID, "prompt_id": "resume-work",
+                "work_item_id": WORK_ID, "code_review_id": None,
+                "content": rendered_resume_prompt, "revision": "a" * 64, "prompt_revision": None,
+            })
         calls.append(dict(request.url.params))
         assert request.url.path == f"/api/v1/projects/{PROJECT_ID}/work-items/{WORK_ID}/context"
         return httpx.Response(200, json=gated_context)
@@ -4969,7 +4973,11 @@ async def test_exact_alias_get_recall_resource_and_prompt_never_redirect(
     def handler(request):
         calls.append(request.url.path)
         if request.url.path.endswith("/prompts/resume-work/render"):
-            return stream_json({"content": rendered_resume_prompt})
+            return stream_json({
+                "project_id": PROJECT_ID, "prompt_id": "resume-work",
+                "work_item_id": WORK_ID, "code_review_id": None,
+                "content": rendered_resume_prompt, "revision": "a" * 64, "prompt_revision": None,
+            })
         if request.url.path.endswith("/context"):
             return httpx.Response(200, json=alias_context)
         return httpx.Response(

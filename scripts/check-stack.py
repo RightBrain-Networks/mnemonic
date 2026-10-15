@@ -55,7 +55,7 @@ CANONICAL_TOOLS = {
     "list_work_follow_ups", "get_work_follow_up", "respond_to_work_follow_up",
     "get_activity",
     "get_project_settings",
-    "get_priority_rubric",
+    "get_prompt",
     "list_job_completion_reports",
     "get_job_completion_report",
     "list_projects",
@@ -949,8 +949,8 @@ def validate_phase12_mcp_catalog(tools: dict[str, Any]) -> None:
         )
     for name, expected in {
         "get_activity": "ProjectActivityPage",
-        "get_project_settings": "ProjectSettingsRead",
-        "get_priority_rubric": "PriorityRubricRead",
+        "get_project_settings": "ProjectSettingsValues",
+        "get_prompt": "RenderedPrompt",
         "list_job_completion_reports": "JobCompletionReportPage",
         "get_job_completion_report": "JobCompletionReportDetailEnvelope",
     }.items():
@@ -961,17 +961,22 @@ def validate_phase12_mcp_catalog(tools: dict[str, Any]) -> None:
 
 
 async def synthetic_job_report(
-    session: ClientSession, project_id: str, summary: str, fyi_items: list[str] | None = None
+    session: ClientSession, project_id: str, work_item_id: str,
+    summary: str, fyi_items: list[str] | None = None,
 ) -> dict[str, Any]:
     """Bind deliberately authored synthetic prose to the prompt just obtained."""
-    settings = await tool(session, "get_project_settings", {"project_id": project_id})
+    prompt = await tool(session, "get_prompt", {
+        "project_id": project_id, "prompt_id": "job-completion-report",
+        "work_item_id": work_item_id,
+    })
     require(
-        settings["project_id"] == project_id and bool(settings["job_completion_report_prompt"].strip()),
+        prompt["project_id"] == project_id and prompt["work_item_id"] == work_item_id
+        and bool(prompt["content"].strip()),
         "The project has no effective report authoring prompt.",
     )
     return JobCompletionReportInput(
         summary=summary, fyi_items=[] if fyi_items is None else fyi_items,
-        prompt_revision=settings["revision"],
+        prompt_revision=prompt["prompt_revision"],
     ).model_dump(mode="json")
 
 
@@ -994,8 +999,8 @@ def require_job_report(
 
 
 async def phase12_read_probe(session: ClientSession, project_id: str) -> str:
-    settings = await tool(session, "get_project_settings", {"project_id": project_id})
-    require(bool(settings["job_completion_report_prompt"].strip()), "Report prompt is blank.")
+    settings = await tool(session, "get_prompt", {"project_id": project_id, "prompt_id": "job-completion-report"})
+    require(bool(settings["content"].strip()), "Report prompt is blank.")
     initial = await tool(session, "get_activity", {"project_id": project_id, "start": "now"})
     require(initial["items"] == [] and not initial["has_more"], "Activity now bootstrap failed.")
     reports = await tool(session, "list_job_completion_reports", {"project_id": project_id, "limit": 1})
@@ -1096,7 +1101,7 @@ async def phase12_human_report_flow(
     detail = await tool(session, "get_work", source_identity)
     source, _ = work_detail_parts(detail, source_identity["work_item_id"])
     requested = await synthetic_job_report(
-        session, project_id,
+        session, project_id, source_identity["work_item_id"],
         "The disposable verification task was marked Promoted to test a recorded hand-off. "
         "This does not create an external issue, assign an agent, or imply product work finished.",
         ["This synthetic report uses Arial as a sample choice; a follow-up can request Comic Sans."],
@@ -1130,7 +1135,7 @@ async def phase12_human_report_flow(
 def validate_rest_contract(document: Any) -> None:
     """Reject a healthy but contract-incompatible pre-Phase-12 API."""
     try:
-        require(document["info"]["version"] == "0.82.1", "Unexpected REST API version.")
+        require(document["info"]["version"] == "0.83.0", "Unexpected REST API version.")
         schemas = document["components"]["schemas"]
         unified_search = document["paths"]["/api/v1/projects/{project_id}/search"]["post"]
         require(
@@ -1639,14 +1644,14 @@ async def check(args: argparse.Namespace, key: str) -> None:
                 initialized = await session.initialize()
                 require(
                     initialized.serverInfo.name == "Mnemonic"
-                    and initialized.serverInfo.version == "0.82.1",
+                    and initialized.serverInfo.version == "0.83.0",
                     "Unexpected MCP server identity or version.",
                 )
                 catalog = await session.list_tools()
                 validate_mcp_catalog(catalog)
                 await tool(session, "list_projects", {})
                 print(
-                    "PASS: REST 0.82.1 cross-project relationship contract shape, work-move, "
+                    "PASS: REST 0.83.0 cross-project relationship contract shape, work-move, "
                     "code-review contract, real MCP initialization, 59-tool catalog, "
                     "exact seventeen protected mutation "
                     "schemas/annotations, and REST-backed project listing"
@@ -2584,7 +2589,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                         "work_item_id": terminal_id,
                     }
                     retirement_report = await synthetic_job_report(
-                        session, project_id,
+                        session, project_id, terminal_id,
                         "The temporary verification task was deliberately retired after checking "
                         "that new work starts pending. This was a disposable test and delivered "
                         "no product changes.",
@@ -3256,7 +3261,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                             "lease_token": lease_token,
                             "completion_evidence": completion_evidence,
                             "job_completion_report": await synthetic_job_report(
-                                session, project_id,
+                                session, project_id, identity["work_item_id"],
                                 "The disposable integration check completed its first pass through "
                                 "the application. Work history, coordination and retry checks passed "
                                 "up to this point. This test does not approve or deploy product changes.",
@@ -3508,7 +3513,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                             "expected_version": reopened["version"],
                             "checkpoint": evidence_free_checkpoint,
                             "job_completion_report": await synthetic_job_report(
-                                session, project_id,
+                                session, project_id, identity["work_item_id"],
                                 "The disposable task was reopened and closed again to verify that "
                                 "each closeout keeps its own human summary. This second closeout "
                                 "does not add structured verification evidence or deploy changes.",

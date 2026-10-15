@@ -327,7 +327,11 @@ async def test_resource_and_resume_prompt_expose_observed_references(
 
     def handler(req):
         if req.url.path.endswith('/prompts/resume-work/render'):
-            return stream_json({'content': rendered_resume_prompt})
+            return stream_json({
+                'project_id': PROJECT_ID, 'prompt_id': 'resume-work',
+                'work_item_id': work_context['work_item']['id'], 'code_review_id': None,
+                'content': rendered_resume_prompt, 'revision': 'a' * 64, 'prompt_revision': None,
+            })
         return httpx.Response(200, json=work_context)
 
     server = adapter(settings, handler)
