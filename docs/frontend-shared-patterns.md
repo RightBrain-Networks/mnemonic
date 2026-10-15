@@ -4,6 +4,11 @@ These modules consolidate the client-side P1 opportunities in the
 [shared-pattern audit PR](https://github.com/RightBrain-Networks/mnemonic/pull/33).
 They do not replace domain review rules or the receipt executor.
 
+The [FastAPI browser API foundation](browser-api.md) documents the explicit JSON
+route inventory, browser admission boundary, runtime configuration, and live-sync
+alias for the frontend migration. Existing Next.js handlers remain active during
+this first stage.
+
 ## Wire codecs
 
 General structure belongs to the neutral `revision-codecs`, `work-codecs`,

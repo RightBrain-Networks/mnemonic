@@ -1,4 +1,4 @@
-"""``/api/v1/sync``: data-free invalidation frames for dashboard browsers.
+"""Data-free invalidation frames on the machine and browser sync paths.
 
 The socket carries no bearer; the browser proves its origin instead, against
 the exact allowlist in ``Settings.allowed_dashboard_origins``. Every frame is
@@ -9,10 +9,11 @@ from fastapi import APIRouter, WebSocket, status
 
 from mnemonic_api.application.state import live_sync_hub_of, settings_of
 
-router = APIRouter(prefix="/api/v1")
+router = APIRouter()
 
 
-@router.websocket("/sync")
+@router.websocket("/api/v1/sync")
+@router.websocket("/api/mnemonic/sync")
 async def sync_dashboard(websocket: WebSocket) -> None:
     if websocket.headers.get("origin") not in settings_of(websocket).allowed_dashboard_origins:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)

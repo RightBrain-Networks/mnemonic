@@ -19,6 +19,7 @@ from mnemonic_api.application.suggestion_resources import (
     DuplicateSuggestionControlMiddleware,
     DuplicateSuggestionResources,
 )
+from mnemonic_api.application.transport_paths import domain_path
 from mnemonic_api.live_sync import mutation_event
 
 logger = logging.getLogger(__name__)
@@ -57,7 +58,7 @@ async def broadcast_successful_mutations(
     trace = mutation_trace(request)
     if trace is not None:
         _log_outcome(trace, response.status_code)
-    event = mutation_event(request.method, request.url.path)
+    event = mutation_event(request.method, domain_path(request.url.path))
     succeeded = 200 <= response.status_code < 300
     changed = trace is None or (
         trace.outcome != "replayed" and trace.mutation_applied is not False

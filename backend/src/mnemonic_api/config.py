@@ -1,8 +1,11 @@
 """Validated service configuration, with secrets kept out of repr/log output."""
 
+import re
+from functools import cache
 from pathlib import Path
 from typing import Self
 from urllib.parse import urlsplit
+from zoneinfo import available_timezones
 
 from pydantic import AliasChoices, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -12,11 +15,36 @@ from mnemonic_api.suggestion_deadlines import SUGGESTION_MAX_SECONDS
 from mnemonic_api.summary_limits import DEFAULT_WORK_SUMMARY_MAX_CHARS
 
 
+@cache
+def _display_timezones() -> frozenset[str]:
+    # Intl accepts timezone names case-insensitively, but not host-local files
+    # or the tzdb placeholder. Retain the configured spelling for the browser.
+    return frozenset(name.lower() for name in available_timezones() - {"localtime", "Factory"})
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(extra="ignore", populate_by_name=True)
 
     database_url: SecretStr = Field(validation_alias=AliasChoices("DATABASE_URL", "database_url"))
     api_key: SecretStr = Field(validation_alias=AliasChoices("MNEMONIC_API_KEY", "api_key"))
+    timezone: str = Field(
+        default="UTC",
+        validation_alias=AliasChoices("TIMEZONE", "timezone"),
+    )
+    backup_max_bytes: int = Field(
+        default=67_108_864,
+        ge=1,
+        le=2**53 - 1,
+        validation_alias=AliasChoices("MNEMONIC_BACKUP_MAX_BYTES", "backup_max_bytes"),
+    )
+
+    @field_validator("timezone")
+    @classmethod
+    def display_timezone(cls, value: str) -> str:
+        candidate = value.strip()
+        offset = re.fullmatch(r"[+-](?:[01][0-9]|2[0-3])(?::?[0-5][0-9])?", candidate)
+        return candidate if offset or candidate.lower() in _display_timezones() else "UTC"
+
     work_summary_max_chars: int = Field(
         default=DEFAULT_WORK_SUMMARY_MAX_CHARS,
         ge=1,

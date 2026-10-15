@@ -10,6 +10,7 @@ from urllib.parse import parse_qsl
 
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from mnemonic_api.application.transport_paths import domain_path
 from mnemonic_api.config import Settings
 from mnemonic_api.errors import (
     ApplicationError,
@@ -191,7 +192,7 @@ def _search_operation(scope: Scope) -> str | None:
         return "unified_search"
     if scope.get("type") != "http":
         return None
-    parts = str(scope.get("path", "")).strip("/").split("/")
+    parts = domain_path(str(scope.get("path", ""))).strip("/").split("/")
     if len(parts) < 5 or parts[:3] != ["api", "v1", "projects"]:
         return None
     methods = {"search": "POST", "duplicate-suggestions": "POST", "work-items": "GET"}
@@ -407,7 +408,7 @@ def _artifact_library_disabled(scope: Scope) -> bool:
 def _is_artifact_search_request(scope: Scope) -> bool:
     if scope.get("type") != "http" or scope.get("method") != "POST":
         return False
-    parts = str(scope.get("path", "")).strip("/").split("/")
+    parts = domain_path(str(scope.get("path", ""))).strip("/").split("/")
     return (len(parts) == 6 and parts[:3] == ["api", "v1", "projects"]
             and parts[4:] == ["artifacts", "search-content"])
 
@@ -415,7 +416,7 @@ def _is_artifact_search_request(scope: Scope) -> bool:
 def _is_unified_search_request(scope: Scope) -> bool:
     if scope.get("type") != "http" or scope.get("method") != "POST":
         return False
-    parts = str(scope.get("path", "")).strip("/").split("/")
+    parts = domain_path(str(scope.get("path", ""))).strip("/").split("/")
     return parts == ["api", "v1", "search"] or (
         len(parts) == 5 and parts[:3] == ["api", "v1", "projects"] and parts[4] == "search"
     )
@@ -452,7 +453,7 @@ async def _serve_semantic_search(
 def _is_suggestion_request(scope: Scope) -> bool:
     if scope.get("type") != "http" or scope.get("method") != "POST":
         return False
-    parts = str(scope.get("path", "")).strip("/").split("/")
+    parts = domain_path(str(scope.get("path", ""))).strip("/").split("/")
     return len(parts) == 5 and parts[:3] == ["api", "v1", "projects"] and parts[4] == (
         "duplicate-suggestions"
     )
@@ -461,7 +462,7 @@ def _is_suggestion_request(scope: Scope) -> bool:
 def _is_semantic_search_request(scope: Scope) -> bool:
     if scope.get("type") != "http" or scope.get("method") != "GET":
         return False
-    parts = str(scope.get("path", "")).strip("/").split("/")
+    parts = domain_path(str(scope.get("path", ""))).strip("/").split("/")
     if len(parts) != 5 or parts[:3] != ["api", "v1", "projects"]:
         return False
     if parts[4] != "work-items":

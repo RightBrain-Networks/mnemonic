@@ -21,6 +21,8 @@ from fastapi import FastAPI
 from sqlalchemy.engine import Engine
 
 from mnemonic_api.application.artifact_maintenance import artifact_maintenance_loop
+from mnemonic_api.application.browser_boundary import BrowserBoundaryMiddleware
+from mnemonic_api.application.browser_routes import browser_router
 from mnemonic_api.application.handlers import install_exception_handlers
 from mnemonic_api.application.middleware import install_middleware
 from mnemonic_api.application.routes import api_router
@@ -67,6 +69,9 @@ def create_app(
         try:
             yield
         finally:
+            # Browser timeouts may leave writes or read cleanup in flight.
+            # Finish those tasks before closing their shared resources.
+            await asyncio.gather(*app.state.browser_pending_tasks, return_exceptions=True)
             for task in (maintenance, extraction):
                 if task is not None:
                     task.cancel()
@@ -79,7 +84,7 @@ def create_app(
 
     app = FastAPI(
         title="Mnemonic API",
-        version="0.83.0",
+        version="0.83.1",
         description="Durable project-scoped work with immutable agent checkpoints.",
         lifespan=lifespan,
     )
@@ -101,11 +106,14 @@ def create_app(
     )
     app.state.duplicate_suggestion_resources = DuplicateSuggestionResources.from_settings(config)
     app.state.live_sync_hub = LiveSyncHub()
+    app.state.browser_pending_tasks = set()
 
     app.include_router(api_router())
+    app.include_router(browser_router())
     app.include_router(sync_router)
     app.include_router(health_router)
     install_middleware(app, app.state.duplicate_suggestion_resources)
+    app.add_middleware(BrowserBoundaryMiddleware, pending_tasks=app.state.browser_pending_tasks)
     install_exception_handlers(app)
 
     default_openapi = app.openapi
