@@ -32,11 +32,13 @@ origin headers do not grant trust. Machine bearer credentials do not replace
 browser admission. Operation, gate, and lease controls remain forbidden in
 headers and cookies; approved JSON fields retain their existing contracts.
 
-Mutations use the same receipt-backed domain handlers as `/api/v1`; the browser
-does not mint a replacement operation UUID or rebuild a retry body. The existing
-frontend mutation registry continues to retain exact bytes and classify uncertain
-outcomes. Successful mutations publish through the shared live-sync hub, with
-receipt replays and unchanged operations retaining their existing suppression.
+Mutations use the same domain handlers as `/api/v1`, preserving which writes are
+receipt-protected. The browser does not mint a replacement operation UUID or
+rebuild a retry body. The existing frontend mutation registry continues to retain
+exact bytes and classify uncertain outcomes. Successful mutations covered by the
+existing live-sync mapping publish through the shared hub, with receipt replays
+and unchanged operations retaining their existing suppression. Report dismissal
+and report follow-up creation retain their existing absence of live-sync frames.
 
 Browser responses use `Cache-Control: no-store, max-age=0, no-transform`,
 `X-Content-Type-Options: nosniff`, and
