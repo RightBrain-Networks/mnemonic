@@ -1,6 +1,6 @@
 # Project priority rubric
 
-Call `get_priority_rubric(project_id)` when you need guidance for choosing,
+Call `get_prompt(project_id, prompt_id="priority-rubric")` when you need guidance for choosing,
 explaining, or reassessing a priority. The current Markdown is maintained by
 humans in Settings > Workspace > Priority rubric. It is separate from
 `get_project_settings` and ordinary work reads to keep those responses compact.
@@ -12,3 +12,6 @@ protected write; uncertain retries preserve the original intent and operation ID
 
 Do not substitute a bundled rubric if this read fails: report the unavailable
 guidance rather than silently scoring against stale defaults.
+
+See [prompts.md](${CLAUDE_PLUGIN_ROOT}/reference/prompts.md) for optional work
+context and the shared macro and retrieval contract.

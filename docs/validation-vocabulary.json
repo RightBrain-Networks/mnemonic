@@ -92,6 +92,7 @@
     "project_id",
     "project_ids",
     "prompt",
+    "prompt_id",
     "purpose",
     "q",
     "query_mode",

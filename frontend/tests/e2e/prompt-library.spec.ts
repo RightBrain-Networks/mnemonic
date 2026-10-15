@@ -23,13 +23,36 @@ async function readPrompt(api: APIRequestContext, projectId: string, id = "recal
   return await response.json() as PromptDetail;
 }
 
+test("Needs Attention instructions can be edited and rendered for this project", async ({ page }, testInfo) => {
+  const api = await client();
+  try {
+    const selected = await project(api);
+    await openLibrary(page, selected.id);
+    await page.getByRole("button", { name: "Request human review", exact: true }).click();
+    const drawer = page.getByRole("dialog", { name: "Request human review", exact: true });
+    const input = drawer.getByRole("textbox", { name: "Prompt content" });
+    await expect(input).toHaveValue(/Needs Attention/);
+    const template = "# Decision for $PROJECT_NAME\n\nGive the choices, costs, and your recommendation.";
+    await input.fill(template);
+    await drawer.getByRole("button", { name: "Save", exact: true }).click();
+    await expect.poll(async () => (await readPrompt(api, selected.id, "request-human-review")).content).toBe(template);
+    const response = await api.post(`/api/v1/projects/${selected.id}/prompts/request-human-review/render`, { data: {} });
+    expect(response.ok(), await response.text()).toBe(true);
+    const rendered = await response.json();
+    expect(rendered.content).toBe(template.replace("$PROJECT_NAME", selected.name));
+    expect(rendered.prompt_id).toBe("request-human-review");
+    expect(rendered.prompt_revision).toBeNull();
+    await page.screenshot({ path: testInfo.outputPath("request-human-review-editor.png") });
+  } finally { await api.dispose(); }
+});
+
 test("prompt directory has a bottom macro glossary and a right editor with copy, save, and keyboard focus", async ({ page }, testInfo) => {
   const api = await client();
   try {
     const selected = await project(api);
     const catalog = await (await api.get(`/api/v1/projects/${selected.id}/prompts`)).json() as PromptLibraryPage;
     await openLibrary(page, selected.id);
-    await expect(page.locator(".prompt-table tbody tr")).toHaveCount(7);
+    await expect(page.locator(".prompt-table tbody tr")).toHaveCount(8);
     await expect(page.locator(".prompt-table thead th")).toHaveText(["Name / purpose", "Size", "Created", "Updated"]);
     for (const macro of catalog.macros) await expect(page.locator(".prompt-glossary").getByText(macro.macro, { exact: true })).toBeVisible();
     expect(await page.locator(".prompt-glossary").evaluate((element) => element.compareDocumentPosition(document.querySelector(".prompt-table")!) & Node.DOCUMENT_POSITION_PRECEDING)).toBeTruthy();
@@ -135,7 +158,7 @@ test("project prompt edits drive both clipboard actions, preserve unknown macros
     await drawer.getByRole("button", { name: "Save", exact: true }).click();
     await expect(drawer.getByRole("button", { name: "Save", exact: true })).toBeDisabled();
     await drawer.getByRole("button", { name: "Close prompt" }).click();
-    await page.getByRole("link", { name: "Work items", exact: true }).click();
+    await page.goto("/work-items");
     const expected = `${selected.name}\n${work.id}: Prompt clipboard acceptance\nA literal $PROJECT_ID in a work summary.\n$UNKNOWN_MACRO`;
     await workCard(page, "Prompt clipboard acceptance").getByRole("button", { name: /Copy recall pointer/ }).click();
     await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(expected);

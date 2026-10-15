@@ -199,7 +199,7 @@ class JobCompletionReportDetailRead(JobCompletionReportRead):
         return self
 
 
-class ProjectSettingsRead(Phase12Wire):
+class ProjectSettingsValues(Phase12Wire):
     lease_default_minutes: LeaseMinutes
     lease_minimum_minutes: LeaseMinutes
     lease_maximum_minutes: LeaseMinutes
@@ -207,8 +207,6 @@ class ProjectSettingsRead(Phase12Wire):
     code_review_optional_min_priority: Annotated[StrictInt, Field(ge=0, le=100, multiple_of=5)]
     allow_remediation_code_reviews: StrictBool
     project_id: UUID
-    recall_pointer_template: Annotated[StrictStr, Field(min_length=1, max_length=100000)] | None
-    job_completion_report_prompt: RenderedReportPrompt
     revision: PositiveDecimalString
 
     @model_validator(mode="after")
@@ -216,6 +214,13 @@ class ProjectSettingsRead(Phase12Wire):
         if not self.lease_minimum_minutes <= self.lease_default_minutes <= self.lease_maximum_minutes:
             raise ValueError("Lease durations must satisfy minimum <= default <= maximum.")
         return self
+
+
+class ProjectSettingsRead(ProjectSettingsValues):
+    """Full REST settings, validated before projecting the MCP's scalar settings."""
+
+    recall_pointer_template: Annotated[StrictStr, Field(min_length=1, max_length=100000)] | None
+    job_completion_report_prompt: RenderedReportPrompt
 
     @field_validator("recall_pointer_template")
     @classmethod

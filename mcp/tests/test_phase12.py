@@ -206,7 +206,10 @@ async def test_four_safe_reads_and_strict_projection_boundaries(settings):
         "project_id": PROJECT_ID, "revision": "3", "recall_pointer_template": None,
         "job_completion_report_prompt": AUTHORING_PROMPT,
     }
-    assert await call(settings, "get_project_settings", settings_response) == settings_response
+    assert await call(settings, "get_project_settings", settings_response) == {
+        key: value for key, value in settings_response.items()
+        if key not in {"recall_pointer_template", "job_completion_report_prompt"}
+    }
 
 
 async def test_activity_accepts_work_move_witnesses(settings):
@@ -729,22 +732,23 @@ async def test_catalog_is_59_tools_17_protected_and_report_omission_is_replay_on
             "summary", "fyi_items", "prompt_revision",
         }
         assert "historical" in tools[name].description
-        assert "get_project_settings" in tools[name].description
-    for name in ("get_activity", "get_project_settings", "list_job_completion_reports", "get_job_completion_report"):
+        assert "get_prompt" in tools[name].description
+    for name in ("get_activity", "get_project_settings", "get_prompt", "list_job_completion_reports", "get_job_completion_report"):
         assert tools[name].annotations.readOnlyHint
         assert tools[name].annotations.idempotentHint is True
 
 
-def test_plugin_fixed_authoring_and_human_action_contract():
+def test_plugin_retrieves_authoring_guidance_and_preserves_human_action_contract():
     root = Path(__file__).resolve().parents[2] / "plugin"
     reference = (root / "reference/job-completion-reports.md").read_text()
     for expected in (
-        "no other LLM output", "multitasking", "get_project_settings", "prompt_revision",
-        "never more than three", "Needs Attention", "Won’t do", "Promoted", "same UUID",
+        "get_prompt", "job-completion-report", "prompt_revision",
+        "Needs Attention", "Won’t do", "Promoted", "same UUID",
         "immutable", "no separate", "does not dismiss", "not authority",
     ):
         assert expected in reference, expected
     for skill in ("mnemonic-save", "mnemonic-recall", "mnemonic-search"):
         guidance = (root / "skills" / skill / "SKILL.md").read_text()
         assert "reference/job-completion-reports.md" in guidance
-        assert "get_project_settings" in guidance
+        assert "get_prompt" in guidance
+        assert "reference/prompts.md" in guidance

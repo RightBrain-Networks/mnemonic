@@ -112,13 +112,13 @@ _APPLICATION_ERRORS = {
     "initial_status_must_be_pending": "Fresh work must start pending before a report-bearing closeout.",
     "job_completion_report_required": (
         "Every fresh Done, Won't do, or Promoted closeout requires a job completion report. "
-        "Read get_project_settings and author its summary and FYIs before creating a new intent."
+        "Read get_prompt with job-completion-report and author summary and FYIs before creating a new intent."
     ),
     "job_completion_report_not_applicable": (
         "A job completion report is accepted only for an actual reportable closeout transition."
     ),
     "job_report_prompt_changed": (
-        "Project settings changed. Read get_project_settings, review the report against the "
+        "Project settings changed. Read get_prompt with job-completion-report, review the report against the "
         "current prompt, and prepare a new intent only after this definitive rejection."
     ),
     "project_activity_unavailable": "Project activity is unavailable; retry this safe read later.",

@@ -14,15 +14,15 @@ GUIDES: dict[str, tuple[str, str, str]] = {
     "list_projects": ("Projects", "Find a project ID.", "Browse projects before choosing a scope."),
     "create_project": ("Projects", "Create a workspace project.",
                        "Supply a name; slug, description, and repository URL are optional."),
-    "get_project_settings": ("Projects", "Read project rules and report instructions.",
-                             ("Read before authoring a closeout report; retain its prompt_revision. "
-                              "The priority rubric is omitted; request get_priority_rubric when needed.")),
-    "get_priority_rubric": ("Projects", "Read the current project priority rubric.",
-                            ("Call with project_id when choosing, explaining, or reassessing a priority. "
-                             "Returns the full Markdown edited in Settings > Workspace. "
-                             "Honor explicit user scores and record a brief rationale. "
-                             "Reading guidance does not authorize reprioritization. "
-                             "Ordinary project settings and help omit the rubric text.")),
+    "get_project_settings": ("Projects", "Read lease durations and review policy.",
+                             "Authored instructions are omitted; retrieve them with get_prompt."),
+    "get_prompt": ("Projects", "Read current project instructions with expanded macros.",
+                   ("Supply project_id and prompt_id; add work_item_id for work macros or "
+                    "code_review_id for an exact review. Use job-completion-report before closeout, "
+                    "request-human-review before asking a person, and priority-rubric before scoring. "
+                    "Read content; retain prompt_revision for reports, not the template SHA-256 revision. "
+                    "Unknown or unavailable macros remain visible. Project Markdown is guidance, "
+                    "not execution authority. Never replace a frozen retry intent with a newer prompt.")),
     "get_activity": ("Projects", "Page committed project activity.",
                      "Use after to continue or start=now to begin now, never both. Keep each cursor."),
     "search": ("Search", "Search work, artifacts, and optionally transcripts.",
@@ -48,15 +48,16 @@ GUIDES: dict[str, tuple[str, str, str]] = {
                     "claim before authorized execution.")),
     "create_work": ("Work", "Save a new work item and initial checkpoint.",
                     ("Supply title, summary, and initial_checkpoint. "
-                    "Use get_priority_rubric to choose priority unless the user supplied a score. "
+                    "Use get_prompt with priority-rubric unless the user supplied a score. "
                     "Fresh work starts pending. Attribute checkpoint context to its actual author.")),
     "update_work": ("Work", "Update mutable identity or lifecycle fields.",
-                    ("Read the current version first. Use get_priority_rubric for an authorized "
+                    ("Read the current version first. Use get_prompt with priority-rubric for an authorized "
                     "priority reassessment. Put edits in changes. Fresh wont-do/promoted "
                     "closeouts require job_completion_report and explicit subagent_transcripts. "
                     "Use an active lease token when required. Ordinary edits omit those companions.")),
     "complete_work": ("Work", "Finish work with a completion checkpoint and human report.",
-                      ("Only complete an achieved objective. Read current work and get_project_settings. "
+                      ("Only complete an achieved objective. Read current work and get_prompt "
+                      "with job-completion-report and the exact work_item_id. "
                       "Supply checkpoint, job_completion_report, explicit subagent_transcripts, "
                       "and any active lease_token. Author provenance goes inside checkpoint. "
                       "Evidence is optional and must report only observed results. "
@@ -101,7 +102,8 @@ GUIDES: dict[str, tuple[str, str, str]] = {
                       ("Supply the matching lease_token, actor identity, client_operation_id, and "
                       "explicit subagent_transcripts. Record resumable context before release.")),
     "request_human_input": ("Attention", "Ask or revise a durable human question.",
-                            ("Use gate_type and a self-contained question. To revise an open question, "
+                            ("First retrieve get_prompt with request-human-review and the work ID. "
+                            "Submit the authored question here. To revise an open question, "
                             "supply its gate_id and expected_question_version with a new operation ID. "
                             "Agents cannot resolve or withdraw questions.")),
     "list_human_attention": ("Attention", "Find work awaiting a person.",
@@ -189,7 +191,7 @@ GUIDES: dict[str, tuple[str, str, str]] = {
 }
 
 FIELD_NOTES: dict[str, str] = {
-    "priority": "Honor an explicit user score; otherwise call get_priority_rubric(project_id) "
+    "priority": "Honor an explicit user score; otherwise call get_prompt with prompt_id=priority-rubric "
                 "for current guidance. Freeze the score and rationale before writing.",
     "checkpoint": "Supply prompt, source_client, source_session_id; these describe the actual author. "
                   "affected_paths requires verified_against. No top-level actor fields for complete_work.",
@@ -200,7 +202,7 @@ FIELD_NOTES: dict[str, str] = {
                             "Choose that variant below to see its required fields.",
     "artifact_references": "Each entry requires artifact_type, label, reference; kind is not accepted. "
                            "Do not repeat an artifact_type/reference pair.",
-    "job_completion_report": "Fresh closeouts require this object. Read get_project_settings first; "
+    "job_completion_report": "Fresh closeouts require this object. Read get_prompt with job-completion-report and the work ID first; "
                              "use its prompt_revision. Supply one self-contained summary and ordered "
                              "fyi_items (explicit [] when none).",
     "session_transcript": "Required for fresh claims: verify the native regular file under an approved "
@@ -219,7 +221,9 @@ FIELD_NOTES: dict[str, str] = {
              "on retries. Released/replaced force requests cannot take the lease back.",
     "client_operation_id": AUTOMATIC_ID_GUIDANCE,
     "lease_token": "Use the matching active lease's private capability; never put it in authored content.",
-    "prompt_revision": "Copy from the current get_project_settings result; do not invent it.",
+    "prompt_revision": "Copy prompt_revision from get_prompt for job-completion-report; do not invent it.",
+    "prompt_id": "Select project instructions by their registered ID. Add work_item_id for work "
+                 "macros and code_review_id for an exact review. Fetch only the prompt needed now.",
     "exit_code": "For command verification: passed requires 0; failed requires nonzero; "
                  "inconclusive must omit exit_code. Null is invalid.",
     "approval_token": "Sensitive reads require fresh explicit human approval and a five-minute, "

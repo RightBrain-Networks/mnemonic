@@ -13,12 +13,65 @@ Each shipped task prompt has one source document in [`prompts/`](../prompts/):
 | Prompt | Source | Used by |
 | --- | --- | --- |
 | Recall pointer | [recall-pointer.md](../prompts/recall-pointer.md) | Dashboard Copy recall pointer |
-| Job completion report | [job-completion-report.md](../prompts/job-completion-report.md) | Settings reads before Done, Won’t do, or Promoted closeout |
+| Job completion report | [job-completion-report.md](../prompts/job-completion-report.md) | `get_prompt` before Done, Won’t do, or Promoted closeout |
 | Cold code review | [cold-code-review.md](../prompts/cold-code-review.md) | Dashboard Cold review |
 | Warm code review | [warm-code-review.md](../prompts/warm-code-review.md) | Dashboard review recall pointer |
 | Review recommendation | [review-recommendation.md](../prompts/review-recommendation.md) | Optional review follow-up after completion |
 | Review remediation | [review-remediation.md](../prompts/review-remediation.md) | Initial checkpoint for the one remediation created from a review |
 | Resume work | [resume-work.md](../prompts/resume-work.md) | MCP `resume_work` prompt |
+| Request human review | [request-human-review.md](../prompts/request-human-review.md) | `get_prompt` before creating or revising a Needs Attention question |
+
+## Agent retrieval
+
+In 0.83.0 the MCP tool `get_prompt` is the shared instruction read:
+
+```json
+{
+  "project_id": "<project UUID>",
+  "prompt_id": "request-human-review",
+  "work_item_id": "<work UUID>"
+}
+```
+
+`project_id` and `prompt_id` are required. Optional `work_item_id` provides work
+macros; optional `code_review_id` selects an exact review episode and its scope.
+Supplied IDs must belong to the project and to each other. The tool accepts the
+eight library IDs above plus `priority-rubric`, which reads the existing rubric
+in Settings > Workspace, preserving its PostgreSQL storage and customizations.
+The former `get_priority_rubric` MCP tool is removed. Its human REST editor remains.
+
+The response contains `project_id`, `prompt_id`, the requested `work_item_id`
+and `code_review_id` (null when omitted), rendered `content`, the source-template
+SHA-256 `revision`, and `prompt_revision`. Only `job-completion-report` returns
+a nonnull `prompt_revision`: this is the decimal settings revision required by
+closeout writes. Never submit the template hash as a report's revision.
+Report retrieval synchronizes external file edits and returns matching text and
+revision; stale fresh closeouts are rejected, while exact receipt retries retain
+their original text and revision.
+
+MCP `get_project_settings(project_id)` returns lease durations and review policy
+without authored text. The existing REST settings representation continues to
+serve dashboard editors. The MCP `resume_work` prompt uses the same fetch path as
+`get_prompt`, then appends bounded retained work context. The underlying safe
+read is `POST /projects/{project_id}/prompts/{prompt_id}/render`, with the optional
+context IDs in its body and the response fields described above.
+
+Skills route to current prompts and retain fixed coordination, schema, authority,
+and retry rules. Writing style belongs in editable templates. Retrieving a prompt
+does not claim work, create a question, or authorize execution. Needs Attention
+questions are still submitted with `request_human_input`; `request-human-review`
+names its authoring instructions, not a second gate mutation. Cold reviewers
+must preserve their existing context boundary before findings freeze.
+
+Upgrade API, MCP, dashboard, and plugin together (plugin 0.49.0). No new database
+migration is required; the head stays `0051_priority_rubrics`. Existing project
+templates are preserved. Review existing project templates, especially
+`resume-work`, for references to the retired `get_priority_rubric` call or report
+instructions in `get_project_settings`; update those references to `get_prompt`.
+Changing a shipped default does not overwrite an already initialized template.
+The new human-review file is initialized from the
+shipped default on first access, including a library listing. Missing previously
+registered files remain errors and are never silently replaced with defaults.
 
 The inventory covers authored task instructions previously embedded in the
 backend, dashboard, and MCP adapter. MCP tool schemas, tool descriptions,
@@ -93,9 +146,10 @@ and generated review context values.
 
 Values are literal text: a macro inside a work title is not expanded again.
 Unknown macros and context-specific macros whose data is unavailable remain
-unchanged. To receive work macros in the report prompt, call
-`get_project_settings(project_id, work_item_id)` or add `work_item_id` to the
-REST settings query. Project-only settings reads have no selected work context.
+unchanged. To receive work macros, supply `work_item_id` to `get_prompt`. A
+project-only prompt read has no selected work context. Review-generated values
+such as finding checklists remain unavailable until their originating workflow
+supplies them; the tool accepts IDs, not caller-authored macro overrides.
 
 Cold review defaults expose only the pinned routing and repository scope.
 Explicitly inserting authored work macros into a customized cold-review template

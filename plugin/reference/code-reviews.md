@@ -9,8 +9,9 @@ every finding in the same result transaction. Never fan out findings with
 
 ## Prepare implementation closeout
 
-Read `get_project_settings` immediately before authoring the ordinary required
-job report. The two review thresholds use 0 = Always, 100 = Never, otherwise
+Read `get_project_settings` for review policy and retrieve report instructions
+with `get_prompt(project_id, prompt_id="job-completion-report", work_item_id=...)`.
+The two review thresholds use 0 = Always, 100 = Never, otherwise
 priority greater than or equal to the threshold. Mandatory takes precedence
 over optional. Both default to Never. Review policy is independent of report
 text and is snapshotted at Done; later edits do not cancel existing requests.
@@ -55,10 +56,9 @@ own assessment, not for a human gate answer. Use
 operation UUID, truthful actor, and `answer` containing its kind,
 `recommend_review` (boolean), and a concise nonblank `rationale`.
 
-Consider complex/intertwined changes, security/critical behavior, rework of
-faulty code, and mistakes encountered. A comprehensive review already completed,
-trivial changes, an owner's no-review instruction, or well-supported confidence
-may justify no. Neither list is exhaustive; answer candidly. Yes requires the
+Answer the returned question, which retains the project's `review-recommendation`
+prompt at completion. Do not replace that immutable question with a freshly
+rendered template. Yes requires the
 same complete scope/handoff object and atomically requests review. No forbids
 handoff and creates no review. A mandatory review cannot be declined this way.
 

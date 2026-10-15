@@ -15,6 +15,8 @@ const metadata = (id) => ({ id, name: id, description: "Project agent instructio
 const detail = { ...metadata("recall-pointer"), content };
 const list = { items: PROMPT_IDS.map(metadata), macros: [{ macro: "$WORK_ITEM_ID", description: "The work ID." }] };
 const path = `projects/${project}/prompts/recall-pointer`;
+const rendered = (content) => ({ project_id: project, prompt_id: "recall-pointer",
+  work_item_id: work, code_review_id: null, content, revision: "a".repeat(64), prompt_revision: null });
 
 test("prompt library validates complete catalog, unique glossary, and exact content byte sizes", () => {
   assert.deepEqual(decodePromptLibrary(list), list);
@@ -61,9 +63,9 @@ test("all prompt templates permit macros while report authoring retains its tigh
   assert.equal(validPromptContent("review-recommendation", "x".repeat(4_001)), false);
   assert.equal(validPromptContent("review-recommendation", "🧠".repeat(2_049)), false);
   assert.equal(validPromptContent("recall-pointer", "\ud800"), false);
-  assert.equal(decodeRenderedPrompt({ content }), content);
-  assert.throws(() => decodeRenderedPrompt({ content: "x".repeat(100_001) }));
-  assert.throws(() => decodeRenderedPrompt({ content, extra: "unexpected" }));
+  assert.equal(decodeRenderedPrompt(rendered(content)), content);
+  assert.throws(() => decodeRenderedPrompt(rendered("x".repeat(100_001))));
+  assert.throws(() => decodeRenderedPrompt({ ...rendered(content), extra: "unexpected" }));
 });
 
 test("agent clipboard content comes from the current backend template and never falls back on failed rendering", async () => {
@@ -72,7 +74,7 @@ test("agent clipboard content comes from the current backend template and never 
   try {
     globalThis.fetch = async (url, init) => {
       seen.push([url, init]);
-      return Response.json({ content: `Externally edited instructions for ${work}.` });
+      return Response.json(rendered(`Externally edited instructions for ${work}.`));
     };
     assert.equal(await renderedPrompt(project, "recall-pointer", work), `Externally edited instructions for ${work}.`);
     assert.equal(seen[0][0], `/api/mnemonic/${path}/render`);
@@ -80,7 +82,14 @@ test("agent clipboard content comes from the current backend template and never 
     assert.deepEqual(JSON.parse(seen[0][1].body), { work_item_id: work });
     globalThis.fetch = async () => Response.json({ detail: { code: "prompt_unavailable", message: "Prompt unavailable." } }, { status: 503 });
     await assert.rejects(renderedPrompt(project, "recall-pointer", work), /Prompt unavailable/);
-    globalThis.fetch = async () => Response.json({ content: "" });
+    globalThis.fetch = async () => Response.json(rendered(""));
     await assert.rejects(renderedPrompt(project, "recall-pointer", work), /invalid prompt response/);
+    for (const changed of [
+      { project_id: work }, { prompt_id: "request-human-review" },
+      { work_item_id: project }, { code_review_id: work }
+    ]) {
+      globalThis.fetch = async () => Response.json({ ...rendered(content), ...changed });
+      await assert.rejects(renderedPrompt(project, "recall-pointer", work), /invalid prompt response/);
+    }
   } finally { globalThis.fetch = originalFetch; }
 });

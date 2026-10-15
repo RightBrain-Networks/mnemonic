@@ -7,14 +7,14 @@ must be nonblank, valid Unicode without NUL, and at most 100,000 characters. The
 revision is the project's positive decimal settings revision; stale saves return
 409 `priority_rubric_changed`. Successful changed saves advance that revision and
 emit the existing settings activity. Ordinary project/settings/work reads omit
-the rubric. MCP exposes only the dedicated `get_priority_rubric(project_id)` read.
+the rubric. MCP exposes only `get_prompt(project_id, prompt_id="priority-rubric")`.
 Migration `0051_priority_rubrics` seeds existing and future projects from the
 previous bundled rubric. Edits are retained in PostgreSQL and project backups.
 
 Use [unified search](search.md) to retrieve work, artifacts, and transcripts in one
 ranked, filtered, paginated read through REST or MCP.
 
-This is application/API/MCP/dashboard `0.82.1`, plugin `0.48.0`, and migration
+This is application/API/MCP/dashboard `0.83.0`, plugin `0.49.0`, and migration
 `0051_priority_rubrics`. The catalog has exactly 59 MCP tools, 17
 protected MCP writes, 24 REST receipt kinds, 21 protected browser mutations and
 24 work-event types. The 24 REST receipt kinds comprise 18 work operations, four artifact operations
@@ -312,8 +312,9 @@ outside the receipt ledger. New projects have a saved default report prompt.
 
 ## Prompt library
 
-See [the prompt library](prompts.md) for the seven Markdown templates, storage,
-migration, and macro behavior. No editable prompt text is stored in PostgreSQL.
+See [the prompt library](prompts.md) for the eight Markdown templates, storage,
+migration, and macro behavior. Library templates are file-backed; the Workspace
+priority rubric remains in PostgreSQL and is also available through `get_prompt`.
 
 - `GET /projects/{project_id}/prompts` returns `{items, macros}`. Each item has
   `id`, `name`, `description`, `size_bytes`, `created_at`, `updated_at`, and the
@@ -324,8 +325,12 @@ migration, and macro behavior. No editable prompt text is stored in PostgreSQL.
   `prompt_changed`. This human configuration write uses compare-and-set,
   outside the permanent work-mutation receipt ledger.
 - `POST /projects/{project_id}/prompts/{prompt_id}/render` accepts optional
-  `work_item_id` and `code_review_id`, and returns `{content}`. It is a safe
-  rendering read, not an agent write or LLM invocation.
+  `work_item_id` and `code_review_id`, and returns `project_id`, `prompt_id`, the
+  requested context IDs (or null), `content`, source-template SHA-256 `revision`,
+  and `prompt_revision`. The last field is the decimal closeout revision for
+  `job-completion-report` and null for other prompts. It accepts the eight library
+  IDs plus `priority-rubric`. This is the shared safe read behind MCP `get_prompt`
+  and the `resume_work` MCP prompt; it does not claim work or invoke an LLM.
 
 Settings GET additionally accepts an optional `work_item_id` for report macros.
 Existing settings prompt fields remain a file-backed wire interface. Each
@@ -1484,7 +1489,7 @@ update_work, complete_work, list_completion_evidence, delete_work,
 claim_work, claim_and_recall, renew_claim, release_claim,
 add_relationship, get_relationship, list_relationships, remove_relationship,
 merge_work, suggest_duplicate_work,
-get_activity, get_project_settings, get_priority_rubric, list_job_completion_reports, get_job_completion_report,
+get_activity, get_project_settings, get_prompt, list_job_completion_reports, get_job_completion_report,
 list_work_follow_ups, get_work_follow_up, respond_to_work_follow_up,
 list_code_reviews, get_code_review, complete_code_review
 ```
@@ -1507,7 +1512,9 @@ administration, claim acquisition/recovery, and renewal retain their separate
 contracts.
 
 Every fresh closeout also requires `job_completion_report`; authors first read
-`get_project_settings`. The report prompt assumes no other LLM output was read.
+`get_prompt` with `prompt_id="job-completion-report"` and the exact work ID.
+Follow its current content and retain its `prompt_revision`; settings reads now
+return only policy to MCP callers. See [prompt retrieval](prompts.md).
 Missing companions stay structurally parseable for historical same-key receipt
 replay only. `update_work` carries reports for Won’t do/Promoted; Done uses
 `complete_work`. New work starts Pending. Agent tools do not dismiss reports or

@@ -1,5 +1,11 @@
 # Needs Attention
 
+Agents fetch `get_prompt(project_id, prompt_id="request-human-review", work_item_id=...)`
+before authoring or revising a question. Humans edit these instructions and their
+placeholder macros in Settings > Prompts > Request human review. The agent follows
+the returned content, then submits its question with `request_human_input`.
+See [Prompt library](prompts.md) for the shared retrieval contract.
+
 Questions show the latest authored prose by default. A horizontal tab strip above
 it opens every previous version. Returning to the current version enables the
 answer form; viewing history does not change or resolve the question.

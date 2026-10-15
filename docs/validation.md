@@ -1,5 +1,36 @@
 # Mnemonic validation record
 
+## Unified project prompt retrieval (0.83.0)
+
+`get_prompt` retrieves all eight editable library prompts and the existing
+Workspace priority rubric with the shared macro renderer. The new Request human
+review template controls Needs Attention question authoring. MCP settings omit
+prompt prose, `resume_work` uses the same retrieval path, and plugin 0.49.0 routes
+agents to current instructions while preserving fixed coordination and retry rules.
+The catalog remains 59 tools; the migration head remains `0051_priority_rubrics`.
+
+Validation on 2026-10-15 used Python 3.14, Node 24, and disposable PostgreSQL,
+RabbitMQ, and browser stacks. Coverage includes exact project/work/review scope,
+single-pass macros, preserved unknown macros, current edited content, malformed
+responses, missing files, report revision synchronization, stale fresh closeouts,
+and unchanged historical receipt replay. Existing report-template bytes remain
+unchanged for database guard compatibility.
+
+- Backend: 3,577 cases passed across the full run and a 73-case regression rerun.
+- MCP: 2,156 cases passed across the full run and a 334-case focused rerun.
+- Dashboard: all 511 tests, TypeScript checks, and the production build passed.
+- Browser: all 16 prompt-library checks passed on desktop and narrow Chromium;
+  the isolated backup/restore smoke checks also passed.
+- Plugin: 71 tests passed; the authentic macOS Bash runtime test was skipped on
+  Linux. All three skills passed the skill-creator validator.
+- Backend, MCP, and changed operational-script Ruff checks and both Python type
+  checks passed.
+
+The editor was inspected at [desktop](images/request-human-review-desktop.png)
+and [narrow](images/request-human-review-narrow.png) sizes. No production service
+was restarted or recreated. API, MCP, dashboard, and skills must be upgraded
+together; existing customized prompts and priority rubrics are preserved.
+
 ## Native Codex source refusal guidance (0.82.1)
 
 A Codex rollout beneath a custom `/work/codex` home was rejected by the running

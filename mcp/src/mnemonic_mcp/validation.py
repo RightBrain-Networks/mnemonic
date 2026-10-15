@@ -24,7 +24,7 @@ VALIDATION_FIELDS = frozenset(
         "created_before",
         "updated_after",
         "updated_before",
-        "diagnostics", "query_mode", "work_fields", "topic",
+        "diagnostics", "query_mode", "work_fields", "topic", "prompt_id",
         "tag_counts",
         "facets",
         "facet",

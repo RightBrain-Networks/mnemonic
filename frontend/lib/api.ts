@@ -136,6 +136,7 @@ export const SAFE_VALIDATION_LOCATION_PARTS: ReadonlySet<string> = new Set([
   "reference",
   "q", "query_mode", "work_fields", "expected_text_sha256",
   "recall_pointer_template",
+  "prompt_id",
   "recent_event_limit",
   "recent_limit",
   "relationship_id",

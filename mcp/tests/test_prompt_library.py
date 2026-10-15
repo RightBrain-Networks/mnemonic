@@ -6,6 +6,7 @@ import json
 import httpx
 import pytest
 from conftest import PROJECT_ID, WORK_ID, stream_json
+from test_get_prompt import rendered
 from test_phase12 import call, envelope
 from test_tools import adapter, structured
 
@@ -22,7 +23,7 @@ async def test_resume_uses_current_rendered_project_prompt_without_claiming(sett
         assert request.method == "POST"
         assert json.loads(request.content) == {"work_item_id": WORK_ID}
         assert request.headers["accept-encoding"] == "identity"
-        return stream_json({"content": content})
+        return stream_json(rendered(content=content, work_item_id=WORK_ID))
 
     server = adapter(settings, handler)
     arguments = {"project_id": PROJECT_ID, "work_item_id": WORK_ID}
@@ -47,7 +48,7 @@ async def test_resume_rejects_invalid_rendered_content(settings, work_context, d
     def handler(request):
         if request.url.path.endswith("/context"):
             return httpx.Response(200, json=work_context)
-        return stream_json(document)
+        return stream_json({**rendered(work_item_id=WORK_ID), **document})
 
     with pytest.raises(ValueError, match="unexpected response"):
         await adapter(settings, handler).get_prompt(
@@ -70,28 +71,26 @@ async def test_resume_missing_project_prompt_does_not_use_embedded_fallback(
         )
 
 
-@pytest.mark.parametrize("work_item_id", [None, WORK_ID])
-async def test_report_settings_forward_exact_optional_work_scope(settings, work_item_id):
+async def test_settings_return_only_policy_and_lease_values(settings):
     response = {
         "lease_default_minutes": 15, "lease_minimum_minutes": 10, "lease_maximum_minutes": 120,
         "code_review_required_min_priority": 100, "code_review_optional_min_priority": 100,
         "allow_remediation_code_reviews": False,
-        "project_id": PROJECT_ID, "revision": "3", "recall_pointer_template": None,
-        "job_completion_report_prompt": "Summarize this expanded work context: " + "x" * 9000,
+        "project_id": PROJECT_ID, "revision": "3", "recall_pointer_template": "Project instructions",
+        "job_completion_report_prompt": "Custom report context: " + "x" * 9000,
     }
 
     def handler(request):
         assert request.method == "GET"
         assert request.url.path == f"/api/v1/projects/{PROJECT_ID}/settings"
-        expected = {"work_item_id": work_item_id} if work_item_id else {}
-        assert dict(request.url.params) == expected
+        assert not request.url.query
         return stream_json(response)
 
-    arguments = {"project_id": PROJECT_ID}
-    if work_item_id is not None:
-        arguments["work_item_id"] = work_item_id
-    result = structured(await adapter(settings, handler).call_tool("get_project_settings", arguments))
-    assert result == response
+    result = structured(await adapter(settings, handler).call_tool(
+        "get_project_settings", {"project_id": PROJECT_ID},
+    ))
+    assert result == {key: value for key, value in response.items()
+                      if key not in {"recall_pointer_template", "job_completion_report_prompt"}}
 
 
 async def test_expanded_report_snapshot_preserves_large_macro_values_and_hash(settings):

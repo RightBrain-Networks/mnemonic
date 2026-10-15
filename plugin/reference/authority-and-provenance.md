@@ -65,7 +65,9 @@ not use or alter the protected-mutation UUID workflow below.
 ## Human gates coordinate; they do not authenticate or authorize
 
 Use `request_human_input` only for a concrete decision or input that genuinely
-requires a person. Make the question self-contained and decision-ready. Do not
+requires a person. Before authoring or revising, fetch
+`get_prompt(project_id, prompt_id="request-human-review", work_item_id=...)`
+and follow its current content. Do not
 use a gate as progress reporting, a substitute for an explicit `blocks` edge,
 ordinary work decomposition, or a way to defer work.
 
@@ -76,9 +78,8 @@ work or related work change the facts or options, rewrite its complete prose
 with `request_human_input(gate_id=..., expected_question_version=...)` after
 saving the updates. Inspect open questions on affected related work as well.
 Supply the existing gate ID and the `question_version` most recently read, plus
-a new operation UUID. Include the current decision, relevant facts, options,
-and recommendation. A person should be able to answer from that prose alone,
-without tracing checkpoints or superseding decisions. Previous wording stays
+a new operation UUID. Author the complete replacement using the current prompt;
+do not append a competing question for the same decision. Previous wording stays
 in version tabs under the same question; the queue position does not change.
 Only separate decisions need separate questions.
 
