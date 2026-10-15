@@ -2,6 +2,8 @@
 
 
 def domain_path(path: str) -> str:
+    if path.startswith("/api/transcripts/"):
+        return "/api/v1/" + path.removeprefix("/api/transcripts/")
     if path == "/api/artifacts/status":
         return "/api/v1/artifacts/status"
     if path.startswith("/api/artifacts/"):

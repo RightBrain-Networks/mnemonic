@@ -101,12 +101,13 @@ frontend artifact codecs/mutation tests remain applicable.
 
 Use `scripts/test-e2e.sh --browser-transports` with the artifact Playwright specs
 to exercise the current dashboard against FastAPI. The test-only Compose overlay
-routes `/api/artifacts` to the API and all other browser requests to Next.js. It
+routes `/api/artifacts` and `/api/transcripts` to the API and other browser requests to Next.js. It
 uses the isolated acceptance stack and synthetic storage, not production services.
 The ordinary acceptance command continues to test the existing Next delivery.
 
 For later deployment, preserve the external Host and Origin, disable request and
 response buffering for raw transfers, allow 1 GiB bodies and the metadata header,
 and retain no-transform/identity behavior. The checked-in nginx test overlay shows
-these settings without changing production routing. Transcript and backup ports
-remain separate migration work.
+these settings without changing production routing. The
+[transcript transport](browser-transcript-api.md) has its own route and limit
+contracts. Backup transport remains separate migration work.

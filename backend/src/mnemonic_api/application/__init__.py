@@ -27,6 +27,10 @@ from mnemonic_api.application.browser_artifacts import (
 )
 from mnemonic_api.application.browser_boundary import BrowserBoundaryMiddleware
 from mnemonic_api.application.browser_routes import browser_router
+from mnemonic_api.application.browser_transcripts import (
+    TranscriptBrowserMiddleware,
+    transcript_browser_router,
+)
 from mnemonic_api.application.handlers import install_exception_handlers
 from mnemonic_api.application.middleware import install_middleware
 from mnemonic_api.application.routes import api_router
@@ -88,7 +92,7 @@ def create_app(
 
     app = FastAPI(
         title="Mnemonic API",
-        version="0.83.2",
+        version="0.83.3",
         description="Durable project-scoped work with immutable agent checkpoints.",
         lifespan=lifespan,
     )
@@ -115,11 +119,13 @@ def create_app(
     app.include_router(api_router())
     app.include_router(browser_router())
     app.include_router(artifact_browser_router())
+    app.include_router(transcript_browser_router())
     app.include_router(sync_router)
     app.include_router(health_router)
     install_middleware(app, app.state.duplicate_suggestion_resources)
     app.add_middleware(BrowserBoundaryMiddleware, pending_tasks=app.state.browser_pending_tasks)
     app.add_middleware(ArtifactBrowserMiddleware, pending_tasks=app.state.browser_pending_tasks)
+    app.add_middleware(TranscriptBrowserMiddleware, pending_tasks=app.state.browser_pending_tasks)
     install_exception_handlers(app)
 
     default_openapi = app.openapi
