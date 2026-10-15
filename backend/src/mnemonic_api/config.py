@@ -37,6 +37,14 @@ class Settings(BaseSettings):
         le=2**53 - 1,
         validation_alias=AliasChoices("MNEMONIC_BACKUP_MAX_BYTES", "backup_max_bytes"),
     )
+    backup_url: str = Field(
+        default="http://worker:8002",
+        validation_alias=AliasChoices("MNEMONIC_BACKUP_URL", "backup_url"),
+    )
+    backup_token: SecretStr | None = Field(
+        default=None,
+        validation_alias=AliasChoices("MNEMONIC_BACKUP_TOKEN", "backup_token"),
+    )
 
     @field_validator("timezone")
     @classmethod

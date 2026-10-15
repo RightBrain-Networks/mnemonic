@@ -150,8 +150,8 @@ transcript tests and frontend codecs remain applicable.
 
 Run `scripts/test-e2e.sh --browser-transports tests/e2e/transcripts.spec.ts` to
 exercise the current transcript UI against the additive transport. The test-only
-nginx configuration routes `/api/transcripts` to FastAPI alongside
-`/api/artifacts`; other browser requests continue to Next.js. The runner provisions
+nginx configuration routes all four browser API families and WebSocket sync to
+FastAPI; page delivery continues to Next.js. The runner provisions
 an isolated acceptance stack and synthetic transcript sources. The ordinary
 acceptance command continues to test the existing Next delivery.
 
@@ -161,5 +161,5 @@ length, identity, and no-transform contracts. Permit the 32 KiB import body and
 allow the API's 60-second execution budget plus its separate body-read budget.
 Keep long-lived cleanup tracked at the application boundary. The nginx test
 overlay is validation infrastructure, not authorization to change production
-routing or restart production services. Backup transport remains separate
-migration work.
+routing or restart production services. See the
+[backup gateway handoff](browser-backup-api.md) for the completed transport matrix.

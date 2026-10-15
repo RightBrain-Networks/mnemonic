@@ -675,6 +675,19 @@ responses:
 ./scripts/test-nginx-e2e.sh
 ```
 
+For the additive FastAPI browser boundary, run the same controlled nginx matrix
+and the backup UI against disposable worker storage:
+
+```sh
+./scripts/test-nginx-e2e.sh --browser-transports
+./scripts/test-e2e.sh --browser-transports tests/e2e/project-backups.spec.ts
+```
+
+The browser transport overlay routes all four API families and WebSocket sync to
+FastAPI, preserving Next page delivery. The default runners continue to test the
+existing Next path. See [the backup gateway contract](browser-backup-api.md) for
+private API configuration, streaming limits, and the static-server interface.
+
 The wrapper generates a uniquely scoped Compose project, API key, and available
 loopback ports. It builds API and dashboard images,
 runs PostgreSQL on tmpfs, and exercises the live-motion regression in Firefox

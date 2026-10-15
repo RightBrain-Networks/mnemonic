@@ -101,7 +101,7 @@ frontend artifact codecs/mutation tests remain applicable.
 
 Use `scripts/test-e2e.sh --browser-transports` with the artifact Playwright specs
 to exercise the current dashboard against FastAPI. The test-only Compose overlay
-routes `/api/artifacts` and `/api/transcripts` to the API and other browser requests to Next.js. It
+routes all four browser API families and WebSocket sync to FastAPI, while page delivery stays in Next.js. It
 uses the isolated acceptance stack and synthetic storage, not production services.
 The ordinary acceptance command continues to test the existing Next delivery.
 

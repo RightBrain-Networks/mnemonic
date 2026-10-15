@@ -17,6 +17,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
 from typing import Any, cast
 
+import httpx
 from fastapi import FastAPI
 from sqlalchemy.engine import Engine
 
@@ -25,6 +26,7 @@ from mnemonic_api.application.browser_artifacts import (
     ArtifactBrowserMiddleware,
     artifact_browser_router,
 )
+from mnemonic_api.application.browser_backups import BackupBrowserMiddleware
 from mnemonic_api.application.browser_boundary import BrowserBoundaryMiddleware
 from mnemonic_api.application.browser_routes import browser_router
 from mnemonic_api.application.browser_transcripts import (
@@ -80,6 +82,7 @@ def create_app(
             # Browser timeouts may leave writes or read cleanup in flight.
             # Finish those tasks before closing their shared resources.
             await asyncio.gather(*app.state.browser_pending_tasks, return_exceptions=True)
+            await app.state.backup_client.aclose()
             for task in (maintenance, extraction):
                 if task is not None:
                     task.cancel()
@@ -92,7 +95,7 @@ def create_app(
 
     app = FastAPI(
         title="Mnemonic API",
-        version="0.83.3",
+        version="0.83.4",
         description="Durable project-scoped work with immutable agent checkpoints.",
         lifespan=lifespan,
     )
@@ -115,6 +118,12 @@ def create_app(
     app.state.duplicate_suggestion_resources = DuplicateSuggestionResources.from_settings(config)
     app.state.live_sync_hub = LiveSyncHub()
     app.state.browser_pending_tasks = set()
+    # The gateway owns the whole-operation deadline and never retries a create
+    # or restore. Environment proxies must not receive the private worker token.
+    app.state.backup_client = httpx.AsyncClient(
+        follow_redirects=False, timeout=None, trust_env=False,
+        transport=httpx.AsyncHTTPTransport(retries=0),
+    )
 
     app.include_router(api_router())
     app.include_router(browser_router())
@@ -126,6 +135,7 @@ def create_app(
     app.add_middleware(BrowserBoundaryMiddleware, pending_tasks=app.state.browser_pending_tasks)
     app.add_middleware(ArtifactBrowserMiddleware, pending_tasks=app.state.browser_pending_tasks)
     app.add_middleware(TranscriptBrowserMiddleware, pending_tasks=app.state.browser_pending_tasks)
+    app.add_middleware(BackupBrowserMiddleware)
     install_exception_handlers(app)
 
     default_openapi = app.openapi

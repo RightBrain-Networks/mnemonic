@@ -1,0 +1,18 @@
+# Test-only production FastAPI transport with controlled domain responses.
+# Always combine with compose.e2e.yaml and compose.nginx-e2e.yaml via the runner.
+services:
+  api:
+    command:
+      - sh
+      - -c
+      - alembic upgrade head && exec uvicorn browser_transport_upstream:create_app --factory --app-dir /opt/mnemonic --host 0.0.0.0 --port 8000 --no-access-log --log-config logging.json --h11-max-incomplete-event-size 65536
+    volumes:
+      - ./scripts/fixtures/browser_transport_upstream.py:/opt/mnemonic/browser_transport_upstream.py:ro
+      - ./scripts/fixtures/encoding_upstream.py:/opt/mnemonic/encoding_upstream.py:ro
+
+  nginx:
+    volumes:
+      - ./deploy/nginx/test/browser-transports-nginx-e2e.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      api:
+        condition: service_healthy
