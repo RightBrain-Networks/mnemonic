@@ -108,11 +108,25 @@ test("tasks menu persists its disclosure state and the dashboard recovers failed
   await toggle.click();
   await page.reload();
   await expect(toggle).toHaveAttribute("aria-expanded", "false");
-  await page.route("**/tasks?**", (route) => route.fulfill({ status: 503, json: { error: { code: "unavailable", message: "Task read unavailable" } } }));
+  // Keep background retries failing until the user clicks Retry. Removing the
+  // route first lets a live refresh recover and remove the button before click.
+  await page.evaluate(() => {
+    document.addEventListener("click", (event) => {
+      if (event.target instanceof Element
+        && event.target.closest(".task-dashboard button")?.textContent === "Retry tasks") {
+        document.documentElement.dataset.e2eTaskRetry = "true";
+      }
+    }, { capture: true });
+  });
+  await page.route("**/tasks?**", async (route) => {
+    const retryClicked = await page.evaluate(() => document.documentElement.dataset.e2eTaskRetry === "true");
+    if (retryClicked) await route.continue();
+    else await route.fulfill({ status: 503, json: { error: { code: "unavailable", message: "Task read unavailable" } } });
+  });
   await page.getByRole("link", { name: "Mnemonic home" }).click();
   await expect(page.getByRole("button", { name: "Retry tasks" })).toBeVisible();
-  await page.unroute("**/tasks?**");
   await page.getByRole("button", { name: "Retry tasks" }).click();
   await expect(page.getByRole("button", { name: "Retry tasks" })).toHaveCount(0);
   await expect(page.locator(".task-widget-work_items dd").first()).not.toHaveText("—");
+  await page.unroute("**/tasks?**");
 });
