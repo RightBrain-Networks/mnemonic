@@ -97,9 +97,11 @@ export function mergeReviewHistory(pages: readonly ReviewQueuePage[]): ReviewQue
   return { ...pages[pages.length - 1], items: [...rows.values()] };
 }
 
-export function codeReviewDetailOptions(projectId: string, workId: string, reviewId: string) {
+export function codeReviewDetailOptions(projectId: string, workId: string, reviewId: string, enabled = true) {
   return queryOptions({
-    queryKey: workPanelKeys.review(projectId, workId, reviewId),
+    queryKey: enabled ? workPanelKeys.review(projectId, workId, reviewId)
+      : ["mnemonic", "disabled", "code-review-detail", projectId, workId, reviewId] as const,
+    enabled,
     queryFn: async ({ signal }) => decodeCodeReviewDetail(await api<unknown>(
       `${workItemPath(projectId, workId)}/code-reviews/${reviewId}`, { signal }
     ), projectId, workId, reviewId)

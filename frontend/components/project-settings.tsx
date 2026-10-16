@@ -23,7 +23,6 @@ type Props = {
   onProjectSaved: (project: Project) => void;
   onNotice: (message: string, error?: boolean) => void;
   backupMaximumBytes: number;
-  backupRefreshSignal: number;
   onBackupPendingChange: (pending: boolean) => void;
   onPromptPendingChange: (pending: boolean) => void;
 };
@@ -57,7 +56,6 @@ export default function ProjectSettingsPanel({
   onProjectSaved,
   onNotice,
   backupMaximumBytes,
-  backupRefreshSignal,
   onBackupPendingChange,
   onPromptPendingChange
 }: Props) {
@@ -242,8 +240,8 @@ export default function ProjectSettingsPanel({
         onSaved={onSaved} onRetry={onRetry} onNotice={onNotice} />
     </section>}
     {section === "workspace" && <PriorityRubricSettings key={selectedProject.id}
-      projectId={selectedProject.id} refreshSignal={backupRefreshSignal} onNotice={onNotice} />}
+      projectId={selectedProject.id} onNotice={onNotice} />}
     {section === "prompts" && <PromptLibrary key={selectedProject.id} project={selectedProject} onNotice={onNotice} onPendingChange={onPromptPendingChange} />}
-    {section === "backups" && <ProjectBackupsPanel key={selectedProject.id} project={selectedProject} maximumBytes={backupMaximumBytes} refreshSignal={backupRefreshSignal} onPendingChange={onBackupPendingChange} />}
+    {section === "backups" && <ProjectBackupsPanel key={selectedProject.id} project={selectedProject} maximumBytes={backupMaximumBytes} onPendingChange={onBackupPendingChange} />}
   </div>;
 }

@@ -1,22 +1,29 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { invalidateCoreReads } from "@/lib/core-queries";
+import { invalidateWorkSettingsReads } from "@/lib/work-detail-queries";
+import { priorityRubricOptions, secondaryKeys } from "@/lib/secondary-queries";
 import { api, ApiError, errorMessage } from "@/lib/api";
 import { decodePriorityRubric, validPriorityRubricContent, type PriorityRubric } from "@/lib/priority-rubric";
 
 type Props = {
   projectId: string;
-  refreshSignal: number;
   onNotice: (message: string, error?: boolean) => void;
 };
 
-export default function PriorityRubricSettings({ projectId, refreshSignal, onNotice }: Props) {
+export default function PriorityRubricSettings({ projectId, onNotice }: Props) {
   const [saved, setSaved] = useState<PriorityRubric | null>(null);
   const [latest, setLatest] = useState<PriorityRubric | null>(null);
   const [draft, setDraft] = useState("");
-  const [loading, setLoading] = useState(true);
+  const client = useQueryClient();
+  const query = useQuery(priorityRubricOptions(projectId));
+  const loading = query.isFetching;
   const [saving, setSaving] = useState(false);
   const [needsReview, setNeedsReview] = useState(false);
+  const needsReviewRef = useRef(needsReview);
+  needsReviewRef.current = needsReview;
   const [error, setError] = useState("");
   const baseline = useRef<PriorityRubric | null>(null);
   const draftRef = useRef("");
@@ -34,33 +41,30 @@ export default function PriorityRubricSettings({ projectId, refreshSignal, onNot
     setError("");
   }, []);
 
-  const load = useCallback(async () => {
+  const applyRead = useCallback((rubric: PriorityRubric) => {
     if (savingRef.current) return;
-    const request = ++generation.current;
-    setLoading(true);
     setError("");
-    try {
-      const rubric = decodePriorityRubric(await api<unknown>(path), projectId);
-      if (request !== generation.current) return;
-      if (!baseline.current || draftRef.current === baseline.current.content
-        || draftRef.current === rubric.content) {
-        accept(rubric);
-      } else if (rubric.revision !== baseline.current.revision) {
-        setLatest(rubric);
-        setNeedsReview(true);
-      } else {
-        setLatest(rubric);
-      }
-    } catch (reason) {
-      if (request === generation.current) setError(errorMessage(reason));
-    } finally {
-      if (request === generation.current) setLoading(false);
+    if (!baseline.current || draftRef.current === baseline.current.content
+      || draftRef.current === rubric.content) {
+      accept(rubric);
+    } else if (rubric.revision !== baseline.current.revision) {
+      setLatest(rubric);
+      setNeedsReview(true);
+    } else {
+      setLatest(rubric);
     }
-  }, [accept, path, projectId]);
-
+  }, [accept]);
   useEffect(() => {
-    void load();
-  }, [load, refreshSignal]);
+    if (!query.data || savingRef.current) return;
+    if (needsReviewRef.current) { setLatest(query.data); setError(""); }
+    else applyRead(query.data);
+  }, [query.data, query.dataUpdatedAt, applyRead]);
+  const load = async () => {
+    try {
+      const result = await query.refetch({ cancelRefetch: true, throwOnError: true });
+      if (result.data) applyRead(result.data);
+    } catch { /* Query retains the failed read alongside the draft. */ }
+  };
   useEffect(() => () => { generation.current += 1; }, []);
 
   async function save(event: FormEvent<HTMLFormElement>) {
@@ -76,7 +80,11 @@ export default function PriorityRubricSettings({ projectId, refreshSignal, onNot
       }), projectId);
       if (request !== generation.current) return;
       if (rubric.content !== draft) throw new Error("The saved rubric did not match your draft.");
+      void client.cancelQueries({ queryKey: secondaryKeys.priorityRubric(projectId), exact: true });
+      client.setQueryData(secondaryKeys.priorityRubric(projectId), rubric);
       accept(rubric);
+      void invalidateCoreReads(client, projectId, ["settings"]);
+      void invalidateWorkSettingsReads(client, projectId);
       onNotice("Priority rubric saved.");
     } catch (reason) {
       if (request !== generation.current) return;
@@ -114,7 +122,7 @@ export default function PriorityRubricSettings({ projectId, refreshSignal, onNot
           Enter nonblank text, up to 100,000 characters.
         </p>}
       </>}
-      {error && <p className="error-notice" role="alert">{error}</p>}
+      {(error || query.error) && <p className="error-notice" role="alert">{error || errorMessage(query.error)}</p>}
       {needsReview && <div className="error-notice" role="alert">
         <p>Settings changed or the save outcome is uncertain. Your draft has been kept.
           Load and review the saved rubric before saving again.</p>
@@ -122,7 +130,7 @@ export default function PriorityRubricSettings({ projectId, refreshSignal, onNot
           <label className="field">Currently saved rubric
             <textarea rows={8} readOnly value={latest.content} />
           </label>
-          <button type="button" className="button button-secondary" disabled={loading || saving || Boolean(error)}
+          <button type="button" className="button button-secondary" disabled={loading || saving || Boolean(error || query.error)}
             onClick={() => {
               baseline.current = latest;
               setSaved(latest);
@@ -136,7 +144,7 @@ export default function PriorityRubricSettings({ projectId, refreshSignal, onNot
           disabled={!saved || loading || saving || needsReview || draft === saved.content || !validPriorityRubricContent(draft)}>
           {saving ? "Saving…" : "Save priority rubric"}
         </button>
-        {(error || needsReview) && <button type="button" className="button button-secondary"
+        {(error || query.error || needsReview) && <button type="button" className="button button-secondary"
           disabled={loading || saving} onClick={() => void load()}>
           {loading ? "Loading…" : "Load saved rubric"}
         </button>}

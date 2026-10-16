@@ -307,3 +307,54 @@ for (const outcome of ["pending", "uncertain"] as const) {
     } finally { release(); await api.dispose(); }
   });
 }
+
+test("backup Query progress pauses while hidden and stops after a terminal job without repeating the write", async ({ page }) => {
+  const api = await client();
+  const queued = Promise.withResolvers<void>();
+  try {
+    const project = await createProject(api, "Visible backup progress");
+    const jobId = crypto.randomUUID();
+    let writes = 0;
+    let reads = 0;
+    let terminal = false;
+    await page.route(`**/api/backups/projects/${project.id}/backups`, async (route) => {
+      if (route.request().method() !== "POST") return route.continue();
+      writes += 1;
+      await queued.promise;
+      await route.fulfill({ json: { project_id: project.id, job_id: jobId, state: "pending" } });
+    });
+    await page.route(`**/api/backups/projects/${project.id}/backup-jobs/${jobId}`, async (route) => {
+      reads += 1;
+      await route.fulfill({ json: { project_id: project.id, job_id: jobId, state: terminal ? "succeeded" : "running",
+        ...(terminal ? { result: { filename: "completed.json.bz2", created_at: "2026-10-01T00:00:00Z", size_bytes: 123 } } : {}) } });
+    });
+    async function visible(value: boolean) {
+      await page.evaluate((value) => {
+        Object.defineProperty(document, "hidden", { configurable: true, get: () => !value });
+        Object.defineProperty(document, "visibilityState", { configurable: true, get: () => value ? "visible" : "hidden" });
+        document.dispatchEvent(new Event("visibilitychange"));
+      }, value);
+    }
+    const panel = await openBackups(page, project);
+    await panel.getByRole("button", { name: "Back up now", exact: true }).click();
+    await expect.poll(() => writes).toBe(1);
+    await visible(false);
+    queued.resolve();
+    await page.waitForTimeout(1_200);
+    expect(reads).toBe(0);
+    await visible(true);
+    await expect.poll(() => reads).toBeGreaterThan(0);
+    await visible(false);
+    const paused = reads;
+    await page.waitForTimeout(1_200);
+    expect(reads).toBe(paused);
+    terminal = true;
+    await visible(true);
+    await expect(panel.locator(".backup-notice")).toHaveText(`Backup created for ${project.name}.`);
+    const finished = reads;
+    await page.waitForTimeout(1_200);
+    expect(reads).toBe(finished);
+    expect(writes).toBe(1);
+    await expect(panel.getByRole("button", { name: "Back up now", exact: true })).toBeEnabled();
+  } finally { queued.resolve(); await api.dispose(); }
+});

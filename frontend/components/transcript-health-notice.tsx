@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { transcriptHealthOptions } from "@/lib/transcript-queries";
 import { formatArtifactSize } from "@/lib/artifacts";
-import { decodeTranscriptHealth, readDismissedTranscriptWarnings, transcriptWarningKey, type TranscriptDirectoryUsage, type TranscriptHealth, type TranscriptWarning } from "@/lib/transcript-health";
-import { transcriptPath, transcriptRequest } from "@/lib/transcripts";
+import { readDismissedTranscriptWarnings, transcriptWarningKey, type TranscriptDirectoryUsage, type TranscriptWarning } from "@/lib/transcript-health";
 
 function Warning({ warning, onDismiss }: { warning: TranscriptWarning; onDismiss: () => void }) {
   return <li>
@@ -22,22 +23,15 @@ function StorageItem({ label, usage }: { label: string; usage: TranscriptDirecto
   </div>;
 }
 
-export default function TranscriptHealthNotice({ projectId, refreshSignal }: { projectId: string; refreshSignal: number }) {
-  const [health, setHealth] = useState<TranscriptHealth | null>(null);
-  const [failed, setFailed] = useState(false);
+export default function TranscriptHealthNotice({ projectId }: { projectId: string }) {
+  const result = useQuery(transcriptHealthOptions(projectId));
+  const health = result.data;
+  const failed = result.isError;
   const [dismissed, setDismissed] = useState<string[]>([]);
   const storageKey = `mnemonic:transcript-warnings:${projectId}`;
   useEffect(() => {
     try { setDismissed(readDismissedTranscriptWarnings(localStorage.getItem(storageKey))); } catch { setDismissed([]); }
   }, [storageKey]);
-  useEffect(() => {
-    const controller = new AbortController();
-    setFailed(false);
-    void transcriptRequest(`${transcriptPath(projectId)}/health`, { signal: controller.signal })
-      .then((value) => { if (!controller.signal.aborted) { setHealth(decodeTranscriptHealth(value, projectId)); setFailed(false); } })
-      .catch(() => { if (!controller.signal.aborted) setFailed(true); });
-    return () => controller.abort();
-  }, [projectId, refreshSignal]);
   function saveDismissed(values: string[]) {
     const next = [...new Set(values)].slice(-200);
     setDismissed(next);

@@ -118,9 +118,9 @@ existing duplicate-inference admission policy and mutation executor are unchange
 
 `invalidateCoreReads` maps the existing live/activity/lease notifications and
 confirmed mutation callbacks to project-scoped work, task, settings and count
-keys. The dashboard's small refresh adapters also notify remaining legacy panels.
-Each migrated resource has one cache owner; the legacy counters are consumed only
-by unmigrated panels. Background refetch retains loaded data (including an empty
+keys. The dashboard's refresh adapters invalidate resource and secondary domains
+directly. Its work-list revision counter captures motion only; it does not
+dispatch reads or form part of a cache key. Background refetch retains loaded data (including an empty
 list). Do not use cross-project placeholder data. Work queues retain decoded wire
 pages and server `next_offset`, including byte-budget-short pages and coverage.
 On refresh they reload the prior raw loaded prefix, rather than assuming a fixed
@@ -155,9 +155,9 @@ Originating-report keys retain both the viewed work scope and the original repor
 project, preserving exact source identity after moves, merges and deletion.
 Their decoded report snapshot stays visible during background refresh and failures.
 Closing a selected report or gate history detaches its observer and cancels any
-read no longer used by another observer. Migration 7 owns artifact and
+read no longer used by another observer. Migration 7 also places artifact and
 transcript libraries, prompts, backups, standalone attention/report/review panels and
-other secondary reads. Runtime configuration bootstraps the app before Query;
+explicit duplicate comparisons in Query. Runtime configuration bootstraps the app before Query;
 activity/WebSocket cursors and raw upload/download streams are transport state,
 not cached resource pages. No production rollout is implied by this migration.
 
@@ -175,8 +175,8 @@ retry behavior remain owned by the mutation registry.
 
 `work-mutation-queries.ts` exhaustively maps every protected work mutation to
 cached reads. In this table, **work reads** means work queues, canonical pickers,
-task pages, selected-work detail and the attention count. **Closeout reads** adds
-the report count. Selected-work detail includes all cached context, checkpoint,
+task pages, selected-work detail and the attention list/count. **Closeout reads** adds
+the report list/count. Selected-work detail includes all cached context, checkpoint,
 event, relationship, review, completion-evidence and work-view report pages, including filtered
 and paginated variants.
 
@@ -195,7 +195,7 @@ and paginated variants.
 | `delete_work` | Closeout reads | Frozen work key and decoded deleted-work project |
 | `resolve_human_input` | Work reads | Frozen work/gate keys and decoded gate project |
 | `respond_to_work_follow_up` | Work reads | Frozen work key and decoded follow-up project |
-| `dismiss_job_completion_report` | Selected-work detail and report count | Frozen report key and decoded dismissal project |
+| `dismiss_job_completion_report` | Selected-work detail and report list/count | Frozen report key and decoded dismissal project |
 | `create_job_completion_report_follow_up` | Closeout reads | Frozen source/report keys and decoded new work |
 
 Scopes are derived from the dispatched intent and decoded result, independently
@@ -211,3 +211,58 @@ cancelled before confirmation refresh. The guarded context observer is disabled,
 so invalidation marks it stale while the explicit placement coordinator retains
 ownership of reconciliation and navigation. No optimistic result enters the
 cache, and unsuccessful writes do not clear or refresh cached data.
+
+### Resource and secondary read ownership (migration 7)
+
+The complete read inventory is below. Options factories own request identity,
+transport cancellation and decoding; components own selection, cursor navigation,
+drafts, disclosure and motion. Do not reintroduce a second fetched-page state or
+effect-driven cache beside Query. Metadata uses the default 30-second freshness
+and five-minute inactive retention unless the domain specifies otherwise.
+Nothing persists Query bodies in browser storage.
+
+| Read family | Query owner | Freshness and scope |
+| --- | --- | --- |
+| Project catalog, settings and navigation badges | `core-queries.ts` | Project scope; activity/bootstrap and live invalidation |
+| Tasks, work queues and canonical pickers | `task-queries.ts`, `work-queries.ts` | Full filters and server pagination; existing bounded read admission and debounce |
+| Work context, checkpoints, children and policy | `work-detail-queries.ts` | Work/project identity; guarded fresh reconciliation remains imperative through Query |
+| Events, gates, reviews, recommendations and completion evidence | `work-panel-queries.ts` | Exact offsets/cursors and validated infinite-page chains |
+| Work report provenance and report detail | `work-report-queries.ts` | Viewed work and original report authority project; shared with Summaries |
+| Artifact availability, library/search, pickers, related and work-linked files | `artifact-queries.ts` | Shared availability; project/filter/sort/offset/limit keys; visible metadata discovery polling |
+| Artifact metadata and bounded semantic passages | `artifact-queries.ts` | Artifact identity plus revision, extracted-text hash and passage locator for evidence; passage bodies have zero inactive retention |
+| Transcript library/search, detail, text, conversation, health and settings | `transcript-queries.ts` | Project and complete search/pagination identity; text digest and normalized revision/segment locator pins |
+| Prompt catalog/detail, action rendering and priority rubric | `secondary-queries.ts` | Project/prompt identity; renders include exact work/review scope, use explicit fresh reads and zero inactive retention; accepted draft revisions stay separate |
+| Backup catalog and job status | `secondary-queries.ts` | Project/job identity; visible catalog polling, one-second active-job polling, terminal/error stop |
+| Needs Attention and Summaries | `secondary-queries.ts` | Work filter/cursor or validated report cursor chain; shared invalidation with navigation counts |
+| Review library | `task-queries.ts`, `work-panel-queries.ts` | Shared task list and exact work/review detail options |
+| Explicit duplicate comparison | `duplicate-suggestion-queries.ts` | Frozen submitted draft/external records and project; disabled observer, explicit fresh action, zero inactive retention |
+
+Artifact semantic inference never gains interval, focus, reconnect or invalidation
+retries. A resource invalidation marks semantic results stale and asks for an
+explicit new search. Metadata discovery continues while the visible library is
+open because resource worker jobs do not publish work activity. Transcript list
+and health discovery likewise poll visibly every 30 seconds, including empty
+lists; selected metadata stops its own job polling at terminal states. Query
+intervals stop while hidden. These are metadata reads, not job submissions.
+Content replacement, deletion, unavailable storage and changed revision pins
+must hide stale evidence and dispose associated preview transfers.
+
+Confirmed artifact writes reconcile metadata through `reconcileArtifactMutation`
+and invalidate the affected resource domain. Transcript settings/import/rebuild
+invalidate transcript reads only after decoded success. Prompt and rubric saves
+refresh their alternate views and affected settings/policy caches without adopting
+new editor baselines. Backup completion refreshes the archive catalog. Core
+settings notifications cover prompts, rubric and backup metadata; attention and
+report notifications cover both lists and badges. Protected work confirmations
+use the exhaustive mapping above, including explicit recovered outcomes. Unknown
+outcomes never create cache success or resubmit an operation. Clipboard prompt rendering
+uses a fresh Query transport for each action and rejects cancelled or retained
+cache results; failures never substitute older instructions.
+
+The remaining direct read transports are deliberate: runtime configuration loads
+before the Query provider; WebSocket and project-activity readers own revision and
+cursor delivery; raw artifact previews/downloads, transcript downloads and backup
+archives own streaming bytes and browser object URLs. Raw file previews can reach
+1 GiB and therefore stay outside the cache. Upload/restore and protected mutations
+retain their existing request, byte-limit, cancellation, receipt and uncertainty
+owners. Local preferences, clocks, form drafts and route state are not server reads.

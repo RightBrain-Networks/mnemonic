@@ -172,3 +172,32 @@ test("artifact preview handles empty text, clipboard failures, failed and cancel
   await expect(pdf.getByRole("link", { name: `Download ${pdfName}` })).toBeVisible();
   await remove(page, pdfName);
 });
+
+test("artifact previews clear retained content after replacement, deletion or sensitivity changes", async ({ page }, testInfo) => {
+  await page.clock.install();
+  const changes = [
+    { revision: 2 },
+    { revision: 2, sensitive: true },
+    { revision: 2, deleted_at: new Date().toISOString(), content_available: false }
+  ];
+  for (const [index, changed] of changes.entries()) {
+    const name = `preview-lifecycle-${index}-${testInfo.project.name}.txt`;
+    const row = await upload(page, name, "Retained source text");
+    const contentPath = new URL((await row.getByRole("link", { name: `Download ${name}`, exact: true }).getAttribute("href"))!, page.url()).pathname;
+    const metadataPath = contentPath.replace(/\/content$/, "");
+    await row.getByRole("button", { name: `View ${name}`, exact: true }).click();
+    const drawer = page.getByRole("dialog", { name, exact: true });
+    await expect(drawer.getByRole("textbox", { name: "Plain text contents" })).toHaveValue("Retained source text");
+    await page.route(`**${metadataPath}`, async (route) => {
+      const response = await route.fetch();
+      await route.fulfill({ response, json: { ...await response.json(), ...changed } });
+    });
+    await page.clock.fastForward(30_001);
+    await expect(drawer.getByRole("alert")).toContainText("This file changed after it was opened");
+    await expect(drawer.getByRole("textbox", { name: "Plain text contents" })).toHaveCount(0);
+    await expect(drawer.getByRole("button", { name: "Copy contents" })).toBeDisabled();
+    await drawer.getByRole("button", { name: "Close preview" }).click();
+    await page.unroute(`**${metadataPath}`);
+    await remove(page, name);
+  }
+});

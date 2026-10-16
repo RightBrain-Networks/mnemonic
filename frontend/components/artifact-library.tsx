@@ -6,14 +6,13 @@ import { useLocation } from "@tanstack/react-router";
 import { usePageOffset } from "./use-page-offset";
 import { nextPageOffset } from "@/lib/page-offsets";
 
-import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
-import { ARTIFACT_DISABLED_MESSAGE, artifactLibraryPath, artifactLocation, artifactPath, decodeArtifactLimitError, decodeArtifactPage, fetchArtifactStatus, formatArtifactSize, type Artifact, type ArtifactPage, type ArtifactSearchPage, type ArtifactSearchMatch, type ArtifactSort, type ArtifactStatus } from "@/lib/artifacts";
-import { verifyArtifactPassageIds } from "@/lib/artifact-semantic";
-import { artifactSearchRequest, decodeUnifiedArtifactSearchPage, unifiedSearchPath } from "@/lib/unified-search";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type FormEvent } from "react";
+import { ARTIFACT_DISABLED_MESSAGE, artifactLibraryPath, artifactLocation, artifactPath, formatArtifactSize, type Artifact, type ArtifactSearchPage, type ArtifactSearchMatch, type ArtifactSort, type ArtifactStatus } from "@/lib/artifacts";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { artifactDetailOptions, artifactKeys, artifactPageOptions, artifactStatusOptions, invalidateArtifactReads, reconcileArtifactMutation, type ArtifactFilters } from "@/lib/artifact-queries";
 import { artifactMetadataHeader, dispatchArtifactMutation, type ArtifactMutation } from "@/lib/artifact-mutations";
 import { dashboardSessionId } from "@/lib/dashboard-session";
-import { detailMessage, errorMessage } from "@/lib/api";
-import { readBoundedJson } from "@/lib/bounded-json";
+import { errorMessage } from "@/lib/api";
 import { sameUuid, validUuid } from "@/lib/wire-guards";
 import { formatDateTime } from "@/components/work-item-card";
 import { ArtifactMetadataEditor, WorkArtifactLinkDialog } from "@/components/artifact-links";
@@ -31,30 +30,27 @@ const columns: { key: ArtifactSort; label: string }[] = [
   { key: "modified_at", label: "Modified" }
 ];
 
-export default function ArtifactLibrary({ projectId, maximumBytes, refreshSignal, onPendingChange }: {
+export default function ArtifactLibrary({ projectId, maximumBytes, onPendingChange }: {
   projectId: string;
   maximumBytes: number;
-  refreshSignal: number;
   onPendingChange: (pending: boolean) => void;
 }) {
   const routeQuery = useLocation({ select: (location) => location.searchStr });
-  const [page, setPage] = useState<ArtifactPage | null>(null);
-  const [status, setStatus] = useState<ArtifactStatus | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState("");
+  const client = useQueryClient();
+  const statusRead = useQuery(artifactStatusOptions());
+  const status = statusRead.isError ? null : statusRead.data ?? null;
+  const [searchError, setSearchError] = useState("");
   const [actionError, setActionError] = useState("");
   const [notice, setNotice] = useState("");
   const [query, setQuery] = useState("");
   const [search, setSearch] = useState("");
   const [fulltext, setFulltext] = useState(true);
   const [semantic, setSemantic] = useState(false);
-  const [searchPage, setSearchPage] = useState<ArtifactSearchPage | null>(null);
   const [workFilter, setWorkFilter] = useState("");
   const [sort, setSort] = useState<ArtifactSort>("filename");
   const [order, setOrder] = useState<"asc" | "desc">("asc");
   const { offset, setOffset, previousOffset } = usePageOffset();
   const [includeDeleted, setIncludeDeleted] = useState(false);
-  const [refresh, setRefresh] = useState(0);
   const [dragging, setDragging] = useState(false);
   const [description, setDescription] = useState("");
   const [originWork, setOriginWork] = useState("");
@@ -64,7 +60,7 @@ export default function ArtifactLibrary({ projectId, maximumBytes, refreshSignal
   const [pending, setPending] = useState<ArtifactMutation | null>(null);
   const [busy, setBusy] = useState(false);
   const [safetyConflict, setSafetyConflict] = useState(false);
-  const [selected, setSelected] = useState<Artifact | null>(null);
+  const [selection, setSelected] = useState<Artifact | null>(null);
   const [preview, setPreview] = useState<{ artifact: Artifact; kind: ArtifactPreviewKind; match?: ArtifactSearchMatch } | null>(null);
   const input = useRef<HTMLInputElement>(null);
   const searchInput = useRef<HTMLInputElement>(null);
@@ -74,17 +70,40 @@ export default function ArtifactLibrary({ projectId, maximumBytes, refreshSignal
   const queue = useRef<File[]>([]);
   const dragDepth = useRef(0);
   const statusRef = useRef<ArtifactStatus | null>(null);
-  const requestScopeRef = useRef<string | null>(null);
   const enabled = status?.enabled === true;
   const currentMaximum = status?.max_bytes ?? maximumBytes;
-  const recordStatus = useCallback((value: ArtifactStatus | null) => {
-    if (value?.enabled && statusRef.current?.enabled === false && pendingRef.current) setActionError("The library is enabled again. Retry the preserved pending action with the same file and operation ID.");
-    if (!value?.enabled || statusRef.current && statusRef.current.max_bytes !== value.max_bytes) {
-      setPage(null); setSearchPage(null);
-    }
-    statusRef.current = value; setStatus(value);
-    if (!value?.enabled) { setDragging(false); dragDepth.current = 0; setPreview(null); }
-  }, []);
+  const filters = { projectId, search, fulltext, semantic, sort, order, offset, includeDeleted, workItemId: workFilter, limit: PAGE_SIZE };
+  const pageRead = useQuery(artifactPageOptions(client, filters, enabled));
+  const detailRead = useQuery(artifactDetailOptions(client, projectId, selection?.id ?? "", enabled && Boolean(selection)));
+  const selected = selection ? detailRead.data ?? selection : null;
+  const semanticInvalidated = useSyncExternalStore(
+    useCallback((notify) => client.getQueryCache().subscribe(notify), [client]),
+    () => Boolean(client.getQueryState(artifactKeys.page(filters))?.isInvalidated), () => false);
+  const semanticStale = Boolean(semantic && search && pageRead.data && semanticInvalidated);
+  const page = enabled && !pageRead.isError && !semanticStale ? pageRead.data?.page ?? null : null;
+  const searchPage = page ? pageRead.data?.searchPage ?? null : null;
+  const loading = statusRead.isPending || pageRead.isFetching;
+  const loadError = searchError || (statusRead.error ? errorMessage(statusRead.error) : pageRead.error ? errorMessage(pageRead.error)
+    : semanticStale ? "Artifacts changed. Search again to refresh semantic results." : "");
+  statusRef.current = status;
+  const previousStatus = useRef<ArtifactStatus | null>(null);
+  useEffect(() => {
+    if (status?.enabled && previousStatus.current?.enabled === false && pendingRef.current) setActionError("The library is enabled again. Retry the preserved pending action with the same file and operation ID.");
+    previousStatus.current = status;
+    if (!status?.enabled) { setDragging(false); dragDepth.current = 0; setPreview(null); setSelected(null); }
+  }, [status]);
+  function runSemantic(changes: Partial<ArtifactFilters>) {
+    const next = { ...filters, ...changes };
+    if (!enabled || !next.semantic || !next.search) return;
+    void client.fetchQuery({ ...artifactPageOptions(client, next), staleTime: 0 }).catch(() => { /* Query exposes the read failure. */ });
+  }
+  function changeOffset(next: number) {
+    runSemantic({ offset: next }); setOffset(next);
+  }
+  async function refresh() {
+    const checked = await statusRead.refetch();
+    if (enabled && checked.data?.enabled && !checked.isError) void pageRead.refetch();
+  }
 
   useEffect(() => {
     try { setFulltext(localStorage.getItem(dashboardStorageKeys.artifactContents) !== "false"); } catch { /* Storage is optional. */ }
@@ -109,64 +128,6 @@ export default function ArtifactLibrary({ projectId, maximumBytes, refreshSignal
   }, [projectId, routeQuery]);
 
   useEffect(() => {
-    const refreshVisible = () => { if (document.visibilityState === "visible") setRefresh((value) => value + 1); };
-    const timer = window.setInterval(refreshVisible, 30000);
-    document.addEventListener("visibilitychange", refreshVisible);
-    return () => { window.clearInterval(timer); document.removeEventListener("visibilitychange", refreshVisible); };
-  }, []);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    // Keep the directory mounted while sorting or paging so its scroll range does not
-    // collapse during the request. Clear old rows when the project or filters change.
-    const scope = JSON.stringify([projectId, search, fulltext, semantic, includeDeleted, workFilter, maximumBytes]);
-    if (requestScopeRef.current !== scope) { setSearchPage(null); setPage(null); }
-    requestScopeRef.current = scope;
-    setLoading(true); setLoadError("");
-    const query = new URLSearchParams({ sort, order, limit: String(PAGE_SIZE), offset: String(offset), include_deleted: String(includeDeleted) });
-    if (workFilter) query.set("work_item_id", workFilter);
-    let checkedStatus = false;
-    async function load() {
-      try {
-        const status = await fetchArtifactStatus(controller.signal);
-        if (controller.signal.aborted) return;
-        checkedStatus = true; recordStatus(status);
-        if (!status.enabled) { setPage(null); setSelected(null); return; }
-        const response = search ? await fetch(`/api/mnemonic${unifiedSearchPath(projectId)}`, {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(artifactSearchRequest(search, fulltext, includeDeleted, PAGE_SIZE, offset, workFilter || undefined, semantic)),
-          cache: "no-store", signal: controller.signal
-        }) : await fetch(`${artifactPath(projectId)}?${query}`, { cache: "no-store", signal: controller.signal });
-        const result = await readBoundedJson(response, 4 * 1024 * 1024);
-        if (controller.signal.aborted) return;
-        const limitError = decodeArtifactLimitError(result, response.status);
-        if (limitError?.code === "artifact_library_disabled") {
-          recordStatus({ enabled: false, max_bytes: 0, message: limitError.message }); setPage(null); setSelected(null); return;
-        }
-        if (!response.ok) throw new Error(detailMessage((result as { detail?: unknown }).detail).message || "Unable to load artifacts.");
-        let freshPage: ArtifactPage;
-        if (search) {
-          const matches = decodeUnifiedArtifactSearchPage(result, projectId, fulltext, PAGE_SIZE, offset, includeDeleted, workFilter || undefined, search, "terms", semantic);
-          await verifyArtifactPassageIds(matches.items);
-          if (controller.signal.aborted) return;
-          if (!includeDeleted && matches.items.some((item) => item.artifact.deleted_at !== null)) throw new Error("Mnemonic returned deleted artifacts outside the requested search scope.");
-          setSearchPage(matches); freshPage = { ...matches, items: matches.items.map((item) => item.artifact) };
-        } else { setSearchPage(null); freshPage = decodeArtifactPage(result, projectId); }
-        setPage(freshPage);
-        setSelected((current) => {
-          if (!current) return null;
-          const fresh = freshPage.items.find((item) => sameUuid(item.id, current.id));
-          return fresh && fresh.revision >= current.revision ? fresh : current;
-        });
-      } catch (error) {
-        if (!controller.signal.aborted) { if (!checkedStatus) recordStatus(null); setPage(null); setSearchPage(null); setLoadError(errorMessage(error)); }
-      } finally { if (!controller.signal.aborted) setLoading(false); }
-    }
-    void load();
-    return () => controller.abort();
-  }, [projectId, search, fulltext, semantic, sort, order, offset, includeDeleted, refresh, refreshSignal, workFilter, maximumBytes, recordStatus]);
-
-  useEffect(() => {
     if (!pending) return;
     const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ""; };
     window.addEventListener("beforeunload", warn);
@@ -188,12 +149,13 @@ export default function ArtifactLibrary({ projectId, maximumBytes, refreshSignal
       markPending(null);
       setSelected((current) => current?.id === outcome.artifact.id ? outcome.artifact : current);
       setNotice(`${outcome.artifact.filename} ${intent.method === "DELETE" ? "deleted. Its metadata and audit history remain available." : intent.method === "PUT" ? `replaced. Revision ${outcome.artifact.revision} is ready.` : intent.method === "PATCH" ? "updated." : "uploaded."}`);
-      setRefresh((value) => value + 1);
+      void reconcileArtifactMutation(client, outcome.artifact);
       return true;
     }
-    if (outcome.type === "rejected") { markPending(null); queue.current = []; setRefresh((value) => value + 1); }
+    if (outcome.type === "rejected") { markPending(null); queue.current = []; void refresh(); }
     if (outcome.type === "disabled") {
-      recordStatus({ enabled: false, max_bytes: 0, message: outcome.message }); setPage(null); setSelected(null);
+      await client.cancelQueries({ queryKey: artifactKeys.status, exact: true });
+      client.setQueryData(artifactKeys.status, { enabled: false, max_bytes: 0, message: outcome.message }); setSelected(null);
     }
     setSafetyConflict(outcome.type === "safety_conflict");
     setActionError(outcome.message);
@@ -259,8 +221,13 @@ export default function ArtifactLibrary({ projectId, maximumBytes, refreshSignal
 
   function searchArtifacts(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (semantic && query.includes('"')) { setLoadError(SEMANTIC_QUERY_ERROR); return; }
-    setLoadError((current) => current === SEMANTIC_QUERY_ERROR ? "" : current);
+    if (semantic && query.includes('"')) { setSearchError(SEMANTIC_QUERY_ERROR); return; }
+    setSearchError((current) => current === SEMANTIC_QUERY_ERROR ? "" : current);
+    const restored = searchError === SEMANTIC_QUERY_ERROR && search === query.trim() && offset === 0 && pageRead.data && !semanticInvalidated;
+    if (!restored) {
+      if (semantic) runSemantic({ search: query.trim(), offset: 0 });
+      else if (search === query.trim() && offset === 0) void refresh();
+    }
     setSearch(query.trim()); setOffset(0);
   }
 
@@ -273,7 +240,7 @@ export default function ArtifactLibrary({ projectId, maximumBytes, refreshSignal
   if (!enabled) {
     const disabled = status?.enabled === false;
     return <section className="artifact-library" aria-label="Artifact library" onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = "none"; }} onDrop={(event) => event.preventDefault()}>
-      <div className="artifact-empty" role="status"><h2>{disabled ? "Artifact library disabled" : loading ? "Checking artifact status…" : "Artifact status unavailable"}</h2><p>{disabled ? status?.message || ARTIFACT_DISABLED_MESSAGE : loadError || "Checking the configured per-file limit before loading files."}</p>{disabled && <p>The configured per-file limit is 0 bytes. Existing files are preserved.</p>}<button className="button button-secondary" onClick={() => setRefresh((value) => value + 1)}>Check artifact status</button></div>
+      <div className="artifact-empty" role="status"><h2>{disabled ? "Artifact library disabled" : loading ? "Checking artifact status…" : "Artifact status unavailable"}</h2><p>{disabled ? status?.message || ARTIFACT_DISABLED_MESSAGE : loadError || "Checking the configured per-file limit before loading files."}</p>{disabled && <p>The configured per-file limit is 0 bytes. Existing files are preserved.</p>}<button className="button button-secondary" onClick={() => void refresh()}>Check artifact status</button></div>
       {pending && <div className="error-notice" role="alert"><p>{disabled ? "The library is disabled, so this pending action cannot be retried yet." : "Artifact status must be available before this pending action can be retried."}</p><p>Keep this page open. Your exact pending request{pending.file ? ` and file “${pending.file.name}”` : ""} are preserved. Operation: <code>{pending.operationId}</code></p><button className="button button-secondary" disabled>Retry pending action</button></div>}
     </section>;
   }
@@ -302,7 +269,7 @@ export default function ArtifactLibrary({ projectId, maximumBytes, refreshSignal
         </div>
         <div className="artifact-search-actions">
           <label className={`semantic-toggle artifact-semantic-toggle ${semantic ? "selected" : ""}`} title="Rank extracted passages by meaning. Requires Include contents and an unquoted query.">
-            <input type="checkbox" role="switch" checked={semantic} disabled={!fulltext || search.includes('"')} onChange={(event) => { setSemantic(event.target.checked); setOffset(0); }} />
+            <input type="checkbox" role="switch" checked={semantic} disabled={!fulltext || search.includes('"')} onChange={(event) => { runSemantic({ semantic: event.target.checked, offset: 0 }); setSemantic(event.target.checked); setOffset(0); }} />
             <span className="semantic-switch" aria-hidden="true"><span /></span><span>Search by meaning</span>
           </label>
           <button className="button button-primary" type="submit">Search</button>
@@ -319,11 +286,11 @@ export default function ArtifactLibrary({ projectId, maximumBytes, refreshSignal
       <input ref={replaceInput} className="sr-only" aria-label="Replace artifact content" type="file" tabIndex={-1} onChange={(event) => { const file = event.target.files?.[0]; if (file && replaceTarget.current) void upload([file], replaceTarget.current); event.target.value = ""; }} />
     </div>
     <details className="artifact-upload-options"><summary>Upload description, links and sensitivity</summary><div className="artifact-upload-fields"><label>Description<textarea value={description} maxLength={4000} disabled={Boolean(pending)} onChange={(event) => setDescription(event.target.value)} rows={2} /></label><label>Originating work item ID<input value={originWork} disabled={Boolean(pending)} onChange={(event) => setOriginWork(event.target.value.trim())} placeholder="Optional work item UUID" /></label><label>Related work item IDs<input value={relatedWork} disabled={Boolean(pending)} onChange={(event) => setRelatedWork(event.target.value)} placeholder="Optional comma-separated UUIDs" /></label><label>Related artifact IDs<input value={relatedArtifacts} disabled={Boolean(pending)} onChange={(event) => setRelatedArtifacts(event.target.value)} placeholder="Optional comma-separated UUIDs" /></label><label className="artifact-sensitive-option"><input type="checkbox" checked={sensitive} disabled={Boolean(pending)} onChange={(event) => setSensitive(event.target.checked)} /> Mark new uploads as sensitive</label></div></details>
-    {workFilter && <p className="artifact-filter-note">Showing files linked to work item <code>{workFilter}</code>. <button className="text-button" onClick={() => { setWorkFilter(""); setOffset(0); }}>Show all project artifacts</button></p>}
+    {workFilter && <p className="artifact-filter-note">Showing files linked to work item <code>{workFilter}</code>. <button className="text-button" onClick={() => { runSemantic({ workItemId: "", offset: 0 }); setWorkFilter(""); setOffset(0); }}>Show all project artifacts</button></p>}
     {!selected && actionFeedback}
-    <div className="artifact-directory-heading"><h2>{search ? "Search results" : "Project files"}{page && <span className="artifact-count">{page.total}</span>}</h2><label><input type="checkbox" checked={includeDeleted} onChange={(event) => { setIncludeDeleted(event.target.checked); setOffset(0); }} /> Show deleted</label></div>
-    {searchPage && <div className="artifact-search-status" role="status"><p>{searchPage.embedding ? `${searchPage.total} ranked candidate${searchPage.total === 1 ? "" : "s"}. Semantic similarity is not a match confidence. Clear to browse all files.` : "Sorted by relevance. Clear to browse all files."}</p>{searchPage.embedding && <><p>{searchPage.embedding.ready} ready for semantic search · {searchPage.embedding.pending + searchPage.embedding.processing} pending · {searchPage.embedding.failed} failed · {searchPage.embedding.unavailable} unavailable · {searchPage.embedding.passages} passages</p>{searchPage.embedding.state !== "ready" && <p>Semantic coverage is incomplete. These candidates cannot establish that no other relevant content exists.</p>}</>}<p>{searchPage.indexing.ready} extracted · {searchPage.indexing.pending} pending · {searchPage.indexing.failed} failed{searchPage.indexing.truncated > 0 ? ` · ${searchPage.indexing.truncated} truncated` : ""}</p>{searchPage.sensitive_content_withheld > 0 && <p>{searchPage.sensitive_content_withheld} sensitive artifacts were excluded from content search. Content results are incomplete.</p>}{(searchPage.indexing.pending > 0 || searchPage.indexing.failed > 0 || searchPage.indexing.truncated > 0) && <p>Content results may be incomplete. Pending files refresh automatically; {searchPage.embedding ? "Failed files do not contribute semantic candidates." : "Failed files still match their available metadata."} Truncated files search only the extracted prefix.</p>}</div>}
-    {loadError ? <div className="error-notice" role="alert"><p>{loadError}</p><button className="button button-secondary" onClick={() => setRefresh((value) => value + 1)}>Retry loading artifacts</button></div> : <>
+    <div className="artifact-directory-heading"><h2>{search ? "Search results" : "Project files"}{page && <span className="artifact-count">{page.total}</span>}</h2><label><input type="checkbox" checked={includeDeleted} onChange={(event) => { runSemantic({ includeDeleted: event.target.checked, offset: 0 }); setIncludeDeleted(event.target.checked); setOffset(0); }} /> Show deleted</label></div>
+    {searchPage && <div className="artifact-search-status" role="status"><p>{searchPage.embedding ? `${searchPage.total} ranked candidate${searchPage.total === 1 ? "" : "s"}. Semantic similarity is not a match confidence. Clear to browse all files.` : "Sorted by relevance. Clear to browse all files."}</p>{searchPage.embedding && <><p>{searchPage.embedding.ready} ready for semantic search · {searchPage.embedding.pending + searchPage.embedding.processing} pending · {searchPage.embedding.failed} failed · {searchPage.embedding.unavailable} unavailable · {searchPage.embedding.passages} passages</p>{searchPage.embedding.state !== "ready" && <p>Semantic coverage is incomplete. These candidates cannot establish that no other relevant content exists.</p>}</>}<p>{searchPage.indexing.ready} extracted · {searchPage.indexing.pending} pending · {searchPage.indexing.failed} failed{searchPage.indexing.truncated > 0 ? ` · ${searchPage.indexing.truncated} truncated` : ""}</p>{searchPage.sensitive_content_withheld > 0 && <p>{searchPage.sensitive_content_withheld} sensitive artifacts were excluded from content search. Content results are incomplete.</p>}{(searchPage.indexing.pending > 0 || searchPage.indexing.failed > 0 || searchPage.indexing.truncated > 0) && <p>Content results may be incomplete. {searchPage.embedding ? "Search again to refresh pending files;" : "Pending files refresh automatically;"} {searchPage.embedding ? "Failed files do not contribute semantic candidates." : "Failed files still match their available metadata."} Truncated files search only the extracted prefix.</p>}</div>}
+    {loadError ? <div className="error-notice" role="alert"><p>{loadError}</p><button className="button button-secondary" onClick={() => void refresh()}>Retry loading artifacts</button></div> : <>
       <div className="artifact-table-scroll" aria-busy={loading} tabIndex={0} role="region" aria-label="Sortable artifact directory">
         <table className="artifact-table"><thead><tr>{columns.map((column) => <th key={column.key} scope="col" aria-sort={!search && sort === column.key ? order === "asc" ? "ascending" : "descending" : "none"}><button disabled={Boolean(search)} title={search ? "Clear to sort the directory" : undefined} onClick={() => { setSort(column.key); setOrder(sort === column.key && order === "asc" ? "desc" : "asc"); setOffset(0); }}>{column.label}<span aria-hidden="true">{search ? "" : sort === column.key ? order === "asc" ? " ↑" : " ↓" : " ↕"}</span></button></th>)}<th scope="col"><span className="sr-only">Actions</span></th></tr></thead>
           <tbody>{page?.items.map((artifact) => <tr key={artifact.id} className={artifact.deleted_at ? "artifact-deleted" : ""}>
@@ -334,10 +301,10 @@ export default function ArtifactLibrary({ projectId, maximumBytes, refreshSignal
       </div>
       {loading && !page && <div className="loading-state" role="status">Loading artifacts…</div>}
       {page && !page.items.length && <div className="artifact-empty"><h2>{searchPage?.embedding ? "No semantic candidates available." : search || workFilter ? "No matching artifacts." : "Your project files belong here."}</h2><p>{search || workFilter ? `Try another query${fulltext ? "" : " or enable Include contents"}, or clear the work filter.` : "Keep documents, binaries and working files together with the work that created them."}</p></div>}
-      {page && <div className="artifact-pagination"><span>{page.total ? `${page.offset + 1}–${Math.min(page.offset + page.items.length, page.total)} of ${page.total} artifacts` : "0 artifacts"}</span><div><button className="button button-secondary" disabled={loading || offset === 0} onClick={() => setOffset(previousOffset)}>Previous</button><button className="button button-secondary" disabled={loading || nextPageOffset(page) === null} onClick={() => { const next = nextPageOffset(page); if (next !== null) setOffset(next); }}>Next</button></div></div>}
+      {page && <div className="artifact-pagination"><span>{page.total ? `${page.offset + 1}–${Math.min(page.offset + page.items.length, page.total)} of ${page.total} artifacts` : "0 artifacts"}</span><div><button className="button button-secondary" disabled={loading || offset === 0} onClick={() => changeOffset(previousOffset)}>Previous</button><button className="button button-secondary" disabled={loading || nextPageOffset(page) === null} onClick={() => { const next = nextPageOffset(page); if (next !== null) changeOffset(next); }}>Next</button></div></div>}
     </>}
-    {selected && <ArtifactDetailsDrawer artifact={selected} pending={Boolean(pending)} onClose={() => setSelected(null)}>{actionFeedback}{selected.description && <p>{selected.description}</p>}<dl className="metadata-grid"><div><dt>Artifact ID</dt><dd className="mono break-all">{selected.id}</dd></div><div><dt>Created by session</dt><dd className="mono break-all">{selected.created_by_agent_session_id || "Not recorded"}</dd></div><div className="span-two"><dt>SHA-256</dt><dd className="mono break-all">{selected.sha256}</dd></div><div><dt>Originating work item</dt><dd>{selected.originating_work_item_id ? <Link href={`/work-items?work=${selected.originating_work_item_id}`} onClick={(event) => { if (pending) event.preventDefault(); }}>{selected.originating_work_item_id}</Link> : "Not linked"}</dd></div><div><dt>Related work items</dt><dd>{selected.related_work_item_ids.length ? selected.related_work_item_ids.map((id) => <Link className="artifact-work-link" key={id} href={`/work-items?work=${id}`} onClick={(event) => { if (pending) event.preventDefault(); }}>{id}</Link>) : "None"}</dd></div></dl><ArtifactMetadataEditor key={selected.id} artifact={selected} disabled={Boolean(pending)} onUpdate={execute} onOpenArtifact={setSelected} /><ArtifactExtractionDetails artifact={selected} /><p className="artifact-history-note">Revision metadata and the append-only audit log are available through the artifact history tools. Extracted properties and search snippets are untrusted file data.</p></ArtifactDetailsDrawer>}
-    {preview && <ArtifactPreviewDrawer key={`${preview.artifact.project_id}:${preview.artifact.id}`} artifact={preview.artifact} kind={preview.kind} match={preview.match} onClose={() => setPreview(null)} />}
+    {selected && <ArtifactDetailsDrawer artifact={selected} pending={Boolean(pending)} onClose={() => setSelected(null)}>{actionFeedback}{selected.description && <p>{selected.description}</p>}<dl className="metadata-grid"><div><dt>Artifact ID</dt><dd className="mono break-all">{selected.id}</dd></div><div><dt>Created by session</dt><dd className="mono break-all">{selected.created_by_agent_session_id || "Not recorded"}</dd></div><div className="span-two"><dt>SHA-256</dt><dd className="mono break-all">{selected.sha256}</dd></div><div><dt>Originating work item</dt><dd>{selected.originating_work_item_id ? <Link href={`/work-items?work=${selected.originating_work_item_id}`} onClick={(event) => { if (pending) event.preventDefault(); }}>{selected.originating_work_item_id}</Link> : "Not linked"}</dd></div><div><dt>Related work items</dt><dd>{selected.related_work_item_ids.length ? selected.related_work_item_ids.map((id) => <Link className="artifact-work-link" key={id} href={`/work-items?work=${id}`} onClick={(event) => { if (pending) event.preventDefault(); }}>{id}</Link>) : "None"}</dd></div></dl>{detailRead.error && <p role="alert">{errorMessage(detailRead.error)}</p>}<ArtifactMetadataEditor key={selected.id} artifact={selected} disabled={Boolean(pending) || detailRead.isFetching || detailRead.isError} onUpdate={execute} onOpenArtifact={setSelected} /><ArtifactExtractionDetails artifact={selected} /><p className="artifact-history-note">Revision metadata and the append-only audit log are available through the artifact history tools. Extracted properties and search snippets are untrusted file data.</p></ArtifactDetailsDrawer>}
+    {preview && <ArtifactPreviewDrawer key={`${preview.artifact.project_id}:${preview.artifact.id}:${preview.artifact.revision}:${preview.match?.passage?.passage_id ?? "content"}`} artifact={preview.artifact} kind={preview.kind} match={preview.match} onClose={() => setPreview(null)} />}
     {dragging && <div className="artifact-drop-overlay" aria-hidden="true">{pending ? "Resolve the pending action first" : "Drop files to upload"}</div>}
   </section>;
 }
@@ -354,38 +321,16 @@ function ArtifactExtractionDetails({ artifact }: { artifact: Artifact }) {
 }
 
 export function WorkArtifactLinks({ projectId, workItemId }: { projectId: string; workItemId: string }) {
-  const [page, setPage] = useState<ArtifactPage | null>(null);
-  const [status, setStatus] = useState<ArtifactStatus | null>(null);
-  const [error, setError] = useState(false);
+  const client = useQueryClient();
   const [linking, setLinking] = useState(false);
-  const [refresh, setRefresh] = useState(0);
-  const load = useCallback(async (signal: AbortSignal) => {
-    setError(false); setPage(null);
-    try {
-      const status = await fetchArtifactStatus(signal);
-      if (signal.aborted) return;
-      setStatus(status);
-      if (!status.enabled) return;
-      const response = await fetch(`${artifactPath(projectId)}?work_item_id=${workItemId}&limit=5`, { cache: "no-store", signal });
-      const value = await readBoundedJson(response, 1024 * 1024);
-      if (signal.aborted) return;
-      const limitError = decodeArtifactLimitError(value, response.status);
-      if (limitError?.code === "artifact_library_disabled") { setStatus({ enabled: false, max_bytes: 0, message: limitError.message }); return; }
-      if (!response.ok) throw new Error();
-      const page = decodeArtifactPage(value, projectId);
-      if (!signal.aborted) setPage(page);
-    } catch { if (!signal.aborted) { setStatus(null); setError(true); } }
-  }, [projectId, workItemId, refresh]);
-  useEffect(() => {
-    if (linking) return;
-    let controller = new AbortController();
-    const refresh = () => { if (document.visibilityState === "visible") { controller.abort(); controller = new AbortController(); void load(controller.signal); } };
-    void load(controller.signal);
-    const timer = window.setInterval(refresh, 30000);
-    document.addEventListener("visibilitychange", refresh);
-    return () => { controller.abort(); window.clearInterval(timer); document.removeEventListener("visibilitychange", refresh); };
-  }, [load, linking]);
+  const statusRead = useQuery(artifactStatusOptions());
+  const status = statusRead.isError ? null : statusRead.data ?? null;
+  const filters = { projectId, search: "", fulltext: false, semantic: false, includeDeleted: false,
+    workItemId, sort: "filename" as const, order: "asc" as const, offset: 0, limit: 5 };
+  const pageRead = useQuery({ ...artifactPageOptions(client, filters, status?.enabled === true), refetchInterval: linking ? false : 30_000 });
+  const page = status?.enabled && !pageRead.isError ? pageRead.data?.page ?? null : null;
+  const error = statusRead.isError || pageRead.isError;
   if (status?.enabled === false) return <section className="work-artifact-links"><span className="section-label">ARTIFACTS</span><p role="status">Artifact library disabled. {status.message}</p><Link href={artifactLibraryPath(projectId, workItemId)}>Open artifact library</Link></section>;
   if (!status) return <section className="work-artifact-links"><span className="section-label">ARTIFACTS</span><p role="status">{error ? "Artifact status is unavailable." : "Checking artifact status…"}</p><Link href={artifactLibraryPath(projectId, workItemId)}>Open artifact library</Link></section>;
-  return <section className="work-artifact-links"><span className="section-label">ARTIFACTS{page ? ` · ${page.total}` : ""}</span>{page?.items.map((artifact) => <a key={artifact.id} href={`${artifactPath(projectId, artifact.id)}/content`} download={artifact.filename}>{artifact.filename}{artifact.sensitive ? " · Sensitive" : ""} <span>r{artifact.revision}</span></a>)}<Link href={artifactLibraryPath(projectId, workItemId)}>{error ? "Open artifacts to retry loading linked files" : "View or upload linked files"}</Link><button type="button" className="text-button" disabled={!page} onClick={() => setLinking(true)}>Link existing artifact</button>{linking && <WorkArtifactLinkDialog projectId={projectId} workItemId={workItemId} linkedIds={page?.items.map((item) => item.id) ?? []} onClose={() => setLinking(false)} onLinked={() => { setLinking(false); setRefresh((value) => value + 1); }} />}</section>;
+  return <section className="work-artifact-links"><span className="section-label">ARTIFACTS{page ? ` · ${page.total}` : ""}</span>{page?.items.map((artifact) => <a key={artifact.id} href={`${artifactPath(projectId, artifact.id)}/content`} download={artifact.filename}>{artifact.filename}{artifact.sensitive ? " · Sensitive" : ""} <span>r{artifact.revision}</span></a>)}<Link href={artifactLibraryPath(projectId, workItemId)}>{error ? "Open artifacts to retry loading linked files" : "View or upload linked files"}</Link><button type="button" className="text-button" disabled={!page} onClick={() => setLinking(true)}>Link existing artifact</button>{linking && <WorkArtifactLinkDialog projectId={projectId} workItemId={workItemId} linkedIds={page?.items.map((item) => item.id) ?? []} onClose={() => setLinking(false)} onLinked={() => { setLinking(false); void invalidateArtifactReads(client, projectId); }} />}</section>;
 }

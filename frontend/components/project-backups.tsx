@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { backupCatalogOptions, backupJobActive, backupJobOptions, secondaryKeys } from "@/lib/secondary-queries";
 import { detailMessage, errorMessage } from "@/lib/api";
-import { backupAge, backupPath, backupSize, decodeBackupJob, decodeBackups, definitiveBackupFailure, type BackupJob, type ProjectBackups } from "@/lib/backups";
+import { backupAge, backupPath, backupSize, decodeBackupJob, definitiveBackupFailure, type BackupJob } from "@/lib/backups";
 import { readBoundedJson } from "@/lib/bounded-json";
 import { formatDateTime } from "@/lib/display-time";
 import type { Project } from "@/lib/types";
@@ -10,7 +12,6 @@ import type { Project } from "@/lib/types";
 type Props = {
   project: Project;
   maximumBytes: number;
-  refreshSignal: number;
   onPendingChange: (pending: boolean) => void;
 };
 
@@ -20,11 +21,11 @@ function responseMessage(value: unknown, fallback: string): string {
   return detailMessage(result.detail ?? result.error).message || fallback;
 }
 
-export default function ProjectBackupsPanel({ project, maximumBytes, refreshSignal, onPendingChange }: Props) {
-  const [catalog, setCatalog] = useState<ProjectBackups | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [refresh, setRefresh] = useState(0);
-  const [loadError, setLoadError] = useState("");
+export default function ProjectBackupsPanel({ project, maximumBytes, onPendingChange }: Props) {
+  const client = useQueryClient();
+  const [visible, setVisible] = useState(() => !document.hidden);
+  const [activeJob, setActiveJob] = useState<string | null>(null);
+  const jobWaiter = useRef<{ resolve: (job: BackupJob) => void; reject: (error: unknown) => void } | null>(null);
   const [actionError, setActionError] = useState("");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState<"backup" | "restore" | null>(null);
@@ -36,36 +37,35 @@ export default function ProjectBackupsPanel({ project, maximumBytes, refreshSign
   const allowReload = useRef(false);
   const inFlight = useRef(false);
 
+  const catalogQuery = useQuery({ ...backupCatalogOptions(project.id), refetchInterval: busy || !visible ? false : 60_000 });
+  const catalog = catalogQuery.data;
+  const loading = catalogQuery.isFetching;
+  const loadError = catalogQuery.error ? errorMessage(catalogQuery.error) : "";
+  const refresh = () => void catalogQuery.refetch({ cancelRefetch: false });
+  const jobQuery = useQuery({ ...backupJobOptions(project.id, visible ? activeJob ?? "" : ""), enabled: activeJob !== null && visible });
+
   useEffect(() => {
     mounted.current = true;
-    return () => { mounted.current = false; };
+    return () => {
+      mounted.current = false;
+      jobWaiter.current?.reject(new Error("Backup progress is no longer being observed."));
+      jobWaiter.current = null;
+    };
   }, []);
-
   useEffect(() => {
-    const timer = window.setInterval(() => {
-      if (document.visibilityState === "visible") {
-        setNow(Date.now());
-        if (!inFlight.current) setRefresh((value) => value + 1);
-      }
-    }, 60_000);
-    return () => window.clearInterval(timer);
+    const update = () => { setVisible(!document.hidden); setNow(Date.now()); };
+    document.addEventListener("visibilitychange", update);
+    const timer = window.setInterval(() => { if (!document.hidden) setNow(Date.now()); }, 60_000);
+    return () => { document.removeEventListener("visibilitychange", update); window.clearInterval(timer); };
   }, []);
-
   useEffect(() => {
-    const controller = new AbortController();
-    setLoading(true);
-    setLoadError("");
-    void fetch(`${backupPath(project.id)}/backups`, { cache: "no-store", signal: controller.signal })
-      .then(async (response) => {
-        const value = await readBoundedJson(response, 4 * 1024 * 1024);
-        if (!response.ok) throw new Error(responseMessage(value, "Unable to load project backups."));
-        return decodeBackups(value, project.id);
-      })
-      .then((value) => { if (!controller.signal.aborted) { setCatalog(value); setNow(Date.now()); } })
-      .catch((error) => { if (!controller.signal.aborted) setLoadError(errorMessage(error)); })
-      .finally(() => { if (!controller.signal.aborted) setLoading(false); });
-    return () => controller.abort();
-  }, [project.id, refresh, refreshSignal]);
+    if (!activeJob || !jobWaiter.current) return;
+    if (jobQuery.error) jobWaiter.current.reject(jobQuery.error);
+    else if (jobQuery.data && !backupJobActive(jobQuery.data)) jobWaiter.current.resolve(jobQuery.data);
+    else return;
+    jobWaiter.current = null;
+    setActiveJob(null);
+  }, [activeJob, jobQuery.data, jobQuery.error]);
 
   useEffect(() => {
     if (!busy && !uncertain) return;
@@ -81,20 +81,21 @@ export default function ProjectBackupsPanel({ project, maximumBytes, refreshSign
     window.location.reload();
   }
 
-  async function completedBackup(initial: BackupJob): Promise<BackupJob> {
-    let job = initial;
-    const deadline = Date.now() + 30 * 60_000;
-    while (job.state === "pending" || job.state === "running") {
-      if (!mounted.current || Date.now() >= deadline) throw new Error("The backup is still queued or running.");
-      await new Promise((resolve) => window.setTimeout(resolve, 1000));
-      const response = await fetch(`${backupPath(project.id)}/backup-jobs/${encodeURIComponent(job.job_id)}`, {
-        cache: "no-store", signal: AbortSignal.timeout(30_000)
-      });
-      const value = await readBoundedJson(response, 4 * 1024 * 1024);
-      if (!response.ok) throw new Error(responseMessage(value, "Unable to check backup progress."));
-      job = decodeBackupJob(value, project.id, initial.job_id);
-    }
-    return job;
+  function completedBackup(initial: BackupJob): Promise<BackupJob> {
+    if (!backupJobActive(initial)) return Promise.resolve(initial);
+    client.setQueryData(secondaryKeys.backupJob(project.id, initial.job_id), initial);
+    return new Promise<BackupJob>((resolve, reject) => {
+      const timer = window.setTimeout(() => {
+        jobWaiter.current = null;
+        setActiveJob(null);
+        reject(new Error("The backup is still queued or running."));
+      }, 30 * 60_000);
+      jobWaiter.current = {
+        resolve: (job) => { window.clearTimeout(timer); resolve(job); },
+        reject: (error) => { window.clearTimeout(timer); reject(error); }
+      };
+      setActiveJob(initial.job_id);
+    });
   }
 
   async function execute(action: "backup" | "restore") {
@@ -128,7 +129,8 @@ export default function ProjectBackupsPanel({ project, maximumBytes, refreshSign
       if (!mounted.current) return;
       if (action === "restore") { reload(); return; }
       setNotice(`Backup created for ${project.name}.`);
-      setRefresh((value) => value + 1);
+      void client.cancelQueries({ queryKey: secondaryKeys.backupCatalog(project.id), exact: true });
+      void client.invalidateQueries({ queryKey: secondaryKeys.backupCatalog(project.id), exact: true });
     } catch (error) {
       if (!mounted.current) return;
       setUncertain(outcomeUncertain);
@@ -155,7 +157,7 @@ export default function ProjectBackupsPanel({ project, maximumBytes, refreshSign
     <p className="settings-intro">Back up {project.name} and download its compressed archives. Each archive contains this project's PostgreSQL data, including artifact metadata and extracted transcript text. Artifact file contents are managed by your separate file backup system. Include the transcript storage directory in that file backup system too.</p>
     <div className="settings-actions backup-actions">
       <button type="button" className="button button-primary" disabled={disabled} onClick={() => void execute("backup")}>{busy === "backup" ? "Creating backup…" : "Back up now"}</button>
-      <button type="button" className="button button-secondary" disabled={loading || busy !== null} onClick={() => setRefresh((value) => value + 1)}>Refresh backups</button>
+      <button type="button" className="button button-secondary" disabled={loading || busy !== null} onClick={() => refresh()}>Refresh backups</button>
     </div>
     {loading && <p className="field-hint" role="status">Checking stored backups…</p>}
     {loadError && <div className="error-notice" role="alert"><p>{loadError}</p>{catalog && <p>The archive list below may be out of date.</p>}</div>}

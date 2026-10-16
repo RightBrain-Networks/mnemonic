@@ -171,3 +171,23 @@ test("hiding gate history detaches its reader and cancels the obsolete request",
     assert.deepEqual(observer.getCurrentResult().data, { items: ["fresh"] });
   } finally { held.resolve({ items: [] }); stop(); client.clear(); }
 });
+
+test("disabling review detail detaches its observer and aborts a pending read", async () => {
+  const client = createDashboardQueryClient();
+  const held = Promise.withResolvers();
+  let signal;
+  const options = { ...codeReviewDetailOptions(project, work, "review"), queryFn: async (request) => {
+    signal = request.signal;
+    return held.promise;
+  } };
+  const observer = new QueryObserver(client, options);
+  const stop = observer.subscribe(() => {});
+  try {
+    observer.setOptions(codeReviewDetailOptions(project, work, "review", false));
+    assert.equal(signal.aborted, true);
+    held.resolve({ review: { id: "review" } });
+    await Promise.resolve();
+    assert.equal(observer.getCurrentResult().data, undefined);
+    assert.equal(client.getQueryData(options.queryKey), undefined);
+  } finally { held.resolve(null); stop(); client.clear(); }
+});

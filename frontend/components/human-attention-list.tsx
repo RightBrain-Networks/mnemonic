@@ -1,6 +1,8 @@
 "use client";
 
 import Link from "@/components/dashboard-link";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { ATTENTION_PAGE_SIZE, humanAttentionOptions, secondaryKeys } from "@/lib/secondary-queries";
 import { useLocation } from "@tanstack/react-router";
 
 import { useWorkItemMotion } from "@/components/use-work-item-motion";
@@ -15,15 +17,9 @@ import {
   clientLabel,
   formatDateTime
 } from "@/components/work-item-card";
-import { api, errorMessage } from "@/lib/api";
-import {
-  decodeHumanAttentionPage,
-  humanAttentionSearchParams
-} from "@/lib/human-gates";
+import { errorMessage } from "@/lib/api";
 import type { HumanAttentionPage, Project, WorkSummary } from "@/lib/types";
 import { validUuid } from "@/lib/wire-guards";
-
-const ATTENTION_PAGE_SIZE = 30;
 
 function requestedThrough(item: HumanAttentionPage["items"][number]): string {
   const gate = item.gate;
@@ -39,106 +35,71 @@ function locationWorkFilter(search: string): string | undefined {
   return value && validUuid(value) ? value : undefined;
 }
 
-export default function HumanAttentionList({
-  project,
-  refreshSignal,
-  onOpen,
-  onResolved
-}: {
+type AttentionListProps = {
   project: Project | undefined;
-  refreshSignal: number;
   onOpen: (summary: WorkSummary) => void;
   onResolved: () => void;
-}) {
+};
+
+export default function HumanAttentionList(props: AttentionListProps) {
   const query = useLocation({ select: (location) => location.searchStr });
   const workItemId = locationWorkFilter(query);
+  // A scope change creates fresh navigation state before any read can observe
+  // the previous scope's continuation token or cached cursor page.
+  return <AttentionScope key={`${props.project?.id ?? "none"}:${workItemId ?? "all"}`} {...props} workItemId={workItemId} />;
+}
+
+function AttentionScope({ project, onOpen, onResolved, workItemId }: AttentionListProps & { workItemId?: string }) {
   const [cursorStack, setCursorStack] = useState<Array<string | null>>([null]);
   const [pageIndex, setPageIndex] = useState(0);
-  const [page, setPage] = useState<HumanAttentionPage | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [loadError, setLoadError] = useState("");
-  const [reload, setReload] = useState(0);
+  const client = useQueryClient();
   const [resolutionStatus, setResolutionStatus] = useState("");
   const titleRef = useRef<HTMLHeadingElement>(null);
   const pendingResolvedGateId = useRef<string | null>(null);
   const cursor = cursorStack[pageIndex] ?? null;
+  const result = useQuery({ ...humanAttentionOptions(project?.id ?? "", workItemId, cursor), enabled: Boolean(project) });
+  const page = project ? result.data ?? null : null;
+  const loading = Boolean(project) && result.isFetching;
+  const loadError = project && result.error ? errorMessage(result.error) : "";
+  const reload = () => { if (project) void client.invalidateQueries({ queryKey: secondaryKeys.attention(project.id) }); };
   const motionRef = useWorkItemMotion<HTMLDivElement>({
     itemIds: page?.items.map((item) => item.gate.id) ?? [],
     total: page?.total ?? null,
     viewKey: `${project?.id}:${workItemId}:${cursor}`,
     revision: page,
-    snapshotSignal: `${refreshSignal}:${reload}`,
+    snapshotSignal: result.isFetching,
     animateReplacements: true
   });
 
   useEffect(() => {
-    setCursorStack([null]);
-    setPageIndex(0);
-    setPage(null);
-    setLoadError("");
-    setResolutionStatus("");
-    pendingResolvedGateId.current = null;
-  }, [project?.id, workItemId]);
-
-  useEffect(() => {
-    if (!project) {
-      setPage(null);
-      setLoading(false);
+    if (!page || result.isFetching || result.error) return;
+    if (!page.items.length && page.total > 0 && pageIndex > 0) {
+      setPageIndex((value) => Math.max(0, value - 1));
       return;
     }
-    const controller = new AbortController();
-    const params = humanAttentionSearchParams({
-      workItemId,
-      limit: ATTENTION_PAGE_SIZE,
-      cursor
-    });
-    setLoading(true);
-    setLoadError("");
-    api<unknown>(`/projects/${encodeURIComponent(project.id)}/human-attention?${params}`, {
-      signal: controller.signal
-    }).then((value) => {
-      if (controller.signal.aborted) return;
-      const nextPage = decodeHumanAttentionPage(value, project.id, {
-        workItemId,
-        limit: ATTENTION_PAGE_SIZE
-      });
-      if (!nextPage.items.length && nextPage.total > 0 && pageIndex > 0) {
-        setPageIndex((value) => Math.max(0, value - 1));
-        return;
-      }
-      setPage(nextPage);
-      const resolvedGateId = pendingResolvedGateId.current;
-      if (
-        resolvedGateId
-        && !nextPage.items.some((item) => item.gate.id === resolvedGateId)
-      ) {
-        pendingResolvedGateId.current = null;
-        setResolutionStatus(nextPage.total === 0
-          ? "Answer recorded. No unresolved questions remain."
-          : `Answer recorded. ${nextPage.total} unresolved question${nextPage.total === 1 ? " remains" : "s remain"}.`);
-        titleRef.current?.focus();
-      }
-    }).catch((cause) => {
-      if (!controller.signal.aborted) setLoadError(errorMessage(cause));
-    }).finally(() => {
-      if (!controller.signal.aborted) setLoading(false);
-    });
-    return () => controller.abort();
-  }, [cursor, pageIndex, project?.id, refreshSignal, reload, workItemId]);
+    const resolvedGateId = pendingResolvedGateId.current;
+    if (resolvedGateId && !page.items.some((item) => item.gate.id === resolvedGateId)) {
+      pendingResolvedGateId.current = null;
+      setResolutionStatus(page.total === 0
+        ? "Answer recorded. No unresolved questions remain."
+        : `Answer recorded. ${page.total} unresolved question${page.total === 1 ? " remains" : "s remain"}.`);
+      titleRef.current?.focus();
+    }
+  }, [page, pageIndex, result.isFetching, result.error]);
 
-  useFailedReadRetry({ scope: `attention:${project?.id}:${workItemId}:${cursor}`, failed: Boolean(loadError), busy: loading, enabled: Boolean(project), retry: () => setReload((value) => value + 1) });
+  useFailedReadRetry({ scope: `attention:${project?.id}:${workItemId}:${cursor}`, failed: Boolean(loadError), busy: loading, enabled: Boolean(project), retry: reload });
 
   function refreshHead(): void {
     setCursorStack([null]);
     setPageIndex(0);
     setResolutionStatus("");
     pendingResolvedGateId.current = null;
-    setReload((value) => value + 1);
+    reload();
   }
 
   function resolved(gateId: string): void {
     pendingResolvedGateId.current = gateId;
-    setReload((value) => value + 1);
+    reload();
     onResolved();
   }
 
@@ -157,7 +118,7 @@ export default function HumanAttentionList({
       <Link href="/attention" className="text-link">Show every question</Link>
     </div>}
     <p className="attention-authority-note">Read the current question and record your answer. Earlier versions are available in the tabs.</p>
-    {loadError && <div className="error-notice" role="alert"><p>{loadError}</p><button type="button" className="button button-secondary" onClick={() => setReload((value) => value + 1)}>Try again</button></div>}
+    {loadError && <div className="error-notice" role="alert"><p>{loadError}</p><button type="button" className="button button-secondary" onClick={() => reload()}>Try again</button></div>}
     {loading && !page && <div className="loading-state" role="status"><span className="spinner" />Loading explicit questions…</div>}
     {page && !page.items.length && !loadError && <section className="empty-state attention-empty"><h2>No explicit human questions are waiting.</h2><p>This does not mean that every work item is ready; lifecycle holds, blockers, and active leases are separate facts.</p></section>}
     <div className="attention-items" ref={motionRef} aria-busy={loading}>{page?.items.map((item) => <article className="attention-card" key={item.gate.id} data-work-item-id={item.gate.id}>
@@ -168,7 +129,7 @@ export default function HumanAttentionList({
       </div>
       <h3>{item.summary.work_item.title}</h3>
       <ExternalReferences references={item.summary.work_item.external_references} />
-      <HumanGateQuestion gate={item.gate} onResolved={() => resolved(item.gate.id)} onRefresh={() => setReload((value) => value + 1)} />
+      <HumanGateQuestion gate={item.gate} onResolved={() => resolved(item.gate.id)} onRefresh={() => reload()} />
       <dl className="attention-provenance">
         <div><dt>Current question by</dt><dd>{requestedThrough(item)}</dd></div>
         <div><dt>First requested</dt><dd><time dateTime={item.gate.created_at}>{formatDateTime(item.gate.created_at)}</time></dd></div>
@@ -179,12 +140,10 @@ export default function HumanAttentionList({
       <span>Page {pageIndex + 1} · {page.items.length} shown · {page.total} currently unresolved</span>
       <div>
         <button type="button" className="button button-secondary" disabled={loading || pageIndex === 0} onClick={() => {
-          setPage(null);
           setPageIndex((value) => Math.max(0, value - 1));
         }}>Previous</button>
         <button type="button" className="button button-secondary" disabled={loading || !page.next_cursor} onClick={() => {
           if (!page.next_cursor) return;
-          setPage(null);
           setCursorStack((values) => [...values.slice(0, pageIndex + 1), page.next_cursor]);
           setPageIndex((value) => value + 1);
         }}>Next</button>

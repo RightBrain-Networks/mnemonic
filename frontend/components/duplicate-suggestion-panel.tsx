@@ -1,24 +1,25 @@
 "use client";
 
+import { useQuery, useQueryClient, type QueryKey } from "@tanstack/react-query";
+import { duplicateSuggestionOptions } from "@/lib/duplicate-suggestion-queries";
 import { comparisonNotice } from "@/lib/search-ranking";
 import ExternalCandidatesEditor from "@/components/external-candidates-editor";
 import ExternalReferences from "@/components/external-references";
 import { useEffect, useRef, useState, type MouseEvent } from "react";
 import { StatusBadge, formatDateTime } from "@/components/work-item-card";
-import { ApiError, api } from "@/lib/api";
+import { ApiError } from "@/lib/api";
 import {
-  decodeDuplicateSuggestionPage,
   duplicateSuggestionInputFromForm
 } from "@/lib/duplicate-suggestions";
-import type { ExternalCandidate, DuplicateSuggestionPage, DuplicateSuggestionSignal } from "@/lib/types";
+import type { DuplicateSuggestionInput, ExternalCandidate, DuplicateSuggestionPage, DuplicateSuggestionSignal } from "@/lib/types";
 
 type SuggestionState = {
   phase: "idle" | "invalid" | "loading" | "ready" | "empty" | "stale" | "error";
-  page: DuplicateSuggestionPage | null;
+  showPage: boolean;
   message: string;
 };
 
-const initialState: SuggestionState = { phase: "idle", page: null, message: "" };
+const initialState: SuggestionState = { phase: "idle", showPage: false, message: "" };
 const signalLabels: Record<DuplicateSuggestionSignal, string> = {
   exact_title: "Exact title",
   lexical: "Related text",
@@ -65,8 +66,18 @@ export default function DuplicateSuggestionPanel({
   const [candidates, setCandidates] = useState<ExternalCandidate[]>([]);
   const [requestBytes, setRequestBytes] = useState(0);
   const panel = useRef<HTMLElement | null>(null);
-  const [state, setState] = useState<SuggestionState>(initialState);
-  const controller = useRef<AbortController | null>(null);
+  const queryClient = useQueryClient();
+  const [phaseState, setState] = useState<SuggestionState>(initialState);
+  const [checked, setChecked] = useState<{ projectId: string; request: DuplicateSuggestionInput } | null>(null);
+  const suggestionQuery = useQuery(duplicateSuggestionOptions(projectId,
+    checked?.projectId === projectId ? checked.request : null));
+  const state = { ...phaseState, page: phaseState.showPage && checked?.projectId === projectId
+    ? suggestionQuery.data ?? null : null };
+  const requestKey = useRef<QueryKey | null>(null);
+  function cancelRead() {
+    if (requestKey.current) void queryClient.cancelQueries({ queryKey: requestKey.current, exact: true });
+    requestKey.current = null;
+  }
   const requestGeneration = useRef(0);
   const observedDraftGeneration = useRef(draftGeneration);
   const observedProjectId = useRef(projectId);
@@ -81,24 +92,23 @@ export default function DuplicateSuggestionPanel({
       && observedProjectId.current === projectId
     ) return;
     const projectChanged = observedProjectId.current !== projectId;
-    if (projectChanged) setCandidates([]);
+    if (projectChanged) { setCandidates([]); setChecked(null); }
     observedDraftGeneration.current = draftGeneration;
     observedProjectId.current = projectId;
     requestGeneration.current += 1;
-    controller.current?.abort();
-    controller.current = null;
+    cancelRead();
     setState((current) => {
       if (projectChanged) return initialState;
       if (current.phase === "idle") return current;
       return {
         phase: "stale",
-        page: current.page,
+        showPage: current.showPage,
         message: "Draft changed. Check existing work again for current results."
       };
     });
   }, [draftGeneration, projectId]);
 
-  useEffect(() => () => controller.current?.abort(), []);
+  useEffect(() => () => { requestGeneration.current += 1; cancelRead(); }, []);
 
   useEffect(() => {
     const form = panel.current?.closest("form");
@@ -109,11 +119,10 @@ export default function DuplicateSuggestionPanel({
 
   function changeCandidates(next: ExternalCandidate[]) {
     requestGeneration.current += 1;
-    controller.current?.abort();
-    controller.current = null;
+    cancelRead();
     setCandidates(next);
     setState((current) => current.phase === "idle" ? current : {
-      phase: "stale", page: current.page,
+      phase: "stale", showPage: current.showPage,
       message: "External records changed. Check again for current results."
     });
   }
@@ -123,15 +132,13 @@ export default function DuplicateSuggestionPanel({
     if (!form || !form.reportValidity()) {
       setState({
         phase: "invalid",
-        page: null,
+        showPage: false,
         message: "Complete the required create-work fields before checking existing work."
       });
       return;
     }
 
-    controller.current?.abort();
-    const currentController = new AbortController();
-    controller.current = currentController;
+    cancelRead();
     const generation = ++requestGeneration.current;
     const checkedDraftGeneration = draftGeneration;
     let request;
@@ -139,29 +146,23 @@ export default function DuplicateSuggestionPanel({
       request = duplicateSuggestionInputFromForm(new FormData(form), candidates);
       if (new TextEncoder().encode(JSON.stringify(request)).length > 2_097_152) throw new Error("Comparison request exceeds 2 MiB. Reduce external record bodies or count.");
     } catch (error) {
-      setState({ phase: "invalid", page: null, message: error instanceof Error ? error.message : "Invalid external records." });
+      setState({ phase: "invalid", showPage: false, message: error instanceof Error ? error.message : "Invalid external records." });
       return;
     }
-    setState({ phase: "loading", page: null, message: "Checking existing work…" });
+    setState({ phase: "loading", showPage: false, message: "Checking existing work…" });
     try {
-      const value = await api<unknown>(
-        `/projects/${encodeURIComponent(projectId)}/duplicate-suggestions`,
-        {
-          method: "POST",
-          body: JSON.stringify(request),
-          signal: currentController.signal
-        }
-      );
-      const page = decodeDuplicateSuggestionPage(value, request);
+      const options = duplicateSuggestionOptions(projectId, request);
+      requestKey.current = options.queryKey;
+      setChecked({ projectId, request });
+      const page = await queryClient.fetchQuery(options);
       if (
-        currentController.signal.aborted
-        || generation !== requestGeneration.current
+        generation !== requestGeneration.current
         || checkedDraftGeneration !== latestDraftGeneration.current
         || projectId !== latestProjectId.current
       ) return;
       setState({
         phase: page.items.length || page.external_items?.length ? "ready" : "empty",
-        page,
+        showPage: true,
         message: page.items.length || page.external_items?.length
           ? `${page.items.length} possible existing work groups${page.external_items ? `; ${page.external_items.length} possible external records` : ""}.`
           : page.semantic.comparison_incomplete ? "No candidates were returned by the available comparison. The duplicate check is incomplete."
@@ -171,14 +172,11 @@ export default function DuplicateSuggestionPanel({
       });
     } catch (error) {
       if (
-        currentController.signal.aborted
-        || generation !== requestGeneration.current
+        generation !== requestGeneration.current
         || checkedDraftGeneration !== latestDraftGeneration.current
         || projectId !== latestProjectId.current
       ) return;
-      setState({ phase: "error", page: null, message: failureMessage(error) });
-    } finally {
-      if (controller.current === currentController) controller.current = null;
+      setState({ phase: "error", showPage: false, message: failureMessage(error) });
     }
   }
 

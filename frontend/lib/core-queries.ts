@@ -1,4 +1,4 @@
-import { queryOptions, replaceEqualDeep, type QueryClient, type QueryKey } from "@tanstack/react-query";
+import { queryOptions, replaceEqualDeep, type QueryClient } from "@tanstack/react-query";
 import { api } from "./api.ts";
 import { queryKeys } from "./query-keys.ts";
 import { loadCompleteProjectCatalog } from "./work-move.ts";
@@ -54,37 +54,25 @@ export function reportCountOptions(projectId: string) {
 
 export type CoreReadDomain = "projects" | "settings" | "work" | "attention" | "reports";
 
-/** Temporary boundary for live events and confirmed writes during migration 5–7. */
+const domainRoots = {
+  projects: [],
+  work: ["work", "tasks"],
+  settings: ["settings", "prompts", "priority-rubric", "backups"],
+  attention: ["attention-count", "attention"],
+  reports: ["report-count", "reports"]
+} satisfies Record<CoreReadDomain, string[]>;
+
+/** Shared invalidation boundary for local writes and live/activity notifications. */
 export function invalidateCoreReads(client: QueryClient, projectId: string | null, domains: readonly CoreReadDomain[]) {
-  if (projectId === null) {
-    // WebSocket events carry a domain but no project identity. Keep inactive
-    // projects stale so returning to a cached picker still sees those writes.
-    const roots = new Set(domains.flatMap((domain) => {
-      switch (domain) {
-        case "work": return ["work", "tasks"];
-        case "settings": return ["settings"];
-        case "attention": return ["attention-count"];
-        case "reports": return ["report-count"];
-        default: return [];
-      }
-    }));
-    return client.invalidateQueries({
-      predicate: ({ queryKey }) => queryKey[0] === "mnemonic" && (
-        queryKey[1] === "projects" && domains.includes("projects")
-        || queryKey[1] === "project" && roots.has(String(queryKey[3]))
-      ),
-      refetchType: "active"
-    });
-  }
-  const keys = domains.flatMap<QueryKey>((domain) => {
-    if (domain === "projects") return [queryKeys.projects];
-    if (!projectId) return [];
-    switch (domain) {
-      case "work": return [queryKeys.work(projectId), queryKeys.tasks(projectId)];
-      case "settings": return [queryKeys.settings(projectId)];
-      case "attention": return [queryKeys.attentionCount(projectId)];
-      case "reports": return [queryKeys.reportCount(projectId)];
-    }
+  // WebSocket events have no project identity. Inactive projects become stale
+  // without starting readers; project activity targets only its own workspace.
+  const roots = new Set(domains.flatMap((domain) => domainRoots[domain]));
+  return client.invalidateQueries({
+    predicate: ({ queryKey }) => queryKey[0] === "mnemonic" && (
+      queryKey[1] === "projects" && domains.includes("projects")
+      || queryKey[1] === "project" && (projectId === null || Boolean(projectId) && queryKey[2] === projectId)
+        && roots.has(String(queryKey[3]))
+    ),
+    refetchType: "active"
   });
-  return Promise.all(keys.map((queryKey) => client.invalidateQueries({ queryKey })));
 }
