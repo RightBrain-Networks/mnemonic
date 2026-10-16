@@ -1,15 +1,16 @@
 "use client";
 
 import { useRef, useState, type FormEvent } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { fetchFreshWorkContext } from "@/lib/work-detail-queries";
 import { OperationalBadge, StatusBadge } from "@/components/work-item-card";
 import { useCanonicalWorkSearch } from "@/components/use-canonical-work-search";
 import MutationRecoveryPanel, { type MutationRecoveryNotice } from "@/components/mutation-recovery-panel";
-import { api, ApiError, errorMessage, workItemPath } from "@/lib/api";
+import { ApiError, errorMessage } from "@/lib/api";
 import { currentContext } from "@/lib/current-context";
 import { dashboardSessionId } from "@/lib/dashboard-session";
 import {
   dashboardMergeInput,
-  decodeWorkContext,
   duplicateMergeEligibilityReasons,
   mergeWorkPath
 } from "@/lib/duplicate-handling";
@@ -91,6 +92,7 @@ export default function WorkMergePanel({
 }) {
   const reviewRequest = useRef(0);
   const registry = useMutationIntentRegistry();
+  const queryClient = useQueryClient();
   const slot = `merge-work:${source.work_item.project_id}:${source.work_item.id}`;
   const { intents, blocked: dispatched } = useMutationScope({ slot }, registry);
   const mergeIntent = intents[0];
@@ -122,16 +124,10 @@ export default function WorkMergePanel({
     setPermanent(false);
     try {
       const projectId = source.work_item.project_id;
-      const [sourceValue, destinationValue] = await Promise.all([
-        api<unknown>(`${workItemPath(projectId, source.work_item.id)}/context?recent_limit=5&recent_event_limit=10`),
-        api<unknown>(`${workItemPath(projectId, destination.summary.work_item.id)}/context?recent_limit=5&recent_event_limit=10`)
+      const [sourceContext, destinationContext] = await Promise.all([
+        fetchFreshWorkContext(queryClient, projectId, source.work_item.id),
+        fetchFreshWorkContext(queryClient, projectId, destination.summary.work_item.id)
       ]);
-      const sourceContext = decodeWorkContext(sourceValue, projectId, source.work_item.id);
-      const destinationContext = decodeWorkContext(
-        destinationValue,
-        projectId,
-        destination.summary.work_item.id
-      );
       if (sourceContext.canonical.is_duplicate || destinationContext.canonical.is_duplicate) {
         throw new Error("Merge review requires two current canonical roots.");
       }

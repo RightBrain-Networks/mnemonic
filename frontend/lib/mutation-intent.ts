@@ -39,6 +39,15 @@ export interface MutationIntentSummary {
   readonly message: string | null;
 }
 
+/** A decoded success, without exposing the frozen request or retry authority. */
+export type ConfirmedMutation = {
+  [K in MutationKind]: {
+    readonly kind: K;
+    readonly intent: MutationIntentSummary;
+    readonly result: MutationResultByKind[K];
+  }
+}[MutationKind];
+
 export type DispatchedMutationIntent = MutationIntentSummary & {
   readonly state: Exclude<MutationIntentState, "prepared">;
 };
@@ -105,6 +114,7 @@ type Fetcher = (input: RequestInfo | URL, init?: RequestInit) => Promise<Respons
 type UuidFactory = () => string;
 type Listener = () => void;
 type RecoveryListener = (intent: MutationIntentSummary) => void;
+type ConfirmationListener = (confirmation: ConfirmedMutation) => void;
 
 const UNKNOWN_OUTCOME = "The mutation outcome is unknown. Retry the same pending action.";
 const SAFETY_CONFLICT = "Mnemonic could not match this retry to its original request. This action remains blocked; stop and inspect the client or server state before continuing.";
@@ -179,6 +189,7 @@ export class MutationIntentRegistry {
   readonly #intents = new Map<string, MutationIntent>();
   readonly #listeners = new Set<Listener>();
   readonly #recoveryListeners = new Set<RecoveryListener>();
+  readonly #confirmationListeners = new Set<ConfirmationListener>();
   readonly #inFlight = new Map<string, Promise<unknown>>();
   #snapshot: readonly MutationIntentSummary[] = Object.freeze([]);
 
@@ -205,6 +216,11 @@ export class MutationIntentRegistry {
   readonly subscribeRecovered = (listener: RecoveryListener): (() => void) => {
     this.#recoveryListeners.add(listener);
     return () => this.#recoveryListeners.delete(listener);
+  };
+
+  readonly subscribeConfirmed = (listener: ConfirmationListener): (() => void) => {
+    this.#confirmationListeners.add(listener);
+    return () => this.#confirmationListeners.delete(listener);
   };
 
   get(slot: string): MutationIntent | undefined {
@@ -368,8 +384,12 @@ export class MutationIntentRegistry {
     if (outcome.type === "success") {
       this.#intents.delete(intent.slot);
       this.#emit();
+      const summary = publicSummary(intent);
+      const confirmation = Object.freeze({
+        kind: intent.kind, intent: summary, result: outcome.value
+      }) as ConfirmedMutation;
+      for (const listener of this.#confirmationListeners) listener(confirmation);
       if (recovered) {
-        const summary = publicSummary(intent);
         for (const listener of this.#recoveryListeners) listener(summary);
       }
       return outcome.value;

@@ -1,13 +1,13 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { api, errorMessage } from "@/lib/api";
-import { decodeCodeReviewDetail } from "@/lib/code-reviews";
+import { useQueryClient } from "@tanstack/react-query";
+import { errorMessage } from "@/lib/api";
+import { fetchFreshWorkContext, fetchFreshWorkSettings } from "@/lib/work-detail-queries";
+import { codeReviewDetailOptions } from "@/lib/work-panel-queries";
 import { retainedReviewPointer, reviewDecisionStatus } from "@/lib/code-review-tasks";
 import { dashboardSessionId } from "@/lib/dashboard-session";
-import { decodeWorkContext } from "@/lib/duplicate-handling";
 import { mutationWorkKey, useMutationIntentRegistry, useMutationScope } from "@/lib/mutation-intent";
-import { decodeProjectSettings } from "@/lib/job-completion-reports";
 import { renderedPrompt } from "@/lib/prompts";
 import { dashboardMutationActor } from "@/lib/work-events";
 import { sameUuid } from "@/lib/wire-guards";
@@ -16,6 +16,7 @@ import type { ManualStatusAction } from "@/lib/work-status-actions";
 
 export function useCodeReviewActions(projectId: string, onChanged: () => void, onNotice: (message: string, error?: boolean) => void) {
   const registry = useMutationIntentRegistry();
+  const queryClient = useQueryClient();
   const scope = useMutationScope({}, registry);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -34,7 +35,7 @@ export function useCodeReviewActions(projectId: string, onChanged: () => void, o
     setBusyId(task.id);
     try {
       const base = `/projects/${projectId}/work-items/${task.work_item_id}`;
-      const context = decodeWorkContext(await api<unknown>(`${base}/context?recent_limit=0&recent_event_limit=0`), projectId, task.work_item_id);
+      const context = await fetchFreshWorkContext(queryClient, projectId, task.work_item_id, 0, 0);
       if (context.work_item.version !== task.work_version) {
         throw new Error("This review changed since the card was loaded. Refresh before making a status decision.");
       }
@@ -45,7 +46,7 @@ export function useCodeReviewActions(projectId: string, onChanged: () => void, o
       const status = reviewDecisionStatus(action);
       if ((review.human_decision?.status ?? "to-review") === status && task.status !== "active") return;
       const terminal = ["done", "wont-do", "promoted"].includes(status);
-      const settings = terminal ? decodeProjectSettings(await api<unknown>(`/projects/${projectId}/settings?work_item_id=${task.work_item_id}`), projectId) : null;
+      const settings = terminal ? await fetchFreshWorkSettings(queryClient, projectId, task.work_item_id) : null;
       if (!active.current || registry.hasDispatched()) return;
       await registry.execute({
         kind: "update_work", slot: `update-work:${projectId}:${task.work_item_id}`,
@@ -73,7 +74,9 @@ export function useCodeReviewActions(projectId: string, onChanged: () => void, o
 
   async function copyPointer(task: Task) {
     try {
-      const detail = decodeCodeReviewDetail(await api<unknown>(`/projects/${projectId}/work-items/${task.work_item_id}/code-reviews/${task.id}`), projectId, task.work_item_id, task.id);
+      const options = codeReviewDetailOptions(projectId, task.work_item_id, task.id);
+      await queryClient.cancelQueries({ queryKey: options.queryKey, exact: true });
+      const detail = await queryClient.fetchQuery({ ...options, staleTime: 0 });
       const runnable = detail.review.state === "requested" && (detail.review.human_decision?.status ?? "to-review") === "to-review";
       const text = !runnable ? retainedReviewPointer(detail) : detail.review.manual_request?.mode === "cold"
         ? await renderedPrompt(projectId, "cold-code-review", task.work_item_id, task.id)

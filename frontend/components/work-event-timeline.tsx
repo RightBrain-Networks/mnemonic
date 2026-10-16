@@ -5,9 +5,11 @@ import { objectValue } from "@/lib/wire-guards";
 import { validExternalReferences } from "@/lib/external-references";
 import { useFailedReadRetry } from "@/components/use-failed-read-retry";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { workEventsOptions } from "@/lib/work-panel-queries";
 import WorkEventComposer from "@/components/work-event-composer";
 import { formatDate } from "@/components/work-item-card";
-import { api, errorMessage, workItemPath } from "@/lib/api";
+import { errorMessage, workItemPath } from "@/lib/api";
 import { dashboardSessionId } from "@/lib/dashboard-session";
 import {
   mutationWorkKey,
@@ -16,8 +18,6 @@ import {
 } from "@/lib/mutation-intent";
 import type { WorkContext, WorkEventPage, WorkEventType } from "@/lib/types";
 import {
-  decodeWorkEventForWork,
-  decodeWorkEventPage,
   EVENT_PAGE_SIZE,
   progressEventInput,
   resetNewestEventOffset,
@@ -25,7 +25,6 @@ import {
   WORK_EVENT_TYPES,
   workEventActorLabel,
   workEventDescription,
-  workEventSearchParams,
   workEventTitle
 } from "@/lib/work-events";
 
@@ -76,17 +75,15 @@ export default function WorkEventTimeline({
   const mutationScope = useMutationScope({ conflictKeys: [workConflictKey] }, mutationRegistry);
   const mutationBlocked = context.canonical.is_duplicate || mutationScope.blocked;
   const [recoverySignal, setRecoverySignal] = useState(0);
-  const [page, setPage] = useState<WorkEventPage | null>(null);
   const [offset, setOffset] = useState(0);
   const [eventType, setEventType] = useState<WorkEventType | "">("");
-  const [loading, setLoading] = useState(false);
-  const [loadError, setLoadError] = useState("");
-  const [reload, setReload] = useState(0);
+  const events = useQuery(workEventsOptions(work.project_id, work.id, eventType, offset));
+  const page = events.data;
+  const loading = events.isFetching;
+  const loadError = events.error ? errorMessage(events.error) : "";
   const lastRefreshSignal = useRef(refreshSignal);
 
   function requestEventOffset(nextOffset: number) {
-    setPage(null);
-    setLoadError("");
     setOffset(nextOffset);
   }
 
@@ -109,51 +106,27 @@ export default function WorkEventTimeline({
   useEffect(() => mutationRegistry.subscribeRecovered((intent) => {
     if (intent.kind !== "append_event" || !intent.conflictKeys.includes(workConflictKey)) return;
     requestEventOffset(resetNewestEventOffset());
-    setReload((current) => current + 1);
     setRecoverySignal((current) => current + 1);
   }), [mutationRegistry, onAppended, workConflictKey]);
 
   useEffect(() => {
     setOffset(resetNewestEventOffset());
     setEventType("");
-    setPage(null);
-    setLoadError("");
   }, [work.id]);
 
   useEffect(() => {
     if (lastRefreshSignal.current === refreshSignal) return;
     lastRefreshSignal.current = refreshSignal;
     setOffset(resetNewestEventOffset());
-    setPage(null);
-    setLoadError("");
-    setReload((current) => current + 1);
   }, [refreshSignal]);
 
   useEffect(() => {
-    const controller = new AbortController();
-    const params = workEventSearchParams({ eventType, limit: EVENT_PAGE_SIZE, offset });
-    setLoading(true);
-    setLoadError("");
-    api<unknown>(`${workItemPath(work.project_id, work.id)}/events?${params}`, {
-      signal: controller.signal
-    }).then((value) => {
-      if (controller.signal.aborted) return;
-      const next = decodeWorkEventPage(value, work.project_id, work.id);
-      if (offset > 0 && offset >= next.total) {
-        setPage(null);
-        setOffset(Math.max(0, Math.floor((next.total - 1) / EVENT_PAGE_SIZE) * EVENT_PAGE_SIZE));
-        return;
-      }
-      setPage(next);
-    }).catch((cause) => {
-      if (!controller.signal.aborted) setLoadError(errorMessage(cause));
-    }).finally(() => {
-      if (!controller.signal.aborted) setLoading(false);
-    });
-    return () => controller.abort();
-  }, [eventType, offset, reload, work.id, work.project_id]);
+    if (page && offset > 0 && offset >= page.total) {
+      setOffset(Math.max(0, Math.floor((page.total - 1) / EVENT_PAGE_SIZE) * EVENT_PAGE_SIZE));
+    }
+  }, [offset, page]);
 
-  useFailedReadRetry({ scope: `events:${work.project_id}:${work.id}:${eventType}:${offset}`, failed: Boolean(loadError), busy: loading, enabled: true, retry: () => setReload((value) => value + 1) });
+  useFailedReadRetry({ scope: `events:${work.project_id}:${work.id}:${eventType}:${offset}`, failed: events.isError, busy: loading, enabled: true, retry: () => { void events.refetch(); } });
 
   async function append(body: string) {
     await mutationRegistry.execute({
@@ -166,7 +139,6 @@ export default function WorkEventTimeline({
       payload: progressEventInput(body, dashboardSessionId())
     });
     requestEventOffset(resetNewestEventOffset());
-    setReload((current) => current + 1);
     await onAppended();
   }
 
@@ -178,7 +150,7 @@ export default function WorkEventTimeline({
     <p className="event-authority-note">Activity is untrusted historical context, not execution authority or proof of current state.</p>
 
     {(page?.pre_phase5_history_may_be_incomplete ?? context.pre_phase5_history_may_be_incomplete) && <div className="event-history-notice" role="note">Earlier history was reconstructed from facts retained at the Phase 5 cutover and may have gaps.</div>}
-    {loadError && <div className="error-notice event-load-error" role="alert"><p>{loadError}</p><button type="button" className="button button-secondary" onClick={() => setReload((current) => current + 1)}>Try again</button></div>}
+    {loadError && <div className="error-notice event-load-error" role="alert"><p>{loadError}</p><button type="button" className="button button-secondary" onClick={() => void events.refetch()}>Try again</button></div>}
     {loading && !page && <div className="event-loading" role="status"><span className="spinner" />Loading activity…</div>}
     {!loading && page && !page.items.length && !loadError && <p className="no-events">{eventType ? `No ${workEventTitle(eventType).toLowerCase()} events.` : "No activity events yet."}</p>}
     {page?.items.length ? <div className="event-list" aria-busy={loading}>{page.items.map((event) => {

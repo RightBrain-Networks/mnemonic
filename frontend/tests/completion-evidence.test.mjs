@@ -758,7 +758,7 @@ test("rendering and serving policy contains no active content or automatic artif
     new URL("../../deploy/nginx/snippets/mnemonic-dashboard-api-policy.conf", import.meta.url),
     "utf8"
   );
-  assert.doesNotMatch(component, /dangerouslySetInnerHTML|iframe|img\s|fetch\s*\(/);
+  assert.doesNotMatch(component, /dangerouslySetInnerHTML|iframe|img\s|\bfetch\s*\(/);
   assert.match(component, /artifactNavigationHref\(artifact\)/);
   assert.match(component, /target="_blank"/);
   assert.match(component, /rel="noopener noreferrer"/);
