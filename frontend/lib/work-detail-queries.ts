@@ -32,7 +32,9 @@ export function workContextOptions(projectId: string, workId: string, recentLimi
 /** Reconciliation must observe a request begun after the confirmed write. */
 export async function fetchFreshWorkContext(client: QueryClient, projectId: string, workId: string, recentLimit = 5, recentEventLimit = 10) {
   const options = workContextOptions(projectId, workId, recentLimit, recentEventLimit);
-  await client.cancelQueries({ queryKey: options.queryKey, exact: true });
+  // Query cancels synchronously. Dispatch the replacement in the same turn so
+  // another fresh reader cannot slip between cancellation and fetchQuery.
+  void client.cancelQueries({ queryKey: options.queryKey, exact: true });
   let signal: AbortSignal | undefined;
   const context = await client.fetchQuery({ ...options, staleTime: 0, queryFn: (request) => {
     signal = request.signal;
@@ -74,7 +76,8 @@ export function workSettingsOptions(projectId: string, workId: string) {
 /** Policy decisions need a read begun for the action, including during prompt refresh. */
 export async function fetchFreshWorkSettings(client: QueryClient, projectId: string, workId: string) {
   const options = workSettingsOptions(projectId, workId);
-  await client.cancelQueries({ queryKey: options.queryKey, exact: true });
+  // Keep cancellation and replacement together, as for fresh context reads.
+  void client.cancelQueries({ queryKey: options.queryKey, exact: true });
   let signal: AbortSignal | undefined;
   const settings = await client.fetchQuery({ ...options, staleTime: 0, queryFn: (request) => {
     signal = request.signal;
