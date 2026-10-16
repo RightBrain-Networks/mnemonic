@@ -337,7 +337,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
   const artifactProjectId = (view === "artifacts" || view === "transcripts" || view === "library" || view === "reviews") ? artifactRoute.projectId : null;
 
   const queryClient = useQueryClient();
-  const catalogQuery = useQuery({ ...projectCatalogOptions(), enabled: !backupPending });
+  const catalogQuery = useQuery(projectCatalogOptions(() => backupPendingRef.current));
   const projects = catalogQuery.data ?? EMPTY_PROJECTS;
   const projectsLoading = catalogQuery.isFetching;
   const projectSelectionError = artifactProjectId && catalogQuery.data
@@ -520,10 +520,6 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
     }
     setPreferencesReady(true);
   }, []);
-
-  useEffect(() => {
-    if (backupPending) void queryClient.cancelQueries({ queryKey: queryKeys.projects });
-  }, [backupPending, queryClient]);
 
   useEffect(() => {
     if (!catalogQuery.data || backupPending) return;
@@ -984,7 +980,6 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
 
   function handleBackupPendingChange(pending: boolean) {
     backupPendingRef.current = pending;
-    if (pending) void queryClient.cancelQueries({ queryKey: queryKeys.projects });
     setBackupPending(pending);
     if (!pending) refreshProjects();
   }
@@ -1174,7 +1169,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
   ): Promise<Project[] | null> {
     if (!isCurrent() || signal?.aborted || backupPendingRef.current) return null;
     await queryClient.cancelQueries({ queryKey: queryKeys.projects });
-    const catalog = await queryClient.fetchQuery({ ...projectCatalogOptions(), staleTime: 0 });
+    const catalog = await queryClient.fetchQuery({ ...projectCatalogOptions(() => backupPendingRef.current), staleTime: 0 });
     return isCurrent() && !signal?.aborted ? catalog : null;
   }
 
@@ -2788,7 +2783,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
     retry: () => refreshSettings()
   });
   useFailedReadRetry({
-    scope: "projects", failed: Boolean(catalogQuery.error), busy: projectsLoading, enabled: !backupPending,
+    scope: "projects", failed: Boolean(catalogQuery.error), busy: projectsLoading,
     retry: () => refreshProjects()
   });
   const modalRecovery = (intents: readonly MutationIntentSummary[]) => (

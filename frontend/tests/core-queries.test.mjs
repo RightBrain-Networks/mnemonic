@@ -154,6 +154,38 @@ test("a loaded empty catalog stays available through background refresh and a fa
   assert.equal(observer.getCurrentResult().isError, false);
 });
 
+test("pending restores retain the cached catalog while reporting read failures and accepting recovery", async (t) => {
+  const { client, observe } = clientFor(t);
+  let pending = false;
+  const options = projectCatalogOptions(() => pending);
+  const fetch = t.mock.method(globalThis, "fetch", async () => Response.json(catalog([project()])));
+  await client.fetchQuery(options);
+  const observer = observe(options);
+  const loaded = observer.getCurrentResult().data;
+
+  // The restore can start while a catalog request is already in flight.
+  const late = Promise.withResolvers();
+  fetch.mock.mockImplementation(() => late.promise);
+  const refresh = invalidateCoreReads(client, projectId, ["projects"]);
+  pending = true;
+  late.resolve(Response.json(catalog()));
+  await refresh;
+  assert.equal(observer.getCurrentResult().data, loaded);
+
+  fetch.mock.mockImplementation(async () => Response.json({ detail: "Catalog unavailable" }, { status: 503 }));
+  await observer.refetch();
+  assert.equal(observer.getCurrentResult().data, loaded);
+  assert.equal(observer.getCurrentResult().isRefetchError, true);
+  fetch.mock.mockImplementation(async () => Response.json(catalog()));
+  await observer.refetch();
+  assert.equal(observer.getCurrentResult().data, loaded);
+  assert.equal(observer.getCurrentResult().isError, false);
+
+  pending = false;
+  await invalidateCoreReads(client, projectId, ["projects"]);
+  assert.deepEqual(observer.getCurrentResult().data, []);
+});
+
 test("dashboard queries leave failure retries and focus or reconnect refresh to the existing coordinator", async (t) => {
   const { client, observe } = clientFor(t);
   const focused = focusManager.isFocused(), online = onlineManager.isOnline();

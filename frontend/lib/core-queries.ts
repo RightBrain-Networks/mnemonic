@@ -1,11 +1,11 @@
-import { queryOptions, type QueryClient, type QueryKey } from "@tanstack/react-query";
+import { queryOptions, replaceEqualDeep, type QueryClient, type QueryKey } from "@tanstack/react-query";
 import { api } from "./api.ts";
 import { queryKeys } from "./query-keys.ts";
 import { loadCompleteProjectCatalog } from "./work-move.ts";
 import { decodeProjectSettings, decodeReportCount } from "./job-completion-reports.ts";
 import { decodeHumanAttentionPage, humanAttentionSearchParams } from "./human-gates.ts";
 
-export function projectCatalogOptions() {
+export function projectCatalogOptions(retainCurrentCatalog?: () => boolean) {
   return queryOptions({
     queryKey: queryKeys.projects,
     queryFn: async ({ signal }) => {
@@ -16,7 +16,11 @@ export function projectCatalogOptions() {
       signal.throwIfAborted();
       if (!projects) throw new Error("The project catalog read was interrupted.");
       return projects.sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
-    }
+    },
+    // A pending or uncertain restore must keep its mounted project panel.
+    // Continue reporting read failures, but defer successful catalog changes.
+    structuralSharing: (previous, next) => retainCurrentCatalog?.() && previous !== undefined
+      ? previous : replaceEqualDeep(previous, next)
   });
 }
 

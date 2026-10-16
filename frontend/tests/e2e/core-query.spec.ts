@@ -85,8 +85,8 @@ test("retained attention and summary counts recover failed background reads afte
     await addSidebarItems(api, project.id, "initial");
     await page.routeWebSocket(/\/api\/mnemonic\/sync$/, () => {});
     await page.goto(`/work-items?project=${project.id}`);
-    const attention = page.locator(".attention-nav-count");
-    const reports = page.locator(".summary-nav-count");
+    const attention = page.locator('a[href="/attention"] .attention-nav-count');
+    const reports = page.locator('a[href="/summaries"] .summary-nav-count');
     await expect(attention).toHaveText("1");
     await expect(reports).toHaveText("1");
     let failCounts = true;
