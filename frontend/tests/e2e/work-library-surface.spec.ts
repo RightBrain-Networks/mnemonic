@@ -910,10 +910,13 @@ test("the Defer menu moves linked deferred work without severing its relationshi
     await expect(menu.getByText(sourceProject.slug, { exact: true })).toHaveCount(0);
 
     const detailScroll = pane.locator(".detail-scroll");
+    const visibleMenuScrollTop = await detailScroll.evaluate((element) => element.scrollTop);
     await detailScroll.evaluate((element) => { element.scrollTop = element.scrollHeight; });
     await expect(moveAction).not.toBeInViewport();
     await expect(menu).toBeHidden();
-    await detailScroll.evaluate((element) => { element.scrollTop = 0; });
+    await detailScroll.evaluate((element, scrollTop) => {
+      element.scrollTop = scrollTop;
+    }, visibleMenuScrollTop);
     await expect(moveAction).toBeInViewport();
     await moveAction.hover();
     await expect(menu).toBeVisible();

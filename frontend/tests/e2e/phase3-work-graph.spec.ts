@@ -251,7 +251,7 @@ test("hierarchy navigation and the relationship editor preserve graph semantics"
     await expect(rootAggregates).toHaveAttribute("title", /1 direct child/);
     await expect(rootAggregates).toHaveAttribute("title", /2 descendants/);
     await expect(rootAggregates).toHaveAttribute("title", /1 active descendant/);
-    const pendingRootCount = await page.locator(".result-count").innerText();
+    const pendingRootCount = (await page.locator(".result-count").textContent())!;
     await page.getByRole("button", { name: "Won’t do", exact: true }).click();
     await expect(rootCard).toHaveCount(1);
     await page.getByRole("button", { name: `Expand children of ${titles.root}` }).click();
