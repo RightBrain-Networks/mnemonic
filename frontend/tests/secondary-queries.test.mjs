@@ -121,3 +121,33 @@ test("report continuations reject mismatched snapshots and duplicate identities;
   assert.deepEqual(observer.getCurrentResult().data.pages.flatMap((page) => page.items.map((entry) => entry.created_sequence)), ["10", "9", "8", "7"]);
   assert.equal(observer.getCurrentResult().hasNextPage, false);
 });
+
+test("backup progress retains the 30-second transport deadline alongside Query cancellation", async (t) => {
+  const client = createDashboardQueryClient();
+  t.after(() => client.clear());
+  const deadlines = [];
+  t.mock.method(AbortSignal, "timeout", (milliseconds) => {
+    assert.equal(milliseconds, 30_000);
+    const deadline = new AbortController();
+    deadlines.push(deadline);
+    return deadline.signal;
+  });
+  const signals = [];
+  t.mock.method(globalThis, "fetch", (_url, init) => new Promise((_resolve, reject) => {
+    signals.push(init.signal);
+    init.signal.addEventListener("abort", () => reject(init.signal.reason), { once: true });
+  }));
+  const options = backupJobOptions(project, jobId);
+  const first = client.fetchQuery(options);
+  const firstRejected = assert.rejects(first);
+  await client.cancelQueries({ queryKey: options.queryKey, exact: true });
+  await firstRejected;
+  assert.equal(signals[0].aborted, true);
+  assert.equal(deadlines[0].signal.aborted, false, "Query cancels the transport independently of its timeout");
+  const second = client.fetchQuery(options);
+  const timedOut = assert.rejects(second, /Backup status timed out/);
+  deadlines[1].abort(new DOMException("Backup status timed out", "TimeoutError"));
+  await timedOut;
+  assert.equal(signals[1].aborted, true);
+  assert.equal(signals.length, 2, "A timeout must not start an automatic status retry");
+});

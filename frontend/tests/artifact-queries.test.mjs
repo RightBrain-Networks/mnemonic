@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { QueryObserver } from "@tanstack/react-query";
 import { createDashboardQueryClient } from "../lib/query-client.ts";
-import { artifactKeys, artifactPageOptions, artifactDetailOptions, artifactPassageOptions, artifactPreviewCurrent, artifactStatusOptions, invalidateArtifactReads, reconcileArtifactMutation } from "../lib/artifact-queries.ts";
+import { artifactKeys, artifactPageOptions, artifactDetailOptions, artifactPassageOptions, artifactPreviewCurrent, artifactStatusOptions, invalidateArtifactReads, prepareArtifactPageNavigation, reconcileArtifactMutation } from "../lib/artifact-queries.ts";
 
 function createClient() {
   const client = createDashboardQueryClient();
@@ -70,6 +70,26 @@ test("sorting and pagination retain truthful old ranges while changing filters r
   await turn();
 });
 
+test("returning to a cached sort preserves the displayed page until its fresh response arrives", async (t) => {
+  const client = createClient();
+  const held = Promise.withResolvers();
+  const nextFilters = { ...filters, offset: 50 };
+  t.mock.method(globalThis, "fetch", async (url) => url === "/api/artifacts/status" ? Response.json(status) : held.promise);
+  const current = { page: { ...page, total: 100, offset: 50 }, searchPage: null };
+  client.setQueryData(artifactKeys.page(nextFilters), current);
+  client.setQueryData(artifactKeys.page(filters), { page, searchPage: null });
+  const { read } = observer(t, (client) => ({ ...artifactPageOptions(client, nextFilters), staleTime: Infinity }), client);
+  prepareArtifactPageNavigation(client, nextFilters);
+  assert.deepEqual(client.getQueryData(artifactKeys.page(nextFilters)), current, "active page remains intact");
+  prepareArtifactPageNavigation(client, filters);
+  assert.equal(client.getQueryData(artifactKeys.page(filters)), undefined);
+  read.setOptions(artifactPageOptions(client, filters));
+  assert.equal(read.getCurrentResult().isPlaceholderData, true);
+  assert.equal(read.getCurrentResult().data.page.offset, 50);
+  await turn(); held.resolve(Response.json(page)); await read.refetch();
+  assert.equal(read.getCurrentResult().data.page.offset, 0);
+});
+
 test("unavailable status prevents page requests and disabled resource responses update shared availability", async (t) => {
   const client = createClient(); t.after(() => client.clear());
   let unavailable = true;
@@ -98,6 +118,9 @@ test("semantic invalidation marks results stale without repeating inference; onl
   assert.equal(options.refetchInterval, false);
   assert.equal(options.retry, false);
   assert.equal(options.refetchOnWindowFocus, false);
+  await invalidateArtifactReads(client, project, { semantic: false });
+  assert.equal(requests, 1);
+  assert.equal(client.getQueryState(options.queryKey).isInvalidated, false, "visibility alone is not evidence that semantic results changed");
   await invalidateArtifactReads(client, project);
   assert.equal(requests, 1);
   assert.equal(client.getQueryState(options.queryKey).isInvalidated, true);

@@ -113,13 +113,13 @@ function PromptEditor({ project, prompt, onClose, onSaved, onPendingChange }: {
     window.addEventListener("beforeunload", beforeUnload);
     return () => window.removeEventListener("beforeunload", beforeUnload);
   }, [dirty, saving]);
-  // The Query result is server state; the accepted revision is the editor's
-  // conflict baseline. Background refreshes never replace a human draft.
+  // Reopening may initially show cached text. Adopt a fresh read while the
+  // editor is still clean, but preserve any draft and its conflict baseline.
   useEffect(() => {
-    if (!saved && detail.data) {
+    if (detail.data && (!saved || !saving && !needsReview && draft === saved.content)) {
       setSaved(detail.data); setDraft(detail.data.content);
     }
-  }, [detail.data, saved]);
+  }, [detail.data, saved, draft, saving, needsReview]);
 
   function close() {
     if (saving) return;

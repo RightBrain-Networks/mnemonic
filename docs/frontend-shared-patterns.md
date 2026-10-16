@@ -240,7 +240,10 @@ Nothing persists Query bodies in browser storage.
 Artifact semantic inference never gains interval, focus, reconnect or invalidation
 retries. A resource invalidation marks semantic results stale and asks for an
 explicit new search. Metadata discovery continues while the visible library is
-open because resource worker jobs do not publish work activity. Transcript list
+open because resource worker jobs do not publish work activity. Returning to a
+visible artifact library refreshes ordinary metadata without invalidating or
+repeating semantic inference. Sorting and paging preserve the displayed range
+until the replacement page arrives, including when revisiting a cached key. Transcript list
 and health discovery likewise poll visibly every 30 seconds, including empty
 lists; selected metadata stops its own job polling at terminal states. Query
 intervals stop while hidden. These are metadata reads, not job submissions.

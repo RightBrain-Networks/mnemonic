@@ -315,3 +315,36 @@ test("background prompt Query refresh preserves the draft and original conflict 
     await expect(drawer.getByRole("button", { name: "Save", exact: true })).toBeDisabled();
   } finally { await api.dispose(); }
 });
+
+test("reopening a cached prompt adopts fresh saved content while its editor is clean", async ({ page }) => {
+  const api = await client();
+  const released = Promise.withResolvers<void>();
+  try {
+    const selected = await project(api);
+    await page.routeWebSocket(/\/api\/mnemonic\/sync$/, () => {});
+    const original = await readPrompt(api, selected.id);
+    await openLibrary(page, selected.id);
+    const open = page.getByRole("button", { name: "Recall pointer", exact: true });
+    await open.click();
+    const drawer = page.getByRole("dialog");
+    const editor = drawer.getByRole("textbox", { name: "Prompt content" });
+    await expect(editor).toHaveValue(original.content);
+    await drawer.getByRole("button", { name: "Close prompt", exact: true }).click();
+    const updated = "Current instructions saved while the editor was closed.";
+    const changed = await api.put(`/api/v1/projects/${selected.id}/prompts/recall-pointer`, {
+      data: { content: updated, expected_revision: original.revision }
+    });
+    expect(changed.ok()).toBe(true);
+    await page.route(`**/api/mnemonic/projects/${selected.id}/prompts/recall-pointer`, async (route) => {
+      const response = await route.fetch();
+      await released.promise;
+      await route.fulfill({ response });
+    });
+    await open.click();
+    await expect(editor).toHaveValue(original.content);
+    released.resolve();
+    await expect(editor).toHaveValue(updated);
+    await expect(drawer.getByRole("button", { name: "Save", exact: true })).toBeDisabled();
+    await expect(page.locator("#project-select")).toBeEnabled();
+  } finally { released.resolve(); await api.dispose(); }
+});

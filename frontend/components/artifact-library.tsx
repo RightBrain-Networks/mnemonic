@@ -9,7 +9,7 @@ import { nextPageOffset } from "@/lib/page-offsets";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type FormEvent } from "react";
 import { ARTIFACT_DISABLED_MESSAGE, artifactLibraryPath, artifactLocation, artifactPath, formatArtifactSize, type Artifact, type ArtifactSearchPage, type ArtifactSearchMatch, type ArtifactSort, type ArtifactStatus } from "@/lib/artifacts";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { artifactDetailOptions, artifactKeys, artifactPageOptions, artifactStatusOptions, invalidateArtifactReads, reconcileArtifactMutation, type ArtifactFilters } from "@/lib/artifact-queries";
+import { artifactDetailOptions, artifactKeys, artifactPageOptions, artifactStatusOptions, invalidateArtifactReads, prepareArtifactPageNavigation, reconcileArtifactMutation, type ArtifactFilters } from "@/lib/artifact-queries";
 import { artifactMetadataHeader, dispatchArtifactMutation, type ArtifactMutation } from "@/lib/artifact-mutations";
 import { dashboardSessionId } from "@/lib/dashboard-session";
 import { errorMessage } from "@/lib/api";
@@ -30,11 +30,27 @@ const columns: { key: ArtifactSort; label: string }[] = [
   { key: "modified_at", label: "Modified" }
 ];
 
+function useArtifactVisibilityCatchup(projectId: string) {
+  const client = useQueryClient();
+  useEffect(() => {
+    const catchUp = () => {
+      if (document.visibilityState === "visible") void invalidateArtifactReads(client, projectId, { semantic: false });
+    };
+    document.addEventListener("visibilitychange", catchUp);
+    window.addEventListener("focus", catchUp);
+    return () => {
+      document.removeEventListener("visibilitychange", catchUp);
+      window.removeEventListener("focus", catchUp);
+    };
+  }, [client, projectId]);
+}
+
 export default function ArtifactLibrary({ projectId, maximumBytes, onPendingChange }: {
   projectId: string;
   maximumBytes: number;
   onPendingChange: (pending: boolean) => void;
 }) {
+  useArtifactVisibilityCatchup(projectId);
   const routeQuery = useLocation({ select: (location) => location.searchStr });
   const client = useQueryClient();
   const statusRead = useQuery(artifactStatusOptions());
@@ -75,7 +91,13 @@ export default function ArtifactLibrary({ projectId, maximumBytes, onPendingChan
   const filters = { projectId, search, fulltext, semantic, sort, order, offset, includeDeleted, workItemId: workFilter, limit: PAGE_SIZE };
   const pageRead = useQuery(artifactPageOptions(client, filters, enabled));
   const detailRead = useQuery(artifactDetailOptions(client, projectId, selection?.id ?? "", enabled && Boolean(selection)));
-  const selected = selection ? detailRead.data ?? selection : null;
+  const directorySelection = !pageRead.isPlaceholderData && selection
+    ? pageRead.data?.page?.items.find((item) => sameUuid(item.id, selection.id)) : undefined;
+  const selected = selection ? [
+    { artifact: selection, updatedAt: 0 },
+    ...(detailRead.data ? [{ artifact: detailRead.data, updatedAt: detailRead.dataUpdatedAt }] : []),
+    ...(directorySelection ? [{ artifact: directorySelection, updatedAt: pageRead.dataUpdatedAt }] : [])
+  ].sort((left, right) => right.artifact.revision - left.artifact.revision || right.updatedAt - left.updatedAt)[0].artifact : null;
   const semanticInvalidated = useSyncExternalStore(
     useCallback((notify) => client.getQueryCache().subscribe(notify), [client]),
     () => Boolean(client.getQueryState(artifactKeys.page(filters))?.isInvalidated), () => false);
@@ -98,7 +120,13 @@ export default function ArtifactLibrary({ projectId, maximumBytes, onPendingChan
     void client.fetchQuery({ ...artifactPageOptions(client, next), staleTime: 0 }).catch(() => { /* Query exposes the read failure. */ });
   }
   function changeOffset(next: number) {
+    prepareArtifactPageNavigation(client, { ...filters, offset: next });
     runSemantic({ offset: next }); setOffset(next);
+  }
+  function changeSort(next: ArtifactSort) {
+    const nextOrder = sort === next && order === "asc" ? "desc" : "asc";
+    prepareArtifactPageNavigation(client, { ...filters, sort: next, order: nextOrder, offset: 0 });
+    setSort(next); setOrder(nextOrder); setOffset(0);
   }
   async function refresh() {
     const checked = await statusRead.refetch();
@@ -292,7 +320,7 @@ export default function ArtifactLibrary({ projectId, maximumBytes, onPendingChan
     {searchPage && <div className="artifact-search-status" role="status"><p>{searchPage.embedding ? `${searchPage.total} ranked candidate${searchPage.total === 1 ? "" : "s"}. Semantic similarity is not a match confidence. Clear to browse all files.` : "Sorted by relevance. Clear to browse all files."}</p>{searchPage.embedding && <><p>{searchPage.embedding.ready} ready for semantic search · {searchPage.embedding.pending + searchPage.embedding.processing} pending · {searchPage.embedding.failed} failed · {searchPage.embedding.unavailable} unavailable · {searchPage.embedding.passages} passages</p>{searchPage.embedding.state !== "ready" && <p>Semantic coverage is incomplete. These candidates cannot establish that no other relevant content exists.</p>}</>}<p>{searchPage.indexing.ready} extracted · {searchPage.indexing.pending} pending · {searchPage.indexing.failed} failed{searchPage.indexing.truncated > 0 ? ` · ${searchPage.indexing.truncated} truncated` : ""}</p>{searchPage.sensitive_content_withheld > 0 && <p>{searchPage.sensitive_content_withheld} sensitive artifacts were excluded from content search. Content results are incomplete.</p>}{(searchPage.indexing.pending > 0 || searchPage.indexing.failed > 0 || searchPage.indexing.truncated > 0) && <p>Content results may be incomplete. {searchPage.embedding ? "Search again to refresh pending files;" : "Pending files refresh automatically;"} {searchPage.embedding ? "Failed files do not contribute semantic candidates." : "Failed files still match their available metadata."} Truncated files search only the extracted prefix.</p>}</div>}
     {loadError ? <div className="error-notice" role="alert"><p>{loadError}</p><button className="button button-secondary" onClick={() => void refresh()}>Retry loading artifacts</button></div> : <>
       <div className="artifact-table-scroll" aria-busy={loading} tabIndex={0} role="region" aria-label="Sortable artifact directory">
-        <table className="artifact-table"><thead><tr>{columns.map((column) => <th key={column.key} scope="col" aria-sort={!search && sort === column.key ? order === "asc" ? "ascending" : "descending" : "none"}><button disabled={Boolean(search)} title={search ? "Clear to sort the directory" : undefined} onClick={() => { setSort(column.key); setOrder(sort === column.key && order === "asc" ? "desc" : "asc"); setOffset(0); }}>{column.label}<span aria-hidden="true">{search ? "" : sort === column.key ? order === "asc" ? " ↑" : " ↓" : " ↕"}</span></button></th>)}<th scope="col"><span className="sr-only">Actions</span></th></tr></thead>
+        <table className="artifact-table"><thead><tr>{columns.map((column) => <th key={column.key} scope="col" aria-sort={!search && sort === column.key ? order === "asc" ? "ascending" : "descending" : "none"}><button disabled={Boolean(search)} title={search ? "Clear to sort the directory" : undefined} onClick={() => changeSort(column.key)}>{column.label}<span aria-hidden="true">{search ? "" : sort === column.key ? order === "asc" ? " ↑" : " ↓" : " ↕"}</span></button></th>)}<th scope="col"><span className="sr-only">Actions</span></th></tr></thead>
           <tbody>{page?.items.map((artifact) => <tr key={artifact.id} className={artifact.deleted_at ? "artifact-deleted" : ""}>
             <td><button className="artifact-name" title={artifact.filename} disabled={Boolean(pending)} aria-haspopup="dialog" onClick={() => setSelected(artifact)}><svg width="19" height="22" viewBox="0 0 20 24" fill="none" stroke="currentColor" aria-hidden="true"><path d="M3 1h8l6 6v16H3zM11 1v7h6M6 13h8M6 17h6" /></svg><span>{artifact.filename}</span></button><span className="artifact-type">{artifact.sensitive && <span className="artifact-sensitive-badge">Sensitive</span>}{artifact.deleted_at ? "Deleted · " : ""}{artifact.mime_type || "Unknown file type"}</span>{searchPage && <ArtifactSearchExcerpt page={searchPage} artifactId={artifact.id} onOpen={(match) => setPreview({ artifact: match.artifact, kind: "text", match })} />}</td>
             <td>{formatArtifactSize(artifact.size_bytes)}</td><td><span className="artifact-revision">r{artifact.revision}</span></td><td><time dateTime={artifact.created_at}>{formatDateTime(artifact.created_at)}</time></td><td><time dateTime={artifact.modified_at}>{formatDateTime(artifact.modified_at)}</time></td>
@@ -321,6 +349,7 @@ function ArtifactExtractionDetails({ artifact }: { artifact: Artifact }) {
 }
 
 export function WorkArtifactLinks({ projectId, workItemId }: { projectId: string; workItemId: string }) {
+  useArtifactVisibilityCatchup(projectId);
   const client = useQueryClient();
   const [linking, setLinking] = useState(false);
   const statusRead = useQuery(artifactStatusOptions());

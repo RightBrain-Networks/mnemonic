@@ -97,6 +97,13 @@ export function artifactPageOptions(client: QueryClient, filters: ArtifactFilter
   });
 }
 
+export function prepareArtifactPageNavigation(client: QueryClient, filters: ArtifactFilters) {
+  if (filters.semantic && filters.search) return;
+  // Returning to an inactive cached sort/page must keep the current displayed
+  // range until the new read completes, just like navigation to an uncached page.
+  client.removeQueries({ queryKey: artifactKeys.page(filters), exact: true, type: "inactive" });
+}
+
 export function artifactDetailOptions(client: QueryClient, projectId: string, id: string, enabled = true) {
   return queryOptions({
     queryKey: enabled ? artifactKeys.detail(projectId, id) : ["mnemonic", "disabled", "artifact-detail", projectId] as const,
@@ -106,7 +113,9 @@ export function artifactDetailOptions(client: QueryClient, projectId: string, id
       const value = await artifactJson(client, await fetch(artifactPath(projectId, id), { cache: "no-store", signal }), signal);
       return decodeArtifact(value, projectId, id);
     },
-    staleTime: 0
+    staleTime: 0,
+    refetchInterval: 30_000,
+    refetchIntervalInBackground: false
   });
 }
 
@@ -136,13 +145,13 @@ export function artifactPassageOptions(match: ArtifactSearchMatch | undefined, e
   });
 }
 
-export function invalidateArtifactReads(client: QueryClient, projectId: string | null) {
+export function invalidateArtifactReads(client: QueryClient, projectId: string | null, options: { semantic?: boolean } = {}) {
   const matches = (key: readonly unknown[]) => key[0] === "mnemonic" && key[1] === "project"
     && key[3] === "artifacts" && (projectId === null || key[2] === projectId);
   return Promise.all([
     client.invalidateQueries({ queryKey: artifactKeys.status, exact: true }, { cancelRefetch: false }),
     client.invalidateQueries({ predicate: (query) => matches(query.queryKey) && !query.meta?.artifactSemantic && query.queryKey[4] !== "passage" }, { cancelRefetch: false }),
-    client.invalidateQueries({ predicate: (query) => matches(query.queryKey) && Boolean(query.meta?.artifactSemantic), refetchType: "none" })
+    options.semantic === false ? Promise.resolve() : client.invalidateQueries({ predicate: (query) => matches(query.queryKey) && Boolean(query.meta?.artifactSemantic), refetchType: "none" })
   ]);
 }
 

@@ -100,7 +100,8 @@ export function backupJobOptions(projectId: string, jobId: string) {
   return queryOptions({
     queryKey: secondaryKeys.backupJob(projectId, jobId), staleTime: 0,
     queryFn: async ({ signal }) => decodeBackupJob(await backupRead(
-      `${backupPath(projectId)}/backup-jobs/${encodeURIComponent(jobId)}`, signal
+      `${backupPath(projectId)}/backup-jobs/${encodeURIComponent(jobId)}`,
+      AbortSignal.any([signal, AbortSignal.timeout(30_000)])
     ), projectId, jobId),
     refetchInterval: (query) => !query.state.error && backupJobActive(query.state.data) ? 1_000 : false,
     refetchIntervalInBackground: false
