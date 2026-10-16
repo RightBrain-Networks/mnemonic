@@ -1,13 +1,22 @@
-import { readFile } from "node:fs/promises";
 import { expect, request, test } from "@playwright/test";
 import { expireLease } from "./database";
-import { statePath, type E2EState } from "./global.setup";
 import { closeDetail, selectWork, workCard } from "./surface";
 
-let state: E2EState;
+const runId = crypto.randomUUID();
+let projectId: string;
 
-test.beforeAll(async () => {
-  state = JSON.parse(await readFile(statePath, "utf8")) as E2EState;
+test.beforeEach(async () => {
+  const api = await request.newContext({
+    baseURL: process.env.MNEMONIC_E2E_API_URL,
+    extraHTTPHeaders: { Authorization: `Bearer ${process.env.MNEMONIC_E2E_API_KEY}` }
+  });
+  try {
+    const response = await api.post("/api/v1/projects", {
+      data: { name: `Lease visibility ${crypto.randomUUID()}` }
+    });
+    expect(response.ok(), await response.text()).toBe(true);
+    projectId = (await response.json() as { id: string }).id;
+  } finally { await api.dispose(); }
 });
 
 test("an active lease is visible without exposing its capability and refreshes at expiry", async ({ page }, testInfo) => {
@@ -16,7 +25,7 @@ test("an active lease is visible without exposing its capability and refreshes a
   if (!apiURL || !apiKey) throw new Error("Run this test through the disposable E2E stack.");
 
   const suffix = testInfo.project.name.replace("chromium-", "");
-  const title = `Leased work ${suffix} ${state.runId.slice(0, 8)}`;
+  const title = `Leased work ${suffix} ${runId.slice(0, 8)}`;
   const holderSession = `lease-e2e-${suffix}-${crypto.randomUUID()}`;
   const client = await request.newContext({
     baseURL: apiURL,
@@ -25,7 +34,7 @@ test("an active lease is visible without exposing its capability and refreshes a
   let workItemId = "";
   let leaseExpiresAt = "";
   try {
-    const created = await client.post(`/api/v1/projects/${state.projectId}/work-items`, {
+    const created = await client.post(`/api/v1/projects/${projectId}/work-items`, {
       data: {
         title,
         summary: "Verify human-safe active-session visibility and expiry refresh.",
@@ -48,7 +57,7 @@ test("an active lease is visible without exposing its capability and refreshes a
     if (!created.ok()) throw new Error(`Could not create lease fixture (${created.status()}): ${await created.text()}`);
     workItemId = (await created.json() as { work_item: { id: string } }).work_item.id;
 
-    const claimed = await client.post(`/api/v1/projects/${state.projectId}/work-items/${workItemId}/claim`, {
+    const claimed = await client.post(`/api/v1/projects/${projectId}/work-items/${workItemId}/claim`, {
       data: {
         holder_client: "claude-code",
         holder_session_id: holderSession,
@@ -63,7 +72,7 @@ test("an active lease is visible without exposing its capability and refreshes a
 
   await page.clock.install();
   await page.goto("/work-items");
-  await page.locator("#project-select").selectOption(state.projectId);
+  await page.locator("#project-select").selectOption(projectId);
   await page.getByRole("button", { name: "Active", exact: true }).click();
   await page.getByLabel("Search work items").fill(title);
 
@@ -79,7 +88,7 @@ test("an active lease is visible without exposing its capability and refreshes a
   await expect(defer).toBeEnabled();
   await expect(defer).toHaveAttribute(
     "title",
-    "Explicitly hold this work item out of the work queue"
+    "Explicitly hold this work item out of its queue"
   );
   const moveReason = pane.getByText(
     "Release the active lease before moving this work item.",
@@ -92,6 +101,7 @@ test("an active lease is visible without exposing its capability and refreshes a
   const parentItems = statusMenu.locator('[data-status-menu-item="true"]');
   await expect(parentItems).toHaveText([
     "Pending",
+    "Review",
     "Done",
     "Won’t Do",
     "Promote",
@@ -132,18 +142,18 @@ test("an active lease is visible without exposing its capability and refreshes a
   const browserListPayload = await page.evaluate(async ({ projectId, title }) => {
     const query = new URLSearchParams({ q: title, status: "pending", view: "full", limit: "20", offset: "0" });
     return (await fetch(`/api/mnemonic/projects/${projectId}/work-items?${query}`)).text();
-  }, { projectId: state.projectId, title });
+  }, { projectId: projectId, title });
   expect(browserListPayload).not.toContain("lease_token");
   // The pane renders the lease from the same-origin context read, which must be as
   // capability-free as the list.
   const browserContextPayload = await page.evaluate(async ({ projectId, workItemId }) => {
     const query = new URLSearchParams({ recent_limit: "5", recent_event_limit: "10" });
     return (await fetch(`/api/mnemonic/projects/${projectId}/work-items/${workItemId}/context?${query}`)).text();
-  }, { projectId: state.projectId, workItemId });
+  }, { projectId: projectId, workItemId });
   expect(browserContextPayload).not.toContain("lease_token");
   await expect(page.getByRole("button", { name: /^(?:claim(?: work)?|force release(?: work)?)$/i })).toHaveCount(0);
 
-  await expireLease(state.projectId, workItemId);
+  await expireLease(projectId, workItemId);
   await page.clock.fastForward(Math.max(0, Date.parse(leaseExpiresAt) - Date.now()) + 1000);
   await expect(card).toHaveCount(0);
 
@@ -166,14 +176,14 @@ test("a human can move work through every manual status", async ({ page }, testI
   if (!apiURL || !apiKey) throw new Error("Run this test through the disposable E2E stack.");
 
   const suffix = testInfo.project.name.replace("chromium-", "");
-  const title = `Human deferred work ${suffix} ${state.runId.slice(0, 8)}`;
+  const title = `Human deferred work ${suffix} ${runId.slice(0, 8)}`;
   const client = await request.newContext({
     baseURL: apiURL,
     extraHTTPHeaders: { Authorization: `Bearer ${apiKey}`, Accept: "application/json" }
   });
   let workItemId = "";
   try {
-    const created = await client.post(`/api/v1/projects/${state.projectId}/work-items`, {
+    const created = await client.post(`/api/v1/projects/${projectId}/work-items`, {
       data: {
         title,
         summary: "Verify the dashboard-only deferral workflow.",
@@ -195,7 +205,7 @@ test("a human can move work through every manual status", async ({ page }, testI
   }
 
   await page.goto("/work-items");
-  await page.locator("#project-select").selectOption(state.projectId);
+  await page.locator("#project-select").selectOption(projectId);
   await page.getByRole("button", { name: "Pending", exact: true }).click();
   await page.getByLabel("Search work items").fill(title);
 
@@ -231,6 +241,7 @@ test("a human can move work through every manual status", async ({ page }, testI
   });
   await pendingChooser.click();
   await expect(returned.getByRole("menuitem")).toHaveText([
+    "Review",
     "Done",
     "Won’t Do",
     "Promote",
@@ -283,12 +294,12 @@ test("a human can move work through every manual status", async ({ page }, testI
   });
   try {
     const response = await verification.get(
-      `/api/v1/projects/${state.projectId}/work-items/${workItemId}`
+      `/api/v1/projects/${projectId}/work-items/${workItemId}`
     );
     expect(response.ok()).toBeTruthy();
     expect((await response.json() as { work_item: { status: string } }).work_item.status).toBe("done");
     const checkpointsResponse = await verification.get(
-      `/api/v1/projects/${state.projectId}/work-items/${workItemId}/checkpoints?order=newest&limit=20&offset=0`
+      `/api/v1/projects/${projectId}/work-items/${workItemId}/checkpoints?order=newest&limit=20&offset=0`
     );
     expect(checkpointsResponse.ok()).toBeTruthy();
     const checkpoints = await checkpointsResponse.json() as {
@@ -308,7 +319,7 @@ test("a human can move work through every manual status", async ({ page }, testI
     });
 
     const eventsResponse = await verification.get(
-      `/api/v1/projects/${state.projectId}/work-items/${workItemId}/events?event_type=work_completed&order=newest&limit=20&offset=0`
+      `/api/v1/projects/${projectId}/work-items/${workItemId}/events?event_type=work_completed&order=newest&limit=20&offset=0`
     );
     expect(eventsResponse.ok()).toBeTruthy();
     const events = await eventsResponse.json() as {
@@ -330,15 +341,18 @@ test("a claim committed before an identity edit is reconciled in the visible det
   if (!apiURL || !apiKey) throw new Error("Run this test through the disposable E2E stack.");
 
   const suffix = testInfo.project.name.replace("chromium-", "");
-  const title = `Edit claim race ${suffix} ${state.runId.slice(0, 8)}`;
+  const title = `Edit claim race ${suffix} ${runId.slice(0, 8)}`;
   const updatedSummary = `Identity edit reconciled the active lease for ${suffix}.`;
   const holderSession = `edit-claim-${suffix}-${crypto.randomUUID()}`;
+  // Exercise reconciliation of the save response before live delivery refreshes
+  // the claimed record. Live invalidation has separate acceptance coverage.
+  await page.routeWebSocket(/\/api\/mnemonic\/sync$/, () => {});
   const client = await request.newContext({
     baseURL: apiURL,
     extraHTTPHeaders: { Authorization: `Bearer ${apiKey}`, Accept: "application/json" }
   });
   try {
-    const created = await client.post(`/api/v1/projects/${state.projectId}/work-items`, {
+    const created = await client.post(`/api/v1/projects/${projectId}/work-items`, {
       data: {
         title,
         summary: "Ready work that will be claimed while its identity editor is open.",
@@ -362,7 +376,7 @@ test("a claim committed before an identity edit is reconciled in the visible det
     const workItemId = (await created.json() as { work_item: { id: string } }).work_item.id;
 
     await page.goto("/work-items");
-    await page.locator("#project-select").selectOption(state.projectId);
+    await page.locator("#project-select").selectOption(projectId);
     await page.getByLabel("Search work items").fill(title);
     const card = workCard(page, title);
     await expect(card).toHaveCount(1);
@@ -374,7 +388,7 @@ test("a claim committed before an identity edit is reconciled in the visible det
     await expect(pane.locator(".detail-identity > .status-badge")).toHaveText("Pending");
     await pane.getByLabel("Summary").fill(updatedSummary);
 
-    const claimed = await client.post(`/api/v1/projects/${state.projectId}/work-items/${workItemId}/claim`, {
+    const claimed = await client.post(`/api/v1/projects/${projectId}/work-items/${workItemId}/claim`, {
       data: {
         holder_client: "claude-code",
         holder_session_id: holderSession,

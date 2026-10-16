@@ -37,6 +37,7 @@ test("hierarchy navigation and the relationship editor preserve graph semantics"
     baseURL: apiURL,
     extraHTTPHeaders: { Authorization: `Bearer ${apiKey}`, Accept: "application/json" }
   });
+  let projectId = "";
   const initialCheckpoints = new Map<string, string>();
 
   async function createWork(
@@ -44,7 +45,7 @@ test("hierarchy navigation and the relationship editor preserve graph semantics"
     status: "pending" | "wont-do" | "promoted" = "pending",
     originId: string | null = null
   ) {
-    const response = await client.post(`/api/v1/projects/${state.projectId}/work-items`, {
+    const response = await client.post(`/api/v1/projects/${projectId}/work-items`, {
       data: {
         title,
         summary: `Phase 3 graph fixture for ${title}.`,
@@ -76,9 +77,9 @@ test("hierarchy navigation and the relationship editor preserve graph semantics"
       })]);
     }
     if (status !== "pending") {
-      const retired = await client.patch(`/api/v1/projects/${state.projectId}/work-items/${created.work_item.id}`, {
+      const retired = await client.patch(`/api/v1/projects/${projectId}/work-items/${created.work_item.id}`, {
         data: { expected_version: 1, status, subagent_transcripts: null, actor: { actor_client: "playwright-api", actor_session_id: `phase3-${suffix}` },
-          client_operation_id: crypto.randomUUID(), job_completion_report: await reportForFixture(client, state.projectId) }
+          client_operation_id: crypto.randomUUID(), job_completion_report: await reportForFixture(client, projectId) }
       });
       expect(retired.ok(), await retired.text()).toBe(true);
     }
@@ -92,7 +93,7 @@ test("hierarchy navigation and the relationship editor preserve graph semantics"
     target_work_item_id: string,
     context_checkpoint_id: string | null = null
   ) {
-    const response = await client.post(`/api/v1/projects/${state.projectId}/relationships`, {
+    const response = await client.post(`/api/v1/projects/${projectId}/relationships`, {
       data: {
         relationship_type,
         source_work_item_id,
@@ -109,6 +110,11 @@ test("hierarchy navigation and the relationship editor preserve graph semantics"
   let rootId = "";
   let childId = "";
   try {
+    const project = await client.post("/api/v1/projects", {
+      data: { name: `Work graph ${crypto.randomUUID()}` }
+    });
+    expect(project.ok(), await project.text()).toBe(true);
+    projectId = (await project.json() as { id: string }).id;
     rootId = await createWork(titles.root, "wont-do");
     childId = await createWork(titles.child);
     const grandchildId = await createWork(titles.grandchild);
@@ -123,11 +129,11 @@ test("hierarchy navigation and the relationship editor preserve graph semantics"
     const discoveryRootId = await createWork(titles.discoveryRoot);
     const discoveredChildId = await createWork(titles.discoveredChild, "pending", discoveryRootId);
     const completed = await client.post(
-      `/api/v1/projects/${state.projectId}/work-items/${doneRootId}/complete`,
+      `/api/v1/projects/${projectId}/work-items/${doneRootId}/complete`,
       {
         data: {
           subagent_transcripts: null,
-          job_completion_report: await reportForFixture(client, state.projectId),
+          job_completion_report: await reportForFixture(client, projectId),
           client_operation_id: crypto.randomUUID(),
           expected_version: 1,
           checkpoint: {
@@ -148,7 +154,7 @@ test("hierarchy navigation and the relationship editor preserve graph semantics"
     await addRelationship("parent-child", collapsedRootId, collapsedChildId);
     await addRelationship("parent-child", discoveryRootId, discoveredChildId);
 
-    const claimed = await client.post(`/api/v1/projects/${state.projectId}/work-items/${childId}/claim`, {
+    const claimed = await client.post(`/api/v1/projects/${projectId}/work-items/${childId}/claim`, {
       data: {
         holder_client: "claude-code",
         holder_session_id: `active-and-blocked-${suffix}`,
@@ -157,7 +163,7 @@ test("hierarchy navigation and the relationship editor preserve graph semantics"
     });
     if (!claimed.ok()) throw new Error(`Could not claim child fixture (${claimed.status()}): ${await claimed.text()}`);
     const collapsedClaim = await client.post(
-      `/api/v1/projects/${state.projectId}/work-items/${collapsedChildId}/claim`,
+      `/api/v1/projects/${projectId}/work-items/${collapsedChildId}/claim`,
       {
         data: {
           holder_client: "claude-code",
@@ -178,7 +184,7 @@ test("hierarchy navigation and the relationship editor preserve graph semantics"
     });
     await page.clock.install();
     await page.goto("/work-items");
-    await page.locator("#project-select").selectOption(state.projectId);
+    await page.locator("#project-select").selectOption(projectId);
 
     const rootCard = workCard(page, titles.root);
     const childCard = workCard(page, titles.child);
@@ -211,7 +217,7 @@ test("hierarchy navigation and the relationship editor preserve graph semantics"
     const collapsedAggregates = descendantChip(collapsedRootCard);
     await expect(collapsedAggregates).toHaveText("1 descendant");
     await expect(collapsedAggregates).toHaveAttribute("title", /1 active descendant/);
-    await expireLease(state.projectId, collapsedChildId);
+    await expireLease(projectId, collapsedChildId);
     await page.clock.fastForward(61 * 1000);
     await expect(collapsedAggregates).toHaveAttribute("title", /0 active descendants/);
     await expect(
@@ -267,7 +273,14 @@ test("hierarchy navigation and the relationship editor preserve graph semantics"
     await expect.poll(() => childRequests.some(
       (url) => url.includes(`/work-items/${rootId}/children?`) && url.includes("status=all")
     )).toBe(true);
+    const pendingResponse = page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return url.pathname === `/api/mnemonic/projects/${projectId}/work-items`
+        && url.searchParams.get("status") === "pending" && url.searchParams.get("offset") === "0";
+    });
     await page.getByRole("button", { name: "Pending", exact: true }).click();
+    const pendingPage = await (await pendingResponse).json() as { total: number };
+    await expect(page.locator(".result-count")).toHaveText(`${pendingPage.total} root branch${pendingPage.total === 1 ? "" : "es"}`);
     await expect(grandchildCard).toHaveCount(1);
 
     const childChildrenPath = `/work-items/${childId}/children?`;

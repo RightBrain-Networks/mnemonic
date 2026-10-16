@@ -276,17 +276,32 @@ test("arrow keys move the selection and scroll only the queue list", async ({ pa
   const letters = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J"];
   const client = await apiClient();
   try {
+    const project = await createProject(client, `Queue keyboard ${crypto.randomUUID()}`);
     for (const letter of letters) {
       await createWork(client, {
         title: `Arrow item ${letter} ${token}`,
         sessionId: `surface-arrows-${testKey(testInfo)}-${letter}`
-      });
+      }, project.id);
     }
 
-    await openDashboard(page);
+    await openDashboard(page, project.id);
     await searchFor(page, token, letters.length);
     const cards = page.locator("article.work-item-card");
     const selectedCards = page.locator("article.work-item-card[aria-selected='true']");
+    // The response byte budget can split even ten results across multiple pages.
+    await expect.poll(() => cards.count()).toBeGreaterThan(0);
+    while (await cards.count() < letters.length) {
+      const previousCount = await cards.count();
+      await scrollQueueToEnd(page);
+      await expect.poll(() => cards.count()).toBeGreaterThan(previousCount);
+    }
+    await page.evaluate(() => {
+      const list = document.querySelector<HTMLElement>(".work-queue-list");
+      const content = document.querySelector<HTMLElement>(".page-content");
+      if (list) list.scrollTop = 0;
+      if (content) content.scrollTop = 0;
+      window.scrollTo(0, 0);
+    });
     await expect(cards).toHaveCount(letters.length);
     const titles = await cards.locator(".queue-card-title").allTextContents();
     expect(new Set(titles).size).toBe(letters.length);
@@ -1386,52 +1401,77 @@ test("the queue appends pages on scroll while the result count shows the total",
   const total = 45;
   const client = await apiClient();
   try {
+    const project = await createProject(client, `Queue pagination ${crypto.randomUUID()}`);
     const numbers = Array.from({ length: total }, (_, index) => index + 1);
     for (let start = 0; start < numbers.length; start += 5) {
       await Promise.all(numbers.slice(start, start + 5).map((number) => createWork(client, {
         title: `Scroll item ${String(number).padStart(2, "0")} ${token}`,
         sessionId: `surface-scroll-${key}-${number}`
-      })));
+      }, project.id)));
     }
 
     const pageRequests: { limit: number; offset: number }[] = [];
     page.on("request", (sent) => {
       const url = sent.url();
-      if (url.endsWith(`/projects/${state.projectId}/search`) && sent.method() === "POST") {
+      if (url.endsWith(`/projects/${project.id}/search`) && sent.method() === "POST") {
         const body = sent.postDataJSON();
         if (body.q === token) pageRequests.push(body);
       }
     });
 
-    await openDashboard(page);
+    const responseForOffset = (offset: number) => page.waitForResponse((response) => {
+      const sent = response.request();
+      if (!sent.url().endsWith(`/projects/${project.id}/search`) || sent.method() !== "POST") return false;
+      const body = sent.postDataJSON();
+      return body.q === token && body.offset === offset;
+    });
+    await openDashboard(page, project.id);
+    const firstResponse = responseForOffset(0);
     await page.getByRole("searchbox", { name: "Search work items" }).fill(token);
     const count = page.locator(".result-count");
     const cards = page.locator("article.work-item-card");
     await expect(count).toHaveText(`${total} work records`);
-    await expect(cards).toHaveCount(WORK_PAGE_SIZE);
+    let result = await (await firstResponse).json() as {
+      items: unknown[]; offset: number; next_offset: number | null; total: number;
+    };
+    let loaded = result.items.length;
+    expect(loaded).toBeGreaterThan(0);
+    expect(loaded).toBeLessThanOrEqual(WORK_PAGE_SIZE);
+    await expect(cards).toHaveCount(loaded);
     await expect(page.locator(".work-queue").getByRole("button", { name: /^(Previous|Next)$/ })).toHaveCount(0);
     await expect(page.locator(".work-queue .pagination")).toHaveCount(0);
     await expect(page.locator(".work-queue-sentinel")).toHaveCount(1);
 
-    await scrollQueueToEnd(page);
-    await expect(cards).toHaveCount(WORK_PAGE_SIZE * 2, { timeout: 15_000 });
-    await expect(count).toHaveText(`${total} work records`);
-    await expect(page.locator(".work-queue-append-error")).toHaveCount(0);
-
-    await scrollQueueToEnd(page);
-    await expect(cards).toHaveCount(total, { timeout: 15_000 });
-    await expect(count).toHaveText(`${total} work records`);
-    await expect(page.locator(".work-queue-append-error")).toHaveCount(0);
+    const expectedOffsets = [0];
+    // Each response may contain fewer records than the requested limit; the
+    // next request must use the server's byte-budget-aware cursor.
+    while (result.next_offset !== null) {
+      const offset = result.next_offset;
+      expect(offset).toBe(loaded);
+      expectedOffsets.push(offset);
+      const nextResponse = responseForOffset(offset);
+      await scrollQueueToEnd(page);
+      result = await (await nextResponse).json();
+      expect(result.offset).toBe(offset);
+      expect(result.total).toBe(total);
+      expect(result.items.length).toBeGreaterThan(0);
+      expect(result.items.length).toBeLessThanOrEqual(WORK_PAGE_SIZE);
+      loaded += result.items.length;
+      await expect(cards).toHaveCount(loaded, { timeout: 15_000 });
+      await expect(count).toHaveText(`${total} work records`);
+      await expect(page.locator(".work-queue-append-error")).toHaveCount(0);
+    }
+    expect(loaded).toBe(total);
+    expect(expectedOffsets.length).toBeGreaterThan(1);
 
     // Every card is a distinct record and nothing beyond the total was requested.
     const ids = await cards.evaluateAll((elements) => elements.map((element) => element.getAttribute("data-queue-option")));
     expect(new Set(ids).size).toBe(total);
-    await expect.poll(() => pageRequests.some((body) => body.offset === 40)).toBe(true);
     await scrollQueueToEnd(page);
     await expect(cards).toHaveCount(total);
     await expect(count).toHaveText(`${total} work records`);
     await expect(page.getByRole("status", { name: "Loading more work items" })).toHaveCount(0);
-    expect(pageRequests.some((body) => body.offset === 60)).toBe(false);
+    expect(pageRequests.map((body) => body.offset)).toEqual(expectedOffsets);
     for (const body of pageRequests) expect(body.limit).toBe(WORK_PAGE_SIZE);
   } finally {
     await client.dispose();

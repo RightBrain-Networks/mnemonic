@@ -85,7 +85,8 @@ test("work summaries render Markdown and keep embedded HTML and image loads iner
     await expect(page.locator("html")).not.toHaveAttribute("data-markdown-injected");
     expect(imageRequests).toEqual([]);
     for (const theme of ["Light", "Dark"]) {
-      await page.getByRole("radio", { name: theme, exact: true }).check();
+      await page.locator(".theme-selector label")
+        .filter({ has: page.getByRole("radio", { name: theme, exact: true }) }).click();
       await expect(page.locator("html")).toHaveAttribute("data-theme", theme.toLowerCase());
       await assertNoPageOverflow(page);
       await expect.poll(async () => (await auditTextContrast(page, card.locator(".job-report-content")))
@@ -136,7 +137,8 @@ test("Needs Attention renders block Markdown in the queue and the original work 
     await expect(content.getByRole("link", { name: "Unsafe" })).toHaveCount(0);
     await expect(page.locator("html")).not.toHaveAttribute("data-markdown-injected");
     for (const theme of ["Light", "Dark"]) {
-      await page.getByRole("radio", { name: theme, exact: true }).check();
+      await page.locator(".theme-selector label")
+        .filter({ has: page.getByRole("radio", { name: theme, exact: true }) }).click();
       await expect(page.locator("html")).toHaveAttribute("data-theme", theme.toLowerCase());
       await assertNoPageOverflow(page);
       await expect.poll(async () => (await auditTextContrast(page, content))
@@ -145,9 +147,10 @@ test("Needs Attention renders block Markdown in the queue and the original work 
     }
     await card.getByRole("button", { name: "Open work context" }).click();
     const questions = await openTab(workPane(page), "Questions");
-    await expect(questions.locator(".gate-question h2")).toHaveText("Which rollout should we use?");
-    await expect(questions.locator(".gate-question table")).toBeVisible();
-    await expect(questions.locator(".gate-question img, .gate-question [onerror]")).toHaveCount(0);
+    const originalQuestion = questions.locator(".attention-question");
+    await expect(originalQuestion.getByRole("heading", { name: "Which rollout should we use?", level: 2 })).toBeVisible();
+    await expect(originalQuestion.getByRole("table")).toBeVisible();
+    await expect(originalQuestion.locator("img, [onerror]")).toHaveCount(0);
     await assertNoPageOverflow(page);
   } finally {
     await api.dispose();

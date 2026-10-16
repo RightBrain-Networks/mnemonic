@@ -177,11 +177,11 @@ async function getContext(
   return await response.json() as WorkContext;
 }
 
-// The same canonical root page the queue requests for the default hierarchy view.
+// Full canonical root details expose the hierarchy's duplicate bookkeeping.
 async function getHierarchyRoots(client: APIRequestContext): Promise<HierarchyRootsPage> {
   const response = await client.get(
     `/api/v1/projects/${state.projectId}/work-items`
-      + "?status=all&sort=updated&view=roots&limit=20&offset=0&duplicate_scope=canonical"
+      + "?status=all&sort=updated&view=roots&detail=full&limit=20&offset=0&duplicate_scope=canonical"
   );
   expect(response.ok(), await response.text()).toBe(true);
   return await response.json() as HierarchyRootsPage;
@@ -390,9 +390,10 @@ for (const picker of ["merge", "relationship"] as const) {
     let responseHeld = false;
     let responseReleased = false;
     let holdNextResponse = true;
-    await page.route("**/api/mnemonic/projects/*/work-items?*", async (route) => {
-      const url = new URL(route.request().url());
-      if (!holdNextResponse || url.searchParams.get("q") !== destination.id) {
+    await page.route("**/api/mnemonic/projects/*/search", async (route) => {
+      const request = route.request();
+      const body = request.method() === "POST" ? request.postDataJSON() : null;
+      if (!holdNextResponse || body?.q !== destination.id) {
         await route.continue();
         return;
       }
