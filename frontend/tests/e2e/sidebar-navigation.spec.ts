@@ -4,6 +4,13 @@ import { statePath, type E2EState } from "./global.setup";
 
 test("sidebar navigation keeps the workspace mounted through menu links and browser history", async ({ page }, testInfo) => {
   const state = JSON.parse(await readFile(statePath, "utf8")) as E2EState;
+  await page.addInitScript((projectId) => localStorage.setItem("mnemonic.project", projectId), state.projectId);
+  let sendReady: (() => void) | undefined;
+  let syncConnections = 0;
+  await page.routeWebSocket(/\/api\/mnemonic\/sync$/, (socket) => {
+    syncConnections += 1;
+    sendReady = () => socket.send(JSON.stringify({ type: "ready", revision: 0 }));
+  });
   await page.route("**/job-completion-reports/count", (route) => route.fulfill({ json: {
     project_id: state.projectId, undismissed_count: "7", as_of_sequence: "0"
   } }));
@@ -15,7 +22,33 @@ test("sidebar navigation keeps the workspace mounted through menu links and brow
   const resources = navigation.getByRole("button", { name: "Resources", exact: true });
   await resources.click();
   await expect(page.locator(".summary-nav-count")).toHaveText("7");
-  await expect(page.locator(".sync-status")).toHaveText("Live Updates");
+  const picker = page.locator("#project-select");
+  await expect(picker).toBeEnabled();
+  await expect.poll(() => Boolean(sendReady)).toBe(true);
+
+  // Live-sync readiness schedules a catalog refresh after bootstrap. The picker
+  // intentionally disables during that read, including before Query. Complete a
+  // held refresh before observing navigation so startup cannot mimic a remount.
+  let releaseCatalog!: () => void;
+  const catalogReleased = new Promise<void>((resolve) => { releaseCatalog = resolve; });
+  let catalogHeld = false;
+  const catalogPattern = /\/api\/mnemonic\/projects\?/;
+  await page.route(catalogPattern, async (route) => {
+    catalogHeld = true;
+    await catalogReleased;
+    await route.continue();
+  });
+  try {
+    sendReady!();
+    await expect(page.locator(".sync-status")).toHaveText("Live Updates");
+    await expect.poll(() => catalogHeld).toBe(true);
+    await expect(picker).toBeDisabled();
+    releaseCatalog();
+    await expect(picker).toBeEnabled();
+  } finally {
+    releaseCatalog();
+    await page.unroute(catalogPattern);
+  }
 
   const sidebar = await page.locator(".sidebar").elementHandle();
   const documentRequests: string[] = [];
@@ -54,6 +87,8 @@ test("sidebar navigation keeps the workspace mounted through menu links and brow
   await page.getByRole("link", { name: "Mnemonic home" }).click();
   await expect(page).toHaveURL("/");
   expect(documentRequests).toEqual([]);
+  expect(syncConnections).toBe(1);
+  await expect(page.locator(".sync-status")).toHaveText("Live Updates");
   expect(await sidebar!.evaluate((element) => element.isConnected)).toBe(true);
   expect(await page.evaluate(() => (window as unknown as { sidebarResets: string[] }).sidebarResets)).toEqual([]);
   const screenshot = testInfo.outputPath("sidebar-navigation.png");

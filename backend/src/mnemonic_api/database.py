@@ -1,6 +1,8 @@
-from collections.abc import Iterator
+from collections.abc import AsyncIterator
 from typing import Annotated, Any, cast
 
+import anyio
+from anyio.to_thread import run_sync
 from fastapi import Depends, Request
 from sqlalchemy import create_engine, event, text
 from sqlalchemy.engine import CursorResult, Engine, Result
@@ -68,12 +70,17 @@ def build_session_factory(
     )
 
 
-def get_session(request: Request) -> Iterator[Session]:
-    # A failed request closes and rolls back its uncommitted transaction.
-    with request.app.state.session_factory() as session:
+async def get_session(request: Request) -> AsyncIterator[Session]:
+    session = request.app.state.session_factory()
+    try:
         session.info["transcript_settings"] = request.app.state.settings
         session.info["prompt_root"] = request.app.state.settings.prompt_root
         yield session
+    finally:
+        # Cancellation must still roll back the transaction. A separate limiter
+        # lets cleanup run even when all default workers await database capacity.
+        with anyio.CancelScope(shield=True):
+            await run_sync(session.close, limiter=anyio.CapacityLimiter(1))
 
 
 # Route parameter type for the request-scoped session above.

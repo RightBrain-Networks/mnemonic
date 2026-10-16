@@ -435,6 +435,7 @@ test("activity pagination, refresh recovery, replay, and proxy denials stay cohe
     }));
     await expect(activity.locator("article.work-event").filter({ hasText: liveResetBody })).toHaveCount(1);
     await expect(activity.locator(".event-pagination")).toContainText("1–20 of 27");
+    const retainedHead = await activity.locator("article.work-event").allTextContents();
 
     await activity.getByRole("button", { name: "Older" }).click();
     await expect(activity.locator(".event-pagination")).toContainText("21–27 of 27");
@@ -462,12 +463,16 @@ test("activity pagination, refresh recovery, replay, and proxy denials stay cohe
       scope: "work-items"
     }));
     await expect(activity.getByRole("alert")).toContainText("Forced event refresh failure.");
-    await expect(activity.locator(".event-list")).toHaveCount(0);
-    await expect(activity.locator(".event-pagination")).toHaveCount(0);
+    // Query retains the last successful snapshot for the reset head while its
+    // refresh fails; it must not show the older page or publish the unseen event.
+    await expect(activity.locator("article.work-event")).toHaveText(retainedHead);
+    await expect(activity.locator(".event-pagination")).toContainText("1–20 of 27");
+    await expect(activity.locator("article.work-event").filter({ hasText: failedRefreshBody })).toHaveCount(0);
     failEventPages = false;
     // The accepted activity cursor may already be current: this failed view must retry itself.
     await expect(activity.locator("article.work-event").filter({ hasText: failedRefreshBody })).toHaveCount(1);
     await expect(activity.locator(".event-pagination")).toContainText("1–20 of 28");
+    await expect(activity.getByRole("alert")).toHaveCount(0);
   } finally {
     if (relationshipId) {
       await client.delete(

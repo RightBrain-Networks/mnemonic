@@ -51,9 +51,33 @@ def secure(headers):
     assert "frame-ancestors 'none'" in headers["content-security-policy"]
 
 
+def public_payload(content):
+    for name in ("MNEMONIC_E2E_API_KEY", "MNEMONIC_E2E_BACKUP_TOKEN"):
+        assert os.environ[name].encode() not in content, "Private credential in public bytes"
+    for address in (b"http://api:8000", b"http://worker:8002"):
+        assert address not in content, "Private service address in public bytes"
+
+
+def runtime_configuration():
+    status, headers, content = request("/api/mnemonic/runtime-config")
+    assert status == 200
+    secure(headers)
+    public_payload(content)
+    assert json.loads(content) == {
+        "timezone": os.environ.get("TIMEZONE", "America/Detroit"),
+        "work_summary_max_chars": int(
+            os.environ.get("MNEMONIC_E2E_WORK_SUMMARY_MAX_CHARS", "2048")
+        ),
+        "artifact_max_bytes": 67108864,
+        "backup_max_bytes": 2097152,
+    }
+    print("PASS: runtime configuration matches deployment values and exposes only public fields")
+
+
 def static_delivery():
     status, headers, page = request("/")
     assert status == 200 and "text/html" in headers["content-type"]
+    public_payload(page)
     assert "no-cache" in headers["cache-control"]
     assert headers["x-frame-options"] == "DENY"
     for path in (
@@ -71,6 +95,7 @@ def static_delivery():
         path = asset.decode()
         status, asset_headers, content = request(path)
         assert status == 200 and content != page, path
+        public_payload(content)
         assert "immutable" in asset_headers["cache-control"], path
         assert asset_headers["x-content-type-options"] == "nosniff", path
         assert "text/html" not in asset_headers["content-type"], path
@@ -84,7 +109,10 @@ def static_delivery():
         assert status == 404 and content != page, (path, status)
     status, _, content = request("/healthz")
     assert status == 200 and json.loads(content) == {"status": "ok"}
-    print("PASS: static SPA deep links, immutable assets, security headers and missing-resource boundaries")
+    print(
+        "PASS: static SPA deep links, secret-free assets, immutable caching, "
+        "security headers and missing-resource boundaries"
+    )
 
 
 def raw_streams():
@@ -331,6 +359,7 @@ def backup_worker():
 if __name__ == "__main__":
     assert os.environ["MNEMONIC_E2E_COMPOSE_PROJECT"].startswith("mnemonic-nginx-e2e-")
     static_delivery()
+    runtime_configuration()
     boundaries()
     raw_streams()
     unbuffered_upload()

@@ -241,8 +241,11 @@ async def _run_file(
     app: ASGIApp, scope: Scope, source: _Input, gate: _ResponseGate,
     pending: set[asyncio.Task[None]], mutation: bool, timeout: float,
 ) -> None:
+    execution = anyio.CancelScope()
+
     async def execute() -> None:
-        await app(scope, source.read, gate.capture)
+        with execution:
+            await app(scope, source.read, gate.capture)
 
     task = asyncio.create_task(execute())
     _track(task, pending)
@@ -262,7 +265,8 @@ async def _run_file(
         source.disconnected.set()
         watch.cancel()
         if not task.done() and not gate.complete and (not mutation or not source.complete):
-            task.cancel()
+            # Preserve native worker shields before releasing sessions or handles.
+            execution.cancel()
         with suppress(asyncio.CancelledError):
             await watch
 

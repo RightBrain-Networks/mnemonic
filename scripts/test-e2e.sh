@@ -118,7 +118,7 @@ cleanup() {
   local status=$?
   trap - EXIT INT TERM
   if (( status != 0 )); then
-    "${compose[@]}" logs --no-color --tail 200 api web worker rabbitmq || true
+    "${compose[@]}" logs --no-color --tail 200 api web worker rabbitmq postgres || true
   fi
   "${compose[@]}" down -v --remove-orphans >/dev/null 2>&1 || true
   clean_disposable_directory "$MNEMONIC_E2E_ARTIFACT_DIR" || true
@@ -144,7 +144,7 @@ if [[ "$run_browser" == true ]]; then
   services+=(web)
 fi
 if ! "${compose[@]}" up -d --build --wait "${services[@]}"; then
-  "${compose[@]}" logs --no-color api web worker rabbitmq
+  "${compose[@]}" logs --no-color api web worker rabbitmq postgres
   exit 1
 fi
 if [[ "$run_browser" == true ]]; then

@@ -549,6 +549,12 @@ uv run --project backend ruff check \
 
 ## Dashboard verification through Phase 12
 
+The current dashboard uses Vite, TanStack Router and TanStack Query. The
+[frontend migration release checklist](frontend-migration-release.md) maps the
+complete acceptance surface to its tests and records the final validation and
+operator rollout boundary. Earlier phase descriptions below retain their domain
+contracts; FastAPI now owns the browser transport tests formerly run against Next.
+
 Run from `frontend`:
 
 ```sh
@@ -1280,9 +1286,11 @@ This release requires no migration or configuration changes.
 
 ### Dashboard route lifecycle
 
-The dashboard routes share `frontend/app/(dashboard)/layout.tsx`. The layout
-reads the server-only timezone and upload limits and keeps one dashboard mounted;
-the page entries declare the supported URLs. Sidebar links use client navigation,
+The dashboard routes share the `DashboardRoot` layout in `frontend/router.tsx`.
+`frontend/main.tsx` validates public runtime settings before mounting the router
+and provides one QueryClient across sibling routes. The shared layout keeps one
+dashboard and mutation registry mounted; thin leaf routes declare the supported
+URLs. Sidebar links use client navigation,
 so the project picker, count badges, theme selector, settings disclosure and live
 connection persist between sections. Do not move the dashboard back into the page
 entries or replace these links with document navigation.
