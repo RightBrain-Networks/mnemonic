@@ -1,37 +1,14 @@
 "use client";
 
+import { useCallback, useMemo } from "react";
+import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import { useFailedReadRetry } from "@/components/use-failed-read-retry";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { api, errorMessage, workItemPath } from "@/lib/api";
-import { decodeUnifiedWorkSearchPage, unifiedSearchPath, workSearchRequest } from "@/lib/unified-search";
-import { decodeHierarchySearchPage } from "@/lib/hierarchy-presentation";
-import type { DuplicateScope, Page, StatusFilter, WorkSort } from "@/lib/types";
-import { isFlatWorkSearch, workSearchParams } from "@/lib/work-item-search";
-import {
-  WORK_PAGE_SIZE,
-  appendWorkPage,
-  hasMoreWork,
-  reloadWorkPages,
-  mergeWorkPages,
-  type MergedWorkPages,
-  type WorkQueueItem
-} from "@/lib/work-queue";
+import { errorMessage } from "@/lib/api";
+import { isFlatWorkSearch } from "@/lib/work-item-search";
+import { mergeWorkPages, type WorkQueueItem } from "@/lib/work-queue";
+import { workQueueQueryOptions, type WorkQueueFilters } from "@/lib/work-queries";
 
-export type WorkQueuePagesInput = {
-  enabled: boolean;
-  projectId: string;
-  status: StatusFilter;
-  sort: WorkSort;
-  search: string;
-  semantic: boolean;
-  duplicateScope: DuplicateScope;
-  canonicalWorkItemId: string;
-  tag: string;
-  sourceClient: string;
-  sourceSessionId: string;
-  refresh: number;
-  pinnedWorkItemIds: readonly string[];
-};
+export type WorkQueuePagesInput = WorkQueueFilters & { enabled: boolean };
 
 export type WorkQueuePages = {
   viewKey: string;
@@ -49,209 +26,44 @@ export type WorkQueuePages = {
   retryAppend: () => void;
 };
 
-type LoadedView = MergedWorkPages<WorkQueueItem> & { viewKey: string };
-type ViewFailure = { viewKey: string; message: string };
-
 const EMPTY_ITEMS: WorkQueueItem[] = [];
 
-export function useWorkQueuePages({
-  enabled,
-  projectId,
-  status,
-  sort,
-  search,
-  semantic,
-  duplicateScope,
-  canonicalWorkItemId,
-  tag,
-  sourceClient,
-  sourceSessionId,
-  refresh,
-  pinnedWorkItemIds
-}: WorkQueuePagesInput): WorkQueuePages {
-  const viewKey = JSON.stringify([
-    projectId,
-    status,
-    sort,
-    search,
-    semantic,
-    duplicateScope,
-    canonicalWorkItemId,
-    tag,
-    sourceClient,
-    sourceSessionId,
-    pinnedWorkItemIds
-  ]);
-  const flatSearch = isFlatWorkSearch({ query: search, duplicateScope, canonicalWorkItemId });
-  const [data, setData] = useState<LoadedView | null>(null);
-  const [fetching, setFetching] = useState(false);
-  const [appending, setAppending] = useState(false);
-  const [failure, setFailure] = useState<ViewFailure | null>(null);
-  const [appendFailure, setAppendFailure] = useState<ViewFailure | null>(null);
-  const [retryCount, setRetryCount] = useState(0);
-  const dataRef = useRef<LoadedView | null>(null);
-  const fetchingRef = useRef(false);
-  const generationRef = useRef(0);
-  const appendControllerRef = useRef<AbortController | null>(null);
-
-  // Layout timing keeps the ref current before any child's passive effect asks for the next page.
-  useLayoutEffect(() => { dataRef.current = data; }, [data]);
-
-  const fetchPage = useCallback(async (
-    offset: number,
-    signal: AbortSignal
-  ): Promise<Page<WorkQueueItem>> => {
-    const options = {
-      status,
-      statusScope: "work_item" as const,
-      sort,
-      limit: WORK_PAGE_SIZE,
-      offset,
-      query: search,
-      semantic,
-      tag,
-      sourceClient,
-      sourceSessionId,
-      pinnedWorkItemIds,
-      duplicateScope,
-      ...(canonicalWorkItemId ? { canonicalWorkItemId } : {})
-    };
-    const value = flatSearch
-      ? await api<unknown>(unifiedSearchPath(projectId), { method: "POST", body: JSON.stringify(workSearchRequest(options)), signal })
-      : await api<unknown>(`${workItemPath(projectId)}?${workSearchParams(options)}`, { signal });
-    return flatSearch
-      ? decodeUnifiedWorkSearchPage(value, projectId, {
-        duplicateScope,
-        canonicalWorkItemId: canonicalWorkItemId || undefined,
-        query: search,
-        semantic: Boolean(search.trim() && semantic),
-        expectedFilters: { status_scope: "work_item", status, tag: tag.trim() || null, source_client: sourceClient.trim() || null, source_session_id: sourceSessionId.trim() || null },
-        expectedLimit: WORK_PAGE_SIZE,
-        expectedOffset: offset
-      })
-      : decodeHierarchySearchPage(value, projectId, WORK_PAGE_SIZE, offset, { status_scope: "work_item", status, tag: tag.trim() || null, source_client: sourceClient.trim() || null, source_session_id: sourceSessionId.trim() || null });
-  }, [
-    canonicalWorkItemId,
-    duplicateScope,
-    flatSearch,
-    projectId,
-    pinnedWorkItemIds,
-    search,
-    semantic,
-    sort,
-    sourceClient,
-    sourceSessionId,
-    status,
-    tag
-  ]);
-
-  const abortAppend = useCallback(() => {
-    const controller = appendControllerRef.current;
-    if (!controller) return;
-    controller.abort();
-    appendControllerRef.current = null;
-    setAppending(false);
-  }, []);
-
-  useEffect(() => {
-    generationRef.current += 1;
-    abortAppend();
-    setAppendFailure(null);
-    if (!enabled) {
-      fetchingRef.current = false;
-      setFetching(false);
-      setFailure(null);
-      setData(null);
-      return;
-    }
-    const generation = generationRef.current;
-    const controller = new AbortController();
-    const current = dataRef.current;
-    const targetCount = current?.viewKey === viewKey ? current.loaded : 0;
-    const requestedViewKey = viewKey;
-    fetchingRef.current = true;
-    setFetching(true);
-    setFailure(null);
-    reloadWorkPages((offset) => fetchPage(offset, controller.signal), targetCount)
-      .then((pages) => {
-        if (controller.signal.aborted || generationRef.current !== generation) return;
-        setData({ viewKey: requestedViewKey, ...mergeWorkPages(pages) });
-      })
-      .catch((error) => {
-        if (controller.signal.aborted || generationRef.current !== generation) return;
-        setFailure({ viewKey: requestedViewKey, message: errorMessage(error) });
-      })
-      .finally(() => {
-        if (controller.signal.aborted || generationRef.current !== generation) return;
-        fetchingRef.current = false;
-        setFetching(false);
-      });
-    return () => controller.abort();
-  }, [abortAppend, enabled, fetchPage, refresh, retryCount, viewKey]);
-
-  useEffect(() => () => {
-    generationRef.current += 1;
-    appendControllerRef.current?.abort();
-    appendControllerRef.current = null;
-  }, []);
-
+export function useWorkQueuePages({ enabled, ...filters }: WorkQueuePagesInput): WorkQueuePages {
+  const client = useQueryClient();
+  const options = workQueueQueryOptions(client, filters);
+  const viewKey = JSON.stringify(options.queryKey);
+  // Moving the observer also aborts a read when this surface becomes disabled.
+  const query = useInfiniteQuery({ ...options, queryKey: enabled ? options.queryKey : [...options.queryKey, "disabled"], enabled });
+  const visible = enabled ? query.data : undefined;
+  const merged = useMemo(() => {
+    if (!visible) return null;
+    const pages = visible.pages.flatMap((chunk) => chunk.pages);
+    const result = mergeWorkPages(pages);
+    if (visible.pages.at(-1)?.appended) result.total = pages.at(-1)?.total ?? result.total;
+    return result;
+  }, [visible]);
+  const error = enabled && query.isError && !query.isFetchNextPageError ? errorMessage(query.error) : "";
+  const appendError = enabled && query.isFetchNextPageError ? errorMessage(query.error) : "";
+  const retry = useCallback(() => { if (enabled) void query.refetch(); }, [enabled, query.refetch]);
   const loadMore = useCallback(() => {
-    const current = dataRef.current;
-    if (!enabled || !current || current.viewKey !== viewKey) return;
-    if (fetchingRef.current || appendControllerRef.current) return;
-    if (!hasMoreWork(current.loaded, current.total)) return;
-    const offset = current.loaded;
-    const generation = generationRef.current;
-    const controller = new AbortController();
-    const requestedViewKey = viewKey;
-    appendControllerRef.current = controller;
-    setAppending(true);
-    setAppendFailure(null);
-    fetchPage(offset, controller.signal)
-      .then((page) => {
-        if (controller.signal.aborted || generationRef.current !== generation) return;
-        setData((previous) => (
-          previous && previous.viewKey === requestedViewKey && previous.loaded === offset
-            ? { viewKey: requestedViewKey, ...appendWorkPage(previous, page) }
-            : previous
-        ));
-      })
-      .catch((error) => {
-        if (controller.signal.aborted || generationRef.current !== generation) return;
-        setAppendFailure({ viewKey: requestedViewKey, message: errorMessage(error) });
-      })
-      .finally(() => {
-        if (appendControllerRef.current !== controller) return;
-        appendControllerRef.current = null;
-        setAppending(false);
-      });
-  }, [enabled, fetchPage, viewKey]);
-
-  const retry = useCallback(() => setRetryCount((value) => value + 1), []);
-  const retryAppend = useCallback(() => {
-    setAppendFailure(null);
-    loadMore();
-  }, [loadMore]);
-
-  const visible = data?.viewKey === viewKey ? data : null;
-  const error = failure?.viewKey === viewKey ? failure.message : "";
-  const appendError = appendFailure?.viewKey === viewKey ? appendFailure.message : "";
-  const total = visible?.total ?? null;
-  useFailedReadRetry({ scope: `queue:${viewKey}`, failed: Boolean(error), busy: fetching, enabled, retry });
-  useFailedReadRetry({ scope: `queue-append:${viewKey}`, failed: Boolean(appendError), busy: appending || fetching, enabled, retry: retryAppend });
+    if (enabled && query.hasNextPage && !query.isFetching) void query.fetchNextPage({ cancelRefetch: false });
+  }, [enabled, query.hasNextPage, query.isFetching, query.fetchNextPage]);
+  const automaticRetry = enabled && !(filters.search.trim() && filters.semantic);
+  useFailedReadRetry({ scope: `queue:${viewKey}`, failed: Boolean(error), busy: query.isFetching, enabled: automaticRetry, retry });
+  useFailedReadRetry({ scope: `queue-append:${viewKey}`, failed: Boolean(appendError), busy: query.isFetching, enabled: automaticRetry, retry: loadMore });
   return {
     viewKey,
-    flatSearch,
-    items: visible?.items ?? EMPTY_ITEMS,
-    total,
-    loading: enabled && !visible && (fetching || !error),
-    refreshing: fetching && visible !== null,
-    appending,
+    flatSearch: isFlatWorkSearch({ query: filters.search, duplicateScope: filters.duplicateScope, canonicalWorkItemId: filters.canonicalWorkItemId }),
+    items: merged?.items ?? EMPTY_ITEMS,
+    total: merged?.total ?? null,
+    loading: enabled && query.isPending,
+    refreshing: enabled && Boolean(visible) && query.isFetching && !query.isFetchingNextPage,
+    appending: enabled && query.isFetchingNextPage,
     error,
     appendError,
-    hasMore: hasMoreWork(visible?.loaded ?? 0, total),
+    hasMore: enabled && query.hasNextPage,
     loadMore,
     retry,
-    retryAppend
+    retryAppend: loadMore
   };
 }
