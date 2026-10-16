@@ -5,11 +5,11 @@ import { useState, type MouseEvent } from "react";
 import { useTaskPage } from "@/components/use-task-page";
 import { TaskCard, TaskPagination } from "@/components/task-cards";
 
-export default function TaskDashboard({ projectId, refreshSignal, onNavigate }: {
-  projectId: string; refreshSignal: number; onNavigate: (event: MouseEvent<HTMLAnchorElement>) => void;
+export default function TaskDashboard({ projectId, enabled, onNavigate }: {
+  projectId: string; enabled: boolean; onNavigate: (event: MouseEvent<HTMLAnchorElement>) => void;
 }) {
   const [offset, setOffset] = useState(0);
-  const { page, error, busy, retry } = useTaskPage(projectId, refreshSignal, "active", undefined, offset);
+  const { page, error, busy, retry } = useTaskPage(projectId, "active", undefined, offset, undefined, enabled);
   return <div className="task-dashboard">
     <section className="task-widgets" aria-label="Task overview">
       {([

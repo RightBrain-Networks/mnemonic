@@ -37,8 +37,8 @@ function CardActions({ task, actions, compact = true }: { task: Task; actions: R
   </div>;
 }
 
-export default function CodeReviewLibrary({ projectId, refreshSignal, workId, reviewId, onNavigate, onNotice, onChanged }: {
-  projectId: string; refreshSignal: number; workId: string | null; reviewId: string | null;
+export default function CodeReviewLibrary({ projectId, enabled, refreshSignal, workId, reviewId, onNavigate, onNotice, onChanged }: {
+  projectId: string; enabled: boolean; refreshSignal: number; workId: string | null; reviewId: string | null;
   onNavigate: Navigate; onNotice: (message: string, error?: boolean) => void; onChanged: () => void;
 }) {
   const [status, setStatus] = useState<TaskStatus | "all">("pending");
@@ -48,7 +48,7 @@ export default function CodeReviewLibrary({ projectId, refreshSignal, workId, re
   const registry = useMutationIntentRegistry();
   const router = useRouter();
   const split = useWorkSplit<HTMLElement>();
-  const { page, error, busy, retry } = useTaskPage(projectId, refreshSignal, status, "code_review", offset);
+  const { page, error, busy, retry } = useTaskPage(projectId, status, "code_review", offset, undefined, enabled);
   const actions = useCodeReviewActions(projectId, onChanged, onNotice);
 
   function select(task: Task | null) {
@@ -123,21 +123,21 @@ export default function CodeReviewLibrary({ projectId, refreshSignal, workId, re
       </div>
       <div className="work-surface-resizer" role="separator" aria-orientation="vertical" aria-label="Resize the code review queue" aria-keyshortcuts="ArrowLeft ArrowRight Home End" aria-valuemin={WORK_SPLIT_MIN} aria-valuemax={WORK_SPLIT_MAX} aria-valuenow={Math.round(split.split)} aria-valuetext={`Queue ${Math.round(split.split)}% of the surface`} title="Drag to resize the queue. Double-click to reset." tabIndex={0} {...split.separatorProps}><span aria-hidden="true" /></div>
       <aside className={`work-detail-pane code-review-detail ${reviewId ? "is-open" : ""}`} role="region" aria-label="Code review detail">
-        {reviewId ? <ReviewDetail key={`${projectId}:${workId}:${reviewId}`} projectId={projectId} workId={workId} reviewId={reviewId} refreshSignal={refreshSignal} onNavigate={onNavigate} onClose={() => select(null)} actions={actions} />
+        {reviewId ? <ReviewDetail key={`${projectId}:${workId}:${reviewId}`} projectId={projectId} enabled={enabled} workId={workId} reviewId={reviewId} refreshSignal={refreshSignal} onNavigate={onNavigate} onClose={() => select(null)} actions={actions} />
           : <div className="detail-empty"><span className="eyebrow">CODE REVIEW CONTEXT</span><h2>Pick a code review.</h2><p>Its scope, handoff, findings, and review history open here alongside the queue.</p><p className="detail-empty-hint">↑ ↓ select a review · ← → cycle states · C copy recall pointer</p></div>}
       </aside>
     </section>
   </section>;
 }
 
-function ReviewDetail({ projectId, workId, reviewId, refreshSignal, onNavigate, onClose, actions }: {
-  projectId: string; workId: string | null; reviewId: string; refreshSignal: number;
+function ReviewDetail({ projectId, enabled, workId, reviewId, refreshSignal, onNavigate, onClose, actions }: {
+  projectId: string; enabled: boolean; workId: string | null; reviewId: string; refreshSignal: number;
   onNavigate: Navigate; onClose: () => void; actions: ReviewActions;
 }) {
   const registry = useMutationIntentRegistry();
   const router = useRouter();
   const valid = validUuid(workId) && validUuid(reviewId);
-  const { page: taskPage, error: taskError, retry: retryTask } = useTaskPage(projectId, refreshSignal, "all", "code_review", 0, reviewId, valid);
+  const { page: taskPage, error: taskError, retry: retryTask } = useTaskPage(projectId, "all", "code_review", 0, reviewId, enabled && valid);
   const [detail, setDetail] = useState<CodeReviewDetail | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);

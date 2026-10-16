@@ -1,6 +1,6 @@
 {
   "name": "mnemonic-dashboard",
-  "version": "0.83.5",
+  "version": "0.83.6",
   "private": true,
   "type": "module",
   "engines": {
@@ -16,17 +16,18 @@
     "preview": "vite preview --host 127.0.0.1"
   },
   "dependencies": {
+    "@tanstack/react-query": "5.104.3",
+    "@tanstack/react-router": "1.170.44",
     "react": "19.2.8",
-    "react-dom": "19.2.8",
-    "@tanstack/react-router": "1.170.44"
+    "react-dom": "19.2.8"
   },
   "devDependencies": {
     "@playwright/test": "1.62.1",
     "@types/node": "24.10.1",
     "@types/react": "19.2.18",
     "@types/react-dom": "19.2.5",
+    "@vitejs/plugin-react": "6.1.2",
     "typescript": "5.9.3",
-    "vite": "8.3.4",
-    "@vitejs/plugin-react": "6.1.2"
+    "vite": "8.3.4"
   }
 }

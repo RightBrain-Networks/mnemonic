@@ -1,25 +1,19 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { api, errorMessage } from "@/lib/api";
-import { decodeUnifiedWorkSearchPage, unifiedSearchPath, workSearchRequest } from "@/lib/unified-search";
+import { useQuery } from "@tanstack/react-query";
+import { errorMessage } from "@/lib/api";
+import { canonicalWorkQueryOptions } from "@/lib/work-queries";
 import type { Page, WorkSearchHit } from "@/lib/types";
 
 type SearchState = {
-  key: string;
   searchedQuery: string;
   page: Page<WorkSearchHit> | null;
   searching: boolean;
   error: string;
 };
 
-const EMPTY_SEARCH: SearchState = {
-  key: "",
-  searchedQuery: "",
-  page: null,
-  searching: false,
-  error: ""
-};
+const EMPTY_SEARCH: SearchState = { searchedQuery: "", page: null, searching: false, error: "" };
 
 export function useCanonicalWorkSearch({
   projectId,
@@ -33,68 +27,26 @@ export function useCanonicalWorkSearch({
   query: string;
   enabled?: boolean;
   limit?: number;
-}): Omit<SearchState, "key"> {
+}): SearchState {
   const trimmedQuery = query.trim();
-  const key = JSON.stringify([projectId, excludedWorkId, trimmedQuery, enabled, limit]);
-  const [state, setState] = useState<SearchState>(EMPTY_SEARCH);
-
+  const options = canonicalWorkQueryOptions({ projectId, excludedWorkId, query: trimmedQuery, limit });
+  const key = JSON.stringify(options.queryKey);
+  const [readyKey, setReadyKey] = useState<string | null>(null);
   useEffect(() => {
-    setState({ ...EMPTY_SEARCH, key });
+    setReadyKey(null);
     if (!enabled || !trimmedQuery) return;
-
-    const controller = new AbortController();
-    const timer = setTimeout(() => {
-      setState({ ...EMPTY_SEARCH, key, searchedQuery: trimmedQuery, searching: true });
-      const body = workSearchRequest({
-        status: "all",
-        sort: "updated",
-        limit,
-        offset: 0,
-        query: trimmedQuery,
-        duplicateScope: "canonical"
-      });
-      api<unknown>(unifiedSearchPath(projectId), {
-        method: "POST", body: JSON.stringify(body), signal: controller.signal
-      }).then((value) => {
-        if (controller.signal.aborted) return;
-        const page = decodeUnifiedWorkSearchPage(value, projectId, {
-          duplicateScope: "canonical",
-          query: trimmedQuery,
-          expectedFilters: { status: "all" },
-          expectedLimit: limit,
-          expectedOffset: 0
-        });
-        setState({
-          key,
-          searchedQuery: trimmedQuery,
-          page: {
-            ...page,
-            items: page.items.filter((item) => (
-              item.summary.work_item.id.toLowerCase() !== excludedWorkId.toLowerCase()
-            ))
-          },
-          searching: false,
-          error: ""
-        });
-      }).catch((cause) => {
-        if (!controller.signal.aborted) {
-          setState({
-            ...EMPTY_SEARCH,
-            key,
-            searchedQuery: trimmedQuery,
-            error: errorMessage(cause)
-          });
-        }
-      });
-    }, 250);
-
-    return () => {
-      clearTimeout(timer);
-      controller.abort();
-    };
-  }, [enabled, excludedWorkId, key, limit, projectId, trimmedQuery]);
-
-  // A new scope must not render the previous request's data, error, or spinner
-  // while React is waiting to run effect cleanup (including an empty query).
-  return enabled && trimmedQuery && state.key === key ? state : EMPTY_SEARCH;
+    const timer = setTimeout(() => setReadyKey(key), 250);
+    return () => clearTimeout(timer);
+  }, [enabled, key, trimmedQuery]);
+  const ready = enabled && Boolean(trimmedQuery) && readyKey === key;
+  const result = useQuery({ ...options, queryKey: ready ? options.queryKey : [...options.queryKey, "disabled"], enabled: ready });
+  // Debouncing and disabled scopes hide cached state immediately, including the
+  // render before effect cleanup when the user clears or changes the query.
+  if (!ready) return EMPTY_SEARCH;
+  return {
+    searchedQuery: trimmedQuery,
+    page: result.data ?? null,
+    searching: result.isFetching,
+    error: result.isError ? errorMessage(result.error) : ""
+  };
 }

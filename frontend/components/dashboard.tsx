@@ -2,6 +2,9 @@
 
 import Link from "@/components/dashboard-link";
 import { useRouter } from "@tanstack/react-router";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { queryKeys } from "@/lib/query-keys";
+import { attentionCountOptions, invalidateCoreReads, projectCatalogOptions, projectSettingsOptions, reportCountOptions } from "@/lib/core-queries";
 import ApplicationSettings from "@/components/application-settings";
 import TaskDashboard from "@/components/task-dashboard";
 import CodeReviewLibrary from "@/components/code-review-library";
@@ -42,7 +45,7 @@ import DuplicateSuggestionPanel from "@/components/duplicate-suggestion-panel";
 import { useFailedReadRetry } from "@/components/use-failed-read-retry";
 import JobReportList from "@/components/job-report-list";
 import { useProjectActivity } from "@/components/use-project-activity";
-import { decodeProjectSettings, decodeReportCount, emptyJobReportDraft, jobReportFromDraft, jobReportDraftHasEdits, type JobReportDraft } from "@/lib/job-completion-reports";
+import { decodeProjectSettings, emptyJobReportDraft, jobReportFromDraft, jobReportDraftHasEdits, type JobReportDraft } from "@/lib/job-completion-reports";
 import HumanAttentionList from "@/components/human-attention-list";
 import MutationRecoveryPanel from "@/components/mutation-recovery-panel";
 import WorkDetailPane from "@/components/work-detail-pane";
@@ -58,7 +61,6 @@ import { api, ApiError, errorMessage, isVersionConflict, workItemPath } from "@/
 import { currentContext } from "@/lib/current-context";
 import { dashboardSessionId } from "@/lib/dashboard-session";
 import { decodeWorkContext, decodeWorkItemDetail } from "@/lib/duplicate-handling";
-import { decodeHumanAttentionPage, humanAttentionSearchParams } from "@/lib/human-gates";
 import {
   MutationIntentProvider,
   MutationIntentRegistry,
@@ -80,10 +82,6 @@ import { dialogOpen, typingTarget } from "@/lib/keyboard-shortcuts";
 import { earliestLeaseExpiry, scheduleLeaseExpiryRefresh } from "@/lib/lease-refresh";
 import { connectLiveSync, type LiveSyncStatus } from "@/lib/live-sync";
 import { projectShortcutIndex } from "@/lib/project-shortcuts";
-import {
-  isBlockingProjectSettingsLoad,
-  isCurrentProjectSettingsLoad
-} from "@/lib/project-settings";
 import type {
   Checkpoint,
   CheckpointInput,
@@ -122,7 +120,6 @@ import {
 import { scheduleHierarchyFilterCommit } from "@/lib/work-item-search";
 import { statusFilterLabels, statusFilterTransition } from "@/lib/work-queue";
 import {
-  loadCompleteProjectCatalog,
   preservedWorkMoveDisplayStatus,
   resolveCurrentWorkProject,
   sameProjectCatalog,
@@ -149,6 +146,8 @@ const liveSyncLabels: Record<LiveSyncStatus, string> = {
   retrying: "Reconnecting…",
   connecting: "Connecting…"
 };
+
+const EMPTY_PROJECTS: Project[] = [];
 
 const unavailableArtifactProject = "The resource link's project is unavailable. Select a project to continue.";
 
@@ -337,20 +336,19 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
   const artifactRoute = artifactLocation(searchParams.toString());
   const artifactProjectId = (view === "artifacts" || view === "transcripts" || view === "library" || view === "reviews") ? artifactRoute.projectId : null;
 
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [projectsLoading, setProjectsLoading] = useState(true);
-  const [projectsError, setProjectsError] = useState("");
-  const [projectsRefresh, setProjectsRefresh] = useState(0);
+  const queryClient = useQueryClient();
+  const catalogQuery = useQuery({ ...projectCatalogOptions(), enabled: !backupPending });
+  const projects = catalogQuery.data ?? EMPTY_PROJECTS;
+  const projectsLoading = catalogQuery.isFetching;
+  const projectSelectionError = artifactProjectId && catalogQuery.data
+    && !projects.some((item) => sameUuid(item.id, artifactProjectId)) ? unavailableArtifactProject : "";
+  const projectsError = projectSelectionError || (catalogQuery.error ? errorMessage(catalogQuery.error) : "");
   const [activeId, setActiveId] = useState("");
   const [applicationSettingsOpen, setApplicationSettingsOpen] = useState(false);
   const [projectDialog, setProjectDialog] = useState(false);
   const [projectSaving, setProjectSaving] = useState(false);
   const [newProjectError, setNewProjectError] = useState("");
-  const [projectSettings, setProjectSettings] = useState<ProjectSettings | null>(null);
-  const [settingsLoading, setSettingsLoading] = useState(false);
-  const [settingsFetching, setSettingsFetching] = useState(false);
-  const [settingsLoadError, setSettingsLoadError] = useState("");
-  const [settingsRefresh, setSettingsRefresh] = useState(0);
+  const [settingsRefresh, setLegacySettingsRefresh] = useState(0);
 
   const [query, setQuery] = useState("");
   const [search, setSearch] = useState("");
@@ -367,12 +365,10 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
   const [sourceClientFilter, setSourceClientFilter] = useState("");
   const [sourceSessionFilter, setSourceSessionFilter] = useState("");
   const [preferencesReady, setPreferencesReady] = useState(false);
-  const [refresh, setRefresh] = useState(0);
-  const [attentionRefresh, setAttentionRefresh] = useState(0);
-  const [reportRefresh, setReportRefresh] = useState(0);
-  const [reportCount, setReportCount] = useState<string | null>(null);
+  const [refresh, setLegacyRefresh] = useState(0);
+  const [attentionRefresh, setLegacyAttentionRefresh] = useState(0);
+  const [reportRefresh, setLegacyReportRefresh] = useState(0);
   const [activityReadyProjectId, setActivityReadyProjectId] = useState("");
-  const [attentionCount, setAttentionCount] = useState<number | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
 
   const [workDialog, setWorkDialog] = useState<WorkDialogState>("closed");
@@ -442,9 +438,19 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
   useEffect(() => {
     if (route.rejected) setNotice({ message: route.rejected.message, error: true });
   }, [route.rejected]);
+  const coreReadsEnabled = Boolean(activeId) && activityReadyProjectId === activeId;
+  const settingsQuery = useQuery({ ...projectSettingsOptions(activeId), enabled: coreReadsEnabled });
+  const attentionQuery = useQuery({ ...attentionCountOptions(activeId), enabled: coreReadsEnabled });
+  const reportsQuery = useQuery({ ...reportCountOptions(activeId), enabled: coreReadsEnabled });
+  const projectSettings = coreReadsEnabled ? settingsQuery.data ?? null : null;
+  const settingsLoading = coreReadsEnabled && settingsQuery.isPending;
+  const settingsFetching = settingsQuery.isFetching;
+  const settingsLoadError = coreReadsEnabled && settingsQuery.error ? errorMessage(settingsQuery.error) : "";
+  const attentionCount = coreReadsEnabled ? attentionQuery.data?.total ?? null : null;
+  const reportCount = coreReadsEnabled ? reportsQuery.data?.undismissed_count ?? null : null;
   const project = projects.find((item) => item.id === activeId);
   const pins = usePinnedWork(activeId);
-  const { page: sidebarTasks } = useTaskPage(activeId, refresh, "pending", undefined, 0, undefined,
+  const { page: sidebarTasks } = useTaskPage(activeId, "pending", undefined, 0, undefined,
     Boolean(activeId) && activityReadyProjectId === activeId);
   const queue = useWorkQueuePages({
     enabled: view === "library" && Boolean(activeId) && activityReadyProjectId === activeId && preferencesReady && pins.ready,
@@ -458,35 +464,31 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
     canonicalWorkItemId,
     tag: tagFilter,
     sourceClient: sourceClientFilter,
-    sourceSessionId: sourceSessionFilter,
-    refresh
+    sourceSessionId: sourceSessionFilter
   });
   const activity = useProjectActivity({
     projectId: activeId,
     onBootstrap: setActivityReadyProjectId,
     onInvalidation: (changes) => {
-      if (changes.work) { setRefresh((value) => value + 1); setAttentionRefresh((value) => value + 1); setContextRefresh((value) => value + 1); setCheckpointRefresh((value) => value + 1); setEventRefresh((value) => value + 1); }
-      if (changes.reports) setReportRefresh((value) => value + 1);
-      if (changes.settings) setSettingsRefresh((value) => value + 1);
-      if (changes.projects) setProjectsRefresh((value) => value + 1);
+      if (changes.work) { refreshWork(); refreshAttention(); setContextRefresh((value) => value + 1); setCheckpointRefresh((value) => value + 1); setEventRefresh((value) => value + 1); }
+      if (changes.reports) refreshReports();
+      if (changes.settings) refreshSettings();
+      if (changes.projects) refreshProjects();
     },
     onRetryDirty: () => {
-      if (queue.error) queue.retry();
-      if (settingsLoadError) setSettingsRefresh((value) => value + 1);
+      if (queue.error && !semantic) queue.retry();
+      if (settingsLoadError) refreshSettings();
       if (contextError) setContextRefresh((value) => value + 1);
-      if (projectsError) setProjectsRefresh((value) => value + 1);
-      if (attentionCount === null) setAttentionRefresh((value) => value + 1);
-      if (reportCount === null) setReportRefresh((value) => value + 1);
+      if (catalogQuery.error) refreshProjects();
+      if (attentionQuery.isError || attentionCount === null) refreshAttention();
+      if (reportsQuery.isError || reportCount === null) refreshReports();
     }
   });
   const activityPoll = useRef(activity.poll);
   activityPoll.current = activity.poll;
   const crossfade = usePaneCrossfade();
-  const projectCatalogRequest = useRef(0);
   const activeIdRef = useRef(activeId);
   const openedRef = useRef(opened);
-  const settingsLoadController = useRef<AbortController | null>(null);
-  const settingsLoadGeneration = useRef(0);
   const lastContextRefresh = useRef(0);
   const openedId = opened?.work_item.id ?? null;
   const nextLeaseExpiry = earliestLeaseExpiry([
@@ -520,36 +522,22 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
   }, []);
 
   useEffect(() => {
-    const controller = new AbortController();
-    const requestId = ++projectCatalogRequest.current;
-    const isCurrent = () =>
-      !controller.signal.aborted && projectCatalogRequest.current === requestId;
-    setProjectsLoading(true);
-    setProjectsError("");
-    async function load() {
-      const all = await fetchFreshProjectCatalog(
-        isCurrent,
-        controller.signal
-      );
-      if (!all || !isCurrent()) return;
-      // Keep the active backup panel's identity and operation state intact even
-      // if a concurrent catalog refresh temporarily omits its project.
-      if (backupPendingRef.current) return;
-      all.sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
-      setProjects(all);
-      let saved = "";
-      try { saved = localStorage.getItem(dashboardStorageKeys.project) ?? ""; } catch { /* optional */ }
-      const requested = (view === "artifacts" || view === "transcripts" || view === "library" || view === "reviews") ? artifactLocation(router.history.location.search).projectId : null;
-      if (requested && !all.some((item) => sameUuid(item.id, requested))) {
-        throw new Error(unavailableArtifactProject);
-      }
-      const preferred = requested ?? saved;
-      setActiveId((current) => all.some((item) => item.id === current) ? current : all.find((item) => sameUuid(item.id, preferred))?.id ?? all[0]?.id ?? "");
+    if (backupPending) void queryClient.cancelQueries({ queryKey: queryKeys.projects });
+  }, [backupPending, queryClient]);
+
+  useEffect(() => {
+    if (!catalogQuery.data || backupPending) return;
+    let saved = "";
+    try { saved = localStorage.getItem(dashboardStorageKeys.project) ?? ""; } catch { /* optional */ }
+    const requested = (view === "artifacts" || view === "transcripts" || view === "library" || view === "reviews")
+      ? artifactLocation(router.history.location.search).projectId : null;
+    if (requested && !projects.some((item) => sameUuid(item.id, requested))) {
+      return;
     }
-    load().catch((error) => { if (isCurrent()) setProjectsError(errorMessage(error)); })
-      .finally(() => { if (isCurrent()) setProjectsLoading(false); });
-    return () => controller.abort();
-  }, [projectsRefresh]);
+    const preferred = requested ?? saved;
+    setActiveId((current) => projects.some((item) => item.id === current) ? current
+      : projects.find((item) => sameUuid(item.id, preferred))?.id ?? projects[0]?.id ?? "");
+  }, [catalogQuery.data, backupPending, artifactProjectId]);
 
   // Client navigation (including history) can enter an artifact link for a
   // different project without reloading the shared project catalog.
@@ -559,10 +547,8 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
     if (artifactLocation(router.history.location.search).projectId !== artifactProjectId) return;
     const requested = projects.find((item) => sameUuid(item.id, artifactProjectId));
     if (!requested) {
-      setProjectsError(unavailableArtifactProject);
       return;
     }
-    setProjectsError((current) => current === unavailableArtifactProject ? "" : current);
     if (requested.id !== activeId) applyProjectSelection(requested.id);
   }, [artifactProjectId, projects, projectsLoading]);
 
@@ -570,37 +556,6 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
     if (!activeId) return;
     try { localStorage.setItem(dashboardStorageKeys.project, activeId); } catch { /* optional */ }
   }, [activeId]);
-
-  useEffect(() => {
-    if (!activeId || activityReadyProjectId !== activeId) {
-      setAttentionCount(null);
-      return;
-    }
-    const controller = new AbortController();
-    const params = humanAttentionSearchParams({ limit: 0 });
-    api<unknown>(`/projects/${encodeURIComponent(activeId)}/human-attention?${params}`, {
-      signal: controller.signal
-    }).then((value) => {
-      if (!controller.signal.aborted) {
-        setAttentionCount(decodeHumanAttentionPage(value, activeId, { limit: 0 }).total);
-      }
-    }).catch(() => {
-      if (!controller.signal.aborted) setAttentionCount(null);
-    });
-    return () => controller.abort();
-  }, [activeId, activityReadyProjectId, attentionRefresh]);
-
-  useEffect(() => {
-    if (!activeId || activityReadyProjectId !== activeId) {
-      setReportCount(null);
-      return;
-    }
-    const controller = new AbortController();
-    api<unknown>(`/projects/${activeId}/job-completion-reports/count`, { signal: controller.signal })
-      .then((value) => { if (!controller.signal.aborted) setReportCount(decodeReportCount(value, activeId).undismissed_count); })
-      .catch(() => { if (!controller.signal.aborted) setReportCount(null); });
-    return () => controller.abort();
-  }, [activeId, activityReadyProjectId, reportRefresh]);
 
   useEffect(() => {
     if (!preferencesReady) return;
@@ -615,62 +570,6 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
       // Preferences are optional when storage is unavailable.
     }
   }, [libraryToolsOpen, preferencesReady, sort, status]);
-
-  useEffect(() => {
-    const generation = ++settingsLoadGeneration.current;
-    settingsLoadController.current?.abort();
-    settingsLoadController.current = null;
-    if (!activeId || activityReadyProjectId !== activeId) {
-      setProjectSettings(null);
-      setSettingsLoading(false);
-      setSettingsFetching(false);
-      setSettingsLoadError("");
-      return;
-    }
-    const controller = new AbortController();
-    settingsLoadController.current = controller;
-    const blockingLoad = isBlockingProjectSettingsLoad(activeId, projectSettings);
-    setProjectSettings((current) => current?.project_id === activeId ? current : null);
-    setSettingsLoading(blockingLoad);
-    setSettingsFetching(true);
-    setSettingsLoadError("");
-    api<unknown>(`/projects/${encodeURIComponent(activeId)}/settings`, {
-      signal: controller.signal
-    })
-      .then((loaded) => {
-        if (!isCurrentProjectSettingsLoad(
-          generation,
-          settingsLoadGeneration.current,
-          controller.signal.aborted
-        )) return;
-        setProjectSettings(decodeProjectSettings(loaded, activeId));
-      })
-      .catch((error) => {
-        if (isCurrentProjectSettingsLoad(
-          generation,
-          settingsLoadGeneration.current,
-          controller.signal.aborted
-        )) setSettingsLoadError(errorMessage(error));
-      })
-      .finally(() => {
-        if (!isCurrentProjectSettingsLoad(
-          generation,
-          settingsLoadGeneration.current,
-          controller.signal.aborted
-        )) return;
-        if (settingsLoadController.current === controller) {
-          settingsLoadController.current = null;
-        }
-        setSettingsLoading(false);
-        setSettingsFetching(false);
-      });
-    return () => {
-      controller.abort();
-      if (settingsLoadController.current === controller) {
-        settingsLoadController.current = null;
-      }
-    };
-  }, [activeId, activityReadyProjectId, settingsRefresh]);
 
   useEffect(() => {
     const timer = setTimeout(() => setSearch(query.trim()), 300);
@@ -723,10 +622,10 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
 
     function flush() {
       refreshTimer = undefined;
-      if (pending.projects) setProjectsRefresh((value) => value + 1);
-      if (pending.settings) setSettingsRefresh((value) => value + 1);
-      if (pending.list) setRefresh((value) => value + 1);
-      if (pending.attention) setAttentionRefresh((value) => value + 1);
+      if (pending.projects) refreshProjects();
+      if (pending.settings) refreshSettings(null);
+      if (pending.list) refreshWork(null);
+      if (pending.attention) refreshAttention(null);
       if (pending.open) {
         setCheckpointRefresh((value) => value + 1);
         setEventRefresh((value) => value + 1);
@@ -745,7 +644,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
 
     const disconnect = connectLiveSync((message) => {
       activityPoll.current();
-      setReportRefresh((value) => value + 1);
+      refreshReports(null);
       if (message.type === "ready") {
         pending.projects = true;
         pending.settings = true;
@@ -806,8 +705,8 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
   useEffect(() => {
     if (!nextLeaseExpiry) return;
     return scheduleLeaseExpiryRefresh(nextLeaseExpiry, () => {
-      setRefresh((value) => value + 1);
-      setAttentionRefresh((value) => value + 1);
+      refreshWork();
+      refreshAttention();
       if (opened) setContextRefresh((value) => value + 1);
     });
   }, [nextLeaseExpiry, opened?.work_item.id]);
@@ -940,12 +839,31 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
     }
     if ((view === "artifacts" || view === "transcripts") && id !== activeId) {
       router.history.replace(view === "transcripts" ? transcriptLibraryPath(id) : artifactLibraryPath(id), undefined, { ignoreBlocker: true });
-      setProjectsError("");
     }
     if ((view === "library" || view === "reviews") && id !== activeId) {
       router.history.replace(`${pathname}?project=${id}`, undefined, { ignoreBlocker: true });
     }
     applyProjectSelection(id);
+  }
+
+  function refreshProjects() {
+    void invalidateCoreReads(queryClient, activeIdRef.current, ["projects"]);
+  }
+  function refreshSettings(projectId: string | null = activeIdRef.current) {
+    void invalidateCoreReads(queryClient, projectId, ["settings"]);
+    setLegacySettingsRefresh((value) => value + 1);
+  }
+  function refreshWork(projectId: string | null = activeIdRef.current) {
+    void invalidateCoreReads(queryClient, projectId, ["work"]);
+    setLegacyRefresh((value) => value + 1);
+  }
+  function refreshAttention(projectId: string | null = activeIdRef.current) {
+    void invalidateCoreReads(queryClient, projectId, ["attention"]);
+    setLegacyAttentionRefresh((value) => value + 1);
+  }
+  function refreshReports(projectId: string | null = activeIdRef.current) {
+    void invalidateCoreReads(queryClient, projectId, ["reports"]);
+    setLegacyReportRefresh((value) => value + 1);
   }
 
   async function createProject(event: FormEvent<HTMLFormElement>) {
@@ -963,7 +881,8 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
           ...(form.get("repository_url") ? { repository_url: form.get("repository_url") } : {})
         })
       });
-      setProjects((items) => [...items, created].sort((a, b) =>
+      await queryClient.cancelQueries({ queryKey: queryKeys.projects });
+      queryClient.setQueryData<Project[]>(queryKeys.projects, (current) => [...(current ?? []), created].sort((a, b) =>
         a.name.localeCompare(b.name) || a.id.localeCompare(b.id)
       ));
       chooseProject(created.id);
@@ -1022,7 +941,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
       });
       setWorkDialog("closed");
       setStatus("pending");
-      setRefresh((value) => value + 1);
+      refreshWork();
       setNotice({ message: `“${created.work_item.title}” now has its first immutable checkpoint.` });
       if (view === "library") void openExactWork(project.id, created.work_item.id);
       else void router.navigate({ href: `/work-items?project=${project.id}&work=${created.work_item.id}` });
@@ -1048,18 +967,15 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
 
   function handleProjectSettingsSaved(saved: ProjectSettings) {
     if (saved.project_id !== activeIdRef.current) return;
-    settingsLoadGeneration.current += 1;
-    settingsLoadController.current?.abort();
-    settingsLoadController.current = null;
-    setProjectSettings(saved);
-    setSettingsLoading(false);
-    setSettingsLoadError("");
-    setSettingsRefresh((value) => value + 1);
+    void queryClient.cancelQueries({ queryKey: queryKeys.settings(saved.project_id) });
+    queryClient.setQueryData(queryKeys.settings(saved.project_id), saved);
+    refreshSettings();
   }
 
   function handleProjectSaved(saved: Project) {
     if (saved.id !== activeIdRef.current) return;
-    setProjects((items) => items
+    void queryClient.cancelQueries({ queryKey: queryKeys.projects });
+    queryClient.setQueryData<Project[]>(queryKeys.projects, (current) => (current ?? [])
       .map((item) => item.id === saved.id ? saved : item)
       .sort((left, right) =>
         left.name.localeCompare(right.name) || left.id.localeCompare(right.id)
@@ -1068,8 +984,9 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
 
   function handleBackupPendingChange(pending: boolean) {
     backupPendingRef.current = pending;
+    if (pending) void queryClient.cancelQueries({ queryKey: queryKeys.projects });
     setBackupPending(pending);
-    if (!pending) setProjectsRefresh((value) => value + 1);
+    if (!pending) refreshProjects();
   }
 
   async function loadContext(
@@ -1255,13 +1172,10 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
     isCurrent: () => boolean,
     signal?: AbortSignal
   ): Promise<Project[] | null> {
-    return loadCompleteProjectCatalog(
-      (offset) => api<unknown>(
-        `/projects?limit=100&offset=${offset}`,
-        signal ? { signal } : undefined
-      ),
-      isCurrent
-    );
+    if (!isCurrent() || signal?.aborted || backupPendingRef.current) return null;
+    await queryClient.cancelQueries({ queryKey: queryKeys.projects });
+    const catalog = await queryClient.fetchQuery({ ...projectCatalogOptions(), staleTime: 0 });
+    return isCurrent() && !signal?.aborted ? catalog : null;
   }
 
   async function scanWorkContexts(
@@ -1303,19 +1217,10 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
     preserveEditDraft = false
   ): Promise<WorkPlacementRecoveryResult> {
     const placementRequestId = ++workPlacementRequest.current;
-    const catalogRequestId = projectCatalogRequest.current;
     const isCurrent = () =>
       recordRequest.current === recordRequestId
       && workPlacementRequest.current === placementRequestId;
     let latestCatalog: Project[] | null = null;
-
-    function updateCatalog(catalog: readonly Project[]): void {
-      if (projectCatalogRequest.current !== catalogRequestId) return;
-      projectCatalogRequest.current += 1;
-      setProjects([...catalog]);
-      setProjectsError("");
-      setProjectsLoading(false);
-    }
 
     function commitFound(
       found: Extract<WorkContextScanResult, { kind: "found" }>,
@@ -1326,7 +1231,6 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
       const sourceProjectId = staleSummary.work_item.project_id;
       const projectChanged = !sameUuid(sourceProjectId, targetProjectId);
       const displayStatus = preservedWorkMoveDisplayStatus(found.context);
-      if (catalog) updateCatalog(catalog);
       if (projectChanged) {
         applyProjectSelection(targetProjectId, found.context.work_item.id);
         setJobReportDraft((draft) => ({ ...draft, promptRevision: null }));
@@ -1348,9 +1252,9 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
       setContextLoading(false);
       exactContextTarget.current = null;
       lastLoadedContextRequest.current = recordRequestId;
-      setRefresh((value) => value + 1);
-      setAttentionRefresh((value) => value + 1);
-      setReportRefresh((value) => value + 1);
+      refreshWork();
+      refreshAttention();
+      refreshReports();
       setCheckpointRefresh((value) => value + 1);
       setEventRefresh((value) => value + 1);
       setNotice({
@@ -1363,7 +1267,6 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
 
     function commitAmbiguous(catalog: readonly Project[] | null): WorkPlacementRecoveryResult {
       if (!isCurrent()) return "superseded";
-      if (catalog) updateCatalog(catalog);
       const message = "This work item is no longer in its previously selected project, but its current placement could not be verified. Your drafts are still here; retry the context load to keep looking.";
       setContext(null);
       setContextError(message);
@@ -1416,7 +1319,6 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
       // behind both sequential scans even when the catalog itself is unchanged.
       if (secondCatalog.length > 0) return commitAmbiguous(secondCatalog);
       if (!isCurrent()) return "superseded";
-      updateCatalog(secondCatalog);
       const selectedProjectId = activeIdRef.current;
       if (
         selectedProjectId
@@ -1613,8 +1515,8 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
 
   async function merged(result: WorkMergeResult): Promise<void> {
     setMergeOpen(false);
-    setRefresh((value) => value + 1);
-    setAttentionRefresh((value) => value + 1);
+    refreshWork();
+    refreshAttention();
     setCheckpointRefresh((value) => value + 1);
     setEventRefresh((value) => value + 1);
     // The exact audit load below replaces the open context; a separate refresh would race it.
@@ -1844,13 +1746,13 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
         path: workItemPath(base.project_id, base.id),
         payload: patch
       });
-      if (saved.job_completion_report) { setJobReportDraft(emptyJobReportDraft()); setReportRefresh((value) => value + 1); }
+      if (saved.job_completion_report) { setJobReportDraft(emptyJobReportDraft()); refreshReports(); }
       const { job_completion_report: _report, ...savedWork } = saved;
       const savedSummary = { ...opened, work_item: savedWork };
       setContext((value) => value ? { ...value, work_item: savedWork } : value);
       setOpened(savedSummary);
       setEventRefresh((value) => value + 1);
-      setRefresh((value) => value + 1);
+      refreshWork();
       const reconciled = await reconcileContext(savedSummary);
       if (!reconciled) {
         const message = "The work item was saved, but its current context could not be reloaded. Retry or use Refresh before continuing.";
@@ -1973,7 +1875,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
         if (completed.agent_follow_ups?.length || completed.code_review_request) setTab("reviews");
         setNotice({ message: "Human report and completion checkpoint recorded. Work marked done." });
         setJobReportDraft(emptyJobReportDraft());
-        setReportRefresh((value) => value + 1);
+        refreshReports();
         setCompletionEvidenceDraft(emptyCompletionEvidenceDraft());
         setCompletionEvidenceIssues([]);
       } else {
@@ -1999,7 +1901,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
       setCheckpointOffset(0);
       setCheckpointRefresh((value) => value + 1);
       setEventRefresh((value) => value + 1);
-      setRefresh((value) => value + 1);
+      refreshWork();
       const reconciled = await reloadOpenContext();
       if (!reconciled) {
         const message = "The checkpoint was saved, but the current work context could not be reloaded. Retry or use Refresh before continuing.";
@@ -2043,7 +1945,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
       });
       if (opened?.work_item.id === deleteTarget.id) clearSelection();
       setDeleteTarget(null);
-      setRefresh((value) => value + 1);
+      refreshWork();
       setNotice({ message: "Work item removed from ordinary project views. Its history remains recoverable." });
     } catch (error) {
       if (isVersionConflict(error)) {
@@ -2093,8 +1995,8 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
       workItemId: result.work_item.id,
       moveRecovery
     };
-    setRefresh((value) => value + 1);
-    setAttentionRefresh((value) => value + 1);
+    refreshWork();
+    refreshAttention();
     let loaded: "loaded" | "failed" | "superseded" | WorkPlacementRecoveryResult;
     try {
       const value = await api<unknown>(
@@ -2269,8 +2171,8 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
         await showMovedWork(result, displayStatus, sourceSummary);
       } else {
         const target = projects.find((item) => item.id === result.target_project_id);
-        setRefresh((value) => value + 1);
-        setAttentionRefresh((value) => value + 1);
+        refreshWork();
+        refreshAttention();
         setNotice({
           message: `Work item moved to “${target?.name ?? "the target project"}” with its ${statusFilterLabels[displayStatus]} status preserved.`
         });
@@ -2293,7 +2195,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
             sourceWasOpened
           );
         } else {
-          setRefresh((value) => value + 1);
+          refreshWork();
           setNotice({
             message: "This work item is no longer in its listed source project. The work queue is refreshing.",
             error: true
@@ -2301,7 +2203,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
         }
       } else if (isVersionConflict(error)) {
         if (!sourceIsStillOpened()) {
-          setRefresh((value) => value + 1);
+          refreshWork();
           setNotice({
             message: "This work item changed before it could be moved. The work queue is refreshing.",
             error: true
@@ -2383,7 +2285,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
           ? "Code review requested by a human operator and queued in To review."
           : "Code review requested by a human operator. It will enter To review when this work is Done." });
         setEventRefresh((value) => value + 1);
-        setRefresh((value) => value + 1);
+        refreshWork();
         if (actionSourceIsStillOpened()) {
           await reloadOpenContext();
           if (work.status === "done" && actionSourceIsStillOpened()) setTab("reviews");
@@ -2417,7 +2319,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
         });
         setNotice({ message: `Code review ${status === "to-review" ? "returned to To review" : `marked ${status}`}.` });
         setEventRefresh((value) => value + 1);
-        setRefresh((value) => value + 1);
+        refreshWork();
         if (actionSourceIsStillOpened()) void reloadOpenContext();
         return;
       }
@@ -2535,7 +2437,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
         }
         if (actionSourceIsStillOpened()) setCheckpointOffset(0);
         setCheckpointRefresh((value) => value + 1);
-        setReportRefresh((value) => value + 1);
+        refreshReports();
       } else if (action === "wont-do" || action === "promoted") {
         if (!settings) throw new Error("Project report settings are not ready.");
         await mutationRegistry.execute({
@@ -2556,7 +2458,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
             )
           }
         });
-        setReportRefresh((value) => value + 1);
+        refreshReports();
       }
 
       const decision = action === "defer"
@@ -2584,11 +2486,11 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
         setCompletionEvidenceIssues([]);
       }
       setEventRefresh((value) => value + 1);
-      setAttentionRefresh((value) => value + 1);
-      setRefresh((value) => value + 1);
+      refreshAttention();
+      refreshWork();
       if (sourceRemainsOpen) void reloadOpenContext();
     } catch (error) {
-      if (isVersionConflict(error)) setRefresh((value) => value + 1);
+      if (isVersionConflict(error)) refreshWork();
       if (handoff) setReviewCloseoutError(errorMessage(error));
       setNotice({ message: errorMessage(error), error: true });
     } finally {
@@ -2641,9 +2543,9 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
         const result = await mutationRegistry.retry(intent.slot);
         if (intent.kind === "complete_work" && result && typeof result === "object" && ("code_review_request" in result || "agent_follow_ups" in result)) setTab("reviews");
       }
-      setRefresh((value) => value + 1);
-      setAttentionRefresh((value) => value + 1);
-      setReportRefresh((value) => value + 1);
+      refreshWork();
+      refreshAttention();
+      refreshReports();
       setCheckpointRefresh((value) => value + 1);
       setEventRefresh((value) => value + 1);
       setContextRefresh((value) => value + 1);
@@ -2690,8 +2592,8 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
       }
     } catch (error) {
       const message = errorMessage(error);
-      setRefresh((value) => value + 1);
-      setAttentionRefresh((value) => value + 1);
+      refreshWork();
+      refreshAttention();
       if (
         error instanceof ApiError
         && openedRef.current
@@ -2781,7 +2683,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
         payload: { expected_version: work.version, status: "pending", actor: dashboardMutationActor(dashboardSessionId()),
           ...(review ? { supersede_code_review_id: review.id, expected_code_review_version: review.version }
             : { supersede_follow_up_id: question!.id, expected_follow_up_version: question!.version }) } });
-      setReopenReview(null); setRefresh((value) => value + 1); setEventRefresh((value) => value + 1); await reloadOpenContext();
+      setReopenReview(null); refreshWork(); setEventRefresh((value) => value + 1); await reloadOpenContext();
     } catch (error) { setReviewReopenError(errorMessage(error)); } finally { setReviewReopening(false); }
   }
 
@@ -2820,10 +2722,10 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
 
   async function afterWorkMutation(
     failureMessage: string,
-    { refreshAttention = false, refreshEvents = false } = {}
+    { refreshAttention: shouldRefreshAttention = false, refreshEvents = false } = {}
   ): Promise<boolean> {
-    if (refreshAttention) setAttentionRefresh((value) => value + 1);
-    setRefresh((value) => value + 1);
+    if (shouldRefreshAttention) refreshAttention();
+    refreshWork();
     if (refreshEvents) setEventRefresh((value) => value + 1);
     const reconciled = await reloadOpenContext();
     if (!reconciled) setNotice({ message: failureMessage, error: true });
@@ -2884,11 +2786,11 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
   useFailedReadRetry({
     scope: `settings:${activeId}`, failed: Boolean(settingsLoadError), busy: settingsFetching,
     enabled: Boolean(activeId) && activityReadyProjectId === activeId,
-    retry: () => setSettingsRefresh((value) => value + 1)
+    retry: () => refreshSettings()
   });
   useFailedReadRetry({
-    scope: "projects", failed: Boolean(projectsError), busy: projectsLoading,
-    retry: () => setProjectsRefresh((value) => value + 1)
+    scope: "projects", failed: Boolean(catalogQuery.error), busy: projectsLoading, enabled: !backupPending,
+    retry: () => refreshProjects()
   });
   const modalRecovery = (intents: readonly MutationIntentSummary[]) => (
     intents.length
@@ -2958,19 +2860,19 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
         {view === "dashboard" || view === "reviews" ? <>
           <DashboardViewChrome title={view === "dashboard" ? "Dashboard" : "Code reviews"}
             description={view === "dashboard" ? (project ? `Your agents’ work in “${project.name}”, at a glance.` : "Your agents’ work, at a glance.") : "Adversarial reviews of completed work items, each assigned to one agent session."} />
-          {projectsError ? <ErrorNotice message={projectsError}><button className="button button-secondary" onClick={() => setProjectsRefresh((value) => value + 1)}>Try again</button></ErrorNotice>
+          {projectsError ? <ErrorNotice message={projectsError}><button className="button button-secondary" onClick={() => refreshProjects()}>Try again</button></ErrorNotice>
             : projectsLoading && !projects.length ? <div className="loading-state" role="status">Opening your workspace…</div>
               : !project ? <section className="empty-state onboarding"><h2>Create your first project.</h2><p>Keep your work items and code reviews together in a project.</p><button className="button button-primary" onClick={() => setProjectDialog(true)}>Create your first project</button></section>
                 : activityReadyProjectId !== project.id ? <div className="loading-state" role="status">Loading tasks…</div>
-                  : view === "dashboard" ? <TaskDashboard key={project.id} projectId={project.id} refreshSignal={refresh} onNavigate={blockNavigationWhilePending} />
-                    : <CodeReviewLibrary key={project.id} projectId={project.id} refreshSignal={refresh} workId={searchParams.get("work")} reviewId={searchParams.get("review")} onNavigate={blockNavigationWhilePending} onNotice={(message, error) => setNotice({ message, error })} onChanged={() => { setRefresh((value) => value + 1); setReportRefresh((value) => value + 1); }} />}
+                  : view === "dashboard" ? <TaskDashboard key={project.id} projectId={project.id} enabled={coreReadsEnabled} onNavigate={blockNavigationWhilePending} />
+                    : <CodeReviewLibrary key={project.id} projectId={project.id} enabled={coreReadsEnabled} refreshSignal={refresh} workId={searchParams.get("work")} reviewId={searchParams.get("review")} onNavigate={blockNavigationWhilePending} onNotice={(message, error) => setNotice({ message, error })} onChanged={() => { refreshWork(); refreshReports(); }} />}
         </> : view === "transcripts" ? <>
           <DashboardViewChrome eyebrow="AGENT SESSIONS THAT STAY WITH YOUR WORK" title="Transcripts" description={project ? `Find session history and subagent work in the “${project.name}” project.` : "Choose a project to open its transcripts."} />
-          {projectsError && <ErrorNotice message={projectsError}><button className="button button-secondary" onClick={() => setProjectsRefresh((value) => value + 1)}>Try again</button></ErrorNotice>}
+          {projectsError && <ErrorNotice message={projectsError}><button className="button button-secondary" onClick={() => refreshProjects()}>Try again</button></ErrorNotice>}
           {project ? <TranscriptLibrary key={`${project.id}:${artifactRoute.workItemId ?? ""}`} projectId={project.id} refreshSignal={refresh} onPendingChange={setTranscriptPending} /> : <div className="loading-state" role="status">{projectsLoading ? "Opening your workspace…" : "Select or create a project to view transcripts."}</div>}
         </> : view === "artifacts" ? <>
           <DashboardViewChrome eyebrow="FILES THAT STAY WITH YOUR WORK — BUT OUT OF YOUR CODEBASE" title="Artifacts" description={project ? `Store documents, binaries and other files in the “${project.name}” project.` : "Choose a project to open its artifact library."} />
-          {projectsError && <ErrorNotice message={projectsError}><button className="button button-secondary" onClick={() => setProjectsRefresh((value) => value + 1)}>Try again</button></ErrorNotice>}
+          {projectsError && <ErrorNotice message={projectsError}><button className="button button-secondary" onClick={() => refreshProjects()}>Try again</button></ErrorNotice>}
           {project ? <ArtifactLibrary key={`${project.id}:${artifactRoute.workItemId ?? ""}`} projectId={project.id} maximumBytes={artifactMaxBytes} refreshSignal={refresh} onPendingChange={setArtifactPending} /> : <div className="loading-state" role="status">{projectsLoading ? "Opening your workspace…" : "Select or create a project to upload artifacts."}</div>}
         </> : view === "settings" ? <>
           <DashboardViewChrome
@@ -2978,7 +2880,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
             title={settingsPage.label}
             description={settingsPage.description}
           />
-          {projectsError && <ErrorNotice message={projectsError}><button className="button button-secondary" onClick={() => setProjectsRefresh((value) => value + 1)}>Try again</button></ErrorNotice>}
+          {projectsError && <ErrorNotice message={projectsError}><button className="button button-secondary" onClick={() => refreshProjects()}>Try again</button></ErrorNotice>}
           {projectsLoading && !projects.length ? <div className="loading-state" role="status"><span className="spinner" />Opening your workspace…</div> :
             <ProjectSettingsPanel
               key={`${project?.id ?? "no-project"}:${settingsSection}`}
@@ -2987,7 +2889,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
               settings={projectSettings}
               loading={settingsLoading}
               loadError={settingsLoadError}
-              onRetry={() => setSettingsRefresh((value) => value + 1)}
+              onRetry={() => refreshSettings()}
               onSaved={handleProjectSettingsSaved}
               onProjectSaved={handleProjectSaved}
               onNotice={(message, error) => setNotice({ message, error })}
@@ -3003,7 +2905,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
           {project && activityReadyProjectId === project.id
             ? <JobReportList key={project.id} projectId={project.id} refreshSignal={reportRefresh}
                 repositoryUrl={project.repository_url}
-                onChanged={() => { setReportRefresh((value) => value + 1); setRefresh((value) => value + 1); }}
+                onChanged={() => { refreshReports(); refreshWork(); }}
                 onOpenWork={(workItemId, preferredProjectId) => {
                   void navigateToCurrentWorkPlacement(workItemId, preferredProjectId ?? null);
                 }} />
@@ -3014,20 +2916,20 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
             title="Needs Attention"
             description={project ? `Durable questions waiting in “${project.name}”.` : "Choose a project to review its explicit human questions."}
           />
-          {projectsError ? <ErrorNotice message={projectsError}><button className="button button-secondary" onClick={() => setProjectsRefresh((value) => value + 1)}>Try again</button></ErrorNotice> :
+          {projectsError ? <ErrorNotice message={projectsError}><button className="button button-secondary" onClick={() => refreshProjects()}>Try again</button></ErrorNotice> :
             projectsLoading && !projects.length ? <div className="loading-state" role="status"><span className="spinner" />Opening your workspace…</div> :
             <HumanAttentionList
               project={activityReadyProjectId === activeId ? project : undefined}
               refreshSignal={attentionRefresh}
               onOpen={openAttentionWork}
               onResolved={() => {
-                setRefresh((value) => value + 1);
+                refreshWork();
                 setContextRefresh((value) => value + 1);
                 setEventRefresh((value) => value + 1);
               }}
             />}
         </> : <>
-          {projectsError ? <>{libraryChrome}<ErrorNotice message={projectsError}><button className="button button-secondary" onClick={() => setProjectsRefresh((value) => value + 1)}>Try again</button></ErrorNotice></> :
+          {projectsError ? <>{libraryChrome}<ErrorNotice message={projectsError}><button className="button button-secondary" onClick={() => refreshProjects()}>Try again</button></ErrorNotice></> :
             projectsLoading && !projects.length ? <>{libraryChrome}<div className="loading-state" role="status"><span className="spinner" />Opening your workspace…</div></> :
             !projects.length ? <>{libraryChrome}<section className="empty-state onboarding"><div className="empty-art"><Icon name="library" size={34} /><span /></div><div className="eyebrow">A DURABLE PLACE TO CONTINUE</div><h2>Create your first project.</h2><p>Projects hold stable objectives and the session checkpoints that move them forward.</p><button className="button button-primary" onClick={() => setProjectDialog(true)}><Icon name="plus" size={17} />Create your first project</button></section></> : <>
               <WorkItemList
@@ -3138,7 +3040,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
                   onCopyPointer={(item) => void copyRecallPointer(item)}
                   onCopyColdReview={() => void copyColdReview()}
                   onReopenReview={() => { if (context) { setReopenReview(context); setReviewReopenError(""); } }}
-                  onReviewChanged={async () => { setEventRefresh((value) => value + 1); setAttentionRefresh((value) => value + 1); setRefresh((value) => value + 1); await reloadOpenContext(); }}
+                  onReviewChanged={async () => { setEventRefresh((value) => value + 1); refreshAttention(); refreshWork(); await reloadOpenContext(); }}
                   copiedKey={copied}
                   checkpointPage={checkpointPage}
                   checkpointOffset={checkpointOffset}
@@ -3177,7 +3079,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
                   onRelationshipsChanged={async () => {
                     const reconciled = await reloadOpenContext();
                     setEventRefresh((value) => value + 1);
-                    setRefresh((value) => value + 1);
+                    refreshWork();
                     return reconciled;
                   }}
                   onCheckpointOffset={setCheckpointOffset}

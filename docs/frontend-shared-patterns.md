@@ -93,3 +93,46 @@ links: [summary formatting](images/markdown-summaries-light.png),
   per-message isolation, and vendor integrity. `markdown-messages.spec.ts`
   exercises actual report/question writes, dashboard rendering, narrow/dark
   layouts, and browser DOM safety.
+
+## Core server reads with TanStack Query (migration 5)
+
+`main.tsx` creates one QueryClient for the application lifetime, outside route
+transitions. `lib/query-keys.ts` is the request identity boundary; project IDs,
+filters, offsets (or infinite-query page parameters), canonical scope and search
+terms belong in keys. Never include refresh counters, drafts or selections.
+`core-queries.ts`, `task-queries.ts` and `work-queries.ts` build typed options and
+run the existing strict wire decoders before publishing data. Each read consumes
+Query's AbortSignal; changing scope detaches its observer and cancels the obsolete
+request when no other consumer still needs it. Disabled work/search observers use
+a separate disabled key so they do not keep an obsolete request alive or display
+its data, errors or spinner.
+
+The client uses a 30-second stale time and five-minute inactive cache retention.
+Automatic Query retries, focus refetch and reconnect refetch are disabled.
+WebSocket notifications and cursor-based activity catch-up remain the freshness
+owners, including focus and reconnect; bootstrap still precedes project-scoped
+surface reads.
+Lexical/task/settings/catalog failures retain the existing bounded-backoff read
+recovery. Semantic work searches never gain automatic failure retries. The
+existing duplicate-inference admission policy and mutation executor are unchanged.
+
+`invalidateCoreReads` maps the existing live/activity/lease notifications and
+confirmed mutation callbacks to project-scoped work, task, settings and count
+keys. The dashboard's small refresh adapters also notify remaining legacy panels.
+Each migrated resource has one cache owner; the legacy counters are consumed only
+by unmigrated panels. Background refetch retains loaded data (including an empty
+list). Do not use cross-project placeholder data. Work queues retain decoded wire
+pages and server `next_offset`, including byte-budget-short pages and coverage.
+On refresh they reload the prior raw loaded prefix, rather than assuming a fixed
+page size or counting deduplicated display rows. Canonical pickers retain their
+250ms debounce and hide results immediately when the request scope changes.
+
+Migration 6 owns selected work context/history/relationships/reviews/evidence and
+protected-write reconciliation. Its imperative exact-context, placement and
+fresh completion-policy reads remain explicit for now; MutationIntentRegistry
+continues to own frozen writes and uncertain outcomes. Placement probes use the
+same Query catalog with an explicit fresh fetch. Migration 7 owns artifact and
+transcript libraries, prompts, backups, attention/report/review detail panels and
+other secondary reads. Runtime configuration bootstraps the app before Query;
+activity/WebSocket cursors and raw upload/download streams are transport state,
+not cached resource pages. No production rollout is implied by this migration.
