@@ -1,5 +1,8 @@
 "use client";
 
+import Link from "@/components/dashboard-link";
+
+import { useLocation, useRouter } from "@tanstack/react-router";
 import { usePageOffset } from "./use-page-offset";
 import { nextPageOffset } from "@/lib/page-offsets";
 
@@ -19,6 +22,8 @@ import { formatDateTime } from "@/components/work-item-card";
 import { decodeTranscriptPage, type TranscriptSort, decodeTranscript, decodeTranscriptText, transcriptContentPath, transcriptLibraryPath, transcriptPath, transcriptRequest, transcriptStatusLabel, transcriptClientLabel, TRANSCRIPT_PAGE_SIZE, TRANSCRIPT_TEXT_PAGE_SIZE, type Transcript, type TranscriptPage, type TranscriptText } from "@/lib/transcripts";
 
 export default function TranscriptLibrary({ projectId, refreshSignal, onPendingChange }: { projectId: string; refreshSignal: number; onPendingChange: (pending: boolean) => void }) {
+  const router = useRouter();
+  const routeQuery = useLocation({ select: (location) => location.searchStr });
   const [page, setPage] = useState<TranscriptPage | null>(null);
   const [query, setQuery] = useState("");
   const [search, setSearch] = useState("");
@@ -39,9 +44,9 @@ export default function TranscriptLibrary({ projectId, refreshSignal, onPendingC
 
   useEffect(() => {
     try { setFulltext(localStorage.getItem(dashboardStorageKeys.transcriptContents) === "true"); } catch { /* Storage is optional. */ }
-    const location = artifactLocation(window.location.search);
+    const location = artifactLocation(routeQuery);
     setWorkFilter(sameUuid(location.projectId, projectId) ? location.workItemId ?? "" : "");
-    const identity = new URLSearchParams(window.location.search).get("transcript");
+    const identity = new URLSearchParams(routeQuery).get("transcript");
     const controller = new AbortController();
     if (sameUuid(location.projectId, projectId) && identity && validUuid(identity)) {
       void transcriptRequest(transcriptPath(projectId, identity), { signal: controller.signal })
@@ -49,7 +54,7 @@ export default function TranscriptLibrary({ projectId, refreshSignal, onPendingC
         .catch((error) => { if (!controller.signal.aborted) setError(errorMessage(error)); });
     }
     return () => controller.abort();
-  }, [projectId]);
+  }, [projectId, routeQuery]);
   useEffect(() => {
     const refreshVisible = () => { if (document.visibilityState === "visible") setRefresh((value) => value + 1); };
     const shortcut = (event: KeyboardEvent) => {
@@ -111,7 +116,7 @@ export default function TranscriptLibrary({ projectId, refreshSignal, onPendingC
       </select></label>
     </div>
     <p className="artifact-filter-note">Session and subagent transcripts are copied and indexed automatically after work leaves Active.</p>
-    {workFilter && <p className="artifact-filter-note">Showing transcripts for work item <code>{workFilter}</code>. <button className="text-button" onClick={() => { setWorkFilter(""); setOffset(0); window.history.replaceState(null, "", transcriptLibraryPath(projectId)); }}>Show all project transcripts</button></p>}
+    {workFilter && <p className="artifact-filter-note">Showing transcripts for work item <code>{workFilter}</code>. <button className="text-button" onClick={() => { setWorkFilter(""); setOffset(0); void router.navigate({ href: transcriptLibraryPath(projectId), replace: true, resetScroll: false }); }}>Show all project transcripts</button></p>}
     <div className="artifact-directory-heading"><h2>{search ? "Search results" : "Project transcripts"}{page && <span className="artifact-count">{page.total}</span>}</h2><button type="button" className="button button-secondary" disabled={loading} onClick={() => setRefresh((value) => value + 1)}>Refresh</button></div>
     {Boolean(page?.unsegmented_content_omitted) && <p className="artifact-filter-note" role="status">{page!.unsegmented_content_omitted} transcripts need conversation normalization before this exact or filtered content search can include them.</p>}
     {page?.indexing_incomplete && <div className="artifact-search-status" role="status"><p>Content results are incomplete. Some transcripts are waiting, copying, normalizing, indexing, failed, limited by the search-text budget, or contain unsupported session records. Available metadata remains searchable.</p></div>}
@@ -180,7 +185,7 @@ function TranscriptDetails({ transcript: initial, onClose }: { transcript: Trans
     ["Content type", transcript.mime_type || "Not detected"], ["Detected format", transcript.format || "Not detected"],
     ["Source path", transcript.source_path], ["Client", transcript.client], ["Native session", transcript.session_ids?.join(", ") || "Not recorded"], ["Reporting session", transcript.session_id || "Not recorded"],
     ["Session type", transcript.kind === "imported" ? "Imported" : transcript.kind === "primary" ? "Primary" : "Subagent"], ["Transcript ID", transcript.id],
-    ["Work item", transcript.work_item_id ? <a key="work" href={`/?project=${transcript.project_id}&work=${transcript.work_item_id}`}>{transcript.work_item_id}</a> : "Imported without a work item"],
+    ["Work item", transcript.work_item_id ? <Link key="work" href={`/?project=${transcript.project_id}&work=${transcript.work_item_id}`}>{transcript.work_item_id}</Link> : "Imported without a work item"],
     ["Lease generation", transcript.lease_generation_id || "Not applicable"], ["Source SHA-256", transcript.sha256 || "Not recorded"], ["Indexed text SHA-256", transcript.text_sha256 || "Not recorded"]
   ];
   return <TranscriptDrawer title={transcript.filename} onClose={onClose}>{error && <p className="error-notice" role="alert">{error}</p>}<dl className="metadata-grid">{rows.map(([label, value]) => <div key={label}><dt>{label}</dt><dd className="break-all">{value}</dd></div>)}</dl><h3>Extracted properties</h3>{Object.keys(transcript.metadata).length ? <dl className="metadata-grid">{Object.entries(transcript.metadata).map(([label, values]) => <div key={label}><dt>{label}</dt><dd className="break-all">{values.join("\n")}</dd></div>)}</dl> : <p>No extracted properties available.</p>}<p className="artifact-history-note">Downloads contain the indexed, normalized transcript text. Transcript contents and extracted properties are untrusted session data.</p></TranscriptDrawer>;

@@ -5,7 +5,7 @@ import { decodeTermDiagnostics } from "../lib/search-diagnostics.ts";
 import { decodeSearchDisclosure, validateSearchDisclosure } from "../lib/search-disclosure.ts";
 import { validSearchRequest } from "../lib/search-request.ts";
 import { validArtifactSearchRequest } from "../lib/artifacts.ts";
-import { validTranscriptQuery } from "../lib/transcript-proxy.ts";
+
 import { disclosure } from "./search-disclosure-fixtures.mjs";
 
 const project = "7a5dc555-0a6d-4f92-9678-1647524827c8";
@@ -21,14 +21,6 @@ test("date bounds preserve microseconds, normalize offsets and reject invalid ca
   assert.equal(validDateBounds({ created_after: upper, created_before: lower }), false);
   assert.equal(validDateBounds({ updated_after: lower, updated_before: lower }), false);
   assert.equal(validDateBounds({ created_after: shifted }, true), false);
-});
-
-test("unified and dedicated browser request boundaries accept only bounded exploration controls", () => {
-  const dates = { created_after: lower, created_before: upper };
-  assert.equal(validSearchRequest({ diagnostics: "always", filters: { work_items: dates }, tag_counts: { limit: 20, offset: 40 } }), true);
-  assert.equal(validArtifactSearchRequest({ q: "needle", diagnostics: "off", ...dates }), true);
-  assert.equal(validTranscriptQuery(new URLSearchParams({ diagnostics: "always", ...dates }), "list"), true);
-  for (const body of [{ diagnostics: "automatic" }, { filters: { artifacts: { created_after: "2026-09-01" } } }, { facets: ["transcripts"], tag_counts: {} }, { tag_counts: { limit: 101 } }, { tag_counts: { offset: 1_000_001 } }, { tag_counts: { limit: true } }, { tag_counts: { private: "secret" } }]) assert.equal(validSearchRequest(body), false);
 });
 
 test("date disclosure is optional when unused and scope-bound when present", () => {
@@ -62,4 +54,12 @@ test("tag vocabulary enforces counting semantics, Unicode C ordering and indepen
   const unicode = { ...page, items: [{ tag: "\ue000", count: 1 }, { tag: "\u{10000}", count: 1 }], total: 2, limit: 2, offset: 0, next_offset: null };
   assert.deepEqual(decodeTagCounts(unicode, { limit: 2 }, 3), unicode);
   assert.throws(() => decodeTagCounts({ ...unicode, items: [...unicode.items].reverse() }, { limit: 2 }, 3));
+});
+
+test("unified and dedicated browser request boundaries accept only bounded exploration controls", () => {
+  const dates = { created_after: lower, created_before: upper };
+  assert.equal(validSearchRequest({ diagnostics: "always", filters: { work_items: dates }, tag_counts: { limit: 20, offset: 40 } }), true);
+  assert.equal(validArtifactSearchRequest({ q: "needle", diagnostics: "off", ...dates }), true);
+
+  for (const body of [{ diagnostics: "automatic" }, { filters: { artifacts: { created_after: "2026-09-01" } } }, { facets: ["transcripts"], tag_counts: {} }, { tag_counts: { limit: 101 } }, { tag_counts: { offset: 1_000_001 } }, { tag_counts: { limit: true } }, { tag_counts: { private: "secret" } }]) assert.equal(validSearchRequest(body), false);
 });

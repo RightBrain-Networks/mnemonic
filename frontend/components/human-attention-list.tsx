@@ -1,5 +1,8 @@
 "use client";
 
+import Link from "@/components/dashboard-link";
+import { useLocation } from "@tanstack/react-router";
+
 import { useWorkItemMotion } from "@/components/use-work-item-motion";
 import ExternalReferences from "@/components/external-references";
 import { useFailedReadRetry } from "@/components/use-failed-read-retry";
@@ -31,9 +34,8 @@ function requestedThrough(item: HumanAttentionPage["items"][number]): string {
   ].filter(Boolean).join(" · ");
 }
 
-function locationWorkFilter(): string | undefined {
-  if (typeof window === "undefined") return undefined;
-  const value = new URLSearchParams(window.location.search).get("work_item_id");
+function locationWorkFilter(search: string): string | undefined {
+  const value = new URLSearchParams(search).get("work_item_id");
   return value && validUuid(value) ? value : undefined;
 }
 
@@ -48,7 +50,8 @@ export default function HumanAttentionList({
   onOpen: (summary: WorkSummary) => void;
   onResolved: () => void;
 }) {
-  const [workItemId, setWorkItemId] = useState<string | undefined>();
+  const query = useLocation({ select: (location) => location.searchStr });
+  const workItemId = locationWorkFilter(query);
   const [cursorStack, setCursorStack] = useState<Array<string | null>>([null]);
   const [pageIndex, setPageIndex] = useState(0);
   const [page, setPage] = useState<HumanAttentionPage | null>(null);
@@ -67,10 +70,6 @@ export default function HumanAttentionList({
     snapshotSignal: `${refreshSignal}:${reload}`,
     animateReplacements: true
   });
-
-  useEffect(() => {
-    setWorkItemId(locationWorkFilter());
-  }, []);
 
   useEffect(() => {
     setCursorStack([null]);
@@ -155,7 +154,7 @@ export default function HumanAttentionList({
     {resolutionStatus && <p className="attention-resolution-status" role="status" aria-live="polite">{resolutionStatus}</p>}
     {workItemId && <div className="attention-filter" role="status">
       <span>Filtered to work item <span className="mono">{workItemId}</span></span>
-      <a href="/attention" className="text-link">Show every question</a>
+      <Link href="/attention" className="text-link">Show every question</Link>
     </div>}
     <p className="attention-authority-note">Read the current question and record your answer. Earlier versions are available in the tabs.</p>
     {loadError && <div className="error-notice" role="alert"><p>{loadError}</p><button type="button" className="button button-secondary" onClick={() => setReload((value) => value + 1)}>Try again</button></div>}

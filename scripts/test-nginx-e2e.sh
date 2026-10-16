@@ -5,9 +5,8 @@ script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 repo_root=$(cd -- "$script_dir/.." && pwd)
 base_compose="$repo_root/compose.e2e.yaml"
 nginx_compose="$repo_root/compose.nginx-e2e.yaml"
-browser_transports=false
+# Compatibility flag: every run now traverses static nginx and FastAPI.
 if [[ "${1:-}" == "--browser-transports" ]]; then
-  browser_transports=true
   shift
 fi
 if (( $# )); then
@@ -29,9 +28,6 @@ if [[ ! "$MNEMONIC_E2E_COMPOSE_PROJECT" =~ ^mnemonic-nginx-e2e-[a-z0-9-]+$ ]]; t
   exit 2
 fi
 compose=(docker compose -p "$MNEMONIC_E2E_COMPOSE_PROJECT" -f "$base_compose" -f "$nginx_compose")
-if [[ "$browser_transports" == true ]]; then
-  compose+=(-f "$repo_root/compose.nginx-browser-transports-e2e.yaml")
-fi
 
 choose_port() {
   python3 - <<'PY'
@@ -115,6 +111,15 @@ docker run --rm --user 0 \
 
 "${compose[@]}" run --rm --no-deps nginx-stock-policy-check
 "${compose[@]}" up -d --build --wait
+
+# The final web image must be a static server without runtime credentials.
+"${compose[@]}" exec -T web sh -c '
+  test "$(id -u)" -ne 0 &&
+  ! command -v node &&
+  test -z "${MNEMONIC_API_KEY+x}" &&
+  test -z "${MNEMONIC_BACKUP_TOKEN+x}" &&
+  test -z "${MNEMONIC_BACKUP_URL+x}"
+'
 
 assert_single_content_encoding() {
   local headers=$1
@@ -346,8 +351,6 @@ if grep -Fq 'accepted_body_bytes' "$test_tmp/completion-chunked-over-response.js
   exit 1
 fi
 
-if [[ "$browser_transports" == true ]]; then
-  python3 "$repo_root/scripts/test_browser_transport_ingress.py"
-fi
+python3 "$repo_root/scripts/test_browser_transport_ingress.py"
 
 echo "PASS: stock nginx accepts the shared policy; enabled Brotli remains outside its identity-coded evidence route; nginx/browser transport enforce the exact 3 MiB response and inclusive 1 MiB completion ingress boundaries."

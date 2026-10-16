@@ -185,28 +185,24 @@ services:
     security_opt: [no-new-privileges:true]
 
   web:
-    build: ./frontend
-    environment:
-      TIMEZONE: ${TIMEZONE:-America/Detroit}
-      MNEMONIC_WORK_SUMMARY_MAX_CHARS: ${MNEMONIC_WORK_SUMMARY_MAX_CHARS:-2048}
-      MNEMONIC_ARTIFACT_MAX_BYTES: ${MNEMONIC_ARTIFACT_MAX_BYTES:-67108864}
-      MNEMONIC_API_URL: http://api:8000
-      MNEMONIC_API_KEY: ${MNEMONIC_API_KEY}
-      MNEMONIC_BACKUP_URL: http://worker:8002
-      MNEMONIC_BACKUP_TOKEN: ${MNEMONIC_BACKUP_TOKEN:?Configure the private dashboard backup token in .env}
-      MNEMONIC_BACKUP_MAX_BYTES: ${MNEMONIC_BACKUP_MAX_BYTES:-67108864}
-      MNEMONIC_DASHBOARD_ORIGINS: ${MNEMONIC_DASHBOARD_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
     ports:
       - '127.0.0.1:${MNEMONIC_WEB_PORT:-3000}:3000'
     depends_on:
       api:
         condition: service_healthy
     healthcheck:
-      test: [CMD, node, -e, 'fetch("http://127.0.0.1:3000/").then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))']
+      test: [CMD, wget, -q, -O, /dev/null, http://127.0.0.1:3000/healthz]
       interval: 10s
       timeout: 5s
       retries: 6
       start_period: 15s
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777,noexec,nosuid,nodev
+    cap_drop: [ALL]
     init: true
     restart: unless-stopped
     security_opt: [no-new-privileges:true]

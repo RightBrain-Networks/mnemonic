@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/components/dashboard-link";
 import { useState, type MouseEvent } from "react";
 import { useTaskPage } from "@/components/use-task-page";
 import { TaskCard, TaskPagination } from "@/components/task-cards";

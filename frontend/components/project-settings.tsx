@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "@/components/dashboard-link";
+
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import WorkLeaseSettings from "@/components/work-lease-settings";
 import CodeReviewSettingsPanel from "@/components/code-review-settings";
@@ -97,7 +99,7 @@ export default function ProjectSettingsPanel({
     return <section className="empty-state settings-empty">
       <h2>Select a project.</h2>
       <p>Project settings become available after you create or select a workspace.</p>
-      <a className="button button-primary" href="/work-items">Open work items</a>
+      <Link className="button button-primary" href="/work-items">Open work items</Link>
     </section>;
   }
   const selectedProject = project;

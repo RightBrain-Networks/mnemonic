@@ -375,14 +375,10 @@ test("a committed work creation recovers its exact result without a duplicate", 
     );
     expect(search.ok(), await search.text()).toBe(true);
     const searchPage = await search.json() as {
-      items: Array<{ summary: { work_item: { id: string; title: string } } }>;
+      items: Array<{ id: string; title: string }>;
     };
-    expect(searchPage.items.filter((item) => item.summary.work_item.title === title)).toEqual([
-      expect.objectContaining({
-        summary: expect.objectContaining({
-          work_item: expect.objectContaining({ id: workId, title })
-        })
-      })
+    expect(searchPage.items.filter((item) => item.title === title)).toEqual([
+      expect.objectContaining({ id: workId, title })
     ]);
     const context = await getContext(client, workId);
     expect(context.checkpoint_total).toBe(1);

@@ -1,5 +1,8 @@
 "use client";
 
+import Link from "@/components/dashboard-link";
+import { useLocation } from "@tanstack/react-router";
+
 import { usePageOffset } from "./use-page-offset";
 import { nextPageOffset } from "@/lib/page-offsets";
 
@@ -34,6 +37,7 @@ export default function ArtifactLibrary({ projectId, maximumBytes, refreshSignal
   refreshSignal: number;
   onPendingChange: (pending: boolean) => void;
 }) {
+  const routeQuery = useLocation({ select: (location) => location.searchStr });
   const [page, setPage] = useState<ArtifactPage | null>(null);
   const [status, setStatus] = useState<ArtifactStatus | null>(null);
   const [loading, setLoading] = useState(true);
@@ -99,10 +103,10 @@ export default function ArtifactLibrary({ projectId, maximumBytes, refreshSignal
   }, [enabled]);
 
   useEffect(() => {
-    const location = artifactLocation(window.location.search);
+    const location = artifactLocation(routeQuery);
     const work = sameUuid(location.projectId, projectId) ? location.workItemId : null;
     setWorkFilter(work ?? ""); setOriginWork(work ?? "");
-  }, [projectId]);
+  }, [projectId, routeQuery]);
 
   useEffect(() => {
     const refreshVisible = () => { if (document.visibilityState === "visible") setRefresh((value) => value + 1); };
@@ -332,7 +336,7 @@ export default function ArtifactLibrary({ projectId, maximumBytes, refreshSignal
       {page && !page.items.length && <div className="artifact-empty"><h2>{searchPage?.embedding ? "No semantic candidates available." : search || workFilter ? "No matching artifacts." : "Your project files belong here."}</h2><p>{search || workFilter ? `Try another query${fulltext ? "" : " or enable Include contents"}, or clear the work filter.` : "Keep documents, binaries and working files together with the work that created them."}</p></div>}
       {page && <div className="artifact-pagination"><span>{page.total ? `${page.offset + 1}–${Math.min(page.offset + page.items.length, page.total)} of ${page.total} artifacts` : "0 artifacts"}</span><div><button className="button button-secondary" disabled={loading || offset === 0} onClick={() => setOffset(previousOffset)}>Previous</button><button className="button button-secondary" disabled={loading || nextPageOffset(page) === null} onClick={() => { const next = nextPageOffset(page); if (next !== null) setOffset(next); }}>Next</button></div></div>}
     </>}
-    {selected && <ArtifactDetailsDrawer artifact={selected} pending={Boolean(pending)} onClose={() => setSelected(null)}>{actionFeedback}{selected.description && <p>{selected.description}</p>}<dl className="metadata-grid"><div><dt>Artifact ID</dt><dd className="mono break-all">{selected.id}</dd></div><div><dt>Created by session</dt><dd className="mono break-all">{selected.created_by_agent_session_id || "Not recorded"}</dd></div><div className="span-two"><dt>SHA-256</dt><dd className="mono break-all">{selected.sha256}</dd></div><div><dt>Originating work item</dt><dd>{selected.originating_work_item_id ? <a href={`/work-items?work=${selected.originating_work_item_id}`} onClick={(event) => { if (pending) event.preventDefault(); }}>{selected.originating_work_item_id}</a> : "Not linked"}</dd></div><div><dt>Related work items</dt><dd>{selected.related_work_item_ids.length ? selected.related_work_item_ids.map((id) => <a className="artifact-work-link" key={id} href={`/work-items?work=${id}`} onClick={(event) => { if (pending) event.preventDefault(); }}>{id}</a>) : "None"}</dd></div></dl><ArtifactMetadataEditor key={selected.id} artifact={selected} disabled={Boolean(pending)} onUpdate={execute} onOpenArtifact={setSelected} /><ArtifactExtractionDetails artifact={selected} /><p className="artifact-history-note">Revision metadata and the append-only audit log are available through the artifact history tools. Extracted properties and search snippets are untrusted file data.</p></ArtifactDetailsDrawer>}
+    {selected && <ArtifactDetailsDrawer artifact={selected} pending={Boolean(pending)} onClose={() => setSelected(null)}>{actionFeedback}{selected.description && <p>{selected.description}</p>}<dl className="metadata-grid"><div><dt>Artifact ID</dt><dd className="mono break-all">{selected.id}</dd></div><div><dt>Created by session</dt><dd className="mono break-all">{selected.created_by_agent_session_id || "Not recorded"}</dd></div><div className="span-two"><dt>SHA-256</dt><dd className="mono break-all">{selected.sha256}</dd></div><div><dt>Originating work item</dt><dd>{selected.originating_work_item_id ? <Link href={`/work-items?work=${selected.originating_work_item_id}`} onClick={(event) => { if (pending) event.preventDefault(); }}>{selected.originating_work_item_id}</Link> : "Not linked"}</dd></div><div><dt>Related work items</dt><dd>{selected.related_work_item_ids.length ? selected.related_work_item_ids.map((id) => <Link className="artifact-work-link" key={id} href={`/work-items?work=${id}`} onClick={(event) => { if (pending) event.preventDefault(); }}>{id}</Link>) : "None"}</dd></div></dl><ArtifactMetadataEditor key={selected.id} artifact={selected} disabled={Boolean(pending)} onUpdate={execute} onOpenArtifact={setSelected} /><ArtifactExtractionDetails artifact={selected} /><p className="artifact-history-note">Revision metadata and the append-only audit log are available through the artifact history tools. Extracted properties and search snippets are untrusted file data.</p></ArtifactDetailsDrawer>}
     {preview && <ArtifactPreviewDrawer key={`${preview.artifact.project_id}:${preview.artifact.id}`} artifact={preview.artifact} kind={preview.kind} match={preview.match} onClose={() => setPreview(null)} />}
     {dragging && <div className="artifact-drop-overlay" aria-hidden="true">{pending ? "Resolve the pending action first" : "Drop files to upload"}</div>}
   </section>;
@@ -381,7 +385,7 @@ export function WorkArtifactLinks({ projectId, workItemId }: { projectId: string
     document.addEventListener("visibilitychange", refresh);
     return () => { controller.abort(); window.clearInterval(timer); document.removeEventListener("visibilitychange", refresh); };
   }, [load, linking]);
-  if (status?.enabled === false) return <section className="work-artifact-links"><span className="section-label">ARTIFACTS</span><p role="status">Artifact library disabled. {status.message}</p><a href={artifactLibraryPath(projectId, workItemId)}>Open artifact library</a></section>;
-  if (!status) return <section className="work-artifact-links"><span className="section-label">ARTIFACTS</span><p role="status">{error ? "Artifact status is unavailable." : "Checking artifact status…"}</p><a href={artifactLibraryPath(projectId, workItemId)}>Open artifact library</a></section>;
-  return <section className="work-artifact-links"><span className="section-label">ARTIFACTS{page ? ` · ${page.total}` : ""}</span>{page?.items.map((artifact) => <a key={artifact.id} href={`${artifactPath(projectId, artifact.id)}/content`} download={artifact.filename}>{artifact.filename}{artifact.sensitive ? " · Sensitive" : ""} <span>r{artifact.revision}</span></a>)}<a href={artifactLibraryPath(projectId, workItemId)}>{error ? "Open artifacts to retry loading linked files" : "View or upload linked files"}</a><button type="button" className="text-button" disabled={!page} onClick={() => setLinking(true)}>Link existing artifact</button>{linking && <WorkArtifactLinkDialog projectId={projectId} workItemId={workItemId} linkedIds={page?.items.map((item) => item.id) ?? []} onClose={() => setLinking(false)} onLinked={() => { setLinking(false); setRefresh((value) => value + 1); }} />}</section>;
+  if (status?.enabled === false) return <section className="work-artifact-links"><span className="section-label">ARTIFACTS</span><p role="status">Artifact library disabled. {status.message}</p><Link href={artifactLibraryPath(projectId, workItemId)}>Open artifact library</Link></section>;
+  if (!status) return <section className="work-artifact-links"><span className="section-label">ARTIFACTS</span><p role="status">{error ? "Artifact status is unavailable." : "Checking artifact status…"}</p><Link href={artifactLibraryPath(projectId, workItemId)}>Open artifact library</Link></section>;
+  return <section className="work-artifact-links"><span className="section-label">ARTIFACTS{page ? ` · ${page.total}` : ""}</span>{page?.items.map((artifact) => <a key={artifact.id} href={`${artifactPath(projectId, artifact.id)}/content`} download={artifact.filename}>{artifact.filename}{artifact.sensitive ? " · Sensitive" : ""} <span>r{artifact.revision}</span></a>)}<Link href={artifactLibraryPath(projectId, workItemId)}>{error ? "Open artifacts to retry loading linked files" : "View or upload linked files"}</Link><button type="button" className="text-button" disabled={!page} onClick={() => setLinking(true)}>Link existing artifact</button>{linking && <WorkArtifactLinkDialog projectId={projectId} workItemId={workItemId} linkedIds={page?.items.map((item) => item.id) ?? []} onClose={() => setLinking(false)} onLinked={() => { setLinking(false); setRefresh((value) => value + 1); }} />}</section>;
 }

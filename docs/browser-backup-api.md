@@ -43,8 +43,8 @@ expanded size, and restore eligibility using its existing guards.
 | `MNEMONIC_BACKUP_MAX_BYTES` | `67108864` | Compressed restore upload limit and public UI limit |
 | `MNEMONIC_DASHBOARD_ORIGINS` | Localhost dashboard origins | Exact external browser origins admitted by FastAPI |
 
-Compose now passes the URL/token/limit to API. Next retains its existing private
-settings until the static cutover so the current delivery path continues working.
+Compose passes the URL/token/limit to API. The static web service receives
+none of those private connection settings.
 The worker continues to receive its own token and archive limits. A static web
 image needs neither bearer credential nor the private worker address. Public
 runtime configuration exposes only the numeric backup limit. A missing/invalid
@@ -79,10 +79,9 @@ Every gateway response carries `Cache-Control: no-store, max-age=0, no-transform
 
 ## Static-server handoff and validation
 
-The additive browser transport overlay routes all four families and the exact
-WebSocket path to FastAPI. It preserves the external Host and Origin and denies
-machine API, worker, and documentation namespaces. The ordinary web path still
-serves Next. The future static server must implement this same routing interface:
+The static server routes all four families and the exact WebSocket path to
+FastAPI. It preserves external Host and Origin, denies private namespaces, and
+serves Vite assets. Its routing interface is:
 
 - Forward only `/api/mnemonic`, `/api/artifacts`, `/api/transcripts`, and
   `/api/backups` (including their subpaths) to API; handle `/api/mnemonic/sync`
@@ -101,12 +100,11 @@ serves Next. The future static server must implement this same routing interface
 Run `scripts/test-e2e.sh --browser-transports tests/e2e/project-backups.spec.ts`
 for create/poll/download/confirmed restore against disposable PostgreSQL and
 worker storage. `scripts/test-nginx-e2e.sh --browser-transports` exercises the
-FastAPI edge matrix, while the default command retains Next compatibility checks.
+same FastAPI edge matrix as the default command.
 Backend gateway tests cover admission, size/encoding/redirect failures, exact
 streaming, long operations, and cancellation; existing backup service/archive
 tests retain responsibility for restore semantics.
 
-No production route or service is switched by these changes. Deployment and
-rollback remain separate operator-authorized operations. Child 4 can remove the
-Next gateway only after configuring the matching API image and static server;
-the prior Next/API pair remains the rollback delivery path.
+Deployment and rollback remain separately operator-authorized operations. Ship
+the matching API and static web images together; rollback restores the previous
+web/API pair and its previous Compose environment. See [static delivery](frontend-delivery.md).

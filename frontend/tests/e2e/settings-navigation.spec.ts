@@ -4,7 +4,7 @@ import { statePath, type E2EState } from "./global.setup";
 
 const preferenceKey = "mnemonic.settings-menu";
 const sections = [
-  { label: "Workspace", path: "/settings/workspace", cards: ["Project details"] },
+  { label: "Workspace", path: "/settings/workspace", cards: ["Project details", "Priority rubric"] },
   { label: "Prompts", path: "/settings/prompts", cards: ["Project prompts", "Macro glossary"] },
   { label: "Code reviews", path: "/settings/code-reviews", cards: ["Code reviews"] },
   { label: "Backups", path: "/settings/backups", cards: ["Project backups"] }
@@ -28,7 +28,7 @@ test("settings menu links show only their dedicated cards in the requested order
     await navigation.locator(".settings-nav").getByRole("link", { name: section.label, exact: true }).click();
     await expect(page).toHaveURL(section.path);
     await expect(page.locator("h1")).toHaveText(`${section.label}.`);
-    await expect(page.locator(section.label === "Prompts" ? ".prompt-library h2, .prompt-library h3" : ".settings-card h2")).toHaveText(section.cards.map((name) => name === "Project prompts" ? "Project prompts7" : name));
+    await expect(page.locator(section.label === "Prompts" ? ".prompt-library h2, .prompt-library h3" : ".settings-card h2")).toHaveText(section.cards.map((name) => name === "Project prompts" ? /^Project prompts\d+$/ : name));
     await expect(navigation.locator('[aria-current="page"]')).toHaveText(section.label);
     await expect(toggle).toHaveAttribute("aria-expanded", "true");
     await expect(page.locator("#project-select")).toHaveValue(state.projectId);

@@ -95,7 +95,7 @@ def create_app(
 
     app = FastAPI(
         title="Mnemonic API",
-        version="0.83.4",
+        version="0.83.5",
         description="Durable project-scoped work with immutable agent checkpoints.",
         lifespan=lifespan,
     )

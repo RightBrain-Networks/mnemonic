@@ -22,7 +22,7 @@ import {
   readIdentityEvidenceBytes,
   validExternalArtifactUrl
 } from "../lib/completion-evidence.ts";
-import { invalidMutationBody } from "../lib/proxy-policy.ts";
+
 import { decodeCheckpointPointer } from "../lib/checkpoint-codecs.ts";
 
 const fixtureUrl = new URL("../../tests/fixtures/completion-evidence-v1.json", import.meta.url);
@@ -53,40 +53,6 @@ test("frontend semantic validation consumes every shared Phase 11 corpus case", 
     assert.throws(
       () => normalizeCompletionEvidenceInput(entry.semantic_input),
       (error) => error.issue?.errorClass === entry.error_class,
-      entry.case_id
-    );
-  }
-});
-
-test("frontend completion proxy consumes every shared full-request case", () => {
-  const concreteCases = new Map(fixture.cases.map((entry) => [entry.case_id, entry]));
-  const path = "projects/e36a7e53-938f-4c8a-b75a-af9c7331711a/work-items/"
-    + "7a5dc555-0a6d-4f92-9678-1647524827c8/complete";
-  for (const entry of fixture.full_request_cases) {
-    const body = {
-      expected_version: entry.expected_version ?? 1,
-      checkpoint: {
-        prompt: "Complete.",
-        source_client: "dashboard",
-        source_session_id: "shared-request-corpus"
-      }
-    };
-    if (entry.completion_evidence_case_id) {
-      body.completion_evidence = structuredClone(
-        concreteCases.get(entry.completion_evidence_case_id).semantic_input
-      );
-    } else if (
-      Object.hasOwn(entry, "completion_evidence")
-      && entry.completion_evidence !== "__omitted__"
-    ) {
-      body.completion_evidence = structuredClone(entry.completion_evidence);
-    }
-    if (entry.client_operation_id !== "__omitted__") {
-      body.client_operation_id = entry.client_operation_id;
-    }
-    assert.equal(
-      invalidMutationBody(path, "POST", body) === null,
-      entry.surface_expectations.browser,
       entry.case_id
     );
   }
@@ -749,20 +715,14 @@ test("identity reader is checked-before-copy, bounded, cancellation-safe, and di
   }
 });
 
-test("identity reader and proxy retain one bounded evidence buffer without a final clone", async () => {
+test("identity reader retains one bounded evidence buffer without a final clone", async () => {
   const library = await readFile(
     new URL("../lib/completion-evidence.ts", import.meta.url),
-    "utf8"
-  );
-  const proxy = await readFile(
-    new URL("../app/api/mnemonic/[...path]/route.ts", import.meta.url),
     "utf8"
   );
   assert.match(library, /new Uint8Array\(maximumBytes\)/);
   assert.match(library, /return bytes\.subarray\(0, size\)/);
   assert.doesNotMatch(library, /chunks\.push\(value\)/);
-  assert.match(proxy, /responseBody = evidenceBytes/);
-  assert.doesNotMatch(proxy, /Uint8Array\.from\(evidenceBytes\)/);
 });
 
 test("identity reader enforces the actual inclusive 3 MiB response boundary", async () => {
@@ -793,7 +753,7 @@ test("rendering and serving policy contains no active content or automatic artif
     new URL("../components/completion-evidence-panel.tsx", import.meta.url),
     "utf8"
   );
-  const config = await readFile(new URL("../next.config.ts", import.meta.url), "utf8");
+  const config = await readFile(new URL("../../deploy/nginx/snippets/mnemonic-web-security.conf", import.meta.url), "utf8");
   const nginxPolicy = await readFile(
     new URL("../../deploy/nginx/snippets/mnemonic-dashboard-api-policy.conf", import.meta.url),
     "utf8"
@@ -807,8 +767,7 @@ test("rendering and serving policy contains no active content or automatic artif
   assert.match(component, /"aria-invalid": true/);
   assert.match(component, /"aria-describedby": fieldErrorId/);
   assert.match(config, /X-DNS-Prefetch-Control/);
-  assert.match(config, /value: "off"/);
-  assert.match(config, /compress: false/);
+  assert.match(config, /X-DNS-Prefetch-Control "off"/);
   assert.match(nginxPolicy, /gzip off;/);
   assert.match(nginxPolicy, /proxy_set_header Accept-Encoding "identity";/);
   assert.doesNotMatch(nginxPolicy, /proxy_hide_header Content-Encoding/);

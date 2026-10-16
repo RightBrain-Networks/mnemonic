@@ -32,7 +32,7 @@ import {
   validHumanGateRevision,
   validMergeReviewRevision
 } from "./revision-codecs.ts";
-import { isDefinitiveProxyError } from "./proxy-policy.ts";
+import { isDefinitiveProxyError } from "./browser-errors.ts";
 import {
   UUID_PATTERN,
   boundedText,

@@ -1,7 +1,7 @@
 "use client";
 
-import Link from "next/link";
-import { useRouter } from "next/navigation";
+import Link from "@/components/dashboard-link";
+import { useRouter } from "@tanstack/react-router";
 import ApplicationSettings from "@/components/application-settings";
 import TaskDashboard from "@/components/task-dashboard";
 import CodeReviewLibrary from "@/components/code-review-library";
@@ -288,8 +288,8 @@ function isDefinitiveWorkPlacementMiss(error: unknown): error is ApiError {
     && (error.code === "work_item_not_found" || error.code === "project_not_found");
 }
 
-function locationWorkSelection(): string | null {
-  const value = new URLSearchParams(window.location.search).get("work");
+function locationWorkSelection(query: string): string | null {
+  const value = new URLSearchParams(query).get("work");
   return value && validUuid(value) ? value : null;
 }
 
@@ -440,7 +440,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
   const [notice, setNotice] = useState<{ message: string; error?: boolean } | null>(null);
   const [liveSyncStatus, setLiveSyncStatus] = useState<LiveSyncStatus>("connecting");
   useEffect(() => {
-    if (route.rejected) setNotice({ message: route.rejected, error: true });
+    if (route.rejected) setNotice({ message: route.rejected.message, error: true });
   }, [route.rejected]);
   const project = projects.find((item) => item.id === activeId);
   const pins = usePinnedWork(activeId);
@@ -539,7 +539,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
       setProjects(all);
       let saved = "";
       try { saved = localStorage.getItem(dashboardStorageKeys.project) ?? ""; } catch { /* optional */ }
-      const requested = (view === "artifacts" || view === "transcripts" || view === "library" || view === "reviews") ? artifactLocation(window.location.search).projectId : null;
+      const requested = (view === "artifacts" || view === "transcripts" || view === "library" || view === "reviews") ? artifactLocation(router.history.location.search).projectId : null;
       if (requested && !all.some((item) => sameUuid(item.id, requested))) {
         throw new Error(unavailableArtifactProject);
       }
@@ -556,7 +556,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
   useEffect(() => {
     if (!artifactProjectId || projectsLoading) return;
     // A verified work move may update history before the guarded route catches up.
-    if (artifactLocation(window.location.search).projectId !== artifactProjectId) return;
+    if (artifactLocation(router.history.location.search).projectId !== artifactProjectId) return;
     const requested = projects.find((item) => sameUuid(item.id, artifactProjectId));
     if (!requested) {
       setProjectsError(unavailableArtifactProject);
@@ -863,7 +863,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
       setEditDraft(null);
       return;
     }
-    const target = locationWorkSelection();
+    const target = locationWorkSelection(route.query);
     if (target === openedId || target && target === exactContextTarget.current?.workItemId) {
       urlWorkRestore.current = null;
       return;
@@ -885,21 +885,21 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
   useEffect(() => {
     if (skipWorkUrlMirror.current) { skipWorkUrlMirror.current = false; return; }
     if (view !== "library" || urlWorkRestore.current !== null || exactContextTarget.current) return;
-    const url = new URL(window.location.href);
+    const url = new URL(router.history.location.href, window.location.origin);
     if (url.searchParams.get("work") === openedId) return;
     if (openedId) url.searchParams.set("work", openedId);
     else url.searchParams.delete("work");
-    window.history.replaceState(null, "", url);
+    router.history.replace(url.pathname + url.search + url.hash, undefined, { ignoreBlocker: true });
   }, [contextReconciliationRequired, openedId, view, route.query]);
 
   function applyProjectSelection(id: string, workItemId?: string) {
     if ((view === "library" || view === "reviews") && id) {
-      const url = new URL(window.location.href);
+      const url = new URL(router.history.location.href, window.location.origin);
       if (url.searchParams.get("project") !== id || workItemId && url.searchParams.get("work") !== workItemId) {
         url.searchParams.set("project", id);
         // Publish a move and its selection together so route reconciliation retains the pane.
         if (workItemId) url.searchParams.set("work", workItemId);
-        window.history.replaceState(null, "", url);
+        router.history.replace(url.pathname + url.search + url.hash, undefined, { ignoreBlocker: true });
       }
     }
     setActiveId(id);
@@ -939,11 +939,11 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
       clearSelection();
     }
     if ((view === "artifacts" || view === "transcripts") && id !== activeId) {
-      window.history.replaceState(null, "", view === "transcripts" ? transcriptLibraryPath(id) : artifactLibraryPath(id));
+      router.history.replace(view === "transcripts" ? transcriptLibraryPath(id) : artifactLibraryPath(id), undefined, { ignoreBlocker: true });
       setProjectsError("");
     }
     if ((view === "library" || view === "reviews") && id !== activeId) {
-      window.history.replaceState(null, "", `${pathname}?project=${id}`);
+      router.history.replace(`${pathname}?project=${id}`, undefined, { ignoreBlocker: true });
     }
     applyProjectSelection(id);
   }
@@ -1025,7 +1025,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
       setRefresh((value) => value + 1);
       setNotice({ message: `“${created.work_item.title}” now has its first immutable checkpoint.` });
       if (view === "library") void openExactWork(project.id, created.work_item.id);
-      else router.push(`/work-items?project=${project.id}&work=${created.work_item.id}`);
+      else void router.navigate({ href: `/work-items?project=${project.id}&work=${created.work_item.id}` });
     } catch (error) {
       if (error instanceof AffectedPathsValidationError) {
         setCreateAffectedPathsError(error.message);
@@ -1572,7 +1572,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
         });
         return;
       }
-      window.location.assign(`/work-items?work=${encodeURIComponent(workItemId)}`);
+      void router.navigate({ href: `/work-items?project=${projectId}&work=${encodeURIComponent(workItemId)}` });
     } catch (error) {
       if (isCurrent()) {
         setNotice({ message: errorMessage(error), error: true });
@@ -2815,7 +2815,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
       });
       return;
     }
-    window.location.assign(`/work-items?work=${encodeURIComponent(summary.work_item.id)}`);
+    void router.navigate({ href: `/work-items?work=${encodeURIComponent(summary.work_item.id)}` });
   }
 
   async function afterWorkMutation(

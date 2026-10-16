@@ -154,7 +154,7 @@ for (const queue of ["summaries", "attention"] as const) {
       const firstElement = await firstCard.elementHandle();
       const list = page.locator(queue === "summaries" ? ".job-report-items" : ".attention-items");
       await expect(list).toHaveAttribute("aria-busy", "false");
-      if (queue === "attention") await firstCard.getByRole("textbox", { name: /^Durable answer/ }).fill("Keep this answer draft through live updates.");
+      if (queue === "attention") await firstCard.getByRole("textbox", { name: /^Your answer/ }).fill("Keep this answer draft through live updates.");
       const bounds = await firstCard.boundingBox();
       const held = Promise.withResolvers<void>();
       const reads = new RegExp(`/api/mnemonic/projects/${projectId}/(job-completion-reports|human-attention|code-reviews)(/count)?(?:\\?|$)`);
@@ -167,7 +167,7 @@ for (const queue of ["summaries", "attention"] as const) {
         expect(await firstCard.boundingBox()).toEqual(bounds);
         expect(await firstElement!.evaluate((element) => element.isConnected)).toBe(true);
         if (queue === "summaries") await expect(page.locator(".summary-nav-count")).toHaveText("1");
-        else await expect(firstCard.getByRole("textbox", { name: /^Durable answer/ })).toHaveValue("Keep this answer draft through live updates.");
+        else await expect(firstCard.getByRole("textbox", { name: /^Your answer/ })).toHaveValue("Keep this answer draft through live updates.");
       } finally { held.resolve(); }
       await expect(list).toHaveAttribute("aria-busy", "false");
       await page.unroute(reads);
@@ -273,7 +273,7 @@ test("summary Dismiss preserves the visible exit and rebounds the following card
     const followingBefore = await following.boundingBox();
     await expect(button).toHaveClass("button button-primary");
     await expect(card.getByRole("button", { name: "Create Follow-up", exact: true })).toHaveClass("button button-secondary");
-    expect(await card.locator(".report-card-actions button").allTextContents()).toEqual(["Open original work", "Create Follow-up", "Dismiss"]);
+    expect(await card.locator(".report-card-actions > button").allTextContents()).toEqual(["Open original work", "Create Follow-up", "Dismiss"]);
     await page.screenshot({ path: testInfo.outputPath("summary-dismiss-primary.png"), fullPage: true });
     await observeMotion(page);
     await button.click();

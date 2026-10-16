@@ -1,6 +1,7 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/components/dashboard-link";
+import { useRouter } from "@tanstack/react-router";
 import { useEffect, useRef, useState, type MouseEvent } from "react";
 import { api, errorMessage } from "@/lib/api";
 import { decodeCodeReviewDetail, type CodeReviewDetail } from "@/lib/code-reviews";
@@ -45,6 +46,7 @@ export default function CodeReviewLibrary({ projectId, refreshSignal, workId, re
   const [scrolled, setScrolled] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
   const registry = useMutationIntentRegistry();
+  const router = useRouter();
   const split = useWorkSplit<HTMLElement>();
   const { page, error, busy, retry } = useTaskPage(projectId, refreshSignal, status, "code_review", offset);
   const actions = useCodeReviewActions(projectId, onChanged, onNotice);
@@ -52,7 +54,7 @@ export default function CodeReviewLibrary({ projectId, refreshSignal, workId, re
   function select(task: Task | null) {
     if (registry.hasDispatched()) { onNotice("Resolve the pending mutation before selecting another review.", true); return; }
     const href = task ? taskPath(task) : `/code-reviews?project=${projectId}`;
-    window.history.replaceState(null, "", href);
+    void router.navigate({ href, replace: true, resetScroll: false });
     if (!task) requestAnimationFrame(() => listRef.current?.querySelector<HTMLElement>(`[data-review-id="${reviewId}"]`)?.focus({ preventScroll: true }));
   }
   function filter(next: TaskStatus | "all") {
@@ -133,6 +135,7 @@ function ReviewDetail({ projectId, workId, reviewId, refreshSignal, onNavigate, 
   onNavigate: Navigate; onClose: () => void; actions: ReviewActions;
 }) {
   const registry = useMutationIntentRegistry();
+  const router = useRouter();
   const valid = validUuid(workId) && validUuid(reviewId);
   const { page: taskPage, error: taskError, retry: retryTask } = useTaskPage(projectId, refreshSignal, "all", "code_review", 0, reviewId, valid);
   const [detail, setDetail] = useState<CodeReviewDetail | null>(null);
@@ -168,7 +171,7 @@ function ReviewDetail({ projectId, workId, reviewId, refreshSignal, onNavigate, 
     {detail && <>
       <div className="task-detail-heading"><span className="task-kind">Code review</span><h2 className="detail-title">{detail.source_work_state.title}</h2><p>Child task of <Link href={parentPath} onClick={onNavigate}>{detail.source_work_state.title}</Link></p></div>
       {task && <div className="review-detail-actions"><CardActions task={task} actions={actions} /></div>}
-      <ReviewResult detail={detail} statusLabel={task ? taskStatusLabels[task.status] : undefined} onOpen={(id) => { if (registry.hasDispatched()) return; window.location.assign(taskPath({ kind: "work_item", id, work_item_id: id, project_id: projectId })); }} />
+      <ReviewResult detail={detail} statusLabel={task ? taskStatusLabels[task.status] : undefined} onOpen={(id) => { if (registry.hasDispatched()) return; void router.navigate({ href: taskPath({ kind: "work_item", id, work_item_id: id, project_id: projectId }) }); }} />
       {!detail.source_work_state.deleted && <Link className="button button-secondary" href={`${parentPath}&review=1`} onClick={onNavigate}>Open review controls</Link>}
     </>}
   </div></div>;

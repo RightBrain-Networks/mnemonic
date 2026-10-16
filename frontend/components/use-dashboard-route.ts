@@ -1,31 +1,24 @@
 "use client";
 
-import { useLayoutEffect, useState } from "react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useState } from "react";
+import { useBlocker, useLocation } from "@tanstack/react-router";
 
-// Keep the component that owns an outstanding operation mounted even when
-// navigation originates from browser history instead of a guarded menu link.
+// Block before a route commits, including browser Back/Forward. The shared
+// dashboard layout retains the operation owner and exact retry request.
 export function useDashboardRoute(blocked: string | null) {
-  const pathname = usePathname();
-  const query = useSearchParams().toString();
-  const router = useRouter();
-  const requested = pathname + (query ? `?${query}` : "");
-  const [route, setRoute] = useState(requested);
-  const rejected = route !== requested ? blocked : null;
-
-  useLayoutEffect(() => {
-    if (route === requested) return;
-    if (blocked) {
-      router.replace(route, { scroll: false });
-      return;
-    }
-    setRoute(requested);
-  }, [blocked, requested, route, router]);
-
-  const separator = route.indexOf("?");
+  const location = useLocation();
+  const [rejection, setRejection] = useState<{ message: string; sequence: number } | null>(null);
+  useBlocker({
+    shouldBlockFn: () => {
+      if (!blocked) return false;
+      setRejection((previous) => ({ message: blocked, sequence: (previous?.sequence ?? 0) + 1 }));
+      return true;
+    },
+    enableBeforeUnload: Boolean(blocked)
+  });
   return {
-    pathname: separator < 0 ? route : route.slice(0, separator),
-    query: separator < 0 ? "" : route.slice(separator + 1),
-    rejected
+    pathname: location.pathname,
+    query: location.searchStr.replace(/^\?/, ""),
+    rejected: rejection
   };
 }

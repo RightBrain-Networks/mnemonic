@@ -14,39 +14,37 @@ loopback. This file is not installed by a container build or Compose startup.
 
 | Public path | Destination |
 | --- | --- |
-| `*.svg` | Read from disk, falling back to Next.js |
-| `/` and `/api/mnemonic/*` | Next.js at `127.0.0.1:3000` |
-| `/api/mnemonic/sync` upgrade | Next.js WebSocket relay to the API |
+| `/`, client routes, artwork and `/assets/*` | Static web image at `127.0.0.1:3000` |
+| `/api/mnemonic`, `/api/artifacts`, `/api/transcripts`, `/api/backups` and descendants | Static web ingress forwards unchanged to FastAPI |
+| `/api/mnemonic/sync` upgrade | Static web WebSocket relay to FastAPI |
+| `/api/v1`, `/worker`, `/projects`, docs and unknown API paths | Rejected with 404 |
 | `/mcp` (no trailing slash) | MCP at `127.0.0.1:8001/mcp` |
 | `/mcp/` and descendants | Rejected with 404 |
 | HTTP port 80 | Redirects to the fixed HTTPS hostname, preserving path and query |
 
-FastAPI and PostgreSQL are not routed publicly. In particular, do not send
-`/api/mnemonic/*` to port 8000: that path belongs to the dashboard's server proxy.
+The API port and PostgreSQL remain private. The web image forwards only the four
+browser namespaces, preserving the external Host and Origin. It contains no API
+key, backup token, Node server, or worker connection. Runtime display settings
+come from `/api/mnemonic/runtime-config`; changing them requires no asset rebuild.
 
-SVG requests are answered from `frontend/public` in the checkout, cached for a
-week, and never reach Next.js, which labels that directory `max-age=0` and so
-makes every page view revalidate artwork that changes only on redeploy. The
-`root` in `mnemonic.conf` must name the checkout that built the web image --
-`frontend/Dockerfile` copies the same directory into the container -- because
-nginx now answers from the tree on disk rather than from the image. An SVG that
-is not there falls through to the dashboard, which is how `/icon.svg` keeps
-working: Next.js generates it from `app/icon.svg`, outside `public/`. The
-location repeats the security headers `next.config.ts` sets, plus HSTS, since
-none of those apply to a response nginx serves itself.
+All static files, including SVG artwork and `/icon.svg`, come from the same web
+image as `index.html`. The host proxy no longer reads a checkout directory.
+Vite's fingerprinted `/assets/*` files are immutable for one year; HTML and public
+unfingerprinted files revalidate. Asset and API misses never receive SPA HTML.
+The explicit `/healthz` endpoint reports static-server health.
 
 The WebSocket carries data-free invalidation notices; browsers refetch changed
-records through the authenticated dashboard API proxy. nginx forwards the
+records through the same-origin browser API boundary. nginx forwards the
 `Upgrade` and `Connection` headers, and the API checks the browser's exact
 origin before accepting the subscription.
 
 Phase 11 evidence history is deliberately identity-coded. The dashboard API
-location uses the checked snippet to request `identity` from Next.js, disable
+location uses the checked snippet to request `identity` from FastAPI, disable
 nginx gzip for that location, emit
 `Cache-Control: no-store, max-age=0, no-transform`, and set
-`X-DNS-Prefetch-Control: off`. The Next.js proxy and browser still reject an
+`X-DNS-Prefetch-Control: off`. The FastAPI boundary and browser still reject an
 unexpected or malformed `Content-Encoding` before reading its body. The
-Next-owned nonempty `Content-Encoding: identity` marker also prevents the
+API-owned nonempty `Content-Encoding: identity` marker also prevents the
 supported google/ngx_brotli filter from recoding the response. Do not enable
 an untested response filter that can recode an already-coded response for
 `/api/mnemonic/`; merely viewing evidence must not create a decompression or
@@ -91,8 +89,10 @@ define those names twice. HTTP/2 is optional and commented for compatibility.
 
 ## Install on the nginx/Docker host
 
+Production service replacement and host nginx reload require explicit operator
+authorization. Validate the isolated stack before scheduling that interruption.
 Run from the Mnemonic checkout on that host. Enable the companion Compose file
-first; it adds the HTTPS hostname/origin to both applications while retaining
+first; it adds the HTTPS hostname/origin to the API and MCP while retaining
 loopback access and container healthchecks:
 
 ```sh
@@ -151,8 +151,8 @@ sudo chmod 0640 /etc/nginx/mnemonic.htpasswd
 
 Use `-c` only when creating a new file; it overwrites an existing password file.
 Uncomment both `auth_basic` lines in every dashboard location: `location /`,
-`location ^~ /api/mnemonic/`, `location ^~ /api/artifacts/`, and
-`location ^~ /api/backups/` in the repository config, install it again,
+the combined `/api/mnemonic` and `/api/transcripts` location,
+and the `/api/artifacts` and `/api/backups` locations in the repository config, install it again,
 validate, and reload. Do not enable Basic auth at server level: MCP clients need
 their Authorization header for bearer auth. Missing a dashboard location leaves
 that surface outside the optional password boundary.
@@ -161,16 +161,21 @@ MCP/OAuth integrations. Keep the network ACL even with a dashboard password.
 
 ## Check the deployment
 
-Frontend migration transport acceptance also supports
-`./scripts/test-nginx-e2e.sh --browser-transports`. That isolated mode runs the
-same edge policies against FastAPI's four browser families, including raw
-transfers and WebSocket upgrade. The ordinary runner retains the Next checks.
-`deploy/nginx/test/browser-transports.conf` demonstrates the same-origin
-static-server routing interface; it is a test overlay, not an installed
-production configuration. See [the backup gateway handoff](../../docs/browser-backup-api.md)
-for API worker credentials, 30-minute transfer deadlines, buffering/size rules,
-and private namespace exclusions. A production switch or rollback requires its
-own operator authorization.
+Run `./scripts/test-nginx-e2e.sh` for the deployed transport matrix. Every run
+now sends requests through the actual static web image and the FastAPI browser
+boundary, including raw transfers, backup restore and WebSocket upgrade.
+`--browser-transports` remains an alias for earlier automation. The shipped
+[`frontend/nginx.conf`](../../frontend/nginx.conf) owns the internal routing;
+there is no separate test-only ingress substitute. See
+[the backup gateway handoff](../../docs/browser-backup-api.md) for worker
+credentials, 30-minute transfer deadlines and raw-byte rules. The host backup
+location's body limit must allow the configured `MNEMONIC_BACKUP_MAX_BYTES`, and
+its send/read timeouts must exceed 1800 seconds.
+
+A production switch or rollback requires its own operator authorization. Keep
+the prior Next/API image pair and host nginx configuration available until the
+static deployment passes checks; restore that pair together for rollback.
+No schema change is required by the static cutover.
 
 The repository configuration passed `nginx -t` on nginx 1.30.4 and HTTPS checks
 against temporary copies of the real dashboard and MCP containers. Checks
@@ -189,8 +194,8 @@ edge then loads the ABI-matched Alpine google/ngx_brotli package, enables it at
 `http` scope, proves a JSON control response is actually `br`, and proves the
 same inherited filter leaves evidence responses at exactly one application-
 owned `Content-Encoding: identity` marker. Encoded success and error bodies
-still fail content-free at the Next.js proxy, while a controlled response with
-no upstream coding emerges as explicit `identity`, proving that Next owns the
+still fail content-free at the FastAPI boundary, while a controlled response with
+no upstream coding emerges as explicit `identity`, proving that the API owns the
 outer marker. A literal `brotli off` is intentionally absent because stock
 nginx rejects that unknown directive when the optional module is not loaded.
 This is a specific ngx_brotli proof, not a claim about arbitrary response
@@ -237,9 +242,9 @@ bounded retention period (for example, the example host's 30 days).
 
 Access logs exclude query strings and Referer to avoid retaining search text.
 Error logs can still include request URLs, so they also need private storage.
-The proxy stores no responses of its own. It preserves Next.js's browser cache
-headers, apart from the SVG location above, which sets its own, and does not
-buffer MCP, Next.js streaming responses, or upgraded WebSocket traffic.
+The proxy stores no responses of its own. It preserves the static web image's
+browser cache headers and does not buffer MCP, browser API streaming responses,
+or upgraded WebSocket traffic.
 
 Directive behavior was checked against nginx's official
 [proxy documentation](https://nginx.org/en/docs/http/ngx_http_proxy_module.html),

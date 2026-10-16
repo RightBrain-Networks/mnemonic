@@ -4,7 +4,6 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { artifactSearchRequest, decodeUnifiedArtifactSearchPage, decodeUnifiedTranscriptSearchPage, decodeUnifiedWorkSearchPage, transcriptSearchRequest, unifiedSearchPath, workSearchRequest } from "../lib/unified-search.ts";
 import { validSearchRequest } from "../lib/search-request.ts";
-import { allowedQueryKeys, browserTransportEffect, invalidMutationBody, isUnifiedSearchRoute, phase12ResponseLimitBytes, proxyBodyLimitBytes, upstreamTimeoutMs } from "../lib/proxy-policy.ts";
 
 import { TRANSCRIPT_SEARCH_HINT } from "../lib/search-diagnostics.ts";
 
@@ -39,23 +38,6 @@ test("the separate dashboard searches encode their facet, filters and pagination
   for (const body of [workSearchRequest(options), files, sessions]) assert.equal(validSearchRequest(body), true);
   assert.equal(unifiedSearchPath(project), `/projects/${project}/search`);
   assert.throws(() => unifiedSearchPath("../other"));
-});
-
-test("the project search POST is a bounded safe read without mutation credentials", () => {
-  const path = `projects/${project}/search`;
-  assert.deepEqual(allowedQueryKeys(path, "POST"), []);
-  for (const method of ["GET", "PATCH", "DELETE"]) assert.equal(allowedQueryKeys(path, method), null);
-  assert.equal(browserTransportEffect(path, "POST"), "safe_read");
-  assert.equal(isUnifiedSearchRoute(path, "POST"), true);
-  assert.equal(isUnifiedSearchRoute(path, "GET"), false);
-  assert.equal(isUnifiedSearchRoute(`${path}/other`, "POST"), false);
-  assert.equal(invalidMutationBody(path, "POST", {}), null);
-  assert.equal(phase12ResponseLimitBytes(path, "POST"), 16 * 1024 * 1024);
-  assert.equal(proxyBodyLimitBytes(path), 16_384);
-  assert.equal(upstreamTimeoutMs(new URLSearchParams(), path, "POST"), 60000);
-  const body = { q: "architecture", facets: ["artifacts", "work_items"], filters: { artifacts: { sensitive: true }, work_items: { status: "done" } }, facet_order: [{ facet: "artifacts", sort: { by: "relevance" } }, { facet: "work_items", sort: { by: "created_at", direction: "asc" } }], offset: 100, limit: 20 };
-  assert.equal(invalidMutationBody(path, "POST", body), null);
-  for (const invalid of [{ ...body, client_operation_id: work }, { ...body, lease_token: "secret" }, { ...body, q: "x".repeat(1001) }, { ...body, facets: ["artifacts", "artifacts"] }, { ...body, facets: [] }, { ...body, offset: -1 }, { ...body, limit: 101 }, { ...body, filters: { artifacts: { sensitive: "false" } } }, { ...body, filters: { transcripts: { lease_token: "secret" } } }, { ...body, facet_order: [{ facet: "transcripts" }] }]) assert.ok(invalidMutationBody(path, "POST", invalid));
 });
 
 test("artifact results retain snippets and incomplete coverage while rejecting scope leaks", () => {
@@ -102,7 +84,6 @@ test("single-facet views reject mixed, duplicate, mismatched, and truncated enve
   assert.deepEqual(decodeUnifiedWorkSearchPage(empty, project), { ...ranking(), ...disclosure(project, ["work_items"]), next_offset: null, page_truncated: false, detail: "full", work_rank_scope: "work_items", term_diagnostics: [], items: [], total: 0, limit: 50, offset: 0 });
 });
 
-
 test("work facet results preserve canonical matched-member attribution and page scope", () => {
   const item = { id, project_id: project, title: "Canonical search", summary: "Durable context", status: "pending", priority: 5, initial_checkpoint_id: work, version: 1, created_at: timestamp, updated_at: timestamp };
   const context = { id: work, work_item_id: id, kind: "context", source_client: "dashboard", source_session_id: "tab-1", source_model: null, repository_branch: null, verified_against: null, tags: [], migration_origin: null, legacy_record_id: null, created_at: timestamp };
@@ -116,7 +97,6 @@ test("work facet results preserve canonical matched-member attribution and page 
   assert.throws(() => decodeUnifiedWorkSearchPage(page, project, { ...options, duplicateScope: "aliases" }));
   assert.throws(() => decodeUnifiedWorkSearchPage(page, project, { ...options, query: "" }));
 });
-
 
 test("empty artifact diagnostics survive the unified decoder with disabled coverage", () => {
   const page = result("artifacts", {}, 50, 0, { q: "needle", fulltext: true });

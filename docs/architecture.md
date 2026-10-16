@@ -339,7 +339,7 @@ flowchart LR
     Agent --> Helper[Packaged read-only Git helper]
     Helper --> Repo[(Explicit current local worktree)]
     MCP --> API[FastAPI :8000]
-    User[Browser] --> Web[Next.js :3000]
+    User[Browser] --> Web[Static nginx / Vite :3000]
     Web --> API
     API --> DB[(PostgreSQL)]
 ```
@@ -733,7 +733,7 @@ lifecycle/version/current-pointer fields still describe each request's live
 snapshot. A current completeness audit exhausts a cursor chain and then compares
 a new first-page identity tuple.
 
-The API rejects any serialized page over 3 MiB. MCP and Next request identity
+The API rejects any serialized page over 3 MiB. MCP and the browser gateway retain identity
 coding, reject a non-identity header before reading, and incrementally retain at
 most the same byte ceiling before strict parsing. The nginx reference deployment
 disables transformation, compression, buffering, and caching for the same-origin

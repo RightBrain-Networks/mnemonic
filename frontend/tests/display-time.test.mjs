@@ -7,12 +7,6 @@ import {
   setDisplayTimeZone
 } from "../lib/display-time.ts";
 
-test("the shared dashboard layout reads TIMEZONE at request time", async () => {
-  const source = await readFile(new URL("../app/(dashboard)/layout.tsx", import.meta.url), "utf8");
-  assert.match(source, /export const dynamic = ["']force-dynamic["'];/);
-  assert.match(source, /timeZone=\{process\.env\.TIMEZONE\}/);
-});
-
 test("dashboard timestamps use the configured Eastern timezone", () => {
   setDisplayTimeZone("America/Detroit");
 

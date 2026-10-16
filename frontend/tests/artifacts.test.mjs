@@ -2,7 +2,7 @@ import { ranking, hitRanking, unifiedRanking, semanticDisposition, evidence } fr
 import { disclosure } from "./search-disclosure-fixtures.mjs";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { artifactQueryKeys, artifactMaximumBytes, boundedArtifactStream, proxyArtifact, safeArtifactDisposition } from "../lib/artifact-proxy.ts";
+
 import { artifactMetadataHeader, dispatchArtifactMutation } from "../lib/artifact-mutations.ts";
 import { ARTIFACT_DISABLED_MESSAGE, artifactLibraryPath, artifactLocation, decodeArtifact, decodeArtifactLimitError, decodeArtifactPage, decodeArtifactSearchPage, decodeArtifactStatus, fetchArtifactStatus, validArtifactSearchRequest } from "../lib/artifacts.ts";
 
@@ -18,79 +18,6 @@ function request(route = root, method = "GET", headers = {}, body) {
   return new Request(`http://localhost:3000/api/artifacts/${route}`, { method, headers: { host: "localhost:3000", ...(method !== "GET" ? { origin: "http://localhost:3000", "content-type": "application/octet-stream", "X-Client-Operation-ID": operation, "X-Artifact-Metadata": artifactMetadataHeader({ filename: "report.txt" }) } : {}), ...headers }, body, ...(body instanceof ReadableStream ? { duplex: "half" } : {}) });
 }
 
-test("artifact proxy exposes only project-scoped operations and keeps provenance out of URLs", () => {
-  assert.deepEqual(artifactQueryKeys(root, "POST"), []);
-  assert.deepEqual(artifactQueryKeys(`${path}/content`, "PUT"), []);
-  assert.deepEqual(artifactQueryKeys(path, "DELETE"), []);
-  assert.equal(artifactQueryKeys(`${root}/../../settings`, "GET"), null);
-  assert.deepEqual(artifactQueryKeys(`${root}/search-content`, "POST"), []);
-  assert.equal(artifactQueryKeys(`artifacts/${artifact}`, "GET"), null);
-  assert.equal(artifactMaximumBytes(), 64 * 1024 * 1024);
-  assert.equal(artifactMaximumBytes("0"), 0);
-  for (const value of ["", " ", "-1", "NaN", "1073741825", "0.5"]) assert.throws(() => artifactMaximumBytes(value));
-});
-
-test("artifact proxy refuses cross-origin requests, unsupported metadata, credentials and oversized bodies before upstream", async () => {
-  let calls = 0;
-  const fetcher = async () => { calls++; throw new Error("must not run"); };
-  for (const [input, route, status] of [
-    [request(root, "POST", { origin: "https://attacker.example" }, "abc"), root, 403],
-    [request(root, "POST", { "content-length": "1073741825" }, "abc"), root, 413],
-    [request(root, "POST", { "X-Artifact-Metadata": '{"filename":"x","lease_token":"secret"}' }, "abc"), root, 400],
-    [request(root, "POST", { "X-Lease-Token": "secret" }, "abc"), root, 400],
-    [request(root, "POST", { "X-Artifact-Metadata": "x".repeat(16385) }, "abc"), root, 400],
-    [request(root, "POST", { "content-type": "text/html" }, "abc"), root, 415],
-    [request(path, "DELETE", { "X-Artifact-Metadata": "{}" }), path, 400],
-    [request(`${root}?filename=secret.txt`, "POST", {}, "abc"), root, 400]
-  ]) assert.equal((await proxyArtifact(input, route.split("/"), environment, fetcher)).status, status);
-  assert.equal(calls, 0);
-});
-
-test("chunked artifact streams fail at the byte ceiling and cancel their source", async () => {
-  let cancelled = false;
-  const stream = new ReadableStream({ pull(controller) { controller.enqueue(new Uint8Array(8)); }, cancel() { cancelled = true; } });
-  await assert.rejects(new Response(boundedArtifactStream(stream, 10)).arrayBuffer(), /size limit/);
-  await new Promise((resolve) => setImmediate(resolve));
-  assert.equal(cancelled, true);
-});
-
-test("artifact downloads are streamed as sandboxed attachments without forwarding executable MIME or sensitive headers", async () => {
-  const response = await proxyArtifact(request(`${path}/content`), `${path}/content`.split("/"), environment, async (_target, init) => {
-    assert.equal(init.headers.get("authorization"), `Bearer ${environment.MNEMONIC_API_KEY}`);
-    return new Response("abc", { headers: { "content-type": "text/html", "content-length": "3", "content-disposition": "inline; filename*=UTF-8''report%20%CE%B1.html", "set-cookie": "secret=value" } });
-  });
-  assert.equal(response.headers.get("content-type"), "application/octet-stream");
-  assert.equal(response.headers.get("x-content-type-options"), "nosniff");
-  assert.match(response.headers.get("content-security-policy"), /sandbox/);
-  assert.match(response.headers.get("content-disposition"), /^attachment;/);
-  assert.match(response.headers.get("content-disposition"), /report%20%CE%B1.html/);
-  assert.equal(response.headers.get("set-cookie"), null);
-  assert.equal(await response.text(), "abc");
-  assert.match(safeArtifactDisposition('attachment; filename="../secret"'), /artifact.bin/);
-});
-
-test("artifact downloads reject partial status and detect truncated declared content", async () => {
-  const partial = await proxyArtifact(request(`${path}/content`), `${path}/content`.split("/"), environment, async () => new Response("abc", { status: 206, headers: { "content-length": "3" } }));
-  assert.equal(partial.status, 502);
-  const truncated = await proxyArtifact(request(`${path}/content`), `${path}/content`.split("/"), environment, async () => new Response("abc", { headers: { "content-length": "5" } }));
-  await assert.rejects(truncated.arrayBuffer(), /declared byte length/);
-});
-
-test("artifact proxy forwards exact raw upload metadata and operation identity without buffering files", async () => {
-  const header = artifactMetadataHeader({ filename: "résumé.txt", agent_session_id: "tab-1" });
-  assert.match(header, /\\u00e9/);
-  const response = await proxyArtifact(request(root, "POST", { "X-Artifact-Metadata": header }, "abc"), root.split("/"), environment, async (target, init) => {
-    assert.equal(new URL(target).search, "");
-    assert.equal(init.headers.get("X-Artifact-Metadata"), header);
-    assert.equal(init.headers.get("X-Client-Operation-ID"), operation);
-    assert.ok(init.body instanceof ReadableStream);
-    assert.equal(await new Response(init.body).text(), "abc");
-    return Response.json(metadata, { status: 201, headers: { "X-Client-Operation-ID": operation } });
-  });
-  assert.equal(response.status, 201);
-  assert.equal(response.headers.get("X-Client-Operation-ID"), operation);
-});
-
 test("artifact reads reject foreign project records, unbounded pages, and malformed metadata", () => {
   assert.equal(decodeArtifact(metadata, project).filename, "report.txt");
   assert.throws(() => decodeArtifact(metadata, artifact));
@@ -101,43 +28,6 @@ test("artifact reads reject foreign project records, unbounded pages, and malfor
 function searchRequest(body, headers = {}) {
   return new Request(`http://localhost:3000/api/artifacts/${root}/search-content`, { method: "POST", headers: { host: "localhost:3000", origin: "http://localhost:3000", "content-type": "application/json", ...headers }, body: typeof body === "string" ? body : JSON.stringify(body) });
 }
-
-test("artifact search POST is a bounded safe read with strict controls and no operation UUID", async () => {
-  const body = { q: "report", fulltext: true, work_item_id: operation, artifact_id: artifact, include_deleted: false, limit: 50, offset: 0 };
-  const response = await proxyArtifact(searchRequest(body), [...root.split("/"), "search-content"], environment, async (target, init) => {
-    assert.equal(new URL(target).pathname, `/api/v1/${root}/search-content`);
-    assert.equal(new URL(target).search, "");
-    assert.equal(init.headers.get("X-Client-Operation-ID"), null);
-    assert.equal(init.headers.get("X-Artifact-Metadata"), null);
-    assert.equal(init.headers.get("Content-Type"), "application/json");
-    assert.equal(init.headers.get("Accept-Encoding"), "identity");
-    assert.deepEqual(JSON.parse(init.body), body);
-    return Response.json({ items: [] }, { headers: { "X-Client-Operation-ID": operation } });
-  });
-  assert.equal(response.status, 200);
-  assert.match(response.headers.get("cache-control"), /no-store/);
-  assert.equal(response.headers.get("X-Client-Operation-ID"), null);
-  let calls = 0;
-  for (const [input, status] of [
-    [searchRequest(body, { origin: "https://attacker.example" }), 403],
-    [searchRequest(body, { "X-Client-Operation-ID": operation }), 400],
-    [searchRequest(body, { "X-Artifact-Metadata": "{}" }), 400],
-    [searchRequest(body, { "X-Artifact-Expected-Revision": "1" }), 400],
-    [searchRequest(body, { "content-encoding": "gzip" }), 415],
-    [searchRequest(body, { "content-type": "text/plain" }), 415],
-    [searchRequest(body, { "content-length": "4097" }), 400],
-    [searchRequest({ q: "x".repeat(4097) }), 400],
-    [searchRequest({ ...body, client_operation_id: operation }), 400],
-    [searchRequest({ ...body, fulltext: "false" }), 400],
-    [searchRequest({ ...body, limit: 101 }), 400],
-    [searchRequest({ ...body, offset: -1 }), 400],
-    [searchRequest({ ...body, q: " " }), 400],
-    [searchRequest("{"), 400]
-  ]) assert.equal((await proxyArtifact(input, [...root.split("/"), "search-content"], environment, async () => { calls++; return Response.json({}); })).status, status);
-  assert.equal(calls, 0);
-  assert.equal(validArtifactSearchRequest({ q: "report" }), true);
-  assert.equal(validArtifactSearchRequest({ q: "report", artifact_id: "invalid" }), false);
-});
 
 test("artifact search validates scope, pagination, fields, counts and untrusted plain snippets", () => {
   const match = { evidence: "lexical", passage: null, ...hitRanking("", "artifacts"), artifact: metadata, score: 0, snippet: "<script>untrusted text</script>", matched_fields: ["content"] };
@@ -172,16 +62,6 @@ test("artifact extraction metadata is independently bounded and extends current 
     { ...extraction, metadata: { a: Array(8).fill("界".repeat(512)) } },
     { ...extraction, metadata: { title: "not an array" } }
   ]) assert.throws(() => decodeArtifact({ ...metadata, extraction: invalid }, project));
-});
-
-test("artifact history reserves a bounded envelope for both metadata pages", async () => {
-  const route = `${path}/history`;
-  const payload = { revisions: { metadata: "x".repeat(4 * 1024 * 1024) }, audit: {} };
-  const response = await proxyArtifact(request(route), route.split("/"), environment, async () => Response.json(payload));
-  assert.equal(response.status, 200);
-  assert.equal((await response.json()).revisions.metadata.length, 4 * 1024 * 1024);
-  const rejected = await proxyArtifact(request(route), route.split("/"), environment, async () => Response.json({}, { headers: { "content-length": String(6 * 1024 * 1024 + 1) } }));
-  assert.equal(rejected.status, 502);
 });
 
 test("lost artifact responses retry identical bytes and UUIDs, and mismatched receipts remain unresolved", async () => {
@@ -280,55 +160,6 @@ test("artifact status validates enabled/zero consistency, bounds and exact field
   await assert.rejects(fetchArtifactStatus(undefined, async () => Response.json(enabled, { status: 503 })), /status is unavailable/);
 });
 
-test("status remains reachable with local zero and exposes only validated effective limits", async () => {
-  assert.deepEqual(artifactQueryKeys("status", "GET"), []);
-  assert.equal(artifactQueryKeys("status", "POST"), null);
-  for (const [local, backend, expected] of [[0, 16, 0], [16, 0, 0], [16, 8, 8], [8, 16, 8]]) {
-    let calls = 0;
-    const response = await proxyArtifact(request("status"), ["status"], { ...environment, MNEMONIC_ARTIFACT_MAX_BYTES: String(local) }, async (target, init) => {
-      calls++; assert.equal(new URL(target).pathname, "/api/v1/artifacts/status");
-      assert.equal(init.headers.get("authorization"), `Bearer ${environment.MNEMONIC_API_KEY}`);
-      return Response.json({ enabled: backend > 0, max_bytes: backend, message: "Configured status." });
-    });
-    assert.equal(calls, 1); assert.equal(response.status, 200);
-    const status = decodeArtifactStatus(await response.json());
-    assert.equal(status.enabled, expected > 0); assert.equal(status.max_bytes, expected);
-    assert.match(status.message, expected === 0 ? /disabled.*preserved/ : /bytes.*per file/);
-    assert.match(response.headers.get("cache-control"), /no-store/);
-  }
-  for (const value of [{ enabled: true, max_bytes: 0, message: "Invalid" }, { enabled: false, max_bytes: 0, message: "Valid", secret: "not allowed" }]) {
-    assert.equal((await proxyArtifact(request("status"), ["status"], environment, async () => Response.json(value))).status, 502);
-  }
-});
-
-test("local zero disables every artifact data operation before upstream or body consumption", async () => {
-  let calls = 0;
-  let reads = 0;
-  for (const [route, method] of [[root, "GET"], [path, "GET"], [`${path}/content`, "GET"], [`${path}/history`, "GET"], [`${root}/search-content`, "POST"], [root, "POST"], [`${path}/content`, "PUT"], [path, "DELETE"]]) {
-    const body = method === "POST" || method === "PUT" ? new ReadableStream({ pull(controller) { reads++; controller.enqueue(new Uint8Array([1])); } }, { highWaterMark: 0 }) : undefined;
-    const response = await proxyArtifact(request(route, method, {}, body), route.split("/"), { ...environment, MNEMONIC_ARTIFACT_MAX_BYTES: "0" }, async () => { calls++; throw new Error("Disabled operation was forwarded"); });
-    assert.equal(response.status, 503);
-    assert.deepEqual(decodeArtifactLimitError(await response.json(), 503), { code: "artifact_library_disabled", message: ARTIFACT_DISABLED_MESSAGE, maxBytes: 0 });
-  }
-  assert.equal(calls, 0); assert.equal(reads, 0);
-});
-
-test("enabled proxy allows API receipt decisions and existing downloads above a lowered positive limit", async () => {
-  const bytes = "a".repeat(32);
-  const oversizedError = { detail: { code: "artifact_too_large", message: "The per-file limit is 16 bytes.", context: { max_bytes: 16 } } };
-  for (const status of [201, 413]) {
-    const response = await proxyArtifact(request(root, "POST", { "content-length": "32" }, bytes), root.split("/"), environment, async (_target, init) => {
-      assert.equal(await new Response(init.body).text(), bytes);
-      assert.equal(init.headers.get("X-Client-Operation-ID"), operation);
-      return Response.json(status === 201 ? { ...metadata, size_bytes: 32 } : oversizedError, { status, headers: { "X-Client-Operation-ID": operation } });
-    });
-    assert.equal(response.status, status);
-    if (status === 413) assert.deepEqual(await response.json(), oversizedError);
-  }
-  const downloaded = await proxyArtifact(request(`${path}/content`), `${path}/content`.split("/"), environment, async () => new Response(bytes, { headers: { "content-length": "32" } }));
-  assert.equal(downloaded.status, 200); assert.equal(await downloaded.text(), bytes);
-});
-
 test("disabled responses preserve an uncertain file and UUID for the same retry after re-enable", async () => {
   const file = new File(["abc"], "report.txt");
   const intent = Object.freeze({ method: "POST", path: `/api/artifacts/${root}`, projectId: project, operationId: operation, metadata: artifactMetadataHeader({ filename: file.name }), file });
@@ -351,41 +182,6 @@ test("disabled responses preserve an uncertain file and UUID for the same retry 
 test("malformed disabled/size errors cannot claim authoritative status or clear a pending file", async () => {
   const error = { detail: { code: "artifact_library_disabled", message: ARTIFACT_DISABLED_MESSAGE, context: { max_bytes: 0 } } };
   for (const [value, status] of [[error, 500], [{ ...error, extra: true }, 503], [{ detail: { ...error.detail, context: { max_bytes: "0" } } }, 503], [{ detail: { ...error.detail, context: { max_bytes: 1 } } }, 503], [{ detail: { ...error.detail, context: { max_bytes: 0, extra: true } } }, 503]]) assert.equal(decodeArtifactLimitError(value, status), null);
-});
-
-test("artifact metadata updates preserve exact JSON and receipt identity through the proxy", async () => {
-  const body = JSON.stringify({ client_operation_id: operation, expected_revision: 1, sensitive: true, related_artifact_ids: [operation], related_work_item_ids: [project], actor_client: "dashboard", agent_session_id: "tab-1" });
-  const updateRequest = (body, headers = {}) => new Request(`http://localhost:3000/api/artifacts/${path}`, { method: "PATCH", headers: { host: "localhost:3000", origin: "http://localhost:3000", "Content-Type": "application/json", "X-Client-Operation-ID": operation, ...headers }, body });
-  assert.deepEqual(artifactQueryKeys(path, "PATCH"), []);
-  let calls = 0;
-  const response = await proxyArtifact(updateRequest(body), path.split("/"), environment, async (_target, init) => {
-    calls++; assert.equal(init.method, "PATCH"); assert.equal(init.body, body);
-    assert.equal(init.headers.get("X-Client-Operation-ID"), null);
-    assert.equal(init.headers.get("X-Artifact-Metadata"), null);
-    assert.equal(init.headers.get("Content-Type"), "application/json");
-    return Response.json({ ...metadata, revision: 2, sensitive: true, related_artifact_ids: [operation], related_work_item_ids: [project] }, { headers: { "X-Client-Operation-ID": operation } });
-  });
-  assert.equal(response.status, 200); assert.equal(calls, 1);
-  assert.equal(response.headers.get("X-Client-Operation-ID"), operation);
-  const parsed = JSON.parse(body);
-  for (const invalid of [
-    { ...parsed, client_operation_id: artifact }, { ...parsed, expected_revision: 0 },
-    { ...parsed, sensitive: "true" }, { ...parsed, related_artifact_ids: ["invalid"] },
-    { ...parsed, related_artifact_ids: [operation, operation] },
-    { ...parsed, approval_token: "not-browser-input" }, { ...parsed, actor_client: "agent" }
-  ]) assert.equal((await proxyArtifact(updateRequest(JSON.stringify(invalid)), path.split("/"), environment, async () => { throw new Error("must not forward"); })).status, 400);
-  assert.equal((await proxyArtifact(updateRequest(body, { origin: "https://untrusted.example" }), path.split("/"), environment)).status, 403);
-});
-
-test("sensitive human dashboard reads use server-owned context without forwarding caller policy headers", async () => {
-  for (const input of [request(`${path}/content`, "GET", { "X-Artifact-Access": "arbitrary", "X-Artifact-Approval": "untrusted" }), searchRequest({ q: "report", fulltext: true }, { "X-Artifact-Access": "arbitrary" })]) {
-    const route = input.method === "GET" ? `${path}/content` : `${root}/search-content`;
-    await proxyArtifact(input, route.split("/"), environment, async (_target, init) => {
-      assert.equal(init.headers.get("X-Artifact-Access"), "human-dashboard");
-      assert.equal(init.headers.get("X-Artifact-Approval"), null);
-      return input.method === "GET" ? new Response("abc", { headers: { "content-length": "3" } }) : Response.json({ items: [] });
-    });
-  }
 });
 
 test("sensitive metadata and artifact links fail closed on invalid flags, self-links and duplicate identities", () => {
@@ -417,13 +213,16 @@ test("uncertain metadata updates retry unchanged and verify the changed flag and
   }
 });
 
-
 test("an artifact work-link receipt can satisfy a requested link through immutable originating work", async () => {
   const intent = Object.freeze({ method: "PATCH", path: `/api/artifacts/${path}`, projectId: project, artifactId: artifact, expectedRevision: 1, operationId: operation, metadata: JSON.stringify({ related_work_item_ids: [project] }) });
   const outcome = await dispatchArtifactMutation(intent, async () => Response.json({ ...metadata, revision: 2, originating_work_item_id: project }, { headers: { "X-Client-Operation-ID": operation } }));
   assert.equal(outcome.type, "success");
 });
 
+test("related artifact metadata is bound to the identity requested for the durable link", () => {
+  assert.equal(decodeArtifact(metadata, project, artifact.toUpperCase()).id, artifact);
+  assert.throws(() => decodeArtifact(metadata, project, operation));
+});
 
 test("pre-0029 receipts retain original bytes and normalize absent fields only on an authenticated receipt replay", async () => {
   const { sensitive: _sensitive, related_artifact_ids: _relatedArtifacts, ...historical } = metadata;
@@ -431,10 +230,7 @@ test("pre-0029 receipts retain original bytes and normalize absent fields only o
   const intent = Object.freeze({ method: "POST", path: `/api/artifacts/${root}`, projectId: project, operationId: operation, metadata: artifactMetadataHeader({ filename: "report.txt" }), file });
   for (const replayed of [null, "false", "true"]) {
     const headers = { "X-Client-Operation-ID": operation, ...(replayed ? { "X-Artifact-Operation-Replayed": replayed } : {}) };
-    const upstream = () => Response.json(historical, { status: 201, headers });
-    const proxied = await proxyArtifact(request(root, "POST", {}, "abc"), root.split("/"), environment, upstream);
-    assert.deepEqual(await proxied.clone().json(), historical);
-    assert.equal(proxied.headers.get("X-Artifact-Operation-Replayed"), replayed === "true" ? "true" : null);
+    const proxied = Response.json(historical, { status: 201, headers });
     const outcome = await dispatchArtifactMutation(intent, async () => proxied);
     assert.equal(outcome.type, replayed === "true" ? "success" : "unresolved");
     if (outcome.type === "success") { assert.equal(outcome.artifact.sensitive, false); assert.deepEqual(outcome.artifact.related_artifact_ids, []); }
@@ -442,10 +238,4 @@ test("pre-0029 receipts retain original bytes and normalize absent fields only o
   assert.throws(() => decodeArtifact(historical, project));
   const patch = { ...intent, method: "PATCH", artifactId: artifact, expectedRevision: 1, metadata: "{}" };
   assert.equal((await dispatchArtifactMutation(patch, async () => Response.json({ ...historical, revision: 2 }, { headers: { "X-Client-Operation-ID": operation, "X-Artifact-Operation-Replayed": "true" } }))).type, "unresolved");
-});
-
-
-test("related artifact metadata is bound to the identity requested for the durable link", () => {
-  assert.equal(decodeArtifact(metadata, project, artifact.toUpperCase()).id, artifact);
-  assert.throws(() => decodeArtifact(metadata, project, operation));
 });

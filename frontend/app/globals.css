@@ -2689,3 +2689,5 @@ html:not([data-hide-nemo="false"]) .sidebar-note { display: none; }
   .code-review-library { flex: none; }
   .review-detail-content { padding: 22px 20px; }
 }
+
+.bootstrap-state { max-width: 48rem; margin: 15vh auto; padding: 2rem; }

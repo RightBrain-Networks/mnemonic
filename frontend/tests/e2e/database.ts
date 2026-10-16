@@ -48,9 +48,6 @@ async function runCompose(
     composeProject,
     "-f",
     resolve(process.cwd(), "../compose.e2e.yaml"),
-    ...(process.env.MNEMONIC_E2E_BROWSER_TRANSPORTS === "true"
-      ? ["-f", resolve(process.cwd(), "../compose.browser-transports-e2e.yaml")]
-      : []),
     ...args
   ], {
     encoding: "utf8",

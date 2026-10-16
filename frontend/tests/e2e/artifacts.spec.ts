@@ -437,26 +437,24 @@ test("disabling artifacts preserves an uncertain file and UUID until an exact re
   await expect(page.getByRole("button", { name: filename, exact: true })).toBeHidden();
 });
 
-test("live artifact status re-enables a page opened with a zero server-rendered limit", async ({ page }, testInfo) => {
+test("live artifact status re-enables a page opened with a zero runtime limit", async ({ page }, testInfo) => {
   const token = `${state.runId.slice(0, 8)}-${testInfo.project.name}`;
   const filenames = [`reenabled-a-${token}.txt`, `reenabled-b-${token}.txt`];
   let maximum = 0;
-  let patchedInitialLimit = false;
-  await page.route(`**/artifacts?project=${state.projectId}`, async (route) => {
+  let runtimeConfigRequests = 0;
+  await page.route("**/api/mnemonic/runtime-config", async (route) => {
     const response = await route.fetch();
-    const body = await response.text();
-    // Simulate the initial RSC prop retained by a tab opened before reconfiguration.
-    const patched = body.replace(/(\\?"artifactMaxBytes\\?":)\d+/g, (_match, prefix: string) => {
-      patchedInitialLimit = true; return `${prefix}0`;
-    });
-    const headers = { ...response.headers() };
-    delete headers["content-encoding"]; delete headers["content-length"];
-    await route.fulfill({ response, headers, body: patched });
+    expect(response.ok()).toBe(true);
+    const config = await response.json();
+    // The tab retains its bootstrap limit while the live status changes later.
+    runtimeConfigRequests++;
+    await route.fulfill({ response, json: { ...config, artifact_max_bytes: 0 } });
   });
   await page.route("**/api/artifacts/status", (route) => route.fulfill({ json: { enabled: maximum > 0, max_bytes: maximum, message: maximum ? "Up to 64 bytes per file." : "The artifact library is disabled. Stored files are preserved." } }));
   await page.goto(`/artifacts?project=${state.projectId}`);
   await expect(page.getByRole("heading", { name: "Artifact library disabled", exact: true })).toBeVisible();
-  expect(patchedInitialLimit).toBe(true);
+  expect(runtimeConfigRequests).toBeGreaterThan(0);
+  const initialConfigRequests = runtimeConfigRequests;
   maximum = 64;
   await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
   await expect(page.getByRole("button", { name: "Drop, paste, or upload files here.", exact: true })).toBeEnabled();
@@ -468,4 +466,5 @@ test("live artifact status re-enables a page opened with a zero server-rendered 
     await page.getByRole("button", { name: `Delete ${filename}`, exact: true }).click();
     await expect(page.getByRole("button", { name: filename, exact: true })).toBeHidden();
   }
+  expect(runtimeConfigRequests).toBe(initialConfigRequests);
 });
