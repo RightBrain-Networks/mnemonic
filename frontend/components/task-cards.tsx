@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/components/dashboard-link";
 import type { MouseEvent } from "react";
 import { formatDateTime } from "@/lib/display-time";
 import { taskPath, taskStatusLabels, TASK_PAGE_SIZE, type Task, type TaskPage } from "@/lib/tasks";

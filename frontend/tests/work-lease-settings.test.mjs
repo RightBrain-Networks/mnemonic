@@ -4,7 +4,6 @@ import {
   decodeLeaseSettings, leaseSettingsDraft, MAX_LEASE_MINUTES, parseLeaseDraft, validLeaseMinutes
 } from "../lib/work-lease-settings.ts";
 import { decodeProjectSettings } from "../lib/job-completion-reports.ts";
-import { invalidMutationBody } from "../lib/proxy-policy.ts";
 
 const projectId = "e36a7e53-938f-4c8a-b75a-af9c7331711a";
 const settings = {
@@ -44,16 +43,4 @@ test("project and work reads require exact valid lease settings", () => {
   assert.throws(() => decodeProjectSettings({ ...settings, lease_minimum_minutes: 16 }, projectId));
   assert.throws(() => decodeProjectSettings({ ...settings, lease_maximum_minutes: 14 }, projectId));
   assert.equal(validLeaseMinutes(MAX_LEASE_MINUTES), true);
-});
-
-test("browser settings patches permit revisioned lease edits and reject invalid numeric values", () => {
-  const path = `projects/${projectId}/settings`;
-  assert.equal(invalidMutationBody(path, "PATCH", { expected_revision: "1", ...parseLeaseDraft(leaseSettingsDraft(settings)) }), null);
-  assert.equal(invalidMutationBody(path, "PATCH", { expected_revision: "1", lease_maximum_minutes: 360 }), null);
-  for (const field of ["lease_default_minutes", "lease_minimum_minutes", "lease_maximum_minutes"]) {
-    for (const value of [null, true, "15", 0, -1, 1.5, MAX_LEASE_MINUTES + 1]) {
-      assert.ok(invalidMutationBody(path, "PATCH", { expected_revision: "1", [field]: value }));
-    }
-    assert.ok(invalidMutationBody(path, "PATCH", { [field]: 15 }));
-  }
 });

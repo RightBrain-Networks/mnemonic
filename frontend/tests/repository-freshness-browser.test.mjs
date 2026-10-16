@@ -7,9 +7,9 @@ const read = (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
 test("dashboard package and lock ship the coordinated current release version", async () => {
   const manifest = JSON.parse(await read("package.json"));
   const lock = JSON.parse(await read("package-lock.json"));
-  assert.equal(manifest.version, "0.83.4");
-  assert.equal(lock.version, "0.83.4");
-  assert.equal(lock.packages[""].version, "0.83.4");
+  assert.equal(manifest.version, "0.83.5");
+  assert.equal(lock.version, "0.83.5");
+  assert.equal(lock.packages[""].version, "0.83.5");
 });
 
 test("full checkpoints carry scope while compact pointers stay unchanged", async () => {
@@ -57,8 +57,8 @@ test("browser code contains no local repository verifier or filesystem process p
     read("components/dashboard.tsx"),
     read("components/work-detail-pane.tsx"),
     read("lib/affected-paths.ts"),
-    read("lib/proxy-policy.ts"),
-    read("app/api/mnemonic/[...path]/route.ts")
+    read("lib/browser-errors.ts"),
+    read("lib/runtime-config.ts")
   ]);
   const source = sources.join("\n");
   assert.doesNotMatch(

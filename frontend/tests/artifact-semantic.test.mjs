@@ -5,7 +5,7 @@ import { artifactPassageQuery, decodeArtifactPassageText, decodeEmbeddingCoverag
 import { decodeArtifactSearchPage, validArtifactSearchRequest } from "../lib/artifacts.ts";
 import { artifactSearchRequest, decodeUnifiedArtifactSearchPage } from "../lib/unified-search.ts";
 import { validSearchRequest } from "../lib/search-request.ts";
-import { artifactQueryKeys, proxyArtifact } from "../lib/artifact-proxy.ts";
+
 import { disclosure, projectCoverage, withholding } from "./search-disclosure-fixtures.mjs";
 import { ranking, unifiedRanking } from "./search-ranking-fixtures.mjs";
 import { TRANSCRIPT_SEARCH_HINT } from "../lib/search-diagnostics.ts";
@@ -85,22 +85,6 @@ test("passage text reads pin both source revision and extracted text hash", () =
   assert.equal(decodeArtifactPassageText(response, match), text);
   for (const change of [{ project_id: id }, { artifact_id: project }, { revision: 4 }, { sha256: "c".repeat(64) }, { text_sha256: "c".repeat(64) }, { offset: 0 }, { next_offset: null }, { total_chars: 7001 }, { text: "Wrong snapshot" }, { extraction: { ...extraction, status: "pending" } }]) assert.throws(() => decodeArtifactPassageText({ ...response, ...change }, match));
 });
-
-test("artifact passage proxy permits only bounded pinned reads and forwards no authority from the browser", async () => {
-  const path = `projects/${project}/artifacts/${id}/text`;
-  assert.deepEqual(artifactQueryKeys(path, "GET"), ["expected_revision", "expected_text_sha256", "offset", "limit"]);
-  const query = artifactPassageQuery(passage), calls = [];
-  const fetcher = async (url, init) => { calls.push(String(url)); assert.equal(init.headers.get("X-Artifact-Access"), "human-dashboard"); return Response.json({ text }); };
-  const environment = { MNEMONIC_API_KEY: "a".repeat(64), MNEMONIC_API_URL: "http://api:8000" };
-  const read = (suffix) => proxyArtifact(new Request(`http://localhost:3000/api/artifacts/${path}?${suffix}`, { headers: { host: "localhost:3000" } }), path.split("/"), environment, fetcher);
-  assert.equal((await read(query)).status, 200);
-  assert.equal(new URL(calls[0]).searchParams.get("expected_text_sha256"), passage.text_sha256);
-  for (const [field, value] of [["expected_text_sha256", ""], ["expected_revision", "0"], ["offset", "8000001"], ["limit", "20001"], ["access_as_human", "true"]]) {
-    const invalid = new URLSearchParams(query); invalid.set(field, value); assert.equal((await read(invalid)).status, 400);
-  }
-  assert.equal(calls.length, 1);
-});
-
 
 test("disabled artifact semantic search reports no inference and cannot manufacture embedding coverage", () => {
   const disabled = projectCoverage({ ...unifiedRanking([], { q }), ...disclosure(project, [], { q }), next_offset: null, page_truncated: false, detail: "full", work_rank_scope: "work_items", tag_counts: null,

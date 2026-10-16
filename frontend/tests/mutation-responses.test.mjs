@@ -5,10 +5,7 @@ import {
   classifyMutationResponse,
   MUTATION_KINDS
 } from "../lib/mutation-responses.ts";
-import {
-  DEFINITIVE_PROXY_ERRORS,
-  unsupportedMutationFieldError
-} from "../lib/proxy-policy.ts";
+import { DEFINITIVE_PROXY_ERRORS, unsupportedMutationFieldError } from "../lib/browser-errors.ts";
 
 const project = "e36a7e53-938f-4c8a-b75a-af9c7331711a";
 const targetProject = "3e805646-8014-47df-9f53-27572bb1d85b";

@@ -2,11 +2,11 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-// The brand artwork exists three times: the source asset, the favicon Next.js
-// serves from app/icon.svg, and the sidebar mark inlined into dashboard.tsx.
+// The brand artwork exists three times: the source asset, the public favicon
+// served from icon.svg, and the sidebar mark inlined into dashboard.tsx.
 // Nothing but these assertions keeps the copies from drifting apart.
 const SOURCE_URL = new URL("../../images/mnemonic_logo.svg", import.meta.url);
-const FAVICON_URL = new URL("../app/icon.svg", import.meta.url);
+const FAVICON_URL = new URL("../public/icon.svg", import.meta.url);
 const DASHBOARD_URL = new URL("../components/dashboard.tsx", import.meta.url);
 
 const JSX_ATTRIBUTE_NAMES = {

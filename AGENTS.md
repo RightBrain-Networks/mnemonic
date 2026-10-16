@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-Backend code, migrations, and tests live under `backend/`; the MCP adapter and tests under `mcp/`; and the Next.js app, components, libraries, tests, and assets under `frontend/`. Compose files are at root, with supporting material in `scripts/`, `docs/`, and `examples/`. The Claude Code plugin — the three skills and their shared references — lives under `plugin/`, with the marketplace manifest in `.claude-plugin/`.
+Backend code, migrations, and tests live under `backend/`; the MCP adapter and tests under `mcp/`; and the Vite React app, components, libraries, tests, and assets under `frontend/`. Compose files are at root, with supporting material in `scripts/`, `docs/`, and `examples/`. The Claude Code plugin — the three skills and their shared references — lives under `plugin/`, with the marketplace manifest in `.claude-plugin/`.
 
 ## Documentation
 
@@ -105,7 +105,7 @@ one-off ID needed before dispatch. Explicit IDs and REST receipts retain their
 contracts; prepared upload intents keep their helper-generated IDs. See
 `docs/automatic-uuids.md`. The tool idempotence hint is false for these calls.
 
-The current application/API/MCP/dashboard release is `0.83.4`, Claude plugin
+The current application/API/MCP/dashboard release is `0.83.5`, Claude plugin
 `0.49.0`, and Alembic head `0051_priority_rubrics`. The catalog is exactly
 59 MCP tools, 17 receipt-protected MCP writes, 24 REST receipt kinds, 21 protected
 browser mutations, 24 work-event types, and three plugin skills. Project priority

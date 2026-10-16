@@ -5,6 +5,7 @@ import hashlib
 import http.client
 import json
 import os
+import re
 import socket
 import struct
 import time
@@ -50,6 +51,42 @@ def secure(headers):
     assert "frame-ancestors 'none'" in headers["content-security-policy"]
 
 
+def static_delivery():
+    status, headers, page = request("/")
+    assert status == 200 and "text/html" in headers["content-type"]
+    assert "no-cache" in headers["cache-control"]
+    assert headers["x-frame-options"] == "DENY"
+    for path in (
+        "/work-items?project=example&selected=example",
+        "/attention", "/code-reviews", "/summaries", "/artifacts", "/transcripts",
+        "/settings/workspace", "/settings/prompts", "/settings/code-reviews",
+        "/settings/backups",
+    ):
+        status, route_headers, content = request(path)
+        assert status == 200 and content == page, path
+        assert "no-cache" in route_headers["cache-control"], path
+    assets = re.findall(rb'(?:src|href)="(/assets/[^\"]+)"', page)
+    assert assets, "The built SPA did not reference fingerprinted assets"
+    for asset in assets:
+        path = asset.decode()
+        status, asset_headers, content = request(path)
+        assert status == 200 and content != page, path
+        assert "immutable" in asset_headers["cache-control"], path
+        assert asset_headers["x-content-type-options"] == "nosniff", path
+        assert "text/html" not in asset_headers["content-type"], path
+    for path in (
+        "/assets/missing.js", "/missing.css", "/api/unknown", "/readyz",
+        "/.env", "/api/mnemonic/unknown", "/api/artifacts/unknown",
+        "/api/transcripts/unknown", "/api/backups/unknown",
+        "/settings", "/missing-route", "/settings/missing",
+    ):
+        status, _, content = request(path)
+        assert status == 404 and content != page, (path, status)
+    status, _, content = request("/healthz")
+    assert status == 200 and json.loads(content) == {"status": "ok"}
+    print("PASS: static SPA deep links, immutable assets, security headers and missing-resource boundaries")
+
+
 def raw_streams():
     for family, resource in (("artifacts", "artifacts"), ("transcripts", "transcripts")):
         path = f"/api/{family}/projects/{PROJECT}/{resource}/{PROJECT}/content"
@@ -59,6 +96,10 @@ def raw_streams():
         response = client.getresponse()
         assert response.status == 200
         secure({key.lower(): value for key, value in response.getheaders()})
+        policies = [value for name, value in response.getheaders()
+                    if name.lower() == "content-security-policy"]
+        assert any("sandbox" in policy and "default-src 'none'" in policy
+                   for policy in policies), policies
         # The delayed second domain chunk proves nginx and ASGI do not collect
         # the whole response before exposing the first binary bytes.
         assert response.read(len(RAW_PREFIX)) == RAW_PREFIX
@@ -289,6 +330,7 @@ def backup_worker():
 
 if __name__ == "__main__":
     assert os.environ["MNEMONIC_E2E_COMPOSE_PROJECT"].startswith("mnemonic-nginx-e2e-")
+    static_delivery()
     boundaries()
     raw_streams()
     unbuffered_upload()

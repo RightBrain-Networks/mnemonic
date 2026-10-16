@@ -1,31 +1,14 @@
-# Phase 11 nginx/Next identity-transport overlay. Invoke through
+# Static web/FastAPI identity-transport overlay. Invoke through
 # scripts/test-nginx-e2e.sh together with compose.e2e.yaml.
 services:
-  encoding-upstream:
-    image: python:3.14-alpine
-    command: [python, /opt/mnemonic/encoding_upstream.py]
+  api:
+    command:
+      - sh
+      - -c
+      - alembic upgrade head && exec uvicorn browser_transport_upstream:create_app --factory --app-dir /opt/mnemonic --host 0.0.0.0 --port 8000 --no-access-log --log-config logging.json --h11-max-incomplete-event-size 65536
     volumes:
+      - ./scripts/fixtures/browser_transport_upstream.py:/opt/mnemonic/browser_transport_upstream.py:ro
       - ./scripts/fixtures/encoding_upstream.py:/opt/mnemonic/encoding_upstream.py:ro
-    healthcheck:
-      test:
-        - CMD
-        - python
-        - -c
-        - 'import urllib.request; urllib.request.urlopen("http://127.0.0.1:8081/healthz", timeout=3)'
-      interval: 2s
-      timeout: 5s
-      retries: 20
-    init: true
-    restart: "no"
-    security_opt: [no-new-privileges:true]
-
-  web:
-    environment:
-      MNEMONIC_API_URL: http://encoding-upstream:8081
-      MNEMONIC_DASHBOARD_ORIGINS: ${MNEMONIC_NGINX_E2E_URL:?Run through scripts/test-nginx-e2e.sh}
-    depends_on:
-      encoding-upstream:
-        condition: service_healthy
 
   nginx:
     build:

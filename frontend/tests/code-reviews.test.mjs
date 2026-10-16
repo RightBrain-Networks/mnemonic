@@ -20,11 +20,7 @@ import {
   decodeFollowUpAnswerResult,
   decodeReviewQueuePage,
 } from "../lib/code-reviews.ts";
-import {
-  allowedQueryKeys,
-  invalidMutationBody,
-  phase12ResponseLimitBytes,
-} from "../lib/proxy-policy.ts";
+
 import { classifyMutationResponse } from "../lib/mutation-responses.ts";
 import { decodeProjectSettings } from "../lib/job-completion-reports.ts";
 import { decodeReadiness } from "../lib/readiness-codecs.ts";
@@ -85,50 +81,6 @@ test("all priority/threshold/toggle/depth combinations obey sentinel, inclusive 
   assert.equal(reviewThresholdMatches(100, 100), false);
   for (const bad of [false, true, null, "5", 5.5, 1, -5, 105, NaN, Infinity])
     assert.equal(validReviewThreshold(bad), false);
-});
-
-test("settings parse exact strict thresholds and independent fields", () => {
-  const settings = {
-    lease_default_minutes: 15,
-    lease_minimum_minutes: 10,
-    lease_maximum_minutes: 120,
-    project_id: f.project,
-    revision: "3",
-    recall_pointer_template: null,
-    job_completion_report_prompt: "Write clearly.",
-    code_review_required_min_priority: 100,
-    code_review_optional_min_priority: 0,
-    allow_remediation_code_reviews: false,
-  };
-  assert.deepEqual(decodeProjectSettings(settings, f.project), settings);
-  for (const change of [
-    { code_review_required_min_priority: true },
-    { code_review_optional_min_priority: 99 },
-    { allow_remediation_code_reviews: 0 },
-    { code_review_required_min_priority: undefined },
-  ])
-    assert.throws(() =>
-      decodeProjectSettings({ ...settings, ...change }, f.project),
-    );
-  for (const change of [
-    { code_review_required_min_priority: 0 },
-    { code_review_optional_min_priority: 95 },
-    { allow_remediation_code_reviews: true },
-  ])
-    assert.equal(
-      invalidMutationBody(`projects/${f.project}/settings`, "PATCH", {
-        expected_revision: "3",
-        ...change,
-      }),
-      null,
-    );
-  assert.throws(() =>
-    decodeReviewPolicy(
-      { ...r.policy, decision: "not_requested" },
-      f.project,
-      f.work,
-    ),
-  );
 });
 
 test("handoff enforces immutable complete scope, Unicode and independent byte limits without mutation", () => {
@@ -469,47 +421,6 @@ test("mandatory closeout receipt binds policy checkpoint, saved report revision 
     );
 });
 
-test("proxy exposes bounded review reads and one answer write, never review lease or completion capability", () => {
-  const base = `projects/${f.project}/work-items/${f.work}`;
-  const answer = `${base}/agent-follow-ups/${r.followId}/answer`;
-  assert.equal(
-    invalidMutationBody(answer, "POST", JSON.parse(answerRequest(true).body)),
-    null,
-  );
-  assert.equal(
-    allowedQueryKeys(`${base}/code-reviews/${r.reviewId}/complete`, "POST"),
-    null,
-  );
-  assert.equal(allowedQueryKeys(`${base}/claim`, "POST"), null);
-  assert.equal(
-    phase12ResponseLimitBytes(`${base}/code-reviews/${r.reviewId}`),
-    786432,
-  );
-  assert.equal(
-    phase12ResponseLimitBytes(`${base}/agent-follow-ups/${r.followId}`),
-    65536,
-  );
-  assert.equal(phase12ResponseLimitBytes(answer), 1048576);
-  assert.match(
-    invalidMutationBody(answer, "POST", {
-      ...JSON.parse(answerRequest().body),
-      lease_token: "secret",
-    }),
-    /unsupported field/,
-  );
-  assert.equal(
-    invalidMutationBody(base, "PATCH", {
-      expected_version: 2,
-      status: "pending",
-      actor: f.actor,
-      client_operation_id: f.operation,
-      supersede_code_review_id: r.reviewId,
-      expected_code_review_version: 1,
-    }),
-    null,
-  );
-});
-
 test("review leases never offer manual Active or Pending actions", () => {
   const readiness = {
     lifecycle_status: "done",
@@ -534,4 +445,37 @@ test("manual review reads retain the human request while Git scope is unprepared
   assert.equal(parsed.scope, null);
   assert.throws(() => decodeCodeReviewDetail({ ...value, review: { ...value.review, requesting_client: "agent" } }, f.project, f.work, r.reviewId));
   assert.throws(() => decodeCodeReviewDetail({ ...value, scope: r.handoff.scope }, f.project, f.work, r.reviewId));
+});
+
+test("settings parse exact strict thresholds and independent fields", () => {
+  const settings = {
+    lease_default_minutes: 15,
+    lease_minimum_minutes: 10,
+    lease_maximum_minutes: 120,
+    project_id: f.project,
+    revision: "3",
+    recall_pointer_template: null,
+    job_completion_report_prompt: "Write clearly.",
+    code_review_required_min_priority: 100,
+    code_review_optional_min_priority: 0,
+    allow_remediation_code_reviews: false,
+  };
+  assert.deepEqual(decodeProjectSettings(settings, f.project), settings);
+  for (const change of [
+    { code_review_required_min_priority: true },
+    { code_review_optional_min_priority: 99 },
+    { allow_remediation_code_reviews: 0 },
+    { code_review_required_min_priority: undefined },
+  ])
+    assert.throws(() =>
+      decodeProjectSettings({ ...settings, ...change }, f.project),
+    );
+
+  assert.throws(() =>
+    decodeReviewPolicy(
+      { ...r.policy, decision: "not_requested" },
+      f.project,
+      f.work,
+    ),
+  );
 });

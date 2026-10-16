@@ -7,10 +7,8 @@ transactions, validation, receipt replay, audit provenance, and response models.
 The machine REST transport keeps its bearer authentication and public OpenAPI
 contract. The browser registrations are excluded from that OpenAPI document.
 
-These transports are additive frontend migration stages. The existing Next.js route handlers,
-layouts, and WebSocket rewrite remain active, so the deployed dashboard continues
-to use its current transport. Adding FastAPI routes does not redirect existing
-dashboard traffic or perform a production deployment. The
+The static Vite dashboard uses these FastAPI routes through same-origin nginx.
+There is no production Node application server or Next handler. The
 [artifact browser transport](browser-artifact-api.md) and
 [transcript browser transport](browser-transcript-api.md) also have explicit FastAPI
 owners at `/api/artifacts` and `/api/transcripts`. The
@@ -141,39 +139,34 @@ The response is assembled from those fields, never from a serialization of the
 service settings. Database URLs, API keys, backup tokens, storage paths, and
 internal service addresses are excluded. The backup worker retains its separate
 archive limits; this field preserves the dashboard's configured upload bound.
-Compose passes timezone and backup size to API as well as the existing web
-service. A later static client can initialize itself without build-time secrets
-or environment substitution in JavaScript bundles.
+Compose passes timezone and backup size to API. The static client validates
+this runtime response before mounting dashboard forms, with a visible retry
+state on failure. No build-time secrets or environment substitution is needed.
 
 `/api/mnemonic/sync` is a WebSocket alias for `/api/v1/sync`. Both use the same hub
 and require an exact configured Origin. Initial frames contain only `type` and
 `revision`; invalidation frames add only `scope`. Neither carries record contents
-or bearer credentials. The existing Next.js rewrite continues to use the machine
-path until a later migration stage changes routing.
+or bearer credentials. The web proxy forwards only the browser alias.
 
-## Later static frontend routing
+## Static frontend routing
 
-A future static host should route `/api/mnemonic/` to FastAPI while preserving
-the external `Host` authority, Origin, request bytes, and WebSocket upgrade.
-It must not substitute an internal upstream host or rely on `X-Forwarded-Host`
-to satisfy browser admission. Configure the exact public browser origin in
-`MNEMONIC_DASHBOARD_ORIGINS`, and keep the browser and machine transports distinct
-in reverse-proxy configuration. Existing raw artifact/transcript and backup
-locations must be routed deliberately before Next.js can be removed. All four
-browser families now have FastAPI owners; the isolated transport overlay proves
-their cumulative boundary while production routing remains unchanged.
+The [static host](frontend-delivery.md) routes all four browser families and
+`/api/mnemonic/sync` to FastAPI, preserving external Host and Origin, request
+bytes and upgrade headers. It rejects private machine and worker namespaces.
+Configure the exact public browser origin in `MNEMONIC_DASHBOARD_ORIGINS`.
+Forwarded headers never confer browser trust.
 
 The source registry, browser policy, and behavioral tests must change together
 when the browser surface changes. Runtime and WebSocket tests cover public-field
 exposure, defaults and limits, rejected origins, and shared invalidation. Existing
 domain and receipt tests remain responsible for transaction and replay behavior.
-`test_browser_policy.py` pins the current TypeScript policy and every permitted
+`test_browser_policy.py` pins the preserved browser policy fixtures and every permitted
 method/path pair; `test_browser_boundary.py` and `test_browser_responses.py` cover
 admission and response transport. `test_browser_mutations.py` exercises all 15
 protected main JSON writes against PostgreSQL, including lost responses,
 cross-transport replay, conflicts and notification suppression.
 `test_browser_suggestions.py` covers resource admission, deadlines and native-slot
-retention through the browser entrypoint. These replace the corresponding Next
-boundary coverage when child 4 removes those server handlers; keep the current
-frontend codec and mutation-registry tests through that cutover.
-No schema migration or production service operation is part of this foundation.
+retention through the browser entrypoint. These own the boundary coverage formerly
+provided by the removed Next handlers. Frontend codec and mutation-registry tests
+continue to cover browser response handling and recovery.
+No schema migration is required by the static frontend cutover.

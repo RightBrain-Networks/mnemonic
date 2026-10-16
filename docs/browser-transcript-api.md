@@ -1,10 +1,10 @@
 # Transcript browser transport
 
-FastAPI owns the additive `/api/transcripts` surface. The current Next.js handlers
-remain active in normal deployment. The browser port calls the existing transcript
+FastAPI owns `/api/transcripts`, forwarded by the static web service.
+The browser transport calls the existing transcript
 domain handlers and preserves settings revisions, import and rebuild receipts,
 source-root policy, native copies, normalized segments, and indexing services.
-No schema change or production cutover is required.
+No schema change is required. Deployment remains an operator-authorized action.
 
 ## Explicit route inventory
 
@@ -148,12 +148,9 @@ replay after an uncertain response. Shared ASGI tests cover backpressure,
 disconnects, deadlines, bounded transfers, and resource cleanup. Existing backend
 transcript tests and frontend codecs remain applicable.
 
-Run `scripts/test-e2e.sh --browser-transports tests/e2e/transcripts.spec.ts` to
-exercise the current transcript UI against the additive transport. The test-only
-nginx configuration routes all four browser API families and WebSocket sync to
-FastAPI; page delivery continues to Next.js. The runner provisions
-an isolated acceptance stack and synthetic transcript sources. The ordinary
-acceptance command continues to test the existing Next delivery.
+Run `scripts/test-e2e.sh tests/e2e/transcripts.spec.ts` for the static web image
+and FastAPI with isolated synthetic transcript sources. The optional
+`--browser-transports` flag selects the same delivery path.
 
 For later deployment, preserve the external Host and Origin, disable proxy
 response buffering and compression for streamed text, and preserve the response

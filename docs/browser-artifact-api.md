@@ -1,10 +1,10 @@
 # Artifact browser transport
 
-FastAPI owns the additive `/api/artifacts` surface. The current Next.js handlers
-remain active in normal deployment. The browser port calls the existing artifact
+FastAPI owns `/api/artifacts`, forwarded by the static web service.
+The browser transport calls the existing artifact
 domain handlers and preserves the separate artifact operation journal, storage,
 approval grants, audit records, extraction, and semantic retrieval services.
-No schema change or production cutover is required.
+No schema change is required. Deployment remains an operator-authorized action.
 
 ## Explicit route inventory
 
@@ -99,15 +99,13 @@ tests cover bounded transfers, response validation, cancellation, backpressure,
 and completion after lost mutation responses. Existing backend artifact tests and
 frontend artifact codecs/mutation tests remain applicable.
 
-Use `scripts/test-e2e.sh --browser-transports` with the artifact Playwright specs
-to exercise the current dashboard against FastAPI. The test-only Compose overlay
-routes all four browser API families and WebSocket sync to FastAPI, while page delivery stays in Next.js. It
-uses the isolated acceptance stack and synthetic storage, not production services.
-The ordinary acceptance command continues to test the existing Next delivery.
+Use `scripts/test-e2e.sh` with the artifact Playwright specs to exercise the
+actual static web image and FastAPI using isolated synthetic storage.
+`--browser-transports` is retained as an alias for this same path.
 
 For later deployment, preserve the external Host and Origin, disable request and
 response buffering for raw transfers, allow 1 GiB bodies and the metadata header,
-and retain no-transform/identity behavior. The checked-in nginx test overlay shows
+and retain no-transform/identity behavior. The checked-in static nginx configuration shows
 these settings without changing production routing. The
 [transcript transport](browser-transcript-api.md) has its own route and limit
-contracts. Backup transport remains separate migration work.
+contracts, as does the [backup transport](browser-backup-api.md).

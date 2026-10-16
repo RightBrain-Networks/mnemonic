@@ -119,20 +119,3 @@ test("browser evidence API parses bounded identity error details through the exi
     globalThis.fetch = original;
   }
 });
-
-test("Next proxy requests identity and never uses unbounded arrayBuffer for evidence", async () => {
-  const route = await readFile(
-    new URL("../app/api/mnemonic/[...path]/route.ts", import.meta.url),
-    "utf8"
-  );
-  assert.match(route, /evidenceRoute \? \{ "Accept-Encoding": "identity" \}/);
-  assert.match(route, /readIdentityEvidenceBytes\(upstream\)/);
-  assert.match(route, /identityContentEncoding\(upstream\.headers\)/);
-  assert.match(route, /evidenceRoute \? \{ "Content-Encoding": "identity" \}/);
-  assert.match(route, /no-store, max-age=0, no-transform/);
-  const evidenceBranch = route.slice(
-    route.indexOf("if (evidenceRoute)"),
-    route.indexOf("} else {", route.indexOf("if (evidenceRoute)"))
-  );
-  assert.doesNotMatch(evidenceBranch, /arrayBuffer\(/);
-});

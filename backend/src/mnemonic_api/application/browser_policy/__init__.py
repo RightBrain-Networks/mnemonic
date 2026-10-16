@@ -1,6 +1,6 @@
 """Pure request policy for the dashboard JSON facade.
 
-This is the Python counterpart of frontend/lib/proxy-policy.ts. Browser-safe
+This is the sole browser request policy, preserved by parity fixtures. Browser-safe
 requests still pass through normal REST validation, receipt replay and services.
 """
 

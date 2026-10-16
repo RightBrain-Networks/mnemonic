@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { validSearchRequest } from "../lib/search-request.ts";
 import { validArtifactSearchRequest } from "../lib/artifacts.ts";
-import { validTranscriptQuery } from "../lib/transcript-proxy.ts";
+
 import { childSearchParams, workSearchParams } from "../lib/work-item-search.ts";
 import { artifactSearchRequest, transcriptSearchRequest, workSearchRequest, decodeUnifiedWorkSearchPage } from "../lib/unified-search.ts";
 import { disclosure, projectCoverage } from "./search-disclosure-fixtures.mjs";
@@ -21,19 +21,6 @@ test("dashboard requests full summaries explicitly and child browsing has no sea
   assert.equal(childSearchParams(options).has("detail"), false);
 });
 
-test("browser search boundaries allow only the two supported detail modes", () => {
-  for (const detail of ["compact", "full"]) {
-    assert.equal(validSearchRequest({ detail }), true);
-    assert.equal(validArtifactSearchRequest({ q: "needle", detail }), true);
-    assert.equal(validTranscriptQuery(new URLSearchParams({ detail }), "list"), true);
-  }
-  for (const detail of ["pointer", "", null, true]) {
-    assert.equal(validSearchRequest({ detail }), false);
-    assert.equal(validArtifactSearchRequest({ q: "needle", detail }), false);
-    assert.equal(validTranscriptQuery(new URLSearchParams({ detail: String(detail) }), "list"), false);
-  }
-});
-
 test("dashboard rejects a compact or unspecified substitute even when a work result is empty", () => {
   const page = { ...unifiedRanking(["work_items"]), ...disclosure(project, ["work_items"]), next_offset: null, page_truncated: false, detail: "full", work_rank_scope: "work_items", items: [], total: 0, limit: 50, offset: 0, tag_counts: null, search_scope: { searched_facets: ["work_items"], transcripts: "not_selected", transcript_search_hint: TRANSCRIPT_SEARCH_HINT }, term_diagnostics: [], facet_totals: { work_items: 0, artifacts: 0, transcripts: 0 }, coverage: { artifacts: { enabled: true }, transcripts: { indexing_incomplete: false } }, indexing_incomplete: false };
   projectCoverage(page, project);
@@ -42,4 +29,17 @@ test("dashboard rejects a compact or unspecified substitute even when a work res
   const missing = { ...page }; delete missing.detail;
   assert.throws(() => decodeUnifiedWorkSearchPage(missing, project));
   assert.throws(() => decodeUnifiedWorkSearchPage({ ...page, work_rank_scope: "global" }, project));
+});
+
+test("browser search boundaries allow only the two supported detail modes", () => {
+  for (const detail of ["compact", "full"]) {
+    assert.equal(validSearchRequest({ detail }), true);
+    assert.equal(validArtifactSearchRequest({ q: "needle", detail }), true);
+
+  }
+  for (const detail of ["pointer", "", null, true]) {
+    assert.equal(validSearchRequest({ detail }), false);
+    assert.equal(validArtifactSearchRequest({ q: "needle", detail }), false);
+
+  }
 });

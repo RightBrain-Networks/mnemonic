@@ -4,7 +4,6 @@ import {
   PROMPT_IDS, decodePromptDetail, decodePromptLibrary, decodeRenderedPrompt,
   invalidPromptBody, promptPath, promptQueryKeys, validPromptContent, renderedPrompt
 } from "../lib/prompts.ts";
-import { allowedQueryKeys, browserTransportEffect, invalidMutationBody } from "../lib/proxy-policy.ts";
 
 const project = "11111111-1111-4111-8111-111111111111";
 const work = "22222222-2222-4222-8222-222222222222";
@@ -30,29 +29,6 @@ test("prompt library validates complete catalog, unique glossary, and exact cont
     { id: "resume-work" }, { size_bytes: content.length }, { content: "" },
     { revision: "1" }, { updated_at: "2026-02-30T12:00:00Z" }, { extra: "unexpected" }
   ]) assert.throws(() => decodePromptDetail({ ...detail, ...changed }, "recall-pointer"));
-});
-
-test("prompt proxy exposes only catalog routes, bounded revision checked writes, and safe renders", () => {
-  assert.equal(promptPath(project, "recall-pointer"), `/${path}`);
-  assert.deepEqual(allowedQueryKeys(`projects/${project}/prompts`, "GET"), []);
-  assert.deepEqual(allowedQueryKeys(path, "GET"), []);
-  assert.deepEqual(allowedQueryKeys(path, "PUT"), []);
-  assert.deepEqual(allowedQueryKeys(`${path}/render`, "POST"), []);
-  for (const [route, method] of [
-    [path, "PATCH"], [path, "DELETE"], [`${path}/render`, "GET"],
-    [`projects/${project}/prompts/custom`, "PUT"], [`projects/${project}/prompts`, "POST"]
-  ]) assert.equal(promptQueryKeys(route, method), null);
-  const body = { content, expected_revision: detail.revision };
-  assert.equal(invalidMutationBody(path, "PUT", body), null);
-  for (const value of [ { content }, { ...body, expected_revision: "1" }, { ...body, extra: true },
-    { ...body, content: "\0" }, { ...body, content: "x".repeat(100_001) } ]) {
-    assert.ok(invalidPromptBody(path, "PUT", value));
-  }
-  assert.equal(invalidMutationBody(`${path}/render`, "POST", { work_item_id: work }), null);
-  assert.equal(browserTransportEffect(`${path}/render`, "POST"), "safe_read");
-  for (const value of [{ work_item_id: "bad" }, { code_review_id: null }, { content }, { lease_token: "secret" }]) {
-    assert.ok(invalidMutationBody(`${path}/render`, "POST", value));
-  }
 });
 
 test("all prompt templates permit macros while report authoring retains its tighter bounds", () => {
@@ -92,4 +68,23 @@ test("agent clipboard content comes from the current backend template and never 
       await assert.rejects(renderedPrompt(project, "recall-pointer", work), /invalid prompt response/);
     }
   } finally { globalThis.fetch = originalFetch; }
+});
+
+test("prompt helpers retain catalog paths and validate revision checked edits", () => {
+  assert.equal(promptPath(project, "recall-pointer"), `/${path}`);
+
+  for (const [route, method] of [
+    [path, "PATCH"], [path, "DELETE"], [`${path}/render`, "GET"],
+    [`projects/${project}/prompts/custom`, "PUT"], [`projects/${project}/prompts`, "POST"]
+  ]) assert.equal(promptQueryKeys(route, method), null);
+  const body = { content, expected_revision: detail.revision };
+
+  for (const value of [ { content }, { ...body, expected_revision: "1" }, { ...body, extra: true },
+    { ...body, content: "\0" }, { ...body, content: "x".repeat(100_001) } ]) {
+    assert.ok(invalidPromptBody(path, "PUT", value));
+  }
+
+  for (const value of [{ work_item_id: "bad" }, { code_review_id: null }, { content }, { lease_token: "secret" }]) {
+    assert.ok(invalidPromptBody(`${path}/render`, "POST", value));
+  }
 });

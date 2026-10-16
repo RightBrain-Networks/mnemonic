@@ -581,7 +581,7 @@ follow-ups, and reject invalid, nested, query/header/cookie, secret-equal, and
 excluded-route IDs without echoing them.
 Gate creation and token-bearing lease mutations remain denied. The two token-free
 dashboard status routes accept only a dashboard actor and exact version/lease
-review state, return no capability, and have dedicated proxy-policy tests.
+review state, return no capability, and have dedicated FastAPI browser-policy tests.
 
 Phase 7–8 Node regressions cover literal gate/event decoding, exact reviewed and
 resolved revisions, drift facts, Waiting/readiness and terminal guards,
@@ -675,18 +675,12 @@ responses:
 ./scripts/test-nginx-e2e.sh
 ```
 
-For the additive FastAPI browser boundary, run the same controlled nginx matrix
-and the backup UI against disposable worker storage:
-
-```sh
-./scripts/test-nginx-e2e.sh --browser-transports
-./scripts/test-e2e.sh --browser-transports tests/e2e/project-backups.spec.ts
-```
-
-The browser transport overlay routes all four API families and WebSocket sync to
-FastAPI, preserving Next page delivery. The default runners continue to test the
-existing Next path. See [the backup gateway contract](browser-backup-api.md) for
-private API configuration, streaming limits, and the static-server interface.
+Both runners build the actual unprivileged static web image. The browser suite
+uses web → FastAPI; the nginx suite adds the optional outer edge and controlled
+encoding/limit fixtures. `--browser-transports` remains an accepted alias, with
+no alternate transport or Next runtime. See [static frontend delivery](frontend-delivery.md)
+for Vite development, runtime configuration, deployment and rollback, and
+[the backup gateway](browser-backup-api.md) for private worker settings.
 
 The wrapper generates a uniquely scoped Compose project, API key, and available
 loopback ports. It builds API and dashboard images,
@@ -821,18 +815,11 @@ narrow sheet with its Back button. The `tests/e2e/surface.ts` helpers
 other phase spec reaches the pane; the attention view's Open work context
 button navigates to `/?work=<id>` instead of opening a dialog.
 
-For native dashboard development, keep the container API running, stop the
-`web` container, and create an untracked `frontend/.env.local` containing:
-
-```text
-MNEMONIC_API_URL=http://127.0.0.1:8000
-MNEMONIC_API_KEY=<the same private key as .env>
-```
-
-Run `npm run dev`. The default allowed origins accept localhost and 127.0.0.1
-on port 3000; update the configured origins when changing the port. Browser
-requests always use `/api/mnemonic`; the upstream API address and bearer key
-remain server-only.
+For native dashboard development, use an isolated API and run
+`MNEMONIC_DEV_API_URL=http://127.0.0.1:8000 npm run dev` from `frontend`.
+Vite uses loopback port 3000; the API must admit that exact browser origin.
+Keep production services running. Do not copy an API key or backup token into
+the frontend environment. See [static delivery](frontend-delivery.md) for setup.
 
 ## Current acceptance boundary
 

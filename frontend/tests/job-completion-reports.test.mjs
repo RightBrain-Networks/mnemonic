@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { jobReportDraftHasEdits, emptyJobReportDraft, decodeJobReport, decodeReportDetail, decodeReportEnvelope, decodeReportPage, decodeReportCount, decodeProjectSettings, decodeReportProvenancePage, validJobReportInput, validReportPrompt } from "../lib/job-completion-reports.ts";
 import { decodePhase12Cursor, decimalString } from "../lib/activity-cursors.ts";
-import { allowedQueryKeys, invalidMutationBody, phase12ResponseLimitBytes } from "../lib/proxy-policy.ts";
+
 import { classifyMutationResponse } from "../lib/mutation-responses.ts";
 import { readBoundedJson } from "../lib/bounded-json.ts";
 import * as f from "./phase12-fixtures.mjs";
@@ -29,25 +29,6 @@ test("strict report reads bind exact closeout provenance and reject mutable or h
   assert.throws(() => decodeReportEnvelope({...f.envelope,human_dismissed:true},f.project));
   assert.throws(() => decodeReportEnvelope({...f.envelope,follow_up_count:0},f.project));
   assert.equal(decodeReportEnvelope({...f.envelope,source_work_state:{...f.envelope.source_work_state,deleted:true,status:"pending",canonical_work_item_id:f.followWork}},f.project).report.closeout_status,"done");
-});
-
-test("settings are exact revisioned aggregates with independent editable prompt bounds", () => {
-  const settings={lease_default_minutes:15,lease_minimum_minutes:10,lease_maximum_minutes:120,project_id:f.project,revision:"3",recall_pointer_template:null,job_completion_report_prompt:"Write clearly.\nUse one paragraph.\tNo jargon.",code_review_required_min_priority:100,code_review_optional_min_priority:100,allow_remediation_code_reviews:false};
-  assert.deepEqual(decodeProjectSettings(settings,f.project),settings);
-  assert.ok(validReportPrompt(settings.job_completion_report_prompt));
-  for (const prompt of [" ","x\u206f","x\0","x".repeat(8001),"🙂".repeat(4097)]) assert.equal(validReportPrompt(prompt),false);
-  const path=`projects/${f.project}/settings`;
-  for (const payload of [{expected_revision:"3",recall_pointer_template:null},{expected_revision:"3",job_completion_report_prompt:null},{expected_revision:"3",job_completion_report_prompt:"Write clearly."}]) assert.equal(invalidMutationBody(path,"PATCH",payload),null);
-  for (const payload of [{expected_revision:"3",recall_pointer_template:"Recall",job_completion_report_prompt:"Write clearly."},{expected_revision:3,job_completion_report_prompt:"Text"},{job_completion_report_prompt:"Text"},{expected_revision:"3"},{expected_revision:"3",job_completion_report_prompt:" "}]) assert.match(invalidMutationBody(path,"PATCH",payload),/allowlist/);
-});
-
-test("macro-expanded report instructions retain exact work text beyond template limits", () => {
-  const authoring_prompt = "🧠".repeat(5000) + " Work title with \u202e retained text.";
-  assert.equal(validReportPrompt(authoring_prompt), false);
-  assert.equal(decodeReportDetail({ ...f.envelope, report: { ...f.report, authoring_prompt } }, f.project, f.reportId).report.authoring_prompt, authoring_prompt);
-  assert.throws(() => decodeReportDetail({ ...f.envelope, report: { ...f.report, authoring_prompt: "x".repeat(100001) } }, f.project, f.reportId));
-  assert.throws(() => decodeReportDetail({ ...f.envelope, report: { ...f.report, authoring_prompt: "Bad\0text" } }, f.project, f.reportId));
-  assert.equal(phase12ResponseLimitBytes(`projects/${f.project}/job-completion-reports/${f.reportId}`), 4 * 1024 * 1024);
 });
 
 test("report pagination rejects wrong cursors, scope, filters, reordered sequences and stale high water", () => {
@@ -144,22 +125,6 @@ test("report-scoped provenance remains bound to its origin project", () => {
   }, f.project, { reportId: f.reportId }));
 });
 
-test("browser allowlist exposes bounded report reads and exact human mutations without control leakage", () => {
-  const base=`projects/${f.project}/job-completion-reports`;
-  assert.deepEqual(allowedQueryKeys(`${base}/count`,"GET"),[]);
-  assert.deepEqual(allowedQueryKeys(base,"GET"),["dismissal","work_item_id","limit","cursor"]);
-  assert.equal(allowedQueryKeys(base,"POST"),null);
-  assert.equal(allowedQueryKeys(`${base}/${f.reportId}/undismiss`,"POST"),null);
-  const dismissal={client_operation_id:f.operation,actor:f.actor};
-  assert.equal(invalidMutationBody(`${base}/${f.reportId}/dismiss`,"POST",dismissal),null);
-  assert.match(invalidMutationBody(`${base}/${f.reportId}/dismiss`,"POST",{...dismissal,report_id:f.reportId}),/allowlist/);
-  const follow={...dismissal,title:"Comic Sans",summary:"Change font",priority:1,initial_checkpoint:f.checkpointInput};
-  const path=`${base}/${f.reportId}/follow-ups`;
-  assert.equal(invalidMutationBody(path,"POST",follow),null);
-  for (const extra of [{status:"pending"},{source_work_item_id:f.work},{initial_relationships:[]},{actor:{...f.actor,actor_session_id:"other"}},{initial_checkpoint:{...f.checkpointInput,job_completion_report:f.reportInput}}]) assert.match(invalidMutationBody(path,"POST",{...follow,...extra}),/allowlist/);
-  assert.equal(phase12ResponseLimitBytes(`${base}/count`),1024);
-});
-
 function request(kind,body,extra={}) { return {kind,method:kind==="update_work"?"PATCH":"POST",path:`/projects/${f.project}/work-items/${f.work}${kind==="complete_work"?"/complete":""}`,operationId:f.operation,body:JSON.stringify({...body,client_operation_id:f.operation}),...extra}; }
 async function classify(req,value,status=200) { return classifyMutationResponse(req,Response.json(value,{status})); }
 
@@ -206,7 +171,6 @@ test("bounded JSON readers reject large chunked, malformed UTF-8 and misleading 
   assert.deepEqual(await readBoundedJson(Response.json({ok:true}),100),{ok:true});
 });
 
-
 test("server-assigned report and follow-up timestamps need not equal checkpoint or work timestamps", async () => {
   const req=request("complete_work",
     {expected_version:1,checkpoint:f.checkpointInput,job_completion_report:f.reportInput});
@@ -216,11 +180,28 @@ test("server-assigned report and follow-up timestamps need not equal checkpoint 
   assert.equal((await classify(req,response)).type,"success");
 });
 
-
 test("only authored report prose marks a closeout draft dirty", () => {
   const empty = emptyJobReportDraft();
   assert.equal(jobReportDraftHasEdits(empty), false);
   assert.equal(jobReportDraftHasEdits({...empty, promptRevision:"8", fyiItems:["", " \t"]}), false);
   assert.equal(jobReportDraftHasEdits({...empty, summary:"The work is ready to review."}), true);
   assert.equal(jobReportDraftHasEdits({...empty, fyiItems:["", "I chose Arial; this can be changed."]}), true);
+});
+
+test("settings are exact revisioned aggregates with independent editable prompt bounds", () => {
+  const settings={lease_default_minutes:15,lease_minimum_minutes:10,lease_maximum_minutes:120,project_id:f.project,revision:"3",recall_pointer_template:null,job_completion_report_prompt:"Write clearly.\nUse one paragraph.\tNo jargon.",code_review_required_min_priority:100,code_review_optional_min_priority:100,allow_remediation_code_reviews:false};
+  assert.deepEqual(decodeProjectSettings(settings,f.project),settings);
+  assert.ok(validReportPrompt(settings.job_completion_report_prompt));
+  for (const prompt of [" ","x\u206f","x\0","x".repeat(8001),"🙂".repeat(4097)]) assert.equal(validReportPrompt(prompt),false);
+  const path=`projects/${f.project}/settings`;
+
+});
+
+test("macro-expanded report instructions retain exact work text beyond template limits", () => {
+  const authoring_prompt = "🧠".repeat(5000) + " Work title with \u202e retained text.";
+  assert.equal(validReportPrompt(authoring_prompt), false);
+  assert.equal(decodeReportDetail({ ...f.envelope, report: { ...f.report, authoring_prompt } }, f.project, f.reportId).report.authoring_prompt, authoring_prompt);
+  assert.throws(() => decodeReportDetail({ ...f.envelope, report: { ...f.report, authoring_prompt: "x".repeat(100001) } }, f.project, f.reportId));
+  assert.throws(() => decodeReportDetail({ ...f.envelope, report: { ...f.report, authoring_prompt: "Bad\0text" } }, f.project, f.reportId));
+
 });

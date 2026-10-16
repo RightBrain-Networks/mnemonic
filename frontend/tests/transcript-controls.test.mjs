@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { transcriptBytes, transcriptMegabytes } from "../lib/transcript-settings.ts";
 import { readDismissedTranscriptWarnings, transcriptWarningKey, validTranscriptStorage } from "../lib/transcript-health.ts";
-import { validTranscriptQuery } from "../lib/transcript-proxy.ts";
 
 test("megabyte settings retain exact existing byte values and reject invalid input", () => {
   for (const bytes of [1, 999999, 67108864, 536870912, 1073741824]) {
@@ -22,15 +21,6 @@ test("dismissal survives retry timestamps but a changed failure remains visible"
   assert.notEqual(transcriptWarningKey({ ...warning, code: "transcript_permission_denied" }), key);
   assert.deepEqual(readDismissedTranscriptWarnings(JSON.stringify([key])), [key]);
   for (const value of [null, "bad json", "{}", "[1,null]"]) assert.deepEqual(readDismissedTranscriptWarnings(value), []);
-});
-
-test("transcript controls validate every server sort field and large text offsets", () => {
-  for (const sort of ["name", "size", "session", "indexing", "updated"]) {
-    for (const direction of ["asc", "desc"]) assert.equal(validTranscriptQuery(new URLSearchParams({ sort_by: sort, sort_direction: direction }), "list"), true);
-  }
-  for (const query of ["sort_by=filename", "sort_direction=descending", "sort_by=size&sort_by=name"]) assert.equal(validTranscriptQuery(new URLSearchParams(query), "list"), false);
-  assert.equal(validTranscriptQuery(new URLSearchParams({ offset: "9000000", limit: "20000" }), "text"), true);
-  assert.equal(validTranscriptQuery(new URLSearchParams({ offset: "1073741825" }), "text"), false);
 });
 
 test("storage unavailable and partial measurements remain explicit", () => {

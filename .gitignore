@@ -205,7 +205,6 @@ tempCodeRunnerFile.py
 
 # Mnemonic local runtime, secrets, build output, and database dumps
 node_modules/
-.next/
 *.tsbuildinfo
 .env.*
 !.env.example

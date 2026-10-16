@@ -6,14 +6,14 @@ They do not replace domain review rules or the receipt executor.
 
 The [FastAPI browser API foundation](browser-api.md) documents the explicit JSON
 route inventory, browser admission boundary, runtime configuration, and live-sync
-alias for the frontend migration. Existing Next.js handlers remain active during
-this first stage.
+alias used by the static Vite dashboard. FastAPI is the sole browser transport
+owner; nginx forwards only those explicit namespaces. See [static delivery](frontend-delivery.md).
 
 ## Wire codecs
 
 General structure belongs to the neutral `revision-codecs`, `work-codecs`,
 `readiness-codecs`, `checkpoint-codecs`, and `relationship-codecs` modules in
-`frontend/lib/`. Feature decoders, the browser proxy, and mutation-response
+`frontend/lib/`. Feature decoders and mutation-response
 validation compose those exports instead of importing common structures from
 one another. Primitive checks and JSON equality stay in `wire-guards`.
 

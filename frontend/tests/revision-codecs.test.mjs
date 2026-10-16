@@ -8,7 +8,6 @@ import {
   validHumanGateRevision,
   validMergeReviewRevision
 } from "../lib/revision-codecs.ts";
-import { invalidMutationBody } from "../lib/proxy-policy.ts";
 
 const project = "e36a7e53-938f-4c8a-b75a-af9c7331711a";
 const work = "7a5dc555-0a6d-4f92-9678-1647524827c8";
@@ -64,7 +63,7 @@ for (const contract of contracts) {
     [contract.count]: contract.minimum
   };
 
-  test(`${contract.name} request and response acceptance agree at structural boundaries`, () => {
+  test(`${contract.name} revision validation and decoding agree at structural boundaries`, () => {
     for (const value of [
       revision,
       { ...revision, context_checkpoint_id: checkpoint.toUpperCase() },
@@ -74,7 +73,6 @@ for (const contract of contracts) {
     ]) {
       assert.equal(contract.valid(value), true);
       assert.equal(contract.decode(value), value);
-      assert.equal(invalidMutationBody(contract.path, "POST", contract.body(value)), null);
     }
 
     const withoutEachField = Object.keys(revision).map((field) => {
@@ -103,7 +101,6 @@ for (const contract of contracts) {
         () => contract.decode(value, "Caller-specific revision error."),
         { message: "Caller-specific revision error." }
       );
-      assert.notEqual(invalidMutationBody(contract.path, "POST", contract.body(value)), null);
     }
   });
 

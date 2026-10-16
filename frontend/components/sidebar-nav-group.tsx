@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/components/dashboard-link";
 import { useEffect, useId, useState, type MouseEvent, type ReactNode } from "react";
 
 type Props = {
