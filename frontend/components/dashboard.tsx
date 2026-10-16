@@ -403,7 +403,12 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
     contextTargetRef.current = nextTarget;
     setContextTarget(nextTarget);
   }
-  const [contextLoading, setContextLoading] = useState(false);
+  const [contextLoading, setContextLoadingState] = useState(false);
+  const contextLoadingRef = useRef(false);
+  function setContextLoading(loading: boolean) {
+    contextLoadingRef.current = loading;
+    setContextLoadingState(loading);
+  }
   const [contextError, setContextError] = useState("");
   const [contextReconciliationRequired, setContextReconciliationRequired] = useState(false);
   const [contextRefresh, setContextRefresh] = useState(0);
@@ -704,7 +709,9 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
     if (mode === "edit") return;
     // A live-sync refresh must not supersede a context load already in flight (an exact audit
     // load, a ?work= restore, or a post-mutation reconcile); it runs once that load settles.
-    if (contextLoading || mutationRegistry.blocks([
+    // The registry can release its block before React commits the explicit
+    // reconciliation's loading state. A stale effect must not cancel that read.
+    if (contextLoadingRef.current || mutationRegistry.blocks([
       mutationWorkKey(opened.work_item.project_id, opened.work_item.id)
     ])) return;
     lastContextRefresh.current = contextRefresh;
