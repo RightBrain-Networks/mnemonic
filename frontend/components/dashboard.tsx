@@ -1223,8 +1223,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
     let latestCatalog: Project[] | null = null;
 
     function commitFound(
-      found: Extract<WorkContextScanResult, { kind: "found" }>,
-      catalog: readonly Project[] | null
+      found: Extract<WorkContextScanResult, { kind: "found" }>
     ): WorkPlacementRecoveryResult {
       if (!isCurrent()) return "superseded";
       const targetProjectId = found.project.id;
@@ -1286,7 +1285,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
           isCurrent
         );
         if (initial.kind === "superseded") return "superseded";
-        if (initial.kind === "found") return commitFound(initial, null);
+        if (initial.kind === "found") return commitFound(initial);
       }
 
       const firstCatalog = await fetchFreshProjectCatalog(isCurrent);
@@ -1299,7 +1298,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
         isCurrent
       );
       if (firstScan.kind === "superseded") return "superseded";
-      if (firstScan.kind === "found") return commitFound(firstScan, firstCatalog);
+      if (firstScan.kind === "found") return commitFound(firstScan);
 
       const secondCatalog = await fetchFreshProjectCatalog(isCurrent);
       if (!secondCatalog) return "superseded";
@@ -1311,7 +1310,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
         isCurrent
       );
       if (secondScan.kind === "superseded") return "superseded";
-      if (secondScan.kind === "found") return commitFound(secondScan, secondCatalog);
+      if (secondScan.kind === "found") return commitFound(secondScan);
       if (!sameProjectCatalog(firstCatalog, secondCatalog)) {
         return commitAmbiguous(secondCatalog);
       }
