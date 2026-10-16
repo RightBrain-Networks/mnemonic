@@ -1,15 +1,15 @@
 "use client";
 
 import { useFailedReadRetry } from "@/components/use-failed-read-retry";
-import { useEffect, useRef, useState } from "react";
-import { completionEvidenceApi, errorMessage, workItemPath } from "@/lib/api";
+import { useInfiniteQuery } from "@tanstack/react-query";
+import { completionEvidenceOptions } from "@/lib/work-panel-queries";
+import { errorMessage } from "@/lib/api";
 import {
   artifactNavigationHref,
   completionEvidenceDraftAggregateBytes,
   completionEvidenceIssueField,
   completionEvidenceTextSize,
   isExternalArtifactType,
-  mergeCompletionEvidencePage,
   type CompletionEvidenceDraft,
   type CompletionEvidenceIssue
 } from "@/lib/completion-evidence";
@@ -428,87 +428,31 @@ function CompletionEpisode({
 export default function CompletionEvidencePanel({
   projectId,
   workItemId,
-  refreshSignal
+  refreshSignal: _refreshSignal
 }: {
   projectId: string;
   workItemId: string;
   refreshSignal: number;
 }) {
-  const [page, setPage] = useState<CompletionEvidencePage | null>(null);
-  const [episodes, setEpisodes] = useState<CompletionEvidenceEpisodeRead[]>([]);
-  const [nextCursor, setNextCursor] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [error, setError] = useState("");
-  const [reload, setReload] = useState(0);
-  const controllerRef = useRef<AbortController | null>(null);
-
-  function path(cursor?: string): string {
-    const query = new URLSearchParams({ limit: "10" });
-    if (cursor) query.set("cursor", cursor);
-    return `${workItemPath(projectId, workItemId)}/completion-evidence?${query.toString()}`;
-  }
-
-  useEffect(() => {
-    const controller = new AbortController();
-    controllerRef.current?.abort();
-    controllerRef.current = controller;
-    setLoading(true);
-    setLoadingMore(false);
-    setError("");
-    setPage(null);
-    setEpisodes([]);
-    setNextCursor(null);
-    completionEvidenceApi(path(), workItemId, { signal: controller.signal })
-      .then((next) => {
-        if (controller.signal.aborted) return;
-        setPage(next);
-        setEpisodes(next.items);
-        setNextCursor(next.next_cursor);
-      })
-      .catch((cause) => {
-        if (!controller.signal.aborted) setError(errorMessage(cause));
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setLoading(false);
-      });
-    return () => controllerRef.current?.abort();
-  }, [projectId, workItemId, refreshSignal, reload]);
-
-  async function loadMore() {
-    if (!page || !nextCursor || loadingMore) return;
-    const controller = new AbortController();
-    controllerRef.current?.abort();
-    controllerRef.current = controller;
-    setLoadingMore(true);
-    setError("");
-    try {
-      const next = await completionEvidenceApi(
-        path(nextCursor),
-        workItemId,
-        { signal: controller.signal }
-      );
-      if (controller.signal.aborted) return;
-      const combined = mergeCompletionEvidencePage(page, episodes, next);
-      setEpisodes(combined);
-      setNextCursor(next.next_cursor);
-    } catch (cause) {
-      if (!controller.signal.aborted) setError(errorMessage(cause));
-    } finally {
-      if (!controller.signal.aborted) setLoadingMore(false);
-    }
-  }
+  const evidence = useInfiniteQuery(completionEvidenceOptions(projectId, workItemId));
+  const page = evidence.data?.pages[0];
+  const episodes = evidence.data?.pages.flatMap((value) => value.items) ?? [];
+  const nextCursor = evidence.hasNextPage;
+  const loading = evidence.isPending;
+  const loadingMore = evidence.isFetchingNextPage;
+  const error = evidence.error ? errorMessage(evidence.error) : "";
+  const loadMore = () => evidence.fetchNextPage({ cancelRefetch: false });
 
   useFailedReadRetry({
-    scope: `evidence:${projectId}:${workItemId}`, failed: Boolean(error), busy: loading || loadingMore,
-    retry: () => { if (page && nextCursor) void loadMore(); else setReload((value) => value + 1); }
+    scope: `evidence:${projectId}:${workItemId}`, failed: evidence.isError, busy: evidence.isFetching,
+    retry: () => { if (evidence.isFetchNextPageError) void loadMore(); else void evidence.refetch(); }
   });
 
   if (loading) {
     return <div className="loading-state detail-loading" role="status"><span className="spinner" />Loading completion evidence…</div>;
   }
   if (!page) {
-    return <div className="error-notice" role="alert"><p>{error || "Completion evidence could not be loaded."}</p><button type="button" className="button button-secondary" onClick={() => setReload((value) => value + 1)}>Try again</button></div>;
+    return <div className="error-notice" role="alert"><p>{error || "Completion evidence could not be loaded."}</p><button type="button" className="button button-secondary" onClick={() => void evidence.refetch()}>Try again</button></div>;
   }
   return <section className="completion-evidence-history" aria-labelledby="completion-evidence-history-title">
     <div className="evidence-history-heading">
@@ -527,8 +471,8 @@ export default function CompletionEvidencePanel({
     {episodes.length === 0
       ? <div className="empty-state"><p>No completion episodes recorded.</p></div>
       : episodes.map((episode) => <CompletionEpisode key={episode.completion_event_id} episode={episode} page={page} />)}
-    {error && <div className="error-notice" role="alert"><p>{error}</p><button type="button" className="button button-secondary" onClick={() => setReload((value) => value + 1)}>Reload current history</button></div>}
-    {nextCursor && <button type="button" className="button button-secondary evidence-load-more" disabled={loadingMore} onClick={() => void loadMore()}>{loadingMore ? "Loading…" : "Load older completions"}</button>}
+    {error && <div className="error-notice" role="alert"><p>{error}</p><button type="button" className="button button-secondary" onClick={() => void evidence.refetch()}>Reload current history</button></div>}
+    {nextCursor && <button type="button" className="button button-secondary evidence-load-more" disabled={evidence.isFetching} onClick={() => void loadMore()}>{loadingMore ? "Loading…" : "Load older completions"}</button>}
     {!nextCursor && page.as_of_completion_event_id && <p className="field-hint">History complete as of completion event {page.as_of_completion_event_id}. A fresh head is required to establish current completeness.</p>}
   </section>;
 }

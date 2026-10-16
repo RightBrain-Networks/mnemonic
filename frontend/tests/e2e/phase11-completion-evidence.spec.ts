@@ -562,6 +562,9 @@ test("completion evidence is accessible, replayable, lazy, paginated, and source
     expect(probe.requests[1]).toBe(probe.requests[0]);
     expect(probe.responses[1]).toEqual(probe.responses[0]);
     await expect(pane.locator(".detail-identity > .status-badge")).toHaveText("Done");
+    await expect(page.locator(".toast")).toContainText(
+      "Complete work resolved from its original request. Current views are reconciling."
+    );
     expect(evidenceRequests).toHaveLength(0);
 
     await reopenFixture(client, work.id);

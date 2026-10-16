@@ -262,7 +262,7 @@ wheels = [
 
 [[package]]
 name = "mnemonic-mcp"
-version = "0.83.6"
+version = "0.83.7"
 source = { editable = "." }
 dependencies = [
     { name = "httpx" },

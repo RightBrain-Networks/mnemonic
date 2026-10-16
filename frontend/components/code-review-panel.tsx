@@ -1,7 +1,10 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { api, errorMessage } from "@/lib/api";
+import { useEffect, useState } from "react";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { useFailedReadRetry } from "@/components/use-failed-read-retry";
+import { codeReviewDetailOptions, mergeReviewHistory, reviewHistoryOptions, workFollowUpOptions } from "@/lib/work-panel-queries";
+import { errorMessage } from "@/lib/api";
 import { dashboardSessionId } from "@/lib/dashboard-session";
 import {
   mutationWorkKey,
@@ -9,13 +12,9 @@ import {
   useMutationScope,
 } from "@/lib/mutation-intent";
 import {
-  decodeCodeReviewDetail,
-  decodeReviewQueuePage,
-  decodeWorkFollowUpDetail,
   validFollowUpAnswer,
   type CodeReviewDetail,
   type FollowUpAnswerInput,
-  type ReviewQueuePage,
   type WorkFollowUpDetail,
 } from "@/lib/code-reviews";
 import type { WorkContext } from "@/lib/types";
@@ -383,149 +382,40 @@ export default function CodeReviewPanel({
 }) {
   const projectId = context.work_item.project_id,
     workId = context.work_item.id;
-  const [review, setReview] = useState<CodeReviewDetail | null>(null);
-  const [follow, setFollow] = useState<WorkFollowUpDetail | null>(null);
-  const [pages, setPages] = useState<{
-    reviews: ReviewQueuePage | null;
-    questions: ReviewQueuePage | null;
-  }>({ reviews: null, questions: null });
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [reload, setReload] = useState(0);
-  const generation = useRef(0);
-  const reviewSelection = useRef(0);
-  const questionSelection = useRef(0);
-  const base = `/projects/${projectId}/work-items/${workId}`;
-  const detailIdentity = useRef(base);
-  async function showReview(id: string) {
-    const request = generation.current;
-    const selection = ++reviewSelection.current;
-    try {
-      const value = await api<unknown>(`${base}/code-reviews/${id}`);
-      const next = decodeCodeReviewDetail(value, projectId, workId, id);
-      if (
-        request === generation.current &&
-        selection === reviewSelection.current
-      ) {
-        setReview(next);
-        setError("");
-      }
-    } catch (reason) {
-      if (
-        request === generation.current &&
-        selection === reviewSelection.current
-      )
-        setError(errorMessage(reason));
-    }
-  }
-  async function showQuestion(id: string) {
-    const request = generation.current;
-    const selection = ++questionSelection.current;
-    try {
-      const value = await api<unknown>(`${base}/agent-follow-ups/${id}`);
-      const next = decodeWorkFollowUpDetail(value, projectId, workId, id);
-      if (
-        request === generation.current &&
-        selection === questionSelection.current
-      ) {
-        setFollow(next);
-        setError("");
-      }
-    } catch (reason) {
-      if (
-        request === generation.current &&
-        selection === questionSelection.current
-      )
-        setError(errorMessage(reason));
-    }
-  }
+  const [selectedReviewId, setSelectedReviewId] = useState<string | null>(null);
+  const [selectedQuestionId, setSelectedQuestionId] = useState<string | null>(null);
+  const reviews = useInfiniteQuery(reviewHistoryOptions(projectId, workId, "reviews"));
+  const questions = useInfiniteQuery(reviewHistoryOptions(projectId, workId, "questions"));
+  const pages = {
+    reviews: mergeReviewHistory(reviews.data?.pages ?? []),
+    questions: mergeReviewHistory(questions.data?.pages ?? [])
+  };
+  const reviewId = selectedReviewId ?? context.code_review_context?.current_review?.id ?? pages.reviews?.items[0]?.id;
+  const questionId = selectedQuestionId ?? context.code_review_context?.pending_follow_up?.id ?? pages.questions?.items[0]?.id;
+  const reviewRead = useQuery({ ...codeReviewDetailOptions(projectId, workId, reviewId ?? ""), enabled: Boolean(reviewId) });
+  const questionRead = useQuery({ ...workFollowUpOptions(projectId, workId, questionId ?? ""), enabled: Boolean(questionId) });
+  const review = reviewRead.data;
+  const follow = questionRead.data;
+  const loading = reviews.isFetching || questions.isFetching || reviewRead.isFetching || questionRead.isFetching;
+  const errors = [reviews.error, questions.error, reviewRead.error, questionRead.error].filter(Boolean);
+  const error = errors.length ? errorMessage(errors[0]) : "";
+
   useEffect(() => {
-    const request = ++generation.current;
-    const controller = new AbortController();
-    // A background refresh must not unmount the same question's unsent editor.
-    // A new question ID still remounts FollowUp through its React key, while an
-    // answered/superseded detail replaces the form with the durable outcome.
-    if (detailIdentity.current !== base) {
-      detailIdentity.current = base;
-      setReview(null);
-      setFollow(null);
-      setPages({ reviews: null, questions: null });
-    }
-    setLoading(true);
-    setError("");
-    Promise.all([
-      api<unknown>(
-        `/projects/${projectId}/code-reviews?state=all&work_item_id=${workId}&limit=20`,
-        { signal: controller.signal },
-      ),
-      api<unknown>(
-        `/projects/${projectId}/work-agent-follow-ups?state=all&work_item_id=${workId}&limit=20`,
-        { signal: controller.signal },
-      ),
-    ])
-      .then(async ([reviews, questions]) => {
-        if (request !== generation.current) return;
-        const reviewPage = decodeReviewQueuePage(reviews, projectId, "reviews"),
-          questionPage = decodeReviewQueuePage(
-            questions,
-            projectId,
-            "follow-ups",
-          );
-        setPages({ reviews: reviewPage, questions: questionPage });
-        const reviewId =
-          context.code_review_context?.current_review?.id ??
-          reviewPage.items[0]?.id;
-        const questionId =
-          context.code_review_context?.pending_follow_up?.id ??
-          questionPage.items[0]?.id;
-        if (!reviewId) setReview(null);
-        if (!questionId) setFollow(null);
-        await Promise.all([
-          reviewId ? showReview(reviewId) : undefined,
-          questionId ? showQuestion(questionId) : undefined,
-        ]);
-      })
-      .catch((reason) => {
-        if (!controller.signal.aborted) setError(errorMessage(reason));
-      })
-      .finally(() => {
-        if (request === generation.current) setLoading(false);
-      });
-    return () => {
-      generation.current += 1;
-      controller.abort();
-    };
-  }, [projectId, workId, refreshSignal, reload]);
-  async function more(kind: "reviews" | "questions") {
-    const page = pages[kind];
-    if (!page?.has_more) return;
-    const request = generation.current;
-    try {
-      const url = kind === "reviews" ? "code-reviews" : "work-agent-follow-ups";
-      const value = await api<unknown>(
-        `/projects/${projectId}/${url}?state=all&work_item_id=${workId}&limit=20&after=${encodeURIComponent(page.next_cursor)}`,
-      );
-      const next = decodeReviewQueuePage(
-        value,
-        projectId,
-        kind === "reviews" ? "reviews" : "follow-ups",
-      );
-      if (request === generation.current)
-        setPages((current) => ({
-          ...current,
-          [kind]: {
-            ...next,
-            items: [
-              ...page.items,
-              ...next.items.filter(
-                (row) => !page.items.some((old) => old.id === row.id),
-              ),
-            ],
-          },
-        }));
-    } catch (reason) {
-      if (request === generation.current) setError(errorMessage(reason));
-    }
+    setSelectedReviewId(null);
+    setSelectedQuestionId(null);
+  }, [projectId, workId, refreshSignal]);
+
+  function retry() {
+    if (reviews.isError) void (reviews.isFetchNextPageError ? reviews.fetchNextPage() : reviews.refetch());
+    if (questions.isError) void (questions.isFetchNextPageError ? questions.fetchNextPage() : questions.refetch());
+    if (reviewRead.isError && reviewId) void reviewRead.refetch();
+    if (questionRead.isError && questionId) void questionRead.refetch();
+  }
+  useFailedReadRetry({ scope: `reviews:${projectId}:${workId}:${reviewId}:${questionId}`, failed: Boolean(error), busy: loading, retry });
+
+  function more(kind: "reviews" | "questions") {
+    const query = kind === "reviews" ? reviews : questions;
+    if (query.hasNextPage && !query.isFetching) void query.fetchNextPage({ cancelRefetch: false });
   }
   const origin = context.code_review_context?.remediation_origin;
   return (
@@ -560,7 +450,7 @@ export default function CodeReviewPanel({
           <button
             type="button"
             className="button button-secondary"
-            onClick={() => setReload((value) => value + 1)}
+            onClick={retry}
           >
             Retry code reviews
           </button>
@@ -571,7 +461,6 @@ export default function CodeReviewPanel({
           key={follow.follow_up.id}
           detail={follow}
           onChanged={async () => {
-            setReload((value) => value + 1);
             await onChanged();
           }}
         />
@@ -606,8 +495,8 @@ export default function CodeReviewPanel({
                       type="button"
                       onClick={() =>
                         void (key === "reviews"
-                          ? showReview(row.id)
-                          : showQuestion(row.id))
+                          ? setSelectedReviewId(row.id)
+                          : setSelectedQuestionId(row.id))
                       }
                     >
                       {formatDateTime(row.created_at)} · {row.state}
@@ -619,7 +508,8 @@ export default function CodeReviewPanel({
                 <button
                   className="button button-secondary"
                   type="button"
-                  onClick={() => void more(key)}
+                  disabled={key === "reviews" ? reviews.isFetching : questions.isFetching}
+                  onClick={() => more(key)}
                 >
                   Load more history
                 </button>

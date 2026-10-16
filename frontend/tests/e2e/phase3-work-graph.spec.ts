@@ -251,6 +251,7 @@ test("hierarchy navigation and the relationship editor preserve graph semantics"
     await expect(rootAggregates).toHaveAttribute("title", /1 direct child/);
     await expect(rootAggregates).toHaveAttribute("title", /2 descendants/);
     await expect(rootAggregates).toHaveAttribute("title", /1 active descendant/);
+    const pendingRootCount = (await page.locator(".result-count").textContent())!;
     await page.getByRole("button", { name: "Won’t do", exact: true }).click();
     await expect(rootCard).toHaveCount(1);
     await page.getByRole("button", { name: `Expand children of ${titles.root}` }).click();
@@ -273,14 +274,9 @@ test("hierarchy navigation and the relationship editor preserve graph semantics"
     await expect.poll(() => childRequests.some(
       (url) => url.includes(`/work-items/${rootId}/children?`) && url.includes("status=all")
     )).toBe(true);
-    const pendingResponse = page.waitForResponse((response) => {
-      const url = new URL(response.url());
-      return url.pathname === `/api/mnemonic/projects/${projectId}/work-items`
-        && url.searchParams.get("status") === "pending" && url.searchParams.get("offset") === "0";
-    });
     await page.getByRole("button", { name: "Pending", exact: true }).click();
-    const pendingPage = await (await pendingResponse).json() as { total: number };
-    await expect(page.locator(".result-count")).toHaveText(`${pendingPage.total} root branch${pendingPage.total === 1 ? "" : "es"}`);
+    // Returning to a still-fresh root filter can reuse its Query snapshot.
+    await expect(page.locator(".result-count")).toHaveText(pendingRootCount);
     await expect(grandchildCard).toHaveCount(1);
 
     const childChildrenPath = `/work-items/${childId}/children?`;

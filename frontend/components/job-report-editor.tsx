@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useId, useState, type Dispatch, type SetStateAction } from "react";
+import { useEffect, useId, type Dispatch, type SetStateAction } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useFailedReadRetry } from "@/components/use-failed-read-retry";
-import { api, errorMessage } from "@/lib/api";
-import { decodeProjectSettings, type JobReportDraft } from "@/lib/job-completion-reports";
-import type { ProjectSettings } from "@/lib/types";
+import { errorMessage } from "@/lib/api";
+import type { JobReportDraft } from "@/lib/job-completion-reports";
+import { workSettingsOptions } from "@/lib/work-detail-queries";
 
 export default function JobReportEditor({ projectId, workItemId, draft, onChange, disabled = false }: {
   projectId: string;
@@ -14,25 +15,10 @@ export default function JobReportEditor({ projectId, workItemId, draft, onChange
   disabled?: boolean;
 }) {
   const id = useId();
-  const [loaded, setLoaded] = useState<{ workItemId: string; settings: ProjectSettings } | null>(null);
-  const settings = loaded?.workItemId === workItemId && loaded.settings.project_id === projectId
-    ? loaded.settings : null;
-  const [error, setError] = useState("");
-  const [refresh, setRefresh] = useState(0);
-  const [loading, setLoading] = useState(true);
-  useEffect(() => {
-    const controller = new AbortController();
-    setLoading(true);
-    setError("");
-    api<unknown>(`/projects/${projectId}/settings?work_item_id=${encodeURIComponent(workItemId)}`, { signal: controller.signal })
-      .then((value) => {
-        const next = decodeProjectSettings(value, projectId);
-        if (controller.signal.aborted) return;
-        setLoaded({ workItemId, settings: next });
-      }).catch((failure) => { if (!controller.signal.aborted) setError(errorMessage(failure)); })
-      .finally(() => { if (!controller.signal.aborted) setLoading(false); });
-    return () => controller.abort();
-  }, [projectId, workItemId, refresh]);
+  const settingsRead = useQuery({ ...workSettingsOptions(projectId, workItemId), refetchOnMount: "always" });
+  const settings = settingsRead.data ?? null;
+  const error = settingsRead.error ? errorMessage(settingsRead.error) : "";
+  const loading = settingsRead.isFetching;
   // Text edits can land between the settings response and its React render.
   // Reconcile an uninitialized revision from the successful current-work read;
   // an already-authored revision still requires the explicit review action below.
@@ -42,7 +28,7 @@ export default function JobReportEditor({ projectId, workItemId, draft, onChange
         ? { ...current, promptRevision: settings.revision } : current);
     }
   }, [settings, loading, error, draft.promptRevision, onChange]);
-  useFailedReadRetry({ scope: `report-prompt:${projectId}:${workItemId}`, failed: Boolean(error), busy: loading, retry: () => setRefresh((value) => value + 1) });
+  useFailedReadRetry({ scope: `report-prompt:${projectId}:${workItemId}`, failed: settingsRead.isError, busy: loading, retry: () => { void settingsRead.refetch(); } });
   const stale = settings && draft.promptRevision !== null && settings.revision !== draft.promptRevision;
   return <fieldset className="job-report-editor form-stack" disabled={disabled}>
     <legend>Human-facing job completion report</legend>
@@ -55,7 +41,7 @@ export default function JobReportEditor({ projectId, workItemId, draft, onChange
     {error && <p className="error-notice" role="alert">{error}</p>}
     {stale && <p role="alert">Project instructions changed. Review the latest instructions and your report before accepting this revision.</p>}
     <div className="settings-actions">
-      <button type="button" className="button button-secondary" disabled={disabled || loading} onClick={() => setRefresh((value) => value + 1)}>Review current prompt</button>
+      <button type="button" className="button button-secondary" disabled={disabled || loading} onClick={() => void settingsRead.refetch()}>Review current prompt</button>
       {stale && <button type="button" className="button button-secondary" onClick={() => onChange((current) => ({ ...current, promptRevision: settings.revision }))}>Use reviewed revision {settings.revision}</button>}
     </div>
     <label className="field" htmlFor={`${id}-summary`}>Human summary

@@ -18,7 +18,7 @@ import { ARTIFACT_DEFAULT_MAX_BYTES, artifactLibraryPath, artifactLocation } fro
 import CodeReviewHandoffEditor, { emptyReviewHandoff } from "@/components/code-review-handoff-editor";
 import JobReportEditor from "@/components/job-report-editor";
 import { codeReviewDecision } from "@/lib/code-review-policy";
-import { decodeCodeReviewDetail, validReviewHandoff, type CodeReviewHandoff } from "@/lib/code-reviews";
+import { validReviewHandoff, type CodeReviewHandoff } from "@/lib/code-reviews";
 import { validateColdReviewPointer } from "@/lib/code-review-prompts";
 import { renderedPrompt } from "@/lib/prompts";
 import { normalizeExternalReferences, sameExternalReferences } from "@/lib/external-references";
@@ -45,7 +45,7 @@ import DuplicateSuggestionPanel from "@/components/duplicate-suggestion-panel";
 import { useFailedReadRetry } from "@/components/use-failed-read-retry";
 import JobReportList from "@/components/job-report-list";
 import { useProjectActivity } from "@/components/use-project-activity";
-import { decodeProjectSettings, emptyJobReportDraft, jobReportFromDraft, jobReportDraftHasEdits, type JobReportDraft } from "@/lib/job-completion-reports";
+import { emptyJobReportDraft, jobReportFromDraft, jobReportDraftHasEdits, type JobReportDraft } from "@/lib/job-completion-reports";
 import HumanAttentionList from "@/components/human-attention-list";
 import MutationRecoveryPanel from "@/components/mutation-recovery-panel";
 import WorkDetailPane from "@/components/work-detail-pane";
@@ -60,7 +60,10 @@ import { draftFromWork, type WorkEditDraft } from "@/components/work-item-editor
 import { api, ApiError, errorMessage, isVersionConflict, workItemPath } from "@/lib/api";
 import { currentContext } from "@/lib/current-context";
 import { dashboardSessionId } from "@/lib/dashboard-session";
-import { decodeWorkContext, decodeWorkItemDetail } from "@/lib/duplicate-handling";
+import { fetchFreshWorkContext, fetchFreshWorkSettings, invalidateWorkDetailReads, invalidateWorkSettingsReads, workCheckpointsOptions, workContextOptions, workDetailKeys, workDetailOptions } from "@/lib/work-detail-queries";
+import { connectWorkMutationQueries } from "@/lib/work-mutation-queries";
+import { invalidateWorkReportReads } from "@/lib/work-report-queries";
+import { codeReviewDetailOptions } from "@/lib/work-panel-queries";
 import {
   MutationIntentProvider,
   MutationIntentRegistry,
@@ -83,13 +86,11 @@ import { earliestLeaseExpiry, scheduleLeaseExpiryRefresh } from "@/lib/lease-ref
 import { connectLiveSync, type LiveSyncStatus } from "@/lib/live-sync";
 import { projectShortcutIndex } from "@/lib/project-shortcuts";
 import type {
-  Checkpoint,
   CheckpointInput,
   CheckpointKind,
   DashboardWorkPendingInput,
   DeletionResult,
   DuplicateScope,
-  Page,
   Project,
   ProjectSettings,
   StatusFilter,
@@ -131,7 +132,6 @@ import {
   AffectedPathsValidationError,
   parseAffectedPathsDraft
 } from "@/lib/affected-paths";
-import { decodeCheckpointPage } from "@/lib/checkpoint-codecs";
 import {
   completionEvidenceDraftIsEmpty,
   completionEvidenceDraftIssues,
@@ -378,20 +378,63 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
   const [suggestionDraftGeneration, setSuggestionDraftGeneration] = useState(0);
 
   const [opened, setOpened] = useState<WorkSummary | null>(null);
-  const [context, setContext] = useState<WorkContext | null>(null);
-  const [contextLoading, setContextLoading] = useState(false);
+  // Query owns the server snapshot. This target only controls whether a verified
+  // context is usable; failed reconciliation must not reveal a retained cache entry.
+  const [contextTarget, setContextTarget] = useState<{ projectId: string; workId: string } | null>(null);
+  const contextTargetRef = useRef(contextTarget);
+  const contextQuery = useQuery({
+    // Hide an unverified snapshot without detaching the selected observer: a
+    // placement scan may already be rechecking the same key after a 404.
+    ...workContextOptions(
+      contextTarget?.projectId ?? opened?.work_item.project_id ?? "",
+      contextTarget?.workId ?? opened?.work_item.id ?? ""
+    ),
+    // Selection, placement and post-write reconciliation own dispatch. Live reads
+    // must wait for edit/recovery guards, rather than bypassing them on invalidation.
+    enabled: false
+  });
+  const context = contextTarget ? contextQuery.data ?? null : null;
+  function setContext(update: WorkContext | null | ((current: WorkContext | null) => WorkContext | null)) {
+    const target = contextTargetRef.current;
+    const current = target ? queryClient.getQueryData(workDetailKeys.context(target.projectId, target.workId)) as WorkContext | undefined : null;
+    const next = typeof update === "function" ? update(current ?? null) : update;
+    const nextTarget = next ? { projectId: next.work_item.project_id, workId: next.work_item.id } : null;
+    if (next) queryClient.setQueryData(workDetailKeys.context(next.work_item.project_id, next.work_item.id), next);
+    contextTargetRef.current = nextTarget;
+    setContextTarget(nextTarget);
+  }
+  const [contextLoading, setContextLoadingState] = useState(false);
+  const contextLoadingRef = useRef(false);
+  function setContextLoading(loading: boolean) {
+    contextLoadingRef.current = loading;
+    setContextLoadingState(loading);
+  }
   const [contextError, setContextError] = useState("");
   const [contextReconciliationRequired, setContextReconciliationRequired] = useState(false);
   const [contextRefresh, setContextRefresh] = useState(0);
   const [tab, setTab] = useState<DetailTab>("context");
   const [mergeOpen, setMergeOpen] = useState(false);
-  const [mode, setMode] = useState<"view" | "edit">("view");
+  const [mode, setModeState] = useState<"view" | "edit">("view");
+  const modeRef = useRef(mode);
+  function setMode(next: "view" | "edit") { modeRef.current = next; setModeState(next); }
+  const [editBase, setEditBase] = useState<WorkItem | null>(null);
   const [createExternalReferences, setCreateExternalReferences] = useState<ExternalReference[]>([]);
   const [editDraft, setEditDraft] = useState<WorkEditDraft | null>(null);
   const [editSaving, setEditSaving] = useState(false);
   const [editError, setEditError] = useState("");
   const [conflict, setConflict] = useState<WorkItem | null>(null);
   const recordRequest = useRef(0);
+  const pendingContextReads = useRef(new Map<string, object>());
+  async function readFreshContext(projectId: string, workId: string, recentLimit = 5, recentEventLimit = 10) {
+    const key = JSON.stringify(workDetailKeys.context(projectId, workId, recentLimit, recentEventLimit));
+    const request = {};
+    pendingContextReads.current.set(key, request);
+    try { return await fetchFreshWorkContext(queryClient, projectId, workId, recentLimit, recentEventLimit); }
+    finally { if (pendingContextReads.current.get(key) === request) pendingContextReads.current.delete(key); }
+  }
+  function cancelSelectedContextReads() {
+    void queryClient.cancelQueries({ predicate: ({ queryKey }) => pendingContextReads.current.has(JSON.stringify(queryKey)) });
+  }
   const workPlacementRequest = useRef(0);
   const lastLoadedContextRequest = useRef(0);
   const exactContextTarget = useRef<ExactContextTarget | null>(null);
@@ -399,12 +442,18 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
   const urlWorkRestore = useRef<string | null | undefined>(undefined);
   const skipWorkUrlMirror = useRef(false);
 
-  const [checkpointPage, setCheckpointPage] = useState<Page<Checkpoint> | null>(null);
   const [checkpointOffset, setCheckpointOffset] = useState(0);
-  const [checkpointLoading, setCheckpointLoading] = useState(false);
-  const [checkpointLoadError, setCheckpointLoadError] = useState("");
   const [checkpointActionError, setCheckpointActionError] = useState("");
-  const [checkpointRefresh, setCheckpointRefresh] = useState(0);
+  const checkpointQuery = useQuery({
+    ...workCheckpointsOptions(opened?.work_item.project_id ?? "", opened?.work_item.id ?? "", CHECKPOINT_PAGE_SIZE, checkpointOffset),
+    enabled: Boolean(opened)
+  });
+  const checkpointPage = opened ? checkpointQuery.data ?? null : null;
+  const checkpointLoading = Boolean(opened) && checkpointQuery.isFetching;
+  const checkpointLoadError = opened && checkpointQuery.error ? errorMessage(checkpointQuery.error) : "";
+  function refreshCheckpoints() {
+    if (opened) void queryClient.invalidateQueries({ queryKey: [...workDetailKeys.work(opened.work_item.project_id, opened.work_item.id), "checkpoints"] }, { cancelRefetch: false });
+  }
   const [eventRefresh, setEventRefresh] = useState(0);
   const [checkpointKind, setCheckpointKind] = useState<Exclude<CheckpointKind, "completion">>("progress");
   const [checkpointBody, setCheckpointBody] = useState("");
@@ -470,7 +519,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
     projectId: activeId,
     onBootstrap: setActivityReadyProjectId,
     onInvalidation: (changes) => {
-      if (changes.work) { refreshWork(); refreshAttention(); setContextRefresh((value) => value + 1); setCheckpointRefresh((value) => value + 1); setEventRefresh((value) => value + 1); }
+      if (changes.work) { refreshWork(); refreshAttention(); setContextRefresh((value) => value + 1); refreshCheckpoints(); setEventRefresh((value) => value + 1); }
       if (changes.reports) refreshReports();
       if (changes.settings) refreshSettings();
       if (changes.projects) refreshProjects();
@@ -588,29 +637,13 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
     });
   }, [sourceClientInput, sourceSessionInput, tagInput]);
 
+  useEffect(() => connectWorkMutationQueries(queryClient, mutationRegistry), [queryClient, mutationRegistry]);
+
   useEffect(() => {
-    if (!opened) { setCheckpointPage(null); return; }
-    const controller = new AbortController();
-    setCheckpointLoading(true);
-    setCheckpointLoadError("");
-    const base = workItemPath(opened.work_item.project_id, opened.work_item.id);
-    api<unknown>(`${base}/checkpoints?order=newest&limit=${CHECKPOINT_PAGE_SIZE}&offset=${checkpointOffset}`, { signal: controller.signal })
-      .then((value) => {
-        if (controller.signal.aborted) return;
-        const page = decodeCheckpointPage(value, opened.work_item.id, {
-          limit: CHECKPOINT_PAGE_SIZE,
-          offset: checkpointOffset
-        });
-        if (checkpointOffset > 0 && checkpointOffset >= page.total) {
-          setCheckpointOffset(Math.max(0, Math.floor((page.total - 1) / CHECKPOINT_PAGE_SIZE) * CHECKPOINT_PAGE_SIZE));
-          return;
-        }
-        setCheckpointPage(page);
-      })
-      .catch((error) => { if (!controller.signal.aborted) setCheckpointLoadError(errorMessage(error)); })
-      .finally(() => { if (!controller.signal.aborted) setCheckpointLoading(false); });
-    return () => controller.abort();
-  }, [opened, checkpointOffset, checkpointRefresh]);
+    if (checkpointPage && checkpointOffset > 0 && checkpointOffset >= checkpointPage.total) {
+      setCheckpointOffset(Math.max(0, Math.floor((checkpointPage.total - 1) / CHECKPOINT_PAGE_SIZE) * CHECKPOINT_PAGE_SIZE));
+    }
+  }, [checkpointPage, checkpointOffset]);
 
   useEffect(() => {
     const pending = { projects: false, settings: false, list: false, attention: false, open: false };
@@ -623,7 +656,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
       if (pending.list) refreshWork(null);
       if (pending.attention) refreshAttention(null);
       if (pending.open) {
-        setCheckpointRefresh((value) => value + 1);
+        refreshCheckpoints();
         setEventRefresh((value) => value + 1);
         setContextRefresh((value) => value + 1);
       }
@@ -676,7 +709,9 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
     if (mode === "edit") return;
     // A live-sync refresh must not supersede a context load already in flight (an exact audit
     // load, a ?work= restore, or a post-mutation reconcile); it runs once that load settles.
-    if (contextLoading || mutationRegistry.blocks([
+    // The registry can release its block before React commits the explicit
+    // reconciliation's loading state. A stale effect must not cancel that read.
+    if (contextLoadingRef.current || mutationRegistry.blocks([
       mutationWorkKey(opened.work_item.project_id, opened.work_item.id)
     ])) return;
     lastContextRefresh.current = contextRefresh;
@@ -845,12 +880,14 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
   function refreshProjects() {
     void invalidateCoreReads(queryClient, activeIdRef.current, ["projects"]);
   }
-  function refreshSettings(projectId: string | null = activeIdRef.current) {
+  function refreshSettings(projectId: string | null = activeIdRef.current, refreshWorkPolicies = true) {
     void invalidateCoreReads(queryClient, projectId, ["settings"]);
+    if (refreshWorkPolicies) void invalidateWorkSettingsReads(queryClient, projectId);
     setLegacySettingsRefresh((value) => value + 1);
   }
   function refreshWork(projectId: string | null = activeIdRef.current) {
     void invalidateCoreReads(queryClient, projectId, ["work"]);
+    void invalidateWorkDetailReads(queryClient, projectId);
     setLegacyRefresh((value) => value + 1);
   }
   function refreshAttention(projectId: string | null = activeIdRef.current) {
@@ -859,6 +896,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
   }
   function refreshReports(projectId: string | null = activeIdRef.current) {
     void invalidateCoreReads(queryClient, projectId, ["reports"]);
+    void invalidateWorkReportReads(queryClient, projectId);
     setLegacyReportRefresh((value) => value + 1);
   }
 
@@ -961,11 +999,11 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
     }
   }
 
-  function handleProjectSettingsSaved(saved: ProjectSettings) {
+  function handleProjectSettingsSaved(saved: ProjectSettings, refreshWorkPolicies = true) {
     if (saved.project_id !== activeIdRef.current) return;
     void queryClient.cancelQueries({ queryKey: queryKeys.settings(saved.project_id) });
     queryClient.setQueryData(queryKeys.settings(saved.project_id), saved);
-    refreshSettings();
+    refreshSettings(saved.project_id, refreshWorkPolicies);
   }
 
   function handleProjectSaved(saved: Project) {
@@ -993,18 +1031,13 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
     setContextLoading(true);
     setContextError("");
     try {
-      const value = await api<unknown>(`${workItemPath(summary.work_item.project_id, summary.work_item.id)}/context?recent_limit=5&recent_event_limit=10`);
-      const full = decodeWorkContext(
-        value,
-        summary.work_item.project_id,
-        summary.work_item.id
-      );
+      const full = await readFreshContext(summary.work_item.project_id, summary.work_item.id);
       if (recordRequest.current !== requestId) return "superseded";
       setContext(full);
       lastLoadedContextRequest.current = requestId;
       setContextReconciliationRequired(false);
       setOpened((current) => current ? summaryWithContext(current, full) : current);
-      if (!preserveEditDraft) setEditDraft(draftFromWork(full.work_item));
+      if (!preserveEditDraft && modeRef.current !== "edit") setEditDraft(draftFromWork(full.work_item));
       return "loaded";
     } catch (error) {
       if (
@@ -1032,6 +1065,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
   }
 
   function openWork(summary: WorkSummary) {
+    cancelSelectedContextReads();
     if (summary.readiness.display_state === "to-review") setTab("reviews");
     const requestId = ++recordRequest.current;
     exactContextTarget.current = null;
@@ -1045,7 +1079,6 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
     setEditError("");
     setConflict(null);
     setCheckpointOffset(0);
-    setCheckpointPage(null);
     setCheckpointBody("");
     setCheckpointBranch("");
     setCheckpointCommit("");
@@ -1066,6 +1099,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
     workItemId: string,
     moveRecovery?: WorkPlacementSummary
   ): Promise<boolean> {
+    cancelSelectedContextReads();
     const requestId = ++recordRequest.current;
     exactContextTarget.current = { projectId, workItemId, moveRecovery };
     setContext(null);
@@ -1073,7 +1107,6 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
     setContextLoading(true);
     setContextError("");
     setCheckpointOffset(0);
-    setCheckpointPage(null);
     // A post-Move retry must retain every draft until a verified context is loaded.
     // Fresh exact opens still clear eagerly so an unrelated record never inherits them.
     if (!moveRecovery) {
@@ -1092,11 +1125,8 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
       setCheckpointActionError("");
     }
     try {
-      const value = await api<unknown>(
-        `${workItemPath(projectId, workItemId)}/context?recent_limit=5&recent_event_limit=10`
-      );
+      const full = await readFreshContext(projectId, workItemId);
       if (recordRequest.current !== requestId) return false;
-      const full = decodeWorkContext(value, projectId, workItemId);
       const summary: WorkSummary = {
         work_item: full.work_item,
         checkpoint_count: full.checkpoint_total,
@@ -1189,11 +1219,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
     for (const candidate of ordered) {
       if (!isCurrent()) return { kind: "superseded" };
       try {
-        const value = await api<unknown>(
-          `${workItemPath(candidate.id, workItemId)}/context?recent_limit=5&recent_event_limit=10`
-        );
-        if (!isCurrent()) return { kind: "superseded" };
-        const full = decodeWorkContext(value, candidate.id, workItemId);
+        const full = await readFreshContext(candidate.id, workItemId);
         if (!isCurrent()) return { kind: "superseded" };
         return { kind: "found", project: candidate, context: full };
       } catch (error) {
@@ -1232,7 +1258,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
       setStatus(displayStatus);
       setOpened(summaryFromContext(found.context));
       setContext(found.context);
-      if (!preserveEditDraft) {
+      if (!preserveEditDraft && modeRef.current !== "edit") {
         setEditDraft(draftFromWork(found.context.work_item));
         setMode("view");
         setMergeOpen(false);
@@ -1240,7 +1266,6 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
         setConflict(null);
       }
       setCheckpointOffset(0);
-      setCheckpointPage(null);
       setContextError("");
       setContextReconciliationRequired(false);
       setContextLoading(false);
@@ -1249,7 +1274,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
       refreshWork();
       refreshAttention();
       refreshReports();
-      setCheckpointRefresh((value) => value + 1);
+      refreshCheckpoints();
       setEventRefresh((value) => value + 1);
       setNotice({
         message: reason === "move_action"
@@ -1341,9 +1366,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
       async (projectId, candidateWorkItemId) => {
         if (!isCurrent()) return false;
         try {
-          const value = await api<unknown>(workItemPath(projectId, candidateWorkItemId));
-          if (!isCurrent()) return false;
-          decodeWorkItemDetail(value, projectId, candidateWorkItemId);
+          await queryClient.fetchQuery({ ...workDetailOptions(projectId, candidateWorkItemId), staleTime: 0 });
           if (!isCurrent()) return false;
           return true;
         } catch (error) {
@@ -1477,6 +1500,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
   }
 
   function clearSelection(): void {
+    cancelSelectedContextReads();
     ++recordRequest.current;
     exactContextTarget.current = null;
     setOpened(null);
@@ -1484,7 +1508,6 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
     setContext(null);
     setContextLoading(false);
     setContextReconciliationRequired(false);
-    setCheckpointPage(null);
     setCheckpointBody("");
     setCheckpointBranch("");
     setCheckpointCommit("");
@@ -1511,7 +1534,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
     setMergeOpen(false);
     refreshWork();
     refreshAttention();
-    setCheckpointRefresh((value) => value + 1);
+    refreshCheckpoints();
     setEventRefresh((value) => value + 1);
     // The exact audit load below replaces the open context; a separate refresh would race it.
     const auditLoaded = await openExactWork(
@@ -1534,7 +1557,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
 
   function unsavedEditsKept(): boolean {
     if (mode !== "edit" || !context || !editDraft) return false;
-    if (JSON.stringify(editDraft) === JSON.stringify(draftFromWork(context.work_item))) return false;
+    if (JSON.stringify(editDraft) === JSON.stringify(draftFromWork(editBase ?? context.work_item))) return false;
     return !window.confirm("Discard your unsaved work-item edits?");
   }
 
@@ -1680,6 +1703,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
       return;
     }
     setEditDraft(draftFromWork(context.work_item));
+    setEditBase(context.work_item);
     setEditError("");
     setConflict(null);
     setTab("context");
@@ -1706,7 +1730,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
   async function saveWorkEdits(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!context || !editDraft || !opened) return;
-    const base = context.work_item;
+    const base = editBase ?? context.work_item;
     const patch: WorkPatch = { expected_version: base.version };
     if (editDraft.title !== base.title) patch.title = editDraft.title;
     if (editDraft.summary !== base.summary) patch.summary = editDraft.summary;
@@ -1743,7 +1767,6 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
       if (saved.job_completion_report) { setJobReportDraft(emptyJobReportDraft()); refreshReports(); }
       const { job_completion_report: _report, ...savedWork } = saved;
       const savedSummary = { ...opened, work_item: savedWork };
-      setContext((value) => value ? { ...value, work_item: savedWork } : value);
       setOpened(savedSummary);
       setEventRefresh((value) => value + 1);
       refreshWork();
@@ -1774,12 +1797,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
     if (!context) return;
     setEditError("");
     try {
-      const value = await api<unknown>(`${workItemPath(context.work_item.project_id, context.work_item.id)}/context?recent_limit=5&recent_event_limit=10`);
-      const latest = decodeWorkContext(
-        value,
-        context.work_item.project_id,
-        context.work_item.id
-      );
+      const latest = await readFreshContext(context.work_item.project_id, context.work_item.id);
       setContext(latest);
       setOpened((value) => value ? summaryWithContext(value, latest) : value);
       setConflict(latest.work_item);
@@ -1790,6 +1808,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
 
   function useCurrentVersion() {
     if (!conflict) return;
+    setEditBase(conflict);
     setContext((value) => value ? { ...value, work_item: conflict } : value);
     setOpened((value) => value ? { ...value, work_item: conflict } : value);
     setEditDraft((value) => {
@@ -1819,9 +1838,9 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
     const selection = recordRequest.current;
     try {
       if (complete) {
-        const latestSettings = decodeProjectSettings(await api<unknown>(`/projects/${context.work_item.project_id}/settings?work_item_id=${context.work_item.id}`), context.work_item.project_id);
+        const latestSettings = await fetchFreshWorkSettings(queryClient, context.work_item.project_id, context.work_item.id);
         if (recordRequest.current !== selection) return;
-        handleProjectSettingsSaved(latestSettings);
+        handleProjectSettingsSaved(latestSettings, false);
         const decision = codeReviewDecision(latestSettings, context.work_item.priority, context.code_review_context?.remediation_depth ?? 0);
         if (decision === "mandatory" && !handoff && !context.work_item.manual_review_request) {
           setReviewCloseout({ mode: "checkpoint", summary: summaryWithContext(opened!, context), revision: latestSettings.revision });
@@ -1893,7 +1912,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
       setCheckpointAffectedPathsError("");
       setCheckpointTags("");
       setCheckpointOffset(0);
-      setCheckpointRefresh((value) => value + 1);
+      refreshCheckpoints();
       setEventRefresh((value) => value + 1);
       refreshWork();
       const reconciled = await reloadOpenContext();
@@ -1944,12 +1963,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
     } catch (error) {
       if (isVersionConflict(error)) {
         try {
-          const value = await api<unknown>(workItemPath(deleteTarget.project_id, deleteTarget.id));
-          const latest = decodeWorkItemDetail(
-            value,
-            deleteTarget.project_id,
-            deleteTarget.id
-          );
+          const latest = await queryClient.fetchQuery({ ...workDetailOptions(deleteTarget.project_id, deleteTarget.id), staleTime: 0 });
           setDeleteTarget(latest.work_item);
           setDeleteError(`This work item changed. Deletion was not retried; review the current version ${latest.work_item.version} before trying again.`);
         } catch (reloadError) {
@@ -1993,15 +2007,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
     refreshAttention();
     let loaded: "loaded" | "failed" | "superseded" | WorkPlacementRecoveryResult;
     try {
-      const value = await api<unknown>(
-        `${workItemPath(result.target_project_id, result.work_item.id)}/context?recent_limit=5&recent_event_limit=10`
-      );
-      if (!isCurrent()) return;
-      const full = decodeWorkContext(
-        value,
-        result.target_project_id,
-        result.work_item.id
-      );
+      const full = await readFreshContext(result.target_project_id, result.work_item.id);
       if (!isCurrent()) return;
       setStatus(preservedWorkMoveDisplayStatus(full));
       setOpened(summaryFromContext(full));
@@ -2011,7 +2017,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
       setContextReconciliationRequired(false);
       exactContextTarget.current = null;
       lastLoadedContextRequest.current = requestId;
-      setCheckpointRefresh((value) => value + 1);
+      refreshCheckpoints();
       setEventRefresh((value) => value + 1);
       loaded = "loaded";
     } catch (error) {
@@ -2126,14 +2132,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
     try {
       let sourceContext = selectedContext;
       if (!sourceContext) {
-        const value = await api<unknown>(
-          `${workItemPath(requestedWork.project_id, requestedWork.id)}/context?recent_limit=0&recent_event_limit=0`
-        );
-        sourceContext = decodeWorkContext(
-          value,
-          requestedWork.project_id,
-          requestedWork.id
-        );
+        sourceContext = await readFreshContext(requestedWork.project_id, requestedWork.id, 0, 0);
         sourceSummary = summaryWithContext(sourceSummary, sourceContext);
       }
       const disabledReason = workMoveDisabledReason(
@@ -2266,8 +2265,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
     let currentWork = work;
     setStatusChangingId(work.id);
     try {
-      const latestValue = await api<unknown>(`${basePath}/context?recent_limit=0&recent_event_limit=0`);
-      const latestContext = decodeWorkContext(latestValue, work.project_id, work.id);
+      const latestContext = await readFreshContext(work.project_id, work.id, 0, 0);
       if (latestContext.work_item.version !== work.version) throw new Error("This work item changed. Refresh it before making a status decision.");
       if (action === "review") {
         await mutationRegistry.execute({
@@ -2292,8 +2290,8 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
         const status = action === "defer" ? "deferred" : action === "pending" ? "to-review" : action;
         const terminal = status === "done" || status === "wont-do" || status === "promoted";
         if (terminal) {
-          settings = decodeProjectSettings(await api<unknown>(`/projects/${work.project_id}/settings?work_item_id=${work.id}`), work.project_id);
-          handleProjectSettingsSaved(settings);
+          settings = await fetchFreshWorkSettings(queryClient, work.project_id, work.id);
+          handleProjectSettingsSaved(settings, false);
         }
         await mutationRegistry.execute({
           kind: "update_work", slot: `update-work:${work.project_id}:${work.id}`,
@@ -2319,8 +2317,8 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
       }
       if (action === "to-review") throw new Error("This review episode changed. Refresh before continuing.");
       if (action === "done") {
-        settings = decodeProjectSettings(await api<unknown>(`/projects/${work.project_id}/settings?work_item_id=${work.id}`), work.project_id);
-        handleProjectSettingsSaved(settings);
+        settings = await fetchFreshWorkSettings(queryClient, work.project_id, work.id);
+        handleProjectSettingsSaved(settings, false);
         const decision = codeReviewDecision(settings, work.priority, latestContext.code_review_context?.remediation_depth ?? 0);
         if (decision === "mandatory" && !handoff && !work.manual_review_request) {
           setReviewCloseout({ mode: "manual", summary: summaryWithContext(summary, latestContext), revision: settings.revision });
@@ -2430,7 +2428,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
           }
         }
         if (actionSourceIsStillOpened()) setCheckpointOffset(0);
-        setCheckpointRefresh((value) => value + 1);
+        refreshCheckpoints();
         refreshReports();
       } else if (action === "wont-do" || action === "promoted") {
         if (!settings) throw new Error("Project report settings are not ready.");
@@ -2540,7 +2538,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
       refreshWork();
       refreshAttention();
       refreshReports();
-      setCheckpointRefresh((value) => value + 1);
+      refreshCheckpoints();
       setEventRefresh((value) => value + 1);
       setContextRefresh((value) => value + 1);
       if (intent.kind === "create_work") setWorkDialog("closed");
@@ -2626,8 +2624,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
     const projectId = summary.work_item.project_id;
     const requestGeneration = recordRequest.current;
     try {
-      const value = await api<unknown>(`${workItemPath(projectId, summary.work_item.id)}/context?recent_limit=0&recent_event_limit=0`);
-      const latest = decodeWorkContext(value, projectId, summary.work_item.id);
+      const latest = await readFreshContext(projectId, summary.work_item.id, 0, 0);
       if (recordRequest.current !== requestGeneration) return;
       const review = latest.code_review_context?.current_review;
       if (review?.manual_request?.mode === "cold") {
@@ -2651,8 +2648,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
     if (!review) return;
     const requestGeneration = recordRequest.current;
     try {
-      const value = await api<unknown>(`${workItemPath(review.project_id, review.work_item_id)}/code-reviews/${review.id}`);
-      const detail = decodeCodeReviewDetail(value, review.project_id, review.work_item_id, review.id);
+      const detail = await queryClient.fetchQuery({ ...codeReviewDetailOptions(review.project_id, review.work_item_id, review.id), staleTime: 0 });
       if (requestGeneration !== recordRequest.current) return;
       if (detail.review.state !== "requested" || detail.review.version !== review.version || detail.review.scope_sha256 !== review.scope_sha256) {
         setContextRefresh((value) => value + 1); throw new Error("The review changed. Refresh the work item before copying its prompt.");
@@ -2769,7 +2765,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
   useFailedReadRetry({
     scope: `checkpoints:${opened?.work_item.project_id}:${openedId}:${checkpointOffset}`,
     failed: Boolean(checkpointLoadError), busy: checkpointLoading, enabled: Boolean(opened),
-    retry: () => setCheckpointRefresh((value) => value + 1)
+    retry: () => refreshCheckpoints()
   });
   useFailedReadRetry({
     scope: `context:${opened?.work_item.project_id}:${openedId}`,
@@ -3077,7 +3073,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
                     return reconciled;
                   }}
                   onCheckpointOffset={setCheckpointOffset}
-                  onReloadCheckpoints={() => setCheckpointRefresh((value) => value + 1)}
+                  onReloadCheckpoints={() => refreshCheckpoints()}
                   onEventAppended={() => afterWorkMutation(
                     "Progress was saved, but current work context could not be reloaded. Use Refresh before continuing."
                   )}

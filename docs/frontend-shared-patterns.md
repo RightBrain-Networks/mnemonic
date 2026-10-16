@@ -127,12 +127,87 @@ On refresh they reload the prior raw loaded prefix, rather than assuming a fixed
 page size or counting deduplicated display rows. Canonical pickers retain their
 250ms debounce and hide results immediately when the request scope changes.
 
-Migration 6 owns selected work context/history/relationships/reviews/evidence and
-protected-write reconciliation. Its imperative exact-context, placement and
-fresh completion-policy reads remain explicit for now; MutationIntentRegistry
-continues to own frozen writes and uncertain outcomes. Placement probes use the
-same Query catalog with an explicit fresh fetch. Migration 7 owns artifact and
-transcript libraries, prompts, backups, attention/report/review detail panels and
+Migration 6 places selected work context, detail, checkpoint history, events,
+relationships, children, gates, reviews, completion evidence, report provenance,
+originating-report detail and work-scoped report policy in Query. Request keys carry project/work identity and each
+resource's filters, cursor, offset or context limits. The selected context
+observer is disabled: the existing placement and navigation coordinator explicitly
+dispatches fresh reads through shared Query options after applying its request
+generation and draft guards. It cancels the exact prior key before reconciliation
+so an older in-flight read cannot satisfy a post-write request. Placement probes
+use the same Query catalog with an explicit fresh fetch.
+Fresh context and policy helpers also verify that their own transport ran without
+cancellation. Query's cancellation fallback may retain cached data for display;
+that retained data cannot satisfy placement verification or mutation preflight.
+
+Query owns decoded read-only server snapshots. The editor's `editBase`, authored
+report prompt revision and pinned review drafts remain separate UI state;
+background metadata refresh cannot silently replace their reviewed versions.
+Context observer identity and request bookkeeping only describe the view's current
+selection and guarded navigation; they are not another resource cache.
+`JobReportEditor` shares work-scoped settings reads while requiring an explicit
+action to accept a changed report revision. Completion and review preflight
+reads still request fresh data through Query before dispatch. MutationIntentRegistry
+continues to own frozen writes and uncertain outcomes. Work-view report provenance
+retains its snapshot sequence, exact continuation, ordering and identity checks
+across infinite pages; refetch rebuilds the loaded chain from a fresh head.
+Originating-report keys retain both the viewed work scope and the original report
+project, preserving exact source identity after moves, merges and deletion.
+Their decoded report snapshot stays visible during background refresh and failures.
+Closing a selected report or gate history detaches its observer and cancels any
+read no longer used by another observer. Migration 7 owns artifact and
+transcript libraries, prompts, backups, standalone attention/report/review panels and
 other secondary reads. Runtime configuration bootstraps the app before Query;
 activity/WebSocket cursors and raw upload/download streams are transport state,
 not cached resource pages. No production rollout is implied by this migration.
+
+### Confirmed work mutations and Query reconciliation
+
+`MutationIntentRegistry.subscribeConfirmed` publishes a decoded result after an
+initial success or an explicit retry succeeds. The app connects that stream once
+with `connectWorkMutationQueries`; its cleanup removes the subscription. Existing
+`subscribeRecovered` callbacks remain exclusive to explicit retries, preserving
+their navigation, draft and modal recovery behavior. Query never executes a
+protected write or grants retry authority. Timeouts, transport ambiguity,
+malformed success payloads, definitive rejections and safety conflicts do not
+publish confirmations. Frozen bodies, operation IDs, conflict keys and explicit
+retry behavior remain owned by the mutation registry.
+
+`work-mutation-queries.ts` exhaustively maps every protected work mutation to
+cached reads. In this table, **work reads** means work queues, canonical pickers,
+task pages, selected-work detail and the attention count. **Closeout reads** adds
+the report count. Selected-work detail includes all cached context, checkpoint,
+event, relationship, review, completion-evidence and work-view report pages, including filtered
+and paginated variants.
+
+| Mutation | Reads invalidated | Scope evidence |
+| --- | --- | --- |
+| `create_work` | Work reads | Request project and decoded new work/initial relationships |
+| `update_work` (edits, status, review request/decision) | Closeout reads | Frozen work key and decoded work |
+| `defer_work` | Work reads | Frozen work key and decoded work |
+| `add_checkpoint` | Work reads | Request project and frozen work key |
+| `append_event` | Work reads | Frozen work key and decoded event |
+| `complete_work` | Closeout reads | Frozen work key and decoded completed work |
+| `add_relationship` | Work reads | Both frozen endpoint keys and decoded relationship authority |
+| `remove_relationship` | Work reads | Both frozen endpoint keys and decoded relationship authority |
+| `move_work` | Closeout reads | Frozen source/target keys plus decoded source/target projects and moved work |
+| `merge_work` | Closeout reads | Both frozen work keys and both decoded work endpoints |
+| `delete_work` | Closeout reads | Frozen work key and decoded deleted-work project |
+| `resolve_human_input` | Work reads | Frozen work/gate keys and decoded gate project |
+| `respond_to_work_follow_up` | Work reads | Frozen work key and decoded follow-up project |
+| `dismiss_job_completion_report` | Selected-work detail and report count | Frozen report key and decoded dismissal project |
+| `create_job_completion_report_follow_up` | Closeout reads | Frozen source/report keys and decoded new work |
+
+Scopes are derived from the dispatched intent and decoded result, independently
+of the currently selected project. Cross-project relationships and moves refresh
+both sides. Originating reports also match their original authority project, even
+when their viewed follow-up work now belongs to another project. Detail invalidation deliberately includes other work in each affected
+project: relationship pointers, hierarchy and readiness can change when an
+adjacent work item changes. Work-scoped report policy refreshes with these detail
+reads; core project settings, unrelated projects and the project catalog remain
+cached. Inactive reads become stale; active reads refresh with their
+existing strict decoders and cancellation. Older active history requests are
+cancelled before confirmation refresh. The guarded context observer is disabled,
+so invalidation marks it stale while the explicit placement coordinator retains
+ownership of reconciliation and navigation. No optimistic result enters the
+cache, and unsuccessful writes do not clear or refresh cached data.

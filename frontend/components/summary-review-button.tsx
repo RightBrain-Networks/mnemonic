@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
-import { api, errorMessage, workItemPath } from "@/lib/api";
-import { decodeWorkContext } from "@/lib/duplicate-handling";
+import { useQueryClient } from "@tanstack/react-query";
+import { errorMessage, workItemPath } from "@/lib/api";
+import { fetchFreshWorkContext } from "@/lib/work-detail-queries";
 import { dashboardSessionId } from "@/lib/dashboard-session";
 import { dashboardMutationActor } from "@/lib/work-events";
 import { mutationWorkKey, useMutationIntentRegistry, useMutationScope } from "@/lib/mutation-intent";
@@ -15,6 +16,7 @@ export default function SummaryReviewButton({ item, onChanged, repositoryUrl }: 
   item: JobReportEnvelope; onChanged: () => void; repositoryUrl?: string | null;
 }) {
   const { report, source_work_state: source } = item;
+  const queryClient = useQueryClient();
   const registry = useMutationIntentRegistry();
   const key = mutationWorkKey(report.project_id, report.work_item_id);
   const { blocked, intents } = useMutationScope({ conflictKeys: [key] });
@@ -64,7 +66,7 @@ export default function SummaryReviewButton({ item, onChanged, repositoryUrl }: 
     performing.current = true; requestedMode.current = mode; setBusy(true); setError("");
     try {
       const path = workItemPath(report.project_id, report.work_item_id);
-      const context = decodeWorkContext(await api<unknown>(`${path}/context?recent_limit=0&recent_event_limit=0`), report.project_id, report.work_item_id);
+      const context = await fetchFreshWorkContext(queryClient, report.project_id, report.work_item_id, 0, 0);
       if (!alive.current || registry.blocks([key])) return;
       await registry.execute({
         kind: "update_work", slot: `update-work:${report.project_id}:${report.work_item_id}`,

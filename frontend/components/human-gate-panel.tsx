@@ -4,17 +4,16 @@ import Link from "@/components/dashboard-link";
 
 import { useFailedReadRetry } from "@/components/use-failed-read-retry";
 import { useEffect, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { humanGateHistoryOptions } from "@/lib/work-panel-queries";
 import HumanGateQuestion from "@/components/human-gate-question";
 import { clientLabel, formatDateTime } from "@/components/work-item-card";
-import { api, errorMessage } from "@/lib/api";
+import { errorMessage } from "@/lib/api";
 import {
-  decodeHumanGatePage,
-  humanGateHistorySearchParams,
   humanGateOmissionSentence,
-  humanGatePath,
   humanGateResolutionStatus
 } from "@/lib/human-gates";
-import type { HumanGatePage, HumanGateRead, WorkContext } from "@/lib/types";
+import type { HumanGateRead, WorkContext } from "@/lib/types";
 
 const HISTORY_PAGE_SIZE = 30;
 
@@ -39,67 +38,31 @@ function GateHistory({ context, refreshSignal }: { context: WorkContext; refresh
   const [open, setOpen] = useState(false);
   const [cursorStack, setCursorStack] = useState<Array<string | null>>([null]);
   const [pageIndex, setPageIndex] = useState(0);
-  const [page, setPage] = useState<HumanGatePage | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [reload, setReload] = useState(0);
   const cursor = cursorStack[pageIndex] ?? null;
+  const history = useQuery(humanGateHistoryOptions(work.project_id, work.id, cursor, open));
+  const page = history.data;
+  const loading = history.isFetching;
+  const error = history.error ? errorMessage(history.error) : "";
 
   useEffect(() => {
-    setPage(null);
     setPageIndex(0);
     setCursorStack([null]);
-  }, [work.id]);
+  }, [work.project_id, work.id, open, refreshSignal]);
 
-  useEffect(() => {
-    if (!open) return;
-    const controller = new AbortController();
-    const params = humanGateHistorySearchParams({
-      status: "all",
-      limit: HISTORY_PAGE_SIZE,
-      cursor
-    });
-    setLoading(true);
-    setError("");
-    api<unknown>(`${humanGatePath(work.project_id, work.id)}?${params}`, {
-      signal: controller.signal
-    }).then((value) => {
-      if (!controller.signal.aborted) {
-        setPage(decodeHumanGatePage(value, work.project_id, work.id, {
-          status: "all",
-          limit: HISTORY_PAGE_SIZE
-        }));
-      }
-    }).catch((cause) => {
-      if (!controller.signal.aborted) setError(errorMessage(cause));
-    }).finally(() => {
-      if (!controller.signal.aborted) setLoading(false);
-    });
-    return () => controller.abort();
-  }, [cursor, open, reload, work.id, work.project_id]);
-
-  useEffect(() => {
-    if (!open) return;
-    setCursorStack([null]);
-    setPageIndex(0);
-    setReload((value) => value + 1);
-  }, [open, refreshSignal]);
-
-  useFailedReadRetry({ scope: `gate-history:${work.project_id}:${work.id}:${cursor}`, failed: Boolean(error), busy: loading, enabled: open, retry: () => setReload((value) => value + 1) });
+  useFailedReadRetry({ scope: `gate-history:${work.project_id}:${work.id}:${cursor}`, failed: history.isError, busy: loading, enabled: open, retry: () => { void history.refetch(); } });
 
   return <section className="gate-history">
     <button type="button" className="button button-secondary" aria-expanded={open} onClick={() => setOpen((value) => !value)}>{open ? "Hide full gate history" : "Browse full paired gate history"}</button>
     {open && <div className="gate-history-content">
-      {error && <div className="error-notice" role="alert"><p>{error}</p><button type="button" className="button button-secondary" onClick={() => setReload((value) => value + 1)}>Try again</button></div>}
+      {error && <div className="error-notice" role="alert"><p>{error}</p><button type="button" className="button button-secondary" onClick={() => void history.refetch()}>Try again</button></div>}
       {loading && !page && <div className="loading-state" role="status"><span className="spinner" />Loading gate history…</div>}
       {page?.items.map((gate) => <GateFact gate={gate} resolved={gate.status === "resolved"} key={gate.id} />)}
       {page && !page.items.length && !loading && <p>No human-gate history is retained for this work item.</p>}
       {page && page.total > 0 && <nav className="child-pagination" aria-label="Human-gate history pages">
         <span>Page {pageIndex + 1} · {page.total} retained</span><div>
-          <button type="button" className="text-link" disabled={loading || pageIndex === 0} onClick={() => { setPage(null); setPageIndex((value) => value - 1); }}>Newer</button>
+          <button type="button" className="text-link" disabled={loading || pageIndex === 0} onClick={() => { setPageIndex((value) => value - 1); }}>Newer</button>
           <button type="button" className="text-link" disabled={loading || !page.next_cursor} onClick={() => {
             if (!page.next_cursor) return;
-            setPage(null);
             setCursorStack((values) => [...values.slice(0, pageIndex + 1), page.next_cursor]);
             setPageIndex((value) => value + 1);
           }}>Older</button>

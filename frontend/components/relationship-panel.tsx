@@ -3,9 +3,11 @@
 import ExternalReferences from "@/components/external-references";
 import { useFailedReadRetry } from "@/components/use-failed-read-retry";
 import { useEffect, useMemo, useState } from "react";
+import { useQueries } from "@tanstack/react-query";
+import { workCheckpointsOptions } from "@/lib/work-detail-queries";
 import { OperationalBadge, StatusBadge, formatDate } from "@/components/work-item-card";
 import { useCanonicalWorkSearch } from "@/components/use-canonical-work-search";
-import { api, ApiError, errorMessage, workItemPath } from "@/lib/api";
+import { ApiError, errorMessage, workItemPath } from "@/lib/api";
 import { dashboardSessionId } from "@/lib/dashboard-session";
 import {
   mutationWorkKey,
@@ -30,7 +32,6 @@ import type {
   WorkSummary
 } from "@/lib/types";
 import { dashboardMutationActor } from "@/lib/work-events";
-import { decodeCheckpointPage } from "@/lib/checkpoint-codecs";
 
 const groupOrder = [
   "Blocked by",
@@ -76,12 +77,8 @@ export default function RelationshipPanel({ context, projects, onChanged, onOpen
   const [counterpart, setCounterpart] = useState<WorkSummary | null>(null);
   const [type, setType] = useState<RelationshipType>("related");
   const [direction, setDirection] = useState<Exclude<RelationshipDirection, "undirected">>("outgoing");
-  const [checkpointChoices, setCheckpointChoices] = useState<CheckpointChoice[]>([]);
   const [checkpointId, setCheckpointId] = useState("");
-  const [checkpointsLoading, setCheckpointsLoading] = useState(false);
-  const [checkpointError, setCheckpointError] = useState("");
   const [saving, setSaving] = useState(false);
-  const [checkpointRetry, setCheckpointRetry] = useState(0);
   const [removingId, setRemovingId] = useState("");
   const [actionError, setActionError] = useState("");
   const [actionNotice, setActionNotice] = useState("");
@@ -162,44 +159,24 @@ export default function RelationshipPanel({ context, projects, onChanged, onOpen
     );
   }), [mutationRegistry, workConflictKey]);
 
-  useEffect(() => {
-    setCheckpointId("");
-    setCheckpointChoices([]);
-    setCheckpointError("");
-    if (!editorOpen || !counterpart) {
-      setCheckpointsLoading(false);
-      return;
-    }
-    const endpointIds = type === "discovered-from"
-      ? [targetId]
-      : [work.id, counterpart.work_item.id];
-    const uniqueIds = [...new Set(endpointIds)];
-    const controller = new AbortController();
-    setCheckpointsLoading(true);
-    Promise.all(uniqueIds.map(async (id) => {
-      const endpointProjectId = id === work.id
-        ? work.project_id
-        : counterpart.work_item.project_id;
-      const endpointProject = projectsById.get(endpointProjectId.toLowerCase());
-      const value = await api<unknown>(
-        `${workItemPath(endpointProjectId, id)}/checkpoints?order=newest&limit=100&offset=0`,
-        { signal: controller.signal }
-      );
-      const page = decodeCheckpointPage(value, id, { limit: 100, offset: 0 });
-      const ownerTitle = id === work.id ? work.title : counterpart.work_item.title;
-      const owner = `${ownerTitle} · ${endpointProject?.name ?? endpointProjectId}`;
-      return page.items.map((checkpoint) => ({ owner, checkpoint }));
-    })).then((choices) => {
-      if (!controller.signal.aborted) setCheckpointChoices(choices.flat());
-    }).catch((error) => {
-      if (!controller.signal.aborted) setCheckpointError(errorMessage(error));
-    }).finally(() => {
-      if (!controller.signal.aborted) setCheckpointsLoading(false);
-    });
-    return () => controller.abort();
-  }, [checkpointRetry, counterpart, direction, editorOpen, projectsById, targetId, type, work.id, work.project_id, work.title]);
+  const checkpointEndpoints = !editorOpen || !counterpart ? []
+    : (type === "discovered-from"
+      ? [targetId === work.id ? work : counterpart.work_item]
+      : [work, counterpart.work_item]);
+  const checkpointQueries = useQueries({ queries: checkpointEndpoints.map((endpoint) =>
+    workCheckpointsOptions(endpoint.project_id, endpoint.id, 100, 0)
+  ) });
+  const checkpointsLoading = checkpointQueries.some((query) => query.isFetching);
+  const checkpointError = checkpointQueries.find((query) => query.error)?.error;
+  const checkpointChoices: CheckpointChoice[] = checkpointQueries.flatMap((query, index) => {
+    const endpoint = checkpointEndpoints[index]!;
+    const owner = `${endpoint.title} · ${projectsById.get(endpoint.project_id.toLowerCase())?.name ?? endpoint.project_id}`;
+    return query.data?.items.map((checkpoint) => ({ owner, checkpoint })) ?? [];
+  });
+  function retryCheckpoints() { for (const query of checkpointQueries) void query.refetch(); }
+  useEffect(() => { setCheckpointId(""); }, [counterpartId, counterpartProjectId, direction, editorOpen, targetId, type, work.id, work.project_id]);
 
-  useFailedReadRetry({ scope: `relationship-checkpoints:${work.project_id}:${work.id}:${counterpartProjectId}:${counterpartId}`, failed: Boolean(checkpointError), busy: checkpointsLoading, enabled: editorOpen && Boolean(counterpart), retry: () => setCheckpointRetry((value) => value + 1) });
+  useFailedReadRetry({ scope: `relationship-checkpoints:${work.project_id}:${work.id}:${counterpartProjectId}:${counterpartId}`, failed: Boolean(checkpointError), busy: checkpointsLoading, enabled: editorOpen && Boolean(counterpart), retry: () => retryCheckpoints() });
 
   async function addRelationship() {
     if (!counterpart || saving || removingId) return;
@@ -347,7 +324,7 @@ export default function RelationshipPanel({ context, projects, onChanged, onOpen
           {type !== "related" && <fieldset className="relationship-direction"><legend>Direction</legend><label><input type="radio" name="relationship-direction" value="outgoing" checked={direction === "outgoing"} disabled={mutationBlocked} onChange={() => setDirection("outgoing")} /> From this work item</label><label><input type="radio" name="relationship-direction" value="incoming" checked={direction === "incoming"} disabled={mutationBlocked} onChange={() => setDirection("incoming")} /> Toward this work item</label></fieldset>}
           <div className="relationship-preview" role="status"><span>Preview</span><strong>{relationshipPreview(type, direction, work.title, counterpart.work_item.title)}</strong></div>
           <label className="field">{type === "discovered-from" ? "Originating checkpoint" : "Endpoint context checkpoint (optional)"}<select value={checkpointId} required={type === "discovered-from"} disabled={mutationBlocked || checkpointsLoading || Boolean(checkpointError)} onChange={(event) => setCheckpointId(event.target.value)}><option value="">{checkpointsLoading ? "Loading checkpoints…" : type === "discovered-from" ? "Choose a checkpoint…" : "No checkpoint context"}</option>{checkpointChoices.map(({ owner, checkpoint }) => <option key={checkpoint.id} value={checkpoint.id}>{owner} · {checkpoint.kind} · {formatDate(checkpoint.created_at)}</option>)}</select><span className="field-hint">{type === "discovered-from" ? "The checkpoint must belong to the originating target work item." : "Optional context must belong to either endpoint. The newest 100 checkpoints per endpoint are shown."}</span></label>
-          {checkpointError && <div className="error-notice" role="alert"><p>{checkpointError}</p><button type="button" className="button button-secondary" onClick={() => setCheckpointRetry((value) => value + 1)}>Try again</button></div>}
+          {checkpointError && <div className="error-notice" role="alert"><p>{errorMessage(checkpointError)}</p><button type="button" className="button button-secondary" onClick={() => retryCheckpoints()}>Try again</button></div>}
           <button type="button" className="button button-primary add-relationship-button" disabled={mutationBlocked || saving || Boolean(removingId) || checkpointsLoading || (type === "discovered-from" && !checkpointId)} onClick={() => void addRelationship()}>{saving ? "Adding…" : "Add relationship"}</button>
         </div>}
       </div>

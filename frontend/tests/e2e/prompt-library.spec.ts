@@ -249,12 +249,19 @@ test("report instructions initialize during typing and changed instructions stil
       data: { content: "Describe the result for $WORK_ITEM_TITLE in familiar words.", expected_revision: original.revision }
     });
     expect(changed.ok(), await changed.text()).toBe(true);
+    const latestSettings = await api.get(`/api/v1/projects/${selected.id}/settings?work_item_id=${work.id}`);
+    expect(latestSettings.ok(), await latestSettings.text()).toBe(true);
+    const reviewedRevision = (await latestSettings.json()).revision as string;
     await pane.getByRole("button", { name: "Review current prompt", exact: true }).click();
     await expect(pane.getByRole("button", { name: /^Use reviewed revision/ })).toBeVisible();
     await expect(pane.locator(".job-report-prompt")).toHaveText("Describe the result for Report prompt initialization in familiar words.");
     let closeouts = 0;
+    let submittedRevision: string | undefined;
     page.on("request", (request) => {
-      if (request.method() === "POST" && request.url().endsWith(`/work-items/${work.id}/complete`)) closeouts += 1;
+      if (request.method() === "POST" && request.url().endsWith(`/work-items/${work.id}/complete`)) {
+        closeouts += 1;
+        submittedRevision = request.postDataJSON().job_completion_report.prompt_revision;
+      }
     });
     await pane.getByRole("button", { name: "Complete work", exact: true }).click();
     await expect(pane.getByText("Project instructions changed. Review the current report prompt", { exact: false })).toBeVisible();
@@ -263,5 +270,6 @@ test("report instructions initialize during typing and changed instructions stil
     await pane.getByRole("button", { name: "Complete work", exact: true }).click();
     await expect(pane.locator(".detail-identity > .status-badge")).toHaveText("Done");
     expect(closeouts).toBe(1);
+    expect(submittedRevision).toBe(reviewedRevision);
   } finally { await api.dispose(); }
 });

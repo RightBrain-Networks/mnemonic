@@ -1,14 +1,14 @@
 "use client";
 
 import { useEffect, useId, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { workChildrenOptions, workDetailKeys } from "@/lib/work-detail-queries";
 import WorkQueueCard from "@/components/work-queue-card";
 import { useWorkItemMotion } from "@/components/use-work-item-motion";
-import { api, errorMessage, workItemPath } from "@/lib/api";
-import { decodeHierarchyPage } from "@/lib/hierarchy-presentation";
+import { errorMessage } from "@/lib/api";
 import { earliestLeaseExpiry, scheduleLeaseExpiryRefresh } from "@/lib/lease-refresh";
-import { childSearchParams } from "@/lib/work-item-search";
 import { hierarchyGuardReason } from "@/lib/work-relationships";
-import type { HierarchySummary, Page, StatusFilter, WorkSort, WorkSummary } from "@/lib/types";
+import type { HierarchySummary, StatusFilter, WorkSort, WorkSummary } from "@/lib/types";
 
 export const CHILD_PAGE_SIZE = 50;
 
@@ -64,16 +64,6 @@ function HierarchyBranch(props: BranchProps) {
     !item.self_matches_filter && item.has_matching_descendants
   );
   const [offset, setOffset] = useState(0);
-  const [loadedPage, setLoadedPage] = useState<{
-    viewKey: string;
-    value: Page<HierarchySummary>;
-  } | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [loadFailure, setLoadFailure] = useState<{
-    viewKey: string;
-    message: string;
-  } | null>(null);
-  const [retry, setRetry] = useState(0);
   const [showAllDescendants, setShowAllDescendants] = useState(false);
   const guardReason = hierarchyGuardReason(id, visited, depth);
   const allDescendants = props.overrideFilters || showAllDescendants;
@@ -83,8 +73,21 @@ function HierarchyBranch(props: BranchProps) {
     ...(props.tag.trim() ? ["tag"] : [])
   ];
   const childViewKey = `${props.viewKey}:children:${id}:${allDescendants ? "all" : status}:${sort}:${offset}`;
-  const page = loadedPage?.viewKey === childViewKey ? loadedPage.value : null;
-  const loadError = loadFailure?.viewKey === childViewKey ? loadFailure.message : "";
+  const childrenEnabled = !guardReason && expanded && (item.has_matching_descendants || allDescendants);
+  const options = workChildrenOptions(summary.work_item.project_id, id, {
+    statusScope: "work_item", status: allDescendants ? "all" : status, sort,
+    limit: CHILD_PAGE_SIZE, offset,
+    tag: allDescendants ? undefined : props.tag,
+    sourceClient: allDescendants ? undefined : props.sourceClient,
+    sourceSessionId: allDescendants ? undefined : props.sourceSessionId,
+    pinnedWorkItemIds: props.pinnedWorkItemIds
+  });
+  const childrenQuery = useQuery({ ...options,
+    queryKey: childrenEnabled ? options.queryKey : workDetailKeys.children(summary.work_item.project_id, id, "disabled"), enabled: childrenEnabled
+  });
+  const page = childrenEnabled ? childrenQuery.data ?? null : null;
+  const loadError = childrenEnabled && childrenQuery.error ? errorMessage(childrenQuery.error) : "";
+  const loading = childrenEnabled && childrenQuery.isFetching;
   const nextChildLeaseExpiry = earliestLeaseExpiry(
     page?.items.flatMap((child) => [
       child.summary.readiness.active_lease?.expires_at,
@@ -111,52 +114,15 @@ function HierarchyBranch(props: BranchProps) {
   }, [props.viewKey, status]);
 
   useEffect(() => {
-    if (guardReason || !expanded || (!item.has_matching_descendants && !allDescendants)) return;
-    const controller = new AbortController();
-    const requestedViewKey = childViewKey;
-    const params = childSearchParams({
-      statusScope: "work_item",
-      status: allDescendants ? "all" : status,
-      sort,
-      limit: CHILD_PAGE_SIZE,
-      offset,
-      tag: allDescendants ? undefined : props.tag,
-      sourceClient: allDescendants ? undefined : props.sourceClient,
-      sourceSessionId: allDescendants ? undefined : props.sourceSessionId,
-      pinnedWorkItemIds: props.pinnedWorkItemIds
-    });
-    setLoading(true);
-    setLoadFailure(null);
-    api<unknown>(
-      `${workItemPath(summary.work_item.project_id, id)}/children?${params}`,
-      { signal: controller.signal }
-    ).then((value) => {
-      if (controller.signal.aborted) return;
-      const result = decodeHierarchyPage(
-        value,
-        summary.work_item.project_id,
-        CHILD_PAGE_SIZE,
-        offset
-      );
-      if (offset > 0 && offset >= result.total) {
-        setOffset(Math.max(0, Math.floor((result.total - 1) / CHILD_PAGE_SIZE) * CHILD_PAGE_SIZE));
-        return;
-      }
-      setLoadedPage({ viewKey: requestedViewKey, value: result });
-    }).catch((error) => {
-      if (!controller.signal.aborted) {
-        setLoadFailure({ viewKey: requestedViewKey, message: errorMessage(error) });
-      }
-    }).finally(() => {
-      if (!controller.signal.aborted) setLoading(false);
-    });
-    return () => controller.abort();
-  }, [allDescendants, childViewKey, expanded, guardReason, id, item.has_matching_descendants, offset, refreshKey, sort, status, summary.work_item.project_id, retry]);
+    if (page && offset > 0 && offset >= page.total) {
+      setOffset(Math.max(0, Math.floor((page.total - 1) / CHILD_PAGE_SIZE) * CHILD_PAGE_SIZE));
+    }
+  }, [page, offset]);
 
   useEffect(() => {
     if (!nextChildLeaseExpiry) return;
     return scheduleLeaseExpiryRefresh(nextChildLeaseExpiry, () => {
-      setRetry((value) => value + 1);
+      void childrenQuery.refetch();
     });
   }, [nextChildLeaseExpiry]);
 
@@ -209,7 +175,7 @@ function HierarchyBranch(props: BranchProps) {
         loadError && !page ? <div className="hierarchy-error" role="alert">
           <span>{loadError}</span>
           <button type="button" className="text-link" onClick={() => {
-            setRetry((value) => value + 1);
+            void childrenQuery.refetch();
             focusChildrenRegion();
           }}>Try again</button>
         </div> :
@@ -217,7 +183,7 @@ function HierarchyBranch(props: BranchProps) {
           {loadError && <div className="hierarchy-error" role="alert">
             <span>{loadError}</span>
             <button type="button" className="text-link" onClick={() => {
-              setRetry((value) => value + 1);
+              void childrenQuery.refetch();
               focusChildrenRegion();
             }}>Try again</button>
           </div>}
