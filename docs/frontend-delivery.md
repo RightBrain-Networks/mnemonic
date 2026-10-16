@@ -40,7 +40,10 @@ programmatic and browser history transitions; pending actions block before a new
 route commits. Internal selection changes replace only the URL without adding
 history entries or discarding pending intents. Query parsing preserves string
 values and repeated parameters; legacy `/?work=...` links redirect to `/work-items`.
-TanStack Query adoption is a later migration stage; existing read owners remain.
+TanStack Query owns core dashboard and selected-work reads after migrations 5 and 6;
+the remaining secondary reads belong to migration 7. See
+[frontend shared patterns](frontend-shared-patterns.md#core-server-reads-with-tanstack-query-migration-5)
+for resource ownership and mutation reconciliation.
 
 Theme, application preferences and library expansion scripts are injected before
 paint from the existing shared definitions. The favicon and fonts are static

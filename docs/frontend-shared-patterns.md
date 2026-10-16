@@ -203,8 +203,9 @@ of the currently selected project. Cross-project relationships and moves refresh
 both sides. Originating reports also match their original authority project, even
 when their viewed follow-up work now belongs to another project. Detail invalidation deliberately includes other work in each affected
 project: relationship pointers, hierarchy and readiness can change when an
-adjacent work item changes. Unrelated projects, settings and the project catalog
-remain cached. Inactive reads become stale; active reads refresh with their
+adjacent work item changes. Work-scoped report policy refreshes with these detail
+reads; core project settings, unrelated projects and the project catalog remain
+cached. Inactive reads become stale; active reads refresh with their
 existing strict decoders and cancellation. Older active history requests are
 cancelled before confirmation refresh. The guarded context observer is disabled,
 so invalidation marks it stale while the explicit placement coordinator retains
