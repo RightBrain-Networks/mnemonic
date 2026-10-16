@@ -1,10 +1,10 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
-import { artifactPath, decodeArtifact, decodeArtifactPage, type Artifact } from "@/lib/artifacts";
-import { artifactSearchRequest, decodeUnifiedArtifactSearchPage, unifiedSearchPath } from "@/lib/unified-search";
+import type { Artifact } from "@/lib/artifacts";
+import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import { artifactDetailOptions, artifactPageOptions, artifactStatusOptions, reconcileArtifactMutation } from "@/lib/artifact-queries";
 import { artifactUpdateIntent, dispatchArtifactMutation, type ArtifactMutation } from "@/lib/artifact-mutations";
-import { readBoundedJson } from "@/lib/bounded-json";
 import { dashboardSessionId } from "@/lib/dashboard-session";
 import { errorMessage } from "@/lib/api";
 import { useCanonicalWorkSearch } from "@/components/use-canonical-work-search";
@@ -14,28 +14,21 @@ export function ArtifactPicker({ projectId, excludedIds, disabled, onSelect, wor
 }) {
   const id = useId();
   const [query, setQuery] = useState("");
-  const [state, setState] = useState<{ scope: string; items: Artifact[]; total: number; error: string } | null>(null);
-  const scope = `${projectId}:${query.trim()}`;
+  const client = useQueryClient();
+  const [search, setSearch] = useState("");
   useEffect(() => {
-    const controller = new AbortController();
-    const timer = setTimeout(async () => {
-      try {
-        const search = query.trim();
-        const params = new URLSearchParams({ limit: "10", sort: "filename", order: "asc" });
-        const response = search ? await fetch(`/api/mnemonic${unifiedSearchPath(projectId)}`, {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(artifactSearchRequest(search, false, false, 10, 0)), cache: "no-store", signal: controller.signal
-        }) : await fetch(`${artifactPath(projectId)}?${params}`, { cache: "no-store", signal: controller.signal });
-        if (!response.ok) throw new Error("Unable to find artifacts. Try another search.");
-        const value = await readBoundedJson(response, 1024 * 1024);
-        const matches = search ? decodeUnifiedArtifactSearchPage(value, projectId, false, 10, 0, false, undefined, search) : null;
-        const page = matches ? { ...matches, items: matches.items.map((match) => match.artifact) } : decodeArtifactPage(value, projectId);
-        if (!controller.signal.aborted) setState({ scope, items: page.items, total: page.total, error: "" });
-      } catch (cause) { if (!controller.signal.aborted) setState({ scope, items: [], total: 0, error: errorMessage(cause) }); }
-    }, 250);
-    return () => { clearTimeout(timer); controller.abort(); };
-  }, [projectId, query, scope]);
-  const current = state?.scope === scope ? state : null;
+    const timer = setTimeout(() => setSearch(query.trim()), 250);
+    return () => clearTimeout(timer);
+  }, [query]);
+  const statusRead = useQuery(artifactStatusOptions());
+  const ready = search === query.trim() && statusRead.data?.enabled === true && !statusRead.isError;
+  const filters = { projectId, search, fulltext: false, semantic: false, includeDeleted: false, workItemId: "",
+    sort: "filename" as const, order: "asc" as const, offset: 0, limit: 10 };
+  const read = useQuery(artifactPageOptions(client, filters, ready));
+  const failure = statusRead.error ?? read.error;
+  const current = failure ? { items: [], total: 0, error: errorMessage(failure) }
+    : statusRead.data?.enabled === false ? { items: [], total: 0, error: statusRead.data.message }
+      : ready && read.data?.page ? { ...read.data.page, error: "" } : null;
   const items = current?.items.filter((item) => !item.deleted_at && (!workItemId || item.originating_work_item_id !== workItemId && !item.related_work_item_ids.includes(workItemId)) && !excludedIds.some((id) => id.toLowerCase() === item.id.toLowerCase()));
   return <div className="artifact-link-picker">
     <label htmlFor={id}>Find an artifact<input id={id} value={query} maxLength={200} disabled={disabled} placeholder="Search file names and metadata…" onChange={(event) => setQuery(event.target.value)} /></label>
@@ -52,25 +45,16 @@ export function ArtifactMetadataEditor({ artifact, disabled, onUpdate, onOpenArt
 }) {
   const [workQuery, setWorkQuery] = useState("");
   const [artifactLinkOpen, setArtifactLinkOpen] = useState(false);
-  const [related, setRelated] = useState<Artifact[]>([]);
-  const [relatedError, setRelatedError] = useState("");
+  const client = useQueryClient();
   const workSearch = useCanonicalWorkSearch({ projectId: artifact.project_id, excludedWorkId: "", query: workQuery });
-  const relatedKey = artifact.related_artifact_ids.join(",");
-  useEffect(() => {
-    const controller = new AbortController();
-    setRelated([]); setRelatedError("");
-    Promise.all(relatedKey ? relatedKey.split(",").map(async (id) => {
-      const response = await fetch(artifactPath(artifact.project_id, id), { cache: "no-store", signal: controller.signal });
-      if (!response.ok) throw new Error("Unable to load related artifact names.");
-      return decodeArtifact(await readBoundedJson(response, 1024 * 1024), artifact.project_id, id);
-    }) : []).then((items) => { if (!controller.signal.aborted) setRelated(items); }).catch((cause) => { if (!controller.signal.aborted) setRelatedError(errorMessage(cause)); });
-    return () => controller.abort();
-  }, [artifact.project_id, relatedKey]);
+  const relatedReads = useQueries({ queries: artifact.related_artifact_ids.map((id) => artifactDetailOptions(client, artifact.project_id, id)) });
+  const related = relatedReads.flatMap((read) => read.data && !read.isError ? [read.data] : []);
+  const relatedError = relatedReads.find((read) => read.error)?.error;
   const update = (changes: Parameters<typeof artifactUpdateIntent>[1]) => onUpdate(artifactUpdateIntent(artifact, changes, dashboardSessionId()));
   const workItems = workSearch.page?.items.filter((hit) => ![...artifact.related_work_item_ids, artifact.originating_work_item_id].includes(hit.summary.work_item.id));
   return <div className="artifact-metadata-editor">
     <div className="artifact-sensitivity"><div><strong>{artifact.sensitive ? "Sensitive artifact" : "Standard artifact"}</strong><p>Agents must obtain explicit human approval before each read or content search of a sensitive artifact. Approval is temporary and single use.</p></div><button type="button" className="button button-secondary" disabled={disabled || Boolean(artifact.deleted_at)} onClick={() => void update({ sensitive: !artifact.sensitive })}>{artifact.sensitive ? "Remove sensitive flag" : "Mark as sensitive"}</button></div>
-    <div className="artifact-related-list"><h3>Related artifacts · {artifact.related_artifact_ids.length}</h3>{related.map((item) => <button type="button" className="text-button artifact-work-link" key={item.id} disabled={disabled} onClick={() => onOpenArtifact(item)}>{item.filename}{item.sensitive ? " · Sensitive" : ""}{item.deleted_at ? " · Deleted" : ""}</button>)}{!artifact.related_artifact_ids.length && <p>No related artifacts.</p>}{relatedError && <p role="alert">{relatedError}</p>}</div>
+    <div className="artifact-related-list"><h3>Related artifacts · {artifact.related_artifact_ids.length}</h3>{related.map((item) => <button type="button" className="text-button artifact-work-link" key={item.id} disabled={disabled} onClick={() => onOpenArtifact(item)}>{item.filename}{item.sensitive ? " · Sensitive" : ""}{item.deleted_at ? " · Deleted" : ""}</button>)}{!artifact.related_artifact_ids.length && <p>No related artifacts.</p>}{relatedError && <p role="alert">{errorMessage(relatedError)}</p>}</div>
     {!artifact.deleted_at && <div className="artifact-link-columns">
       <details onToggle={(event) => setArtifactLinkOpen(event.currentTarget.open)}><summary>Link another artifact</summary>{artifactLinkOpen && <ArtifactPicker projectId={artifact.project_id} excludedIds={[artifact.id, ...artifact.related_artifact_ids]} disabled={disabled} onSelect={(item) => void update({ related_artifact_ids: [item.id] })} />}</details>
       <details><summary>Link a work item</summary><div className="artifact-link-picker"><label>Find a work item<input value={workQuery} maxLength={200} disabled={disabled} placeholder="Search work titles and summaries…" onChange={(event) => setWorkQuery(event.target.value)} /></label>{workSearch.searching && <p role="status">Finding work items…</p>}{workSearch.error && <p role="alert">{workSearch.error}</p>}<ul>{workItems?.map(({ summary: { work_item: item } }) => <li key={item.id}><span><bdi>{item.title}</bdi><small>{item.status} · {item.id}</small></span><button type="button" className="button button-secondary" disabled={disabled} onClick={() => void update({ related_work_item_ids: [item.id] })} aria-label={`Link work item ${item.title}`}>Link</button></li>)}</ul>{workSearch.searchedQuery && workSearch.page && !workItems?.length && <p>No unlinked work items found.</p>}</div></details>
@@ -82,6 +66,7 @@ export function ArtifactMetadataEditor({ artifact, disabled, onUpdate, onOpenArt
 export function WorkArtifactLinkDialog({ projectId, workItemId, linkedIds, onClose, onLinked }: {
   projectId: string; workItemId: string; linkedIds: string[]; onClose: () => void; onLinked: () => void;
 }) {
+  const client = useQueryClient();
   const dialog = useRef<HTMLDialogElement>(null);
   const pendingRef = useRef<ArtifactMutation | null>(null);
   const [pending, setPending] = useState<ArtifactMutation | null>(null);
@@ -105,7 +90,7 @@ export function WorkArtifactLinkDialog({ projectId, workItemId, linkedIds, onClo
     pendingRef.current = intent; setPending(intent); setBusy(true); setError("");
     const outcome = await dispatchArtifactMutation(intent);
     setBusy(false);
-    if (outcome.type === "success") { pendingRef.current = null; setPending(null); onLinked(); return; }
+    if (outcome.type === "success") { pendingRef.current = null; setPending(null); void reconcileArtifactMutation(client, outcome.artifact); onLinked(); return; }
     if (outcome.type === "rejected") { pendingRef.current = null; setPending(null); }
     setConflict(outcome.type === "safety_conflict"); setError(outcome.message);
   }

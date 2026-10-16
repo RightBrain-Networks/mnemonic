@@ -1,3 +1,4 @@
+import { ApiError } from "./api.ts";
 import { validSearchPagination, type SearchPagination } from "./search-pagination.ts";
 import { transcriptCoverageLabel } from "./transcript-coverage.ts";
 import type { QueryMode } from "./search-evidence.ts";
@@ -202,7 +203,8 @@ export async function transcriptRequest(path: string, init: RequestInit = {}): P
   if (!response.ok) {
     const detail = objectValue(value)?.detail;
     const message = typeof detail === "string" ? detail : objectValue(detail)?.message;
-    throw new Error(typeof message === "string" ? message : "Unable to load transcripts.");
+    const code = objectValue(detail)?.code;
+    throw new ApiError(typeof message === "string" ? message : "Unable to load transcripts.", response.status, typeof code === "string" ? code : undefined);
   }
   return value;
 }

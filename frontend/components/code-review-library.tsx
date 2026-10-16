@@ -3,8 +3,9 @@
 import Link from "@/components/dashboard-link";
 import { useRouter } from "@tanstack/react-router";
 import { useEffect, useRef, useState, type MouseEvent } from "react";
-import { api, errorMessage } from "@/lib/api";
-import { decodeCodeReviewDetail, type CodeReviewDetail } from "@/lib/code-reviews";
+import { useQuery } from "@tanstack/react-query";
+import { codeReviewDetailOptions } from "@/lib/work-panel-queries";
+import { errorMessage } from "@/lib/api";
 import { reviewStatusActions, reviewStatusFilters } from "@/lib/code-review-tasks";
 import { taskPath, taskStatusLabels, type Task, type TaskStatus } from "@/lib/tasks";
 import { validUuid } from "@/lib/wire-guards";
@@ -37,8 +38,8 @@ function CardActions({ task, actions, compact = true }: { task: Task; actions: R
   </div>;
 }
 
-export default function CodeReviewLibrary({ projectId, enabled, refreshSignal, workId, reviewId, onNavigate, onNotice, onChanged }: {
-  projectId: string; enabled: boolean; refreshSignal: number; workId: string | null; reviewId: string | null;
+export default function CodeReviewLibrary({ projectId, enabled, workId, reviewId, onNavigate, onNotice, onChanged }: {
+  projectId: string; enabled: boolean; workId: string | null; reviewId: string | null;
   onNavigate: Navigate; onNotice: (message: string, error?: boolean) => void; onChanged: () => void;
 }) {
   const [status, setStatus] = useState<TaskStatus | "all">("pending");
@@ -123,26 +124,26 @@ export default function CodeReviewLibrary({ projectId, enabled, refreshSignal, w
       </div>
       <div className="work-surface-resizer" role="separator" aria-orientation="vertical" aria-label="Resize the code review queue" aria-keyshortcuts="ArrowLeft ArrowRight Home End" aria-valuemin={WORK_SPLIT_MIN} aria-valuemax={WORK_SPLIT_MAX} aria-valuenow={Math.round(split.split)} aria-valuetext={`Queue ${Math.round(split.split)}% of the surface`} title="Drag to resize the queue. Double-click to reset." tabIndex={0} {...split.separatorProps}><span aria-hidden="true" /></div>
       <aside className={`work-detail-pane code-review-detail ${reviewId ? "is-open" : ""}`} role="region" aria-label="Code review detail">
-        {reviewId ? <ReviewDetail key={`${projectId}:${workId}:${reviewId}`} projectId={projectId} enabled={enabled} workId={workId} reviewId={reviewId} refreshSignal={refreshSignal} onNavigate={onNavigate} onClose={() => select(null)} actions={actions} />
+        {reviewId ? <ReviewDetail key={`${projectId}:${workId}:${reviewId}`} projectId={projectId} enabled={enabled} workId={workId} reviewId={reviewId} onNavigate={onNavigate} onClose={() => select(null)} actions={actions} />
           : <div className="detail-empty"><span className="eyebrow">CODE REVIEW CONTEXT</span><h2>Pick a code review.</h2><p>Its scope, handoff, findings, and review history open here alongside the queue.</p><p className="detail-empty-hint">↑ ↓ select a review · ← → cycle states · C copy recall pointer</p></div>}
       </aside>
     </section>
   </section>;
 }
 
-function ReviewDetail({ projectId, enabled, workId, reviewId, refreshSignal, onNavigate, onClose, actions }: {
-  projectId: string; enabled: boolean; workId: string | null; reviewId: string; refreshSignal: number;
+function ReviewDetail({ projectId, enabled, workId, reviewId, onNavigate, onClose, actions }: {
+  projectId: string; enabled: boolean; workId: string | null; reviewId: string;
   onNavigate: Navigate; onClose: () => void; actions: ReviewActions;
 }) {
   const registry = useMutationIntentRegistry();
   const router = useRouter();
   const valid = validUuid(workId) && validUuid(reviewId);
   const { page: taskPage, error: taskError, retry: retryTask } = useTaskPage(projectId, "all", "code_review", 0, reviewId, enabled && valid);
-  const [detail, setDetail] = useState<CodeReviewDetail | null>(null);
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [retryCount, setRetryCount] = useState(0);
-  const retry = () => { setRetryCount((value) => value + 1); retryTask(); };
+  const detailQuery = useQuery(codeReviewDetailOptions(projectId, workId ?? "", reviewId, enabled && valid));
+  const detail = enabled && valid ? detailQuery.data : undefined;
+  const error = !valid ? "This code review link is invalid." : detailQuery.error ? errorMessage(detailQuery.error) : "";
+  const busy = enabled && detailQuery.isFetching;
+  const retry = () => { if (enabled && valid) void detailQuery.refetch({ cancelRefetch: false }); retryTask(); };
   const closeRef = useRef<HTMLAnchorElement>(null);
   useEffect(() => {
     if (window.innerWidth > 900) return;
@@ -151,17 +152,7 @@ function ReviewDetail({ projectId, enabled, workId, reviewId, refreshSignal, onN
     closeRef.current?.focus();
     return () => { document.body.style.overflow = previous; };
   }, []);
-  useEffect(() => {
-    if (!validUuid(workId) || !validUuid(reviewId)) { setError("This code review link is invalid."); return; }
-    const controller = new AbortController();
-    setBusy(true); setError("");
-    api<unknown>(`/projects/${projectId}/work-items/${workId}/code-reviews/${reviewId}`, { signal: controller.signal })
-      .then((value) => { const next = decodeCodeReviewDetail(value, projectId, workId, reviewId); if (!controller.signal.aborted) setDetail(next); })
-      .catch((error) => { if (!controller.signal.aborted) setError(errorMessage(error)); })
-      .finally(() => { if (!controller.signal.aborted) setBusy(false); });
-    return () => controller.abort();
-  }, [projectId, workId, reviewId, refreshSignal, retryCount]);
-  useFailedReadRetry({ scope: reviewId, failed: Boolean(error), busy, retry, enabled: valid });
+  useFailedReadRetry({ scope: `${projectId}:${workId}:${reviewId}`, failed: Boolean(error), busy, retry, enabled: enabled && valid });
   const parentPath = taskPath({ kind: "work_item", id: workId ?? "", work_item_id: workId ?? "", project_id: projectId });
   const task = taskPage?.items[0];
   return <div className="detail-scroll"><div className="review-detail-content">

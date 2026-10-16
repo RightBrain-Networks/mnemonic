@@ -273,3 +273,78 @@ test("report instructions initialize during typing and changed instructions stil
     expect(submittedRevision).toBe(reviewedRevision);
   } finally { await api.dispose(); }
 });
+
+test("background prompt Query refresh preserves the draft and original conflict baseline", async ({ page }) => {
+  const api = await client();
+  try {
+    const selected = await project(api);
+    const original = await readPrompt(api, selected.id);
+    let sendSync: ((message: string) => void) | undefined;
+    await page.routeWebSocket(/\/api\/mnemonic\/sync$/, (socket) => { sendSync = (message) => socket.send(message); });
+    let reads = 0;
+    let writes = 0;
+    let expectedRevision: string | undefined;
+    await page.route(`**/api/mnemonic/projects/${selected.id}/prompts/recall-pointer`, async (route) => {
+      if (route.request().method() === "GET") reads += 1;
+      else if (route.request().method() === "PUT") {
+        writes += 1; expectedRevision = route.request().postDataJSON().expected_revision;
+      }
+      await route.continue();
+    });
+    await openLibrary(page, selected.id);
+    await page.getByRole("button", { name: "Recall pointer", exact: true }).click();
+    const drawer = page.getByRole("dialog");
+    const editor = drawer.getByRole("textbox", { name: "Prompt content" });
+    await expect(editor).toHaveValue(original.content);
+    await editor.fill("Retain this draft while settings refresh.");
+    const changed = await api.put(`/api/v1/projects/${selected.id}/prompts/recall-pointer`, {
+      data: { content: "An update in another editor.", expected_revision: original.revision }
+    });
+    expect(changed.ok()).toBe(true);
+    const before = reads;
+    await expect.poll(() => Boolean(sendSync)).toBe(true);
+    sendSync!(JSON.stringify({ type: "invalidate", scope: "projects", revision: 1 }));
+    await expect.poll(() => reads).toBeGreaterThan(before);
+    await expect(drawer.getByText("Loading prompt…", { exact: true })).toBeHidden();
+    await expect(editor).toHaveValue("Retain this draft while settings refresh.");
+    await drawer.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(drawer.locator(".prompt-conflict pre")).toHaveText("An update in another editor.");
+    expect(expectedRevision).toBe(original.revision);
+    expect(writes).toBe(1);
+    await expect(editor).toHaveValue("Retain this draft while settings refresh.");
+    await expect(drawer.getByRole("button", { name: "Save", exact: true })).toBeDisabled();
+  } finally { await api.dispose(); }
+});
+
+test("reopening a cached prompt adopts fresh saved content while its editor is clean", async ({ page }) => {
+  const api = await client();
+  const released = Promise.withResolvers<void>();
+  try {
+    const selected = await project(api);
+    await page.routeWebSocket(/\/api\/mnemonic\/sync$/, () => {});
+    const original = await readPrompt(api, selected.id);
+    await openLibrary(page, selected.id);
+    const open = page.getByRole("button", { name: "Recall pointer", exact: true });
+    await open.click();
+    const drawer = page.getByRole("dialog");
+    const editor = drawer.getByRole("textbox", { name: "Prompt content" });
+    await expect(editor).toHaveValue(original.content);
+    await drawer.getByRole("button", { name: "Close prompt", exact: true }).click();
+    const updated = "Current instructions saved while the editor was closed.";
+    const changed = await api.put(`/api/v1/projects/${selected.id}/prompts/recall-pointer`, {
+      data: { content: updated, expected_revision: original.revision }
+    });
+    expect(changed.ok()).toBe(true);
+    await page.route(`**/api/mnemonic/projects/${selected.id}/prompts/recall-pointer`, async (route) => {
+      const response = await route.fetch();
+      await released.promise;
+      await route.fulfill({ response });
+    });
+    await open.click();
+    await expect(editor).toHaveValue(original.content);
+    released.resolve();
+    await expect(editor).toHaveValue(updated);
+    await expect(drawer.getByRole("button", { name: "Save", exact: true })).toBeDisabled();
+    await expect(page.locator("#project-select")).toBeEnabled();
+  } finally { released.resolve(); await api.dispose(); }
+});

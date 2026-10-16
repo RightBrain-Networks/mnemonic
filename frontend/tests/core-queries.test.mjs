@@ -220,3 +220,26 @@ test("dashboard queries leave failure retries and focus or reconnect refresh to 
   await assert.rejects(mutation.execute(), /Uncertain write/);
   assert.equal(attempts, 1);
 });
+
+
+test("secondary lists and policy reads share project-scoped live invalidation with their badges", async (t) => {
+  const { client } = clientFor(t);
+  const groups = {
+    settings: ["settings", "prompts", "priority-rubric", "backups"],
+    attention: ["attention", "attention-count"],
+    reports: ["reports", "report-count"]
+  };
+  const all = Object.values(groups).flat();
+  for (const id of [projectId, otherId]) for (const root of all) {
+    client.setQueryData([...queryKeys.project(id), root, "page"], []);
+  }
+  for (const [domain, roots] of Object.entries(groups)) {
+    await invalidateCoreReads(client, projectId, [domain]);
+    for (const root of roots) {
+      assert.equal(client.getQueryState([...queryKeys.project(projectId), root, "page"]).isInvalidated, true);
+      assert.equal(client.getQueryState([...queryKeys.project(otherId), root, "page"]).isInvalidated, false);
+    }
+  }
+  await invalidateCoreReads(client, null, ["settings", "attention", "reports"]);
+  for (const root of all) assert.equal(client.getQueryState([...queryKeys.project(otherId), root, "page"]).isInvalidated, true);
+});

@@ -4,6 +4,8 @@ import Link from "@/components/dashboard-link";
 import { useRouter } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
+import { invalidateArtifactReads } from "@/lib/artifact-queries";
+import { invalidateTranscriptReads } from "@/lib/transcript-queries";
 import { attentionCountOptions, invalidateCoreReads, projectCatalogOptions, projectSettingsOptions, reportCountOptions } from "@/lib/core-queries";
 import ApplicationSettings from "@/components/application-settings";
 import TaskDashboard from "@/components/task-dashboard";
@@ -20,7 +22,7 @@ import JobReportEditor from "@/components/job-report-editor";
 import { codeReviewDecision } from "@/lib/code-review-policy";
 import { validReviewHandoff, type CodeReviewHandoff } from "@/lib/code-reviews";
 import { validateColdReviewPointer } from "@/lib/code-review-prompts";
-import { renderedPrompt } from "@/lib/prompts";
+import { fetchFreshRenderedPrompt } from "@/lib/secondary-queries";
 import { normalizeExternalReferences, sameExternalReferences } from "@/lib/external-references";
 import type { ExternalReference } from "@/lib/types";
 import {
@@ -348,7 +350,6 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
   const [projectDialog, setProjectDialog] = useState(false);
   const [projectSaving, setProjectSaving] = useState(false);
   const [newProjectError, setNewProjectError] = useState("");
-  const [settingsRefresh, setLegacySettingsRefresh] = useState(0);
 
   const [query, setQuery] = useState("");
   const [search, setSearch] = useState("");
@@ -365,9 +366,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
   const [sourceClientFilter, setSourceClientFilter] = useState("");
   const [sourceSessionFilter, setSourceSessionFilter] = useState("");
   const [preferencesReady, setPreferencesReady] = useState(false);
-  const [refresh, setLegacyRefresh] = useState(0);
-  const [attentionRefresh, setLegacyAttentionRefresh] = useState(0);
-  const [reportRefresh, setLegacyReportRefresh] = useState(0);
+  const [workMotionRevision, setWorkMotionRevision] = useState(0);
   const [activityReadyProjectId, setActivityReadyProjectId] = useState("");
   const searchRef = useRef<HTMLInputElement>(null);
 
@@ -883,21 +882,20 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
   function refreshSettings(projectId: string | null = activeIdRef.current, refreshWorkPolicies = true) {
     void invalidateCoreReads(queryClient, projectId, ["settings"]);
     if (refreshWorkPolicies) void invalidateWorkSettingsReads(queryClient, projectId);
-    setLegacySettingsRefresh((value) => value + 1);
   }
   function refreshWork(projectId: string | null = activeIdRef.current) {
     void invalidateCoreReads(queryClient, projectId, ["work"]);
     void invalidateWorkDetailReads(queryClient, projectId);
-    setLegacyRefresh((value) => value + 1);
+    void invalidateArtifactReads(queryClient, projectId);
+    void invalidateTranscriptReads(queryClient, projectId);
+    setWorkMotionRevision((value) => value + 1);
   }
   function refreshAttention(projectId: string | null = activeIdRef.current) {
     void invalidateCoreReads(queryClient, projectId, ["attention"]);
-    setLegacyAttentionRefresh((value) => value + 1);
   }
   function refreshReports(projectId: string | null = activeIdRef.current) {
     void invalidateCoreReads(queryClient, projectId, ["reports"]);
     void invalidateWorkReportReads(queryClient, projectId);
-    setLegacyReportRefresh((value) => value + 1);
   }
 
   async function createProject(event: FormEvent<HTMLFormElement>) {
@@ -2628,13 +2626,13 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
       if (recordRequest.current !== requestGeneration) return;
       const review = latest.code_review_context?.current_review;
       if (review?.manual_request?.mode === "cold") {
-        const prompt = await renderedPrompt(projectId, "cold-code-review", summary.work_item.id, review.id);
+        const prompt = await fetchFreshRenderedPrompt(queryClient, projectId, "cold-code-review", summary.work_item.id, review.id);
         if (recordRequest.current === requestGeneration) await copyText(prompt, `${summary.work_item.id}:pointer`, "Cold review pointer copied.");
         return;
       }
       const parts = await Promise.all([
-        renderedPrompt(projectId, "recall-pointer", summary.work_item.id),
-        ...(review ? [renderedPrompt(projectId, "warm-code-review", summary.work_item.id, review.id)] : [])
+        fetchFreshRenderedPrompt(queryClient, projectId, "recall-pointer", summary.work_item.id),
+        ...(review ? [fetchFreshRenderedPrompt(queryClient, projectId, "warm-code-review", summary.work_item.id, review.id)] : [])
       ]);
       const prompt = parts.join("\n\n");
       if (recordRequest.current !== requestGeneration) return;
@@ -2656,7 +2654,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
       if (!review.scope_sha256 || !detail.scope) throw new Error("This review needs its Git scope prepared first. Use Copy recall pointer.");
       validateColdReviewPointer({ project_id: review.project_id, work_item_id: review.work_item_id, code_review_id: review.id,
         review_version: review.version, scope_sha256: review.scope_sha256, scope: detail.scope });
-      const prompt = await renderedPrompt(review.project_id, "cold-code-review", review.work_item_id, review.id);
+      const prompt = await fetchFreshRenderedPrompt(queryClient, review.project_id, "cold-code-review", review.work_item_id, review.id);
       if (requestGeneration !== recordRequest.current) return;
       await copyText(prompt, `${review.work_item_id}:cold-review`, "Cold review prompt copied with pinned Git scope and no handoff context.");
     } catch (error) { setNotice({ message: errorMessage(error), error: true }); }
@@ -2855,15 +2853,15 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
               : !project ? <section className="empty-state onboarding"><h2>Create your first project.</h2><p>Keep your work items and code reviews together in a project.</p><button className="button button-primary" onClick={() => setProjectDialog(true)}>Create your first project</button></section>
                 : activityReadyProjectId !== project.id ? <div className="loading-state" role="status">Loading tasks…</div>
                   : view === "dashboard" ? <TaskDashboard key={project.id} projectId={project.id} enabled={coreReadsEnabled} onNavigate={blockNavigationWhilePending} />
-                    : <CodeReviewLibrary key={project.id} projectId={project.id} enabled={coreReadsEnabled} refreshSignal={refresh} workId={searchParams.get("work")} reviewId={searchParams.get("review")} onNavigate={blockNavigationWhilePending} onNotice={(message, error) => setNotice({ message, error })} onChanged={() => { refreshWork(); refreshReports(); }} />}
+                    : <CodeReviewLibrary key={project.id} projectId={project.id} enabled={coreReadsEnabled} workId={searchParams.get("work")} reviewId={searchParams.get("review")} onNavigate={blockNavigationWhilePending} onNotice={(message, error) => setNotice({ message, error })} onChanged={() => { refreshWork(); refreshReports(); }} />}
         </> : view === "transcripts" ? <>
           <DashboardViewChrome eyebrow="AGENT SESSIONS THAT STAY WITH YOUR WORK" title="Transcripts" description={project ? `Find session history and subagent work in the “${project.name}” project.` : "Choose a project to open its transcripts."} />
           {projectsError && <ErrorNotice message={projectsError}><button className="button button-secondary" onClick={() => refreshProjects()}>Try again</button></ErrorNotice>}
-          {project ? <TranscriptLibrary key={`${project.id}:${artifactRoute.workItemId ?? ""}`} projectId={project.id} refreshSignal={refresh} onPendingChange={setTranscriptPending} /> : <div className="loading-state" role="status">{projectsLoading ? "Opening your workspace…" : "Select or create a project to view transcripts."}</div>}
+          {project ? <TranscriptLibrary key={`${project.id}:${artifactRoute.workItemId ?? ""}`} projectId={project.id} onPendingChange={setTranscriptPending} /> : <div className="loading-state" role="status">{projectsLoading ? "Opening your workspace…" : "Select or create a project to view transcripts."}</div>}
         </> : view === "artifacts" ? <>
           <DashboardViewChrome eyebrow="FILES THAT STAY WITH YOUR WORK — BUT OUT OF YOUR CODEBASE" title="Artifacts" description={project ? `Store documents, binaries and other files in the “${project.name}” project.` : "Choose a project to open its artifact library."} />
           {projectsError && <ErrorNotice message={projectsError}><button className="button button-secondary" onClick={() => refreshProjects()}>Try again</button></ErrorNotice>}
-          {project ? <ArtifactLibrary key={`${project.id}:${artifactRoute.workItemId ?? ""}`} projectId={project.id} maximumBytes={artifactMaxBytes} refreshSignal={refresh} onPendingChange={setArtifactPending} /> : <div className="loading-state" role="status">{projectsLoading ? "Opening your workspace…" : "Select or create a project to upload artifacts."}</div>}
+          {project ? <ArtifactLibrary key={`${project.id}:${artifactRoute.workItemId ?? ""}`} projectId={project.id} maximumBytes={artifactMaxBytes} onPendingChange={setArtifactPending} /> : <div className="loading-state" role="status">{projectsLoading ? "Opening your workspace…" : "Select or create a project to upload artifacts."}</div>}
         </> : view === "settings" ? <>
           <DashboardViewChrome
             eyebrow="PROJECT CONFIGURATION"
@@ -2884,7 +2882,6 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
               onProjectSaved={handleProjectSaved}
               onNotice={(message, error) => setNotice({ message, error })}
               backupMaximumBytes={backupMaxBytes}
-              backupRefreshSignal={settingsRefresh}
               onBackupPendingChange={handleBackupPendingChange}
               onPromptPendingChange={setPromptPending}
             />}
@@ -2893,7 +2890,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
             description={project ? `Closeout reports to review in “${project.name}”.` : "Choose a project to read its closeout reports."}
           />
           {project && activityReadyProjectId === project.id
-            ? <JobReportList key={project.id} projectId={project.id} refreshSignal={reportRefresh}
+            ? <JobReportList key={project.id} projectId={project.id}
                 repositoryUrl={project.repository_url}
                 onChanged={() => { refreshReports(); refreshWork(); }}
                 onOpenWork={(workItemId, preferredProjectId) => {
@@ -2910,7 +2907,6 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
             projectsLoading && !projects.length ? <div className="loading-state" role="status"><span className="spinner" />Opening your workspace…</div> :
             <HumanAttentionList
               project={activityReadyProjectId === activeId ? project : undefined}
-              refreshSignal={attentionRefresh}
               onOpen={openAttentionWork}
               onResolved={() => {
                 refreshWork();
@@ -2949,7 +2945,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
                 error={queue.error}
                 appendError={queue.appendError}
                 hasMore={queue.hasMore}
-                refreshKey={refresh}
+                refreshKey={workMotionRevision}
                 viewKey={queue.viewKey}
                 selectedId={openedId}
                 copiedKey={copied}

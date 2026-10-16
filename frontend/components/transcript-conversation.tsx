@@ -1,34 +1,27 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { transcriptDetailOptions, transcriptEvidenceChanged, transcriptSegmentOptions } from "@/lib/transcript-queries";
 import { transcriptCoverageDetails, transcriptDispositionLabel } from "@/lib/transcript-coverage";
 import { errorMessage } from "@/lib/api";
-import { transcriptPath, transcriptRequest, type Transcript } from "@/lib/transcripts";
+import { type Transcript } from "@/lib/transcripts";
 import {
-  decodeTranscriptSegments, nextTranscriptSegment, transcriptSegmentQuery,
-  TRANSCRIPT_CONTENT_LABELS, type TranscriptSegmentLocator, type TranscriptSegmentPage
+  nextTranscriptSegment, TRANSCRIPT_CONTENT_LABELS, type TranscriptSegmentLocator
 } from "@/lib/transcript-segments";
 
-export default function TranscriptConversation({ transcript }: { transcript: Transcript }) {
+export default function TranscriptConversation({ transcript, latest }: { transcript: Transcript; latest?: Transcript }) {
   const [locations, setLocations] = useState<TranscriptSegmentLocator[]>([{
     segmentId: transcript.segment_id!, revision: transcript.normalized_revision!, offset: 0, before: 3, after: 3
   }]);
   const [position, setPosition] = useState(0);
-  const [page, setPage] = useState<TranscriptSegmentPage | null>(null);
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(true);
   const locator = locations[position];
-  useEffect(() => {
-    const controller = new AbortController();
-    setPage(null); setError(""); setLoading(true);
-    const query = transcriptSegmentQuery(locator, transcript.text_sha256);
-    void transcriptRequest(`${transcriptPath(transcript.project_id, transcript.id)}/text?${query}`, { signal: controller.signal })
-      .then((value) => decodeTranscriptSegments(value, transcript.project_id, transcript.id, locator, transcript.text_sha256))
-      .then((result) => { if (!controller.signal.aborted) setPage(result); })
-      .catch((error) => { if (!controller.signal.aborted) setError(errorMessage(error)); })
-      .finally(() => { if (!controller.signal.aborted) setLoading(false); });
-    return () => controller.abort();
-  }, [locator, transcript]);
+  const metadata = useQuery(transcriptDetailOptions(transcript.project_id, transcript.id));
+  const changed = transcriptEvidenceChanged(transcript, metadata.data) || transcriptEvidenceChanged(transcript, latest);
+  const context = useQuery({ ...transcriptSegmentOptions(transcript.project_id, transcript.id, transcript.text_sha256, locator), enabled: Boolean(metadata.data) && !changed && !metadata.isError });
+  const error = changed ? "The transcript revision changed. Reopen the search result." : metadata.error ? errorMessage(metadata.error) : context.error ? errorMessage(context.error) : "";
+  const page = error ? undefined : context.data;
+  const loading = !error && (metadata.isPending || context.isPending);
   function next() {
     if (!page) return;
     const target = nextTranscriptSegment(page);

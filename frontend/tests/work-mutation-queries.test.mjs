@@ -13,7 +13,7 @@ const target = "99999999-9999-4999-8999-999999999999";
 const unrelated = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const detail = (projectId = project, workId = work, facet = "context") =>
   [...queryKeys.project(projectId), "work-detail", workId, facet];
-const roots = ["work", "tasks", "work-detail", "attention-count", "report-count", "settings"];
+const roots = ["work", "tasks", "work-detail", "attention-count", "attention", "report-count", "reports", "settings"];
 
 function setup(t, subscriptions = []) {
   const client = createDashboardQueryClient();
@@ -58,8 +58,8 @@ function expectScope(client, projectId, expectedRoots) {
 }
 
 test("every protected work operation refreshes its declared reads and keeps unrelated projects cached", async (t) => {
-  const basic = ["work", "tasks", "work-detail", "attention-count"];
-  const closeout = [...basic, "report-count"];
+  const basic = ["work", "tasks", "work-detail", "attention-count", "attention"];
+  const closeout = [...basic, "report-count", "reports"];
   const cases = {
     create_work: [{ work_item: { project_id: project }, initial_relationships: [] }, basic],
     add_checkpoint: [{}, basic],
@@ -74,7 +74,7 @@ test("every protected work operation refreshes its declared reads and keeps unre
     remove_relationship: [{ project_id: project }, basic],
     resolve_human_input: [{ project_id: project }, basic],
     merge_work: [{ source_work_item: { project_id: project }, destination_work_item: { project_id: project } }, closeout],
-    dismiss_job_completion_report: [{ project_id: project }, ["work-detail", "report-count"]],
+    dismiss_job_completion_report: [{ project_id: project }, ["work-detail", "report-count", "reports"]],
     create_job_completion_report_follow_up: [{ work_item: { project_id: project } }, closeout]
   };
   assert.deepEqual(Object.keys(cases).sort(), [...MUTATION_KINDS].sort());
@@ -114,7 +114,7 @@ test("only strict decoded success reconciles reads and recovery retries preserve
   assert.equal(recovered.length, 0);
   expectScope(client, project, []);
   await registry.retry(input.slot);
-  expectScope(client, project, ["work", "tasks", "work-detail", "attention-count", "report-count"]);
+  expectScope(client, project, ["work", "tasks", "work-detail", "attention-count", "attention", "report-count", "reports"]);
   assert.equal(registry.get(input.slot), undefined);
   assert.equal(confirmed.length, 1);
   assert.equal(recovered.length, 1);
@@ -180,7 +180,7 @@ test("decoded move invalidates cached source and destination reads even when nei
       actor: { actor_client: "dashboard", actor_session_id: "tab-1" } }
   });
   for (const projectId of [project, target]) {
-    expectScope(client, projectId, ["work", "tasks", "work-detail", "attention-count", "report-count"]);
+    expectScope(client, projectId, ["work", "tasks", "work-detail", "attention-count", "attention", "report-count", "reports"]);
   }
   expectScope(client, unrelated, []);
 });
@@ -199,7 +199,7 @@ test("merge refreshes both work endpoints and relationships refresh both frozen 
   expectScope(client, unrelated, []);
   await invalidateConfirmedWorkMutation(client, confirmation("remove_relationship", { project_id: project },
     [mutationWorkKey(project, work), mutationWorkKey(target, followWork)]));
-  expectScope(client, target, ["work", "tasks", "work-detail", "attention-count"]);
+  expectScope(client, target, ["work", "tasks", "work-detail", "attention-count", "attention"]);
 });
 
 test("confirmation marks guarded context stale and cancels older active history reads", async (t) => {

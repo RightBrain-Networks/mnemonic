@@ -475,6 +475,36 @@ for (const limitation of ["image", "unknown"] as const) {
   });
 }
 
+test("transcript settings keep an edited draft and its original revision through a Query refresh", async ({ page }) => {
+  const api = await apiContext();
+  try {
+    const { project } = await fixture(api);
+    const path = `/api/v1/projects/${project.id}/transcript-settings`;
+    const original = await (await api.get(path)).json();
+    await page.goto(`/transcripts?project=${project.id}`);
+    await page.getByRole("button", { name: "Transcript indexing", exact: true }).click();
+    const panel = page.getByRole("region", { name: "Transcript indexing", exact: true });
+    const maximum = panel.getByRole("spinbutton", { name: "Maximum transcript size (MB)" });
+    await maximum.fill("32");
+    const changed = await api.patch(path, { data: {
+      enabled: original.enabled, max_file_size_bytes: 64 * 1024 * 1024, expected_revision: original.revision
+    } });
+    expect(changed.ok(), await changed.text()).toBe(true);
+    const refreshed = page.waitForResponse((response) => response.url().endsWith(`/projects/${project.id}/transcript-settings`) && response.request().method() === "GET");
+    await page.getByRole("button", { name: "Refresh", exact: true }).click();
+    await refreshed;
+    await expect(maximum).toHaveValue("32");
+    const saved = page.waitForRequest((request) => request.url().endsWith(`/projects/${project.id}/transcript-settings`) && request.method() === "PATCH");
+    await panel.getByRole("button", { name: "Save transcript settings" }).click();
+    expect((await saved).postDataJSON().expected_revision).toBe(original.revision);
+    const reload = panel.getByRole("button", { name: "Reload transcript settings" });
+    await expect(reload).toBeVisible();
+    await reload.click();
+    await expect(maximum).toHaveValue("64");
+    await expect(reload).not.toBeVisible();
+  } finally { await api.dispose(); }
+});
+
 test("transcript controls use MB, collapse, sort, report storage and remember dismissed failures", async ({ page }, testInfo) => {
   test.setTimeout(120000);
   await page.setViewportSize({ width: testInfo.project.name === "chromium-desktop" ? 1280 : 390, height: 1100 });

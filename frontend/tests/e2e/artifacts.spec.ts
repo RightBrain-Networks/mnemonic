@@ -165,13 +165,17 @@ for (const view of ["directory", "search"] as const) {
     let held: Promise<void> | null = null;
     let release = () => {};
     let refreshRequests = 0;
-    await page.route((url) => url.pathname === collection || url.pathname === `/api/mnemonic/projects/${state.projectId}/search`, async (route) => {
-      const search = new URL(route.request().url()).pathname.endsWith("/search");
+    await page.route((url) => url.pathname === collection || url.pathname.startsWith(`${collection}/`) && !url.pathname.endsWith("/content") || url.pathname === `/api/mnemonic/projects/${state.projectId}/search`, async (route) => {
+      const path = new URL(route.request().url()).pathname;
+      const search = path.endsWith("/search");
+      const detail = path.startsWith(`${collection}/`);
       if (!search && route.request().method() !== "GET") { await route.continue(); return; }
       if (held) { refreshRequests++; await held; }
       const response = await route.fetch();
       const payload = await response.json();
-      for (const item of payload.items) {
+      // Both directory/search results and the current metadata query observe
+      // the same simulated extraction transition.
+      for (const item of detail ? [payload] : payload.items) {
         const artifact = search ? item.artifact.artifact : item;
         if (artifact.filename === filename) artifact.extraction = {
           status: ready ? "ready" : "pending", metadata: ready ? { title: ["Automatically refreshed document title"] } : {},

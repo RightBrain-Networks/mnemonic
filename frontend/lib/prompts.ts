@@ -116,11 +116,12 @@ export function promptPath(projectId: string, promptId?: PromptId): string {
 }
 
 export async function renderedPrompt(
-  projectId: string, promptId: PromptId, workItemId: string, codeReviewId?: string
+  projectId: string, promptId: PromptId, workItemId: string, codeReviewId?: string, signal?: AbortSignal
 ): Promise<string> {
   const value = await api<unknown>(`${promptPath(projectId, promptId)}/render`, {
     method: "POST",
-    body: JSON.stringify({ work_item_id: workItemId, ...(codeReviewId ? { code_review_id: codeReviewId } : {}) })
+    body: JSON.stringify({ work_item_id: workItemId, ...(codeReviewId ? { code_review_id: codeReviewId } : {}) }),
+    signal
   });
   const content = decodeRenderedPrompt(value);
   const row = objectValue(value)!;

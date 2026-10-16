@@ -8,7 +8,7 @@ import { codeReviewDetailOptions } from "@/lib/work-panel-queries";
 import { retainedReviewPointer, reviewDecisionStatus } from "@/lib/code-review-tasks";
 import { dashboardSessionId } from "@/lib/dashboard-session";
 import { mutationWorkKey, useMutationIntentRegistry, useMutationScope } from "@/lib/mutation-intent";
-import { renderedPrompt } from "@/lib/prompts";
+import { fetchFreshRenderedPrompt } from "@/lib/secondary-queries";
 import { dashboardMutationActor } from "@/lib/work-events";
 import { sameUuid } from "@/lib/wire-guards";
 import type { Task } from "@/lib/tasks";
@@ -79,10 +79,10 @@ export function useCodeReviewActions(projectId: string, onChanged: () => void, o
       const detail = await queryClient.fetchQuery({ ...options, staleTime: 0 });
       const runnable = detail.review.state === "requested" && (detail.review.human_decision?.status ?? "to-review") === "to-review";
       const text = !runnable ? retainedReviewPointer(detail) : detail.review.manual_request?.mode === "cold"
-        ? await renderedPrompt(projectId, "cold-code-review", task.work_item_id, task.id)
+        ? await fetchFreshRenderedPrompt(queryClient, projectId, "cold-code-review", task.work_item_id, task.id)
         : (await Promise.all([
-        renderedPrompt(projectId, "recall-pointer", task.work_item_id, task.id),
-        renderedPrompt(projectId, "warm-code-review", task.work_item_id, task.id)
+        fetchFreshRenderedPrompt(queryClient, projectId, "recall-pointer", task.work_item_id, task.id),
+        fetchFreshRenderedPrompt(queryClient, projectId, "warm-code-review", task.work_item_id, task.id)
       ])).join("\n\n");
       if (!active.current) return;
       if (!navigator.clipboard?.writeText) throw new Error("Clipboard access is unavailable.");

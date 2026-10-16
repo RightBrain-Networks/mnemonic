@@ -2,9 +2,9 @@ import type { QueryClient } from "@tanstack/react-query";
 import type { ConfirmedMutation, MutationIntentRegistry } from "./mutation-intent.ts";
 import type { MutationKind } from "./mutation-responses.ts";
 
-type ReadRoot = "work" | "tasks" | "work-detail" | "attention-count" | "report-count";
-const workReads = ["work", "tasks", "work-detail", "attention-count"] as const;
-const closeoutReads = [...workReads, "report-count"] as const;
+type ReadRoot = "work" | "tasks" | "work-detail" | "attention-count" | "attention" | "report-count" | "reports";
+const workReads = ["work", "tasks", "work-detail", "attention-count", "attention"] as const;
+const closeoutReads = [...workReads, "report-count", "reports"] as const;
 
 // Keep this exhaustive: every protected write must declare its read dependencies.
 const mutationReadRoots = {
@@ -21,7 +21,7 @@ const mutationReadRoots = {
   remove_relationship: workReads,
   resolve_human_input: workReads,
   merge_work: closeoutReads,
-  dismiss_job_completion_report: ["work-detail", "report-count"],
+  dismiss_job_completion_report: ["work-detail", "report-count", "reports"],
   create_job_completion_report_follow_up: closeoutReads
 } satisfies Record<MutationKind, readonly ReadRoot[]>;
 

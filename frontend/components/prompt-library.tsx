@@ -1,12 +1,16 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { invalidateCoreReads } from "@/lib/core-queries";
+import { invalidateWorkSettingsReads } from "@/lib/work-detail-queries";
+import { promptDetailOptions, promptLibraryOptions, secondaryKeys } from "@/lib/secondary-queries";
 import { formatDateTime } from "@/components/work-item-card";
 import { api, ApiError, errorMessage } from "@/lib/api";
 import { formatArtifactSize } from "@/lib/artifacts";
 import {
-  decodePromptDetail, decodePromptLibrary, promptContentLimit, promptPath, validPromptContent,
-  type PromptDetail, type PromptLibraryPage, type PromptMetadata
+  decodePromptDetail, promptContentLimit, promptPath, validPromptContent,
+  type PromptDetail, type PromptMetadata
 } from "@/lib/prompts";
 import type { Project } from "@/lib/types";
 
@@ -15,22 +19,14 @@ export default function PromptLibrary({ project, onNotice, onPendingChange }: {
   onNotice: (message: string, error?: boolean) => void;
   onPendingChange: (pending: boolean) => void;
 }) {
-  const [page, setPage] = useState<PromptLibraryPage | null>(null);
+  const client = useQueryClient();
+  const library = useQuery(promptLibraryOptions(project.id));
+  const page = library.data;
+  const loading = library.isFetching;
+  const error = library.error ? errorMessage(library.error) : "";
   const [selected, setSelected] = useState<PromptMetadata | null>(null);
   const [query, setQuery] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [refresh, setRefresh] = useState(0);
-  useEffect(() => {
-    const controller = new AbortController();
-    setLoading(true); setError("");
-    void api<unknown>(promptPath(project.id), { signal: controller.signal }).then((value) => {
-      if (!controller.signal.aborted) setPage(decodePromptLibrary(value));
-    }).catch((failure) => {
-      if (!controller.signal.aborted) { setError(errorMessage(failure)); setPage(null); }
-    }).finally(() => { if (!controller.signal.aborted) setLoading(false); });
-    return () => controller.abort();
-  }, [project.id, refresh]);
+  const refresh = () => void library.refetch({ cancelRefetch: false });
 
   const items = page?.items.filter((item) => `${item.name} ${item.description}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
   return <section className="artifact-library prompt-library" aria-label="Prompt library">
@@ -45,8 +41,9 @@ export default function PromptLibrary({ project, onNotice, onPendingChange }: {
       </div>
     </div>
     <p className="artifact-filter-note">Customize the instructions Mnemonic sends to agents in {project.name}. Select a prompt to edit its Markdown.</p>
-    <div className="artifact-directory-heading"><h2>Project prompts{page && <span className="artifact-count">{page.items.length}</span>}</h2><button type="button" className="button button-secondary" disabled={loading} onClick={() => setRefresh((value) => value + 1)}>Refresh</button></div>
-    {error ? <div className="error-notice" role="alert"><p>{error}</p><button type="button" className="button button-secondary" onClick={() => setRefresh((value) => value + 1)}>Retry loading prompts</button></div> : <>
+    <div className="artifact-directory-heading"><h2>Project prompts{page && <span className="artifact-count">{page.items.length}</span>}</h2><button type="button" className="button button-secondary" disabled={loading} onClick={refresh}>Refresh</button></div>
+    {error && <div className="error-notice" role="alert"><p>{error}</p><button type="button" className="button button-secondary" onClick={refresh}>Retry loading prompts</button></div>}
+    {(!error || page) && <>
       <div className="artifact-table-scroll" aria-busy={loading} tabIndex={0} role="region" aria-label="Prompt directory">
         <table className="artifact-table prompt-table"><thead><tr>{["Name / purpose", "Size", "Created", "Updated"].map((label) => <th key={label} scope="col">{label}</th>)}</tr></thead><tbody>{items?.map((prompt) => <tr key={prompt.id}>
           <td><button type="button" className="artifact-name" aria-haspopup="dialog" onClick={() => setSelected(prompt)}><svg width="19" height="22" viewBox="0 0 20 24" fill="none" stroke="currentColor" aria-hidden="true"><path d="M3 1h8l6 6v16H3zM11 1v7h6M6 13h8M6 17h6" /></svg><span>{prompt.name}</span></button><span className="artifact-type prompt-purpose">{prompt.description}</span></td>
@@ -61,8 +58,9 @@ export default function PromptLibrary({ project, onNotice, onPendingChange }: {
       <p>Use these values in any prompt. Mnemonic expands them when sending the prompt to an agent. Unknown macros and values unavailable in the current context remain unchanged.</p>
       <dl>{page.macros.map(({ macro, description }) => <div key={macro}><dt><code>{macro}</code></dt><dd>{description}</dd></div>)}</dl>
     </section>}
-    {selected && <PromptEditor key={selected.id} project={project} prompt={selected} onClose={() => setSelected(null)} onPendingChange={onPendingChange} onSaved={(saved) => {
-      setPage((current) => current ? { ...current, items: current.items.map((item) => item.id === saved.id ? saved : item) } : null);
+    {selected && <PromptEditor key={`${project.id}:${selected.id}`} project={project} prompt={selected} onClose={() => setSelected(null)} onPendingChange={onPendingChange} onSaved={(saved) => {
+      void invalidateCoreReads(client, project.id, ["settings"]);
+      void invalidateWorkSettingsReads(client, project.id);
       onNotice(`${saved.name} saved for “${project.name}”.`);
     }} />}
   </section>;
@@ -80,11 +78,14 @@ function PromptEditor({ project, prompt, onClose, onSaved, onPendingChange }: {
   const contentId = useId();
   const [saved, setSaved] = useState<PromptDetail | null>(null);
   const [draft, setDraft] = useState("");
-  const [loading, setLoading] = useState(true);
+  const client = useQueryClient();
+  const detail = useQuery(promptDetailOptions(project.id, prompt.id));
+  const [reviewing, setReviewing] = useState(false);
+  const loading = detail.isFetching || reviewing;
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [copyStatus, setCopyStatus] = useState("");
-  const [refresh, setRefresh] = useState(0);
+  const refresh = () => void detail.refetch({ cancelRefetch: false });
   const [needsReview, setNeedsReview] = useState(false);
   const [latest, setLatest] = useState<PromptDetail | null>(null);
   const mounted = useRef(true);
@@ -112,17 +113,13 @@ function PromptEditor({ project, prompt, onClose, onSaved, onPendingChange }: {
     window.addEventListener("beforeunload", beforeUnload);
     return () => window.removeEventListener("beforeunload", beforeUnload);
   }, [dirty, saving]);
+  // Reopening may initially show cached text. Adopt a fresh read while the
+  // editor is still clean, but preserve any draft and its conflict baseline.
   useEffect(() => {
-    const controller = new AbortController();
-    setLoading(true); setError("");
-    void api<unknown>(promptPath(project.id, prompt.id), { signal: controller.signal }).then((value) => {
-      const detail = decodePromptDetail(value, prompt.id);
-      if (controller.signal.aborted) return;
-      setSaved(detail); setDraft(detail.content);
-    }).catch((failure) => { if (!controller.signal.aborted) setError(errorMessage(failure)); })
-      .finally(() => { if (!controller.signal.aborted) setLoading(false); });
-    return () => controller.abort();
-  }, [project.id, prompt.id, refresh]);
+    if (detail.data && (!saved || !saving && !needsReview && draft === saved.content)) {
+      setSaved(detail.data); setDraft(detail.data.content);
+    }
+  }, [detail.data, saved, draft, saving, needsReview]);
 
   function close() {
     if (saving) return;
@@ -130,13 +127,13 @@ function PromptEditor({ project, prompt, onClose, onSaved, onPendingChange }: {
     onClose();
   }
   async function reviewLatest() {
-    setLoading(true); setLatest(null);
+    setReviewing(true); setLatest(null);
     try {
-      const value = await api<unknown>(promptPath(project.id, prompt.id));
-      const current = decodePromptDetail(value, prompt.id);
+      const result = await detail.refetch({ cancelRefetch: true, throwOnError: true });
+      const current = result.data!;
       if (mounted.current) setLatest(current);
     } catch (failure) { if (mounted.current) setError(errorMessage(failure)); }
-    finally { if (mounted.current) setLoading(false); }
+    finally { if (mounted.current) setReviewing(false); }
   }
   async function save() {
     if (!saved || needsReview || !validPromptContent(prompt.id, draft)) return;
@@ -148,7 +145,10 @@ function PromptEditor({ project, prompt, onClose, onSaved, onPendingChange }: {
       const result = decodePromptDetail(value, prompt.id);
       if (result.content !== draft) throw new Error("The saved content differs from your draft. Review the latest saved prompt before retrying.");
       if (!mounted.current) return;
-      setSaved(result); setDraft(result.content); onSaved(result);
+      setSaved(result); setDraft(result.content);
+      void client.cancelQueries({ queryKey: secondaryKeys.prompt(project.id, prompt.id), exact: true });
+      client.setQueryData(secondaryKeys.prompt(project.id, prompt.id), result);
+      onSaved(result);
     } catch (failure) {
       if (!mounted.current) return;
       if (!(failure instanceof ApiError) || failure.status === 0 || failure.status >= 500 || failure.status === 409) {
@@ -179,7 +179,7 @@ function PromptEditor({ project, prompt, onClose, onSaved, onPendingChange }: {
     <div className="artifact-preview-body prompt-editor-body">
       <p className="settings-intro">{prompt.description}</p>
       {copyStatus && <p role="status">{copyStatus}</p>}
-      {error && <div className="error-notice" role="alert"><p>{error}</p>{!saved && <button type="button" className="button button-secondary" disabled={loading} onClick={() => setRefresh((value) => value + 1)}>Retry loading prompt</button>}</div>}
+      {(error || detail.error) && <div className="error-notice" role="alert"><p>{error || errorMessage(detail.error)}</p>{!saved && <button type="button" className="button button-secondary" disabled={loading} onClick={refresh}>Retry loading prompt</button>}</div>}
       {loading && <p role="status">Loading prompt…</p>}
       {needsReview && <section className="prompt-conflict" aria-label="Review saved prompt">
         {latest ? <><h3>Current saved prompt</h3><pre tabIndex={0}>{latest.content}</pre><button type="button" className="button button-secondary" disabled={saving} onClick={() => { setSaved(latest); setNeedsReview(false); setLatest(null); setError(""); }}>I reviewed the saved prompt</button></>
