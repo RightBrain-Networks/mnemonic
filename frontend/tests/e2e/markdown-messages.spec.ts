@@ -85,7 +85,7 @@ test("work summaries render Markdown and keep embedded HTML and image loads iner
     await expect(page.locator("html")).not.toHaveAttribute("data-markdown-injected");
     expect(imageRequests).toEqual([]);
     for (const theme of ["Light", "Dark"]) {
-      await page.getByText(theme, { exact: true }).click();
+      await page.getByRole("radio", { name: theme, exact: true }).check();
       await expect(page.locator("html")).toHaveAttribute("data-theme", theme.toLowerCase());
       await assertNoPageOverflow(page);
       await expect.poll(async () => (await auditTextContrast(page, card.locator(".job-report-content")))
@@ -136,7 +136,7 @@ test("Needs Attention renders block Markdown in the queue and the original work 
     await expect(content.getByRole("link", { name: "Unsafe" })).toHaveCount(0);
     await expect(page.locator("html")).not.toHaveAttribute("data-markdown-injected");
     for (const theme of ["Light", "Dark"]) {
-      await page.getByText(theme, { exact: true }).click();
+      await page.getByRole("radio", { name: theme, exact: true }).check();
       await expect(page.locator("html")).toHaveAttribute("data-theme", theme.toLowerCase());
       await assertNoPageOverflow(page);
       await expect.poll(async () => (await auditTextContrast(page, content))
