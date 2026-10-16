@@ -24,6 +24,8 @@ def test_runtime_config_exposes_only_public_runtime_values():
         work_summary_max_chars=3456,
         artifact_max_bytes=0,
         backup_max_bytes=123456,
+        backup_url="http://private-worker.example:8002",
+        backup_token="private-backup-token-" * 4,
     )
     app.get("/api/mnemonic/runtime-config")(runtime_config)
     with TestClient(app) as client:
@@ -40,6 +42,8 @@ def test_runtime_config_exposes_only_public_runtime_values():
     assert response.headers["cross-origin-resource-policy"] == "same-origin"
     assert "private.example" not in response.text
     assert "runtime-test-secret" not in response.text
+    assert "private-worker" not in response.text
+    assert "private-backup-token" not in response.text
 
 
 def test_browser_runtime_defaults(monkeypatch):
@@ -66,9 +70,14 @@ def test_display_timezone_retains_browser_supported_spellings(timezone):
 def test_browser_runtime_settings_use_runtime_environment(monkeypatch):
     monkeypatch.setenv("TIMEZONE", "Europe/Paris")
     monkeypatch.setenv("MNEMONIC_BACKUP_MAX_BYTES", "123456")
+    monkeypatch.setenv("MNEMONIC_BACKUP_URL", "http://private-worker.example:8002")
+    monkeypatch.setenv("MNEMONIC_BACKUP_TOKEN", "private-backup-token-" * 4)
     config = settings()
     assert config.timezone == "Europe/Paris"
     assert config.backup_max_bytes == 123456
+    assert config.backup_url == "http://private-worker.example:8002"
+    assert config.backup_token.get_secret_value() == "private-backup-token-" * 4
+    assert "private-backup-token" not in repr(config)
 
 
 @pytest.mark.parametrize("size", ["", 0, -1, "NaN", 2**53, 1.5])

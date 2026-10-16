@@ -161,6 +161,17 @@ MCP/OAuth integrations. Keep the network ACL even with a dashboard password.
 
 ## Check the deployment
 
+Frontend migration transport acceptance also supports
+`./scripts/test-nginx-e2e.sh --browser-transports`. That isolated mode runs the
+same edge policies against FastAPI's four browser families, including raw
+transfers and WebSocket upgrade. The ordinary runner retains the Next checks.
+`deploy/nginx/test/browser-transports.conf` demonstrates the same-origin
+static-server routing interface; it is a test overlay, not an installed
+production configuration. See [the backup gateway handoff](../../docs/browser-backup-api.md)
+for API worker credentials, 30-minute transfer deadlines, buffering/size rules,
+and private namespace exclusions. A production switch or rollback requires its
+own operator authorization.
+
 The repository configuration passed `nginx -t` on nginx 1.30.4 and HTTPS checks
 against temporary copies of the real dashboard and MCP containers. Checks
 covered dashboard/API routing, MCP initialize/list-tools/list-projects, bearer

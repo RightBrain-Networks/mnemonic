@@ -5,6 +5,15 @@ script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 repo_root=$(cd -- "$script_dir/.." && pwd)
 base_compose="$repo_root/compose.e2e.yaml"
 nginx_compose="$repo_root/compose.nginx-e2e.yaml"
+browser_transports=false
+if [[ "${1:-}" == "--browser-transports" ]]; then
+  browser_transports=true
+  shift
+fi
+if (( $# )); then
+  echo "Usage: $0 [--browser-transports]" >&2
+  exit 2
+fi
 
 for compose_file in "$base_compose" "$nginx_compose"; do
   if [[ ! -f "$compose_file" || -L "$compose_file" ]]; then
@@ -18,6 +27,10 @@ export MNEMONIC_E2E_COMPOSE_PROJECT="mnemonic-nginx-e2e-$project_suffix"
 if [[ ! "$MNEMONIC_E2E_COMPOSE_PROJECT" =~ ^mnemonic-nginx-e2e-[a-z0-9-]+$ ]]; then
   echo "Refusing to manage an unexpected Compose project name." >&2
   exit 2
+fi
+compose=(docker compose -p "$MNEMONIC_E2E_COMPOSE_PROJECT" -f "$base_compose" -f "$nginx_compose")
+if [[ "$browser_transports" == true ]]; then
+  compose+=(-f "$repo_root/compose.nginx-browser-transports-e2e.yaml")
 fi
 
 choose_port() {
@@ -44,6 +57,7 @@ if [[ "$MNEMONIC_E2E_WEB_PORT" == "$MNEMONIC_E2E_API_PORT" ||
 fi
 
 export MNEMONIC_NGINX_E2E_URL="http://127.0.0.1:$MNEMONIC_NGINX_E2E_PORT"
+export MNEMONIC_E2E_API_URL="http://127.0.0.1:$MNEMONIC_E2E_API_PORT"
 export MNEMONIC_DASHBOARD_ORIGINS="$MNEMONIC_NGINX_E2E_URL"
 export MNEMONIC_E2E_API_KEY
 MNEMONIC_E2E_API_KEY=$(openssl rand -hex 32)
@@ -54,12 +68,15 @@ test_tmp=$(mktemp -d)
 MNEMONIC_E2E_ARTIFACT_DIR=$(mktemp -d /tmp/mnemonic-nginx-e2e-artifacts.XXXXXXXX)
 MNEMONIC_E2E_BACKUP_DIR=$(mktemp -d /tmp/mnemonic-nginx-e2e-backups.XXXXXXXX)
 MNEMONIC_E2E_PROMPT_DIR=$(mktemp -d /tmp/mnemonic-nginx-e2e-prompts.XXXXXXXX)
+MNEMONIC_E2E_TRANSCRIPT_INDEX_DIR=$(mktemp -d /tmp/mnemonic-nginx-e2e-index.XXXXXXXX)
+MNEMONIC_E2E_TRANSCRIPT_DIR=$(mktemp -d /tmp/mnemonic-nginx-e2e-transcripts.XXXXXXXX)
 export MNEMONIC_E2E_PROMPT_DIR
+export MNEMONIC_E2E_TRANSCRIPT_INDEX_DIR MNEMONIC_E2E_TRANSCRIPT_DIR
 export MNEMONIC_E2E_ARTIFACT_DIR MNEMONIC_E2E_BACKUP_DIR
 
 clean_disposable_directory() {
   local directory="$1"
-  if [[ ! "$directory" =~ ^/tmp/mnemonic-nginx-e2e-(prompts|artifacts|backups)\.[[:alnum:]]{8}$ ]] \
+  if [[ ! "$directory" =~ ^/tmp/mnemonic-nginx-e2e-(prompts|artifacts|backups|index|transcripts)\.[[:alnum:]]{8}$ ]] \
     || [[ ! -d "$directory" || -L "$directory" ]]; then
     echo "Refusing to clean an unexpected nginx E2E storage directory." >&2
     return 2
@@ -73,12 +90,16 @@ clean_disposable_directory() {
 cleanup() {
   local status=$?
   trap - EXIT INT TERM
-  docker compose -p "$MNEMONIC_E2E_COMPOSE_PROJECT" -f "$base_compose" -f "$nginx_compose" \
-    down -v --remove-orphans --rmi local >/dev/null 2>&1 || true
+  if (( status != 0 )); then
+    "${compose[@]}" logs --no-color --tail 100 api nginx worker web || true
+  fi
+  "${compose[@]}" down -v --remove-orphans --rmi local >/dev/null 2>&1 || true
   rm -rf -- "$test_tmp"
   clean_disposable_directory "$MNEMONIC_E2E_ARTIFACT_DIR" || true
   clean_disposable_directory "$MNEMONIC_E2E_BACKUP_DIR" || true
   clean_disposable_directory "$MNEMONIC_E2E_PROMPT_DIR" || true
+  clean_disposable_directory "$MNEMONIC_E2E_TRANSCRIPT_INDEX_DIR" || true
+  clean_disposable_directory "$MNEMONIC_E2E_TRANSCRIPT_DIR" || true
   exit "$status"
 }
 trap cleanup EXIT
@@ -88,12 +109,12 @@ docker run --rm --user 0 \
   --mount "type=bind,source=$MNEMONIC_E2E_ARTIFACT_DIR,target=/artifacts" \
   --mount "type=bind,source=$MNEMONIC_E2E_BACKUP_DIR,target=/backups" \
   --mount "type=bind,source=$MNEMONIC_E2E_PROMPT_DIR,target=/prompts" \
-  postgres:17-alpine chown 10001:10001 /prompts /artifacts /backups
+  --mount "type=bind,source=$MNEMONIC_E2E_TRANSCRIPT_INDEX_DIR,target=/index" \
+  --mount "type=bind,source=$MNEMONIC_E2E_TRANSCRIPT_DIR,target=/transcripts" \
+  postgres:17-alpine chown 10001:10001 /prompts /artifacts /backups /index /transcripts
 
-docker compose -p "$MNEMONIC_E2E_COMPOSE_PROJECT" -f "$base_compose" -f "$nginx_compose" \
-  run --rm --no-deps nginx-stock-policy-check
-docker compose -p "$MNEMONIC_E2E_COMPOSE_PROJECT" -f "$base_compose" -f "$nginx_compose" \
-  up -d --build --wait
+"${compose[@]}" run --rm --no-deps nginx-stock-policy-check
+"${compose[@]}" up -d --build --wait
 
 assert_single_content_encoding() {
   local headers=$1
@@ -116,7 +137,7 @@ curl --fail --silent --show-error \
   "$MNEMONIC_NGINX_E2E_URL/brotli-control"
 assert_single_content_encoding "$test_tmp/brotli-control.headers" br
 
-# A maximum accepted metadata header must traverse nginx and Node before the
+# A maximum accepted metadata header must traverse nginx and the browser boundary before the
 # binary proxy forwards it. Default buffers reject this valid request as431.
 python3 - <<'PY'
 import json
@@ -139,7 +160,7 @@ request = urllib.request.Request(
 with urllib.request.urlopen(request, timeout=30) as response:
     assert response.status == 200
     assert json.load(response) == {"metadata_bytes": 16384}
-print("PASS: 16 KiB artifact metadata traverses nginx and Node unchanged")
+print("PASS: 16 KiB artifact metadata traverses nginx and the browser boundary unchanged")
 PY
 
 work_id=11111111-1111-4111-8111-111111111111
@@ -153,7 +174,7 @@ grep -Eiq '^X-DNS-Prefetch-Control:[[:space:]]*off' "$test_tmp/identity.headers"
 grep -Eiq '^Cache-Control:.*no-store.*no-transform' "$test_tmp/identity.headers"
 python3 -m json.tool "$test_tmp/identity.json" >/dev/null
 
-# Next owns the final identity marker. An acceptable absent upstream coding is
+# The browser boundary owns the final identity marker. An absent upstream coding is
 # normalized to explicit identity before nginx can consider a response filter.
 curl --fail --silent --show-error \
   --dump-header "$test_tmp/identity-absent.headers" \
@@ -299,7 +320,7 @@ if grep -Fq 'accepted_body_bytes' "$test_tmp/completion-misleading-length-respon
 fi
 
 # Transfer-Encoding removes the client Content-Length. The deployed edge and
-# Next stream counter must still accept the inclusive limit and reject byte +1.
+# browser stream counter must accept the inclusive limit and reject byte +1.
 chunked_exact_status=$(post_completion \
   "$test_tmp/completion-exact.json" \
   "$test_tmp/completion-chunked-exact-response.json" \
@@ -325,4 +346,8 @@ if grep -Fq 'accepted_body_bytes' "$test_tmp/completion-chunked-over-response.js
   exit 1
 fi
 
-echo "PASS: stock nginx accepts the shared policy; enabled Brotli remains outside its identity-coded evidence route; nginx/Next enforce the exact 3 MiB response and inclusive 1 MiB completion ingress boundaries."
+if [[ "$browser_transports" == true ]]; then
+  python3 "$repo_root/scripts/test_browser_transport_ingress.py"
+fi
+
+echo "PASS: stock nginx accepts the shared policy; enabled Brotli remains outside its identity-coded evidence route; nginx/browser transport enforce the exact 3 MiB response and inclusive 1 MiB completion ingress boundaries."

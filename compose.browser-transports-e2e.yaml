@@ -10,6 +10,7 @@ services:
       - '127.0.0.1:${MNEMONIC_E2E_WEB_PORT:?Run through scripts/test-e2e.sh}:8080'
     volumes:
       - ./deploy/nginx/test/browser-transports.conf:/etc/nginx/nginx.conf:ro
+      - ./deploy/nginx/snippets/mnemonic-dashboard-api-policy.conf:/etc/nginx/snippets/mnemonic-dashboard-api-policy.conf:ro
     depends_on:
       api:
         condition: service_healthy
