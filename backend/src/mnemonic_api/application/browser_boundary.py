@@ -12,6 +12,7 @@ import secrets
 from contextlib import suppress
 from typing import NoReturn
 
+import anyio
 from starlette.datastructures import Headers, QueryParams
 from starlette.requests import ClientDisconnect, Request
 from starlette.responses import Response
@@ -208,9 +209,11 @@ class BrowserBoundaryMiddleware:
         child = _domain_scope(scope, path)
         payload = b"" if scope["method"] == "GET" else body
         disconnected = asyncio.Event()
+        execution = anyio.CancelScope()
 
         async def execute() -> None:
-            await self.app(child, _replay(payload, disconnected), buffered.capture)
+            with execution:
+                await self.app(child, _replay(payload, disconnected), buffered.capture)
 
         task = asyncio.create_task(execute())
         self.in_flight.add(task)
@@ -229,9 +232,10 @@ class BrowserBoundaryMiddleware:
             # slots until actual work returns. A write already executing must
             # finish its receipt/publication once, despite a lost response.
             if _safe_read(path, scope["method"]) and not task.done():
-                task.cancel()
-                # A synchronous read can keep AnyIO cleanup waiting for its
-                # worker. Track that cleanup without extending the wire budget.
+                # Respect the shield around a synchronous route's native worker:
+                # dependencies cannot close until that worker actually returns.
+                # Its tracked cleanup must not extend the wire budget.
+                execution.cancel()
             with suppress(asyncio.CancelledError):
                 await watch
 

@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { validSearchPagination, searchPagination } from "../lib/search-pagination.ts";
 import { movePageOffset, nextPageOffset } from "../lib/page-offsets.ts";
-import { reloadWorkPages } from "../lib/work-queue.ts";
 
 test("short pages require explicit advancing continuation and retain requested limits", () => {
   const page = { items: [1, 2], offset: 4, total: 30, limit: 20, next_offset: 6, page_truncated: true };
@@ -25,17 +24,4 @@ test("search Next and Previous revisit actual uneven pages and scope reset clear
   // The unchanged artifact directory has count-based pagination, including its last page.
   assert.equal(nextPageOffset({ items: [1, 2], offset: 0, total: 3 }), 2);
   assert.equal(nextPageOffset({ items: [3], offset: 2, total: 3 }), null);
-});
-
-test("queue refresh follows changed page boundaries without gaps or zero-progress loops", async () => {
-  const offsets = [];
-  const pages = await reloadWorkPages(async (offset) => {
-    offsets.push(offset);
-    const end = Math.min(7, offset + 2);
-    return { items: Array.from({ length: end - offset }, (_, index) => offset + index), offset,
-      total: 7, limit: 20, next_offset: end < 7 ? end : null, page_truncated: end < 7 };
-  }, 7);
-  assert.deepEqual(offsets, [0, 2, 4, 6]);
-  assert.deepEqual(pages.flatMap((page) => page.items), [0, 1, 2, 3, 4, 5, 6]);
-  assert.equal((await reloadWorkPages(async () => ({ items: [], total: 0, limit: 20, offset: 0, next_offset: null }), 7)).length, 1);
 });

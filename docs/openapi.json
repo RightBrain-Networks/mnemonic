@@ -17783,7 +17783,7 @@
   "info": {
     "description": "Durable project-scoped work with immutable agent checkpoints.",
     "title": "Mnemonic API",
-    "version": "0.83.8"
+    "version": "0.83.9"
   },
   "openapi": "3.1.0",
   "paths": {

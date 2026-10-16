@@ -78,28 +78,6 @@ function dedupeWorkEntries<T extends WorkQueueEntry>(entries: readonly T[]): T[]
   return unique;
 }
 
-export function loadedOffsets(loadedCount: number, pageSize: number): number[] {
-  if (!Number.isFinite(pageSize) || pageSize <= 0) return [0];
-  const pages = Math.max(1, Math.ceil(Math.max(0, loadedCount) / pageSize));
-  return Array.from({ length: pages }, (_, index) => index * pageSize);
-}
-
-/** Refresh a contiguous prefix even when the byte budget changes page boundaries. */
-export async function reloadWorkPages<T>(
-  fetchPage: (offset: number) => Promise<Page<T>>,
-  targetCount: number
-): Promise<Page<T>[]> {
-  const pages: Page<T>[] = [];
-  let offset = 0;
-  do {
-    const page = await fetchPage(offset);
-    pages.push(page);
-    if (page.next_offset === null || page.items.length === 0) break;
-    offset = page.next_offset ?? offset + page.items.length;
-  } while (offset < targetCount);
-  return pages;
-}
-
 export function mergeWorkPages<T extends WorkQueueEntry>(
   pages: ReadonlyArray<Page<T>>
 ): MergedWorkPages<T> {
@@ -112,21 +90,6 @@ export function mergeWorkPages<T extends WorkQueueEntry>(
     loaded: kept.reduce((count, page) => count + page.items.length, 0),
     total
   };
-}
-
-export function appendWorkPage<T extends WorkQueueEntry>(
-  current: MergedWorkPages<T>,
-  page: Page<T>
-): MergedWorkPages<T> {
-  return {
-    items: dedupeWorkEntries([...current.items, ...page.items]),
-    loaded: current.loaded + page.items.length,
-    total: page.total
-  };
-}
-
-export function hasMoreWork(loaded: number, total: number | null): boolean {
-  return total !== null && loaded < total;
 }
 
 export function moreFiltersForced(input: {

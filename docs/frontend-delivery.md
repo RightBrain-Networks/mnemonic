@@ -40,8 +40,9 @@ programmatic and browser history transitions; pending actions block before a new
 route commits. Internal selection changes replace only the URL without adding
 history entries or discarding pending intents. Query parsing preserves string
 values and repeated parameters; legacy `/?work=...` links redirect to `/work-items`.
-TanStack Query owns core dashboard and selected-work reads after migrations 5 and 6;
-the remaining secondary reads belong to migration 7. See
+TanStack Query owns decoded dashboard, selected-work, resource and secondary
+server reads. Runtime configuration, activity/WebSocket delivery and raw byte
+streams retain their transport-specific owners. See
 [frontend shared patterns](frontend-shared-patterns.md#core-server-reads-with-tanstack-query-migration-5)
 for resource ownership and mutation reconciliation.
 
@@ -92,15 +93,19 @@ screenshots use the seeded project with no data changes.
 Build from the repository root with `docker build -f frontend/Dockerfile .`;
 Compose uses that same context to include the shared nginx security snippets.
 
-Production service replacement still requires explicit operator authorization.
-Prepare matching API/web images and confirm the exact public origin before
-cutover. The API retains the worker URL/token and runtime values; remove private
-settings from web. Existing API/worker/database services must not be interrupted
-merely to validate this change. Back up operational configuration before an
-operator applies the new Compose topology.
+Use the [frontend migration release runbook](frontend-migration-release.md) to
+record exact running images, matching configuration and schema compatibility
+before requesting production authorization. API/web replacement and host nginx
+reload each require explicit operator authorization. The API owns worker
+URL/token and runtime values; the static web image has no private settings.
+An API restart also interrupts MCP requests that use it, even if the MCP
+container stays running.
 
-For rollback, restore the previously released web/API images and their matching
-Compose configuration, including the former Next web server's private connection
-settings. No schema rollback is necessary. In-flight tabs should finish protected
-writes before the operator changes either delivery pair; never reconstruct or
-regenerate uncertain mutation requests during a rollout.
+Rollback restores a verified compatible image/configuration pair. A historical
+Next/API pair is not automatically safe on a newer database: the API starts by
+running Alembic, and older processes must never run against an incompatible
+schema. This frontend verification adds no migration; that does not waive the
+schema check when production is behind. Retain old tabs until protected writes
+and unknown outcomes are resolved, then reload them deliberately after the
+operator's checks. Receipt requests and their UUIDs must never be reconstructed
+or regenerated during a rollout.

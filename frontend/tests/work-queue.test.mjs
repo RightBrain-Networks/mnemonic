@@ -2,11 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   WORK_PAGE_SIZE,
-  appendWorkPage,
   cycleStatusFilter,
-  hasMoreWork,
   listScrollTopFor,
-  loadedOffsets,
   mergeWorkPages,
   moreFiltersForced,
   nextQueueSelection,
@@ -81,17 +78,6 @@ test("with no work open a lifecycle change only refilters the queue", () => {
   assert.equal(statusFilterTransition("all", "wont-do", null), "refilter");
 });
 
-test("loadedOffsets covers every page that has been loaded and always includes the first", () => {
-  assert.deepEqual(loadedOffsets(0, 20), [0]);
-  assert.deepEqual(loadedOffsets(1, 20), [0]);
-  assert.deepEqual(loadedOffsets(20, 20), [0]);
-  assert.deepEqual(loadedOffsets(21, 20), [0, 20]);
-  assert.deepEqual(loadedOffsets(45, 20), [0, 20, 40]);
-  assert.deepEqual(loadedOffsets(60, 20), [0, 20, 40]);
-  assert.deepEqual(loadedOffsets(-5, 20), [0]);
-  assert.deepEqual(loadedOffsets(40, 0), [0]);
-});
-
 test("mergeWorkPages flattens pages in order and takes the total from the first page", () => {
   const merged = mergeWorkPages([
     page(["a", "b"], 5, 0, 2),
@@ -126,31 +112,6 @@ test("mergeWorkPages keeps one entry per work item when a record straddles a pag
   assert.deepEqual(merged.items.map((item) => item.summary.work_item.id), ["a", "b", "c"]);
   assert.equal(merged.loaded, 4, "the raw loaded count still advances the next offset");
   assert.equal(merged.total, 4);
-});
-
-test("appendWorkPage extends the accumulated items and adopts the freshest total", () => {
-  const first = mergeWorkPages([page(["a", "b"], 3, 0, 2)]);
-  const appended = appendWorkPage(first, page(["c"], 3, 2, 2));
-  assert.deepEqual(appended.items.map((item) => item.summary.work_item.id), ["a", "b", "c"]);
-  assert.equal(appended.loaded, 3);
-  assert.equal(appended.total, 3);
-
-  const shrunk = appendWorkPage(first, page([], 2, 2, 2));
-  assert.equal(shrunk.loaded, 2);
-  assert.equal(shrunk.total, 2);
-  assert.equal(hasMoreWork(shrunk.loaded, shrunk.total), false);
-
-  const overlapping = appendWorkPage(first, page(["b", "c"], 4, 2, 2));
-  assert.deepEqual(overlapping.items.map((item) => item.summary.work_item.id), ["a", "b", "c"]);
-  assert.equal(overlapping.loaded, 4);
-});
-
-test("hasMoreWork compares the loaded count with a known total", () => {
-  assert.equal(hasMoreWork(0, null), false);
-  assert.equal(hasMoreWork(0, 0), false);
-  assert.equal(hasMoreWork(20, 45), true);
-  assert.equal(hasMoreWork(45, 45), false);
-  assert.equal(hasMoreWork(46, 45), false);
 });
 
 test("moreFiltersForced opens the panel only when a hidden filter is active", () => {

@@ -219,6 +219,27 @@ def check_restore_rejections(project: str, other: str, archive: bytes) -> None:
     )
 
 
+def restore_with_contention_retry(project: str, other: str, archive: bytes) -> None:
+    before = [expect(200, request(f"/projects/{item}", api=True)) for item in (project, other)]
+    for attempt in range(3):
+        response = request(
+            f"/projects/{project}/restore", method="POST", body=archive,
+            headers={"X-Confirm-Project": project},
+        )
+        if response[0] == 200:
+            return
+        error = json.loads(expect(409, response))
+        assert isinstance(error, dict) and isinstance(error.get("error"), dict), response
+        assert error["error"].get("code") == "backup_database_busy", response
+        # This exact response follows rollback of a lock timeout, cancellation,
+        # or deadlock. Transport failures and other responses must never retry.
+        after = [expect(200, request(f"/projects/{item}", api=True))
+                 for item in (project, other)]
+        assert before == after, "A rejected restore must preserve both projects before retry"
+        assert attempt < 2, "Restore remained busy after three rolled-back attempts"
+        time.sleep(0.2 * (attempt + 1))
+
+
 def check_restore_success(project: str, other: str, archive: bytes) -> None:
     original = json.loads(expect(200, request(f"/projects/{project}", api=True)))
     untouched = expect(200, request(f"/projects/{other}", api=True))
@@ -228,15 +249,7 @@ def check_restore_success(project: str, other: str, archive: bytes) -> None:
             f"/projects/{project}", api=True, method="PATCH", body={"name": "Changed after backup"}
         ),
     )
-    expect(
-        200,
-        request(
-            f"/projects/{project}/restore",
-            method="POST",
-            body=archive,
-            headers={"X-Confirm-Project": project},
-        ),
-    )
+    restore_with_contention_retry(project, other, archive)
     restored = json.loads(expect(200, request(f"/projects/{project}", api=True)))
     assert original == restored, "Restore must recover exactly the archived project data"
     assert expect(200, request(f"/projects/{other}", api=True)) == untouched

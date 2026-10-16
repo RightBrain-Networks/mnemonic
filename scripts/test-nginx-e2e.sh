@@ -55,6 +55,10 @@ fi
 export MNEMONIC_NGINX_E2E_URL="http://127.0.0.1:$MNEMONIC_NGINX_E2E_PORT"
 export MNEMONIC_E2E_API_URL="http://127.0.0.1:$MNEMONIC_E2E_API_PORT"
 export MNEMONIC_DASHBOARD_ORIGINS="$MNEMONIC_NGINX_E2E_URL"
+# Keep Compose interpolation and the Python runtime-config oracle identical,
+# including empty overrides and installations with a local .env file.
+export TIMEZONE="${TIMEZONE:-America/Detroit}"
+export MNEMONIC_E2E_WORK_SUMMARY_MAX_CHARS="${MNEMONIC_E2E_WORK_SUMMARY_MAX_CHARS:-2048}"
 export MNEMONIC_E2E_API_KEY
 MNEMONIC_E2E_API_KEY=$(openssl rand -hex 32)
 export MNEMONIC_E2E_BACKUP_TOKEN

@@ -172,10 +172,12 @@ credentials, 30-minute transfer deadlines and raw-byte rules. The host backup
 location's body limit must allow the configured `MNEMONIC_BACKUP_MAX_BYTES`, and
 its send/read timeouts must exceed 1800 seconds.
 
-A production switch or rollback requires its own operator authorization. Keep
-the prior Next/API image pair and host nginx configuration available until the
-static deployment passes checks; restore that pair together for rollback.
-No schema change is required by the static cutover.
+A production switch or rollback requires its own operator authorization. Follow
+the [frontend migration release runbook](../../docs/frontend-migration-release.md)
+to retain the exact running image IDs and matching Compose/host configuration,
+check database compatibility, and account for old tabs and fingerprinted assets.
+Restore only a schema-compatible pair. A historical Next/API pair cannot be
+assumed compatible merely because the static frontend adds no migration.
 
 The repository configuration passed `nginx -t` on nginx 1.30.4 and HTTPS checks
 against temporary copies of the real dashboard and MCP containers. Checks

@@ -107,6 +107,8 @@ jobs:
             plugin/scripts/upload_artifact.py \
             plugin/scripts/download_artifact.py \
             scripts/seed_e2e_historical_completion.py \
+            scripts/test_browser_transport_ingress.py \
+            scripts/test_project_backups.py \
             scripts/check-stack.py
 
   ty:

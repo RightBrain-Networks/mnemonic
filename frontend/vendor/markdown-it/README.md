@@ -3,8 +3,8 @@
 `markdown-it.esm.min.mjs` is the published, self-contained browser ESM build
 of [markdown-it 15.0.1](https://github.com/markdown-it/markdown-it/tree/15.0.1),
 released August 27, 2026. Its code is unchanged; a final newline was added.
-The source map and unused CLI/server builds are omitted. It works in the
-Next.js server and client bundles with no CDN or runtime download.
+The source map and unused CLI/server builds are omitted. It is bundled into the
+Vite browser application with no CDN or runtime download.
 
 ## Selection
 

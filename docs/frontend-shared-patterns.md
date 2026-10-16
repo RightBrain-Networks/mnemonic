@@ -96,6 +96,11 @@ links: [summary formatting](images/markdown-summaries-light.png),
 
 ## Core server reads with TanStack Query (migration 5)
 
+The migration-wide acceptance matrix and operator release/rollback procedure are
+in [frontend migration release](frontend-migration-release.md). The ownership
+rules below describe the completed migrations 5–7, including their deliberate
+streaming and bootstrap exceptions.
+
 `main.tsx` creates one QueryClient for the application lifetime, outside route
 transitions. `lib/query-keys.ts` is the request identity boundary; project IDs,
 filters, offsets (or infinite-query page parameters), canonical scope and search

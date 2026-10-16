@@ -1,5 +1,53 @@
 # Mnemonic validation record
 
+## Frontend migration parity and release preparation (0.83.9)
+
+The Vite/TanStack parity pass removes unused pre-Query pagination helpers and
+corrects a request-cancellation defect in the migrated browser boundary. A timed-out
+or disconnected read could close its SQLAlchemy session while its synchronous
+handler still ran, allowing that handler to reopen a transaction and retain locks.
+JSON/file cancellation now respects the native worker's AnyIO shield; request
+cleanup is shielded and uses separate thread capacity to release transactions even
+when the default pool is exhausted. Protected-write receipts and retry authority
+remain unchanged. The schema stays at `0051_priority_rubrics`; plugin `0.49.0`
+is unchanged.
+
+Validation on 2026-10-16 used Python 3.14, Node 24.22.0 and isolated services:
+
+- Backend: **4,923 passed, zero failures/skips** with PostgreSQL and RabbitMQ,
+  after **144** focused passes including six new session-lifetime regressions.
+- MCP: **2,156 passed**; dashboard: **541 passed**, TypeScript and production build
+  passed; repository-freshness checks: **72 passed**.
+- After the cleanup correction, both complete nginx runs passed: `UTC` / summary
+  limit `384`, and empty overrides resolving to `America/Detroit` / `2048`.
+  They cover actual static delivery, public-only runtime configuration, raw
+  streaming, WebSocket upgrade, backup/restore and inclusive transport limits.
+- Corrected complete browser invocation: **405 passed, 5 intentionally skipped
+  narrow-layout cases, 1 failed**. The skips cover desktop-only sidebar, filter
+  and divider interactions. The sole failure was a sidebar test observing the
+  initial catalog refresh before navigation; its setup now orders that refresh
+  before installing the unchanged reset observer. The entire sidebar spec then
+  passed three repeats across all three browser projects: **33 passed,
+  3 intentional narrow skips, zero failures**. No UI behavior changed.
+- The standalone backup harness passed all six phases with exit status zero.
+  These results are separate invocations, not a claim of one green full browser run.
+
+The first two complete browser runs had three and four failures respectively;
+their five skips each, exact results and diagnoses remain in the
+[release acceptance record](frontend-migration-release.md#recorded-validation).
+That record separates the corrected stale activity-view expectation, Chromium
+crash, session-lifetime defect, scheduled-backup contention and proven scratch
+quota failure. The backup harness retries only the exact HTTP 409
+`backup_database_busy` rollback response, at most three identical-byte attempts,
+checking unchanged project data before retry; uncertain results remain failures.
+
+The [release runbook](frontend-migration-release.md) records distinct tested
+image/configuration references, unchanged browser asset bytes, screenshots and
+operator cutover checks. Its retained `0.83.8` fallback API reintroduces the known
+cancellation defect; fix forward is preferred for that trigger. Production
+`0.82.1` compatibility remains unverified. No production service was restarted or
+recreated, and the human-authored root README remains unchanged.
+
 ## Unified project prompt retrieval (0.83.0)
 
 `get_prompt` retrieves all eight editable library prompts and the existing
