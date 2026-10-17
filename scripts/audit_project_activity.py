@@ -921,6 +921,20 @@ _EXTRACTION_FINDINGS = {
 }
 
 
+_PRECEDENCE_FINDINGS = {
+    "relationship_closeout_evidence_mismatch": """
+        SELECT count(*) FROM work_relationships relationship
+        WHERE EXISTS (
+            SELECT 1 FROM work_events event
+            WHERE event.relationship_id=relationship.id
+              AND event.event_type IN ('dependency_added','relationship_added')
+              AND COALESCE(event.metadata->'requires_child_closeout','false'::jsonb)
+                  IS DISTINCT FROM to_jsonb(relationship.requires_child_closeout)
+        )
+    """,
+}
+
+
 def _report_checks(expected_head: str) -> dict[str, str]:
     checks = dict(_REPORT_FINDINGS)
     if expected_head not in PROMPT_LIBRARY_HEADS:
@@ -947,7 +961,7 @@ def _head_findings(
             previous._catalog(connection, expected_head)
         )
     findings = _catalog_drift(connection, expected_head)
-    checks = dict(_ACTIVITY_FINDINGS)
+    checks = _ACTIVITY_FINDINGS | (_PRECEDENCE_FINDINGS if expected_head == HEAD else {})
     if expected_head in REPORT_HEADS:
         checks.update(_report_checks(expected_head))
     if expected_head in REFERENCE_HEADS:

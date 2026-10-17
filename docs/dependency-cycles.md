@@ -126,7 +126,8 @@ cycle. Acyclic does not guarantee that a plan is feasible or that work is allowe
 Upgrade API, worker, MCP and dashboard together; older writers are unsupported.
 The migration adds one column, a type check and database graph guards; no tools,
 receipt kinds or work-event types are added. Backup schema signatures and audit
-catalogs advance to 0052. Downgrade refuses retained required-child edges or their
+catalogs advance to 0052. Restore integrity also verifies each retained closure
+flag against its recorded relationship events. Downgrade refuses retained required-child edges or their
 immutable event history instead of erasing their meaning. Fix forward or restore
 a pre-upgrade backup when such history exists. Production restart is a separate
 operator-authorized operation.

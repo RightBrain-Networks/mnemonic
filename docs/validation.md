@@ -13,10 +13,12 @@ Validation on 2026-10-17 used Python 3.14, Node 24 and isolated services:
 - Backend complete run: 4,927 passed, three fixture/expectation failures, six
   RabbitMQ skips. The three failures were corrected for the new schema head and
   batched graph read; all 138 affected tests then passed. All six RabbitMQ tests
-  passed separately. The final 15-case graph suite includes two additional
+  passed separately. The final 16-case graph suite includes two additional
   migration regressions, both mixed-cycle write orders, atomic rollback/replay,
   cross-project concurrency, direct SQL refusal, legacy diagnostics and acyclic
-  upstream specificity.
+  upstream specificity. The final audit/graph and backup archive reruns passed
+  74 and 83 cases respectively, including a required-child archive round trip
+  and refusal when a restored flag disagrees with immutable event evidence.
 - MCP complete run: 2,155 passed and three catalog/description expectation
   failures. After correcting the descriptions and flag schema, all 35 affected
   help, schema, safety and cycle tests passed, including exact replacement response

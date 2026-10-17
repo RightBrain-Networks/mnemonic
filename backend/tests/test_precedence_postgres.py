@@ -139,6 +139,41 @@ def test_cyclic_reparent_rolls_back_old_edge_and_events(api, project, work_paylo
     assert api.get(old_path).status_code == 200
 
 
+def test_backup_preserves_child_closeout_and_audit_rejects_changed_meaning(
+    api, project, work_payload, postgres_engine
+):
+    from io import BytesIO
+    from uuid import UUID
+
+    from mnemonic_backup.archive import export_project, restore_project
+    from mnemonic_backup.archive_integrity import validate_integrity
+    from mnemonic_backup.archive_schema import BackupError
+
+    parent = create(api, project, work_payload, "Archived parent")
+    child = create(api, project, work_payload, "Archived child")
+    result = add_relationship(api, project, {
+        **relationship_payload(parent, child, "parent-child"),
+        "requires_child_closeout": True,
+    })
+    relationship_id = result["relationship"]["id"]
+    archive = BytesIO()
+    export_project(postgres_engine, UUID(project["id"]), archive)
+    archive.seek(0)
+    restore_project(postgres_engine, UUID(project["id"]), archive)
+    path = f"{relationship_collection(project)}/{relationship_id}"
+    assert api.get(path).json()["requires_child_closeout"] is True
+
+    # Model altered restore bytes, which bypass normal immutable-row triggers.
+    with pytest.raises(BackupError, match="integrity checks"):
+        with postgres_engine.begin() as connection:
+            connection.execute(text("SET LOCAL session_replication_role='replica'"))
+            connection.execute(text(
+                "UPDATE work_relationships SET requires_child_closeout=false WHERE id=:id"
+            ), {"id": relationship_id})
+            connection.execute(text("SET LOCAL session_replication_role='origin'"))
+            validate_integrity(connection)
+
+
 def _insert_reverse(connection, project, left, right):
     connection.execute(
         text("""
