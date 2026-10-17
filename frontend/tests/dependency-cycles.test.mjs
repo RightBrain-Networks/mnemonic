@@ -4,6 +4,7 @@ import test from "node:test";
 import { decodeDependencyIssue } from "../lib/dependency-cycles.ts";
 import { decodeReadiness } from "../lib/readiness-codecs.ts";
 import { relationshipConflictMessage } from "../lib/work-relationships.ts";
+import { readinessAfterWorkSave } from "../lib/work-item-view.ts";
 
 const parent = "00000000-0000-4000-8000-000000000001";
 const child = "00000000-0000-4000-8000-000000000002";
@@ -40,6 +41,15 @@ test("descriptive planning cycles stay distinct from deadlocks", () => {
   assert.equal(relationshipConflictMessage("relationship_cycle", message), message);
 });
 
+test("deferring work preserves its deadlock until a terminal closeout", () => {
+  const deferred = readinessAfterWorkSave(readiness, "pending", "deferred");
+  assert.equal(deferred.display_state, "deadlocked");
+  assert.deepEqual(deferred.dependency_issue, issue);
+  assert.equal(decodeReadiness(deferred, "deferred", parent).is_ready, false);
+  const retired = readinessAfterWorkSave(readiness, "pending", "wont-do");
+  assert.equal(retired.display_state, "wont-do");
+  assert.equal(retired.dependency_issue, undefined);
+});
 
 test("structured cycle refusal is definitive and preserves only validated path evidence", () => {
   const error = { detail: { code: "relationship_cycle", message: "refused", context: { dependency_issue: issue } } };

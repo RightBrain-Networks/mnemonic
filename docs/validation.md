@@ -21,12 +21,13 @@ Validation on 2026-10-17 used Python 3.14, Node 24 and isolated services:
   failures. After correcting the descriptions and flag schema, all 35 affected
   help, schema, safety and cycle tests passed, including exact replacement response
   binding. Repository-freshness tests: 72 run, one intentional macOS-only skip.
-- Dashboard: 544 passed; TypeScript, production build, both Python type checks,
+- Dashboard: 545 passed; TypeScript, production build, both Python type checks,
   Ruff and the generated OpenAPI snapshot passed.
 - Browser: both new cycle cases passed on desktop and narrow Chromium; the 14
   existing relationship and receipt cases passed in the earlier combined run.
   The corrupt-graph fixture is removed after each case so unrelated backup
-  integrity checks retain their existing meaning.
+  integrity checks retain their existing meaning. The final isolated backup and
+  restore harness passed all six phases, including database contention recovery.
 
 The cycle notice was inspected at [desktop](images/dependency-cycle-desktop.png)
 and [narrow](images/dependency-cycle-narrow.png) sizes. No production service was

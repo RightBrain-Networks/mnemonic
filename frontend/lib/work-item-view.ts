@@ -52,15 +52,17 @@ export function readinessAfterWorkSave(
     };
   }
   const { dependency_issue: _issue, ...terminalReadiness } = readiness;
+  const terminal = ["done", "wont-do", "promoted"].includes(nextStatus);
   return {
-    ...terminalReadiness,
+    ...(terminal ? terminalReadiness : readiness),
     lifecycle_status: nextStatus,
-    is_terminal: ["done", "wont-do", "promoted"].includes(nextStatus),
+    is_terminal: terminal,
     has_active_lease: false,
     has_dropped_lease: false,
     active_lease: null,
     is_ready: false,
-    display_state: readiness.is_duplicate ? "duplicate" : nextStatus
+    display_state: readiness.is_duplicate ? "duplicate"
+      : !terminal && readiness.dependency_issue?.kind === "deadlock" ? "deadlocked" : nextStatus
   };
 }
 
