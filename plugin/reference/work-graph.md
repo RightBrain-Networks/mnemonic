@@ -77,7 +77,7 @@ never copied or blended into destination history. See
 ## Ready discovery is advisory; claim is authoritative
 
 `list_ready_work` returns visible `pending` work with no unresolved incoming
-blocker, no unresolved human gate, and no active retained lease at one
+blocker, no enforced dependency deadlock, no unresolved human gate, and no active retained lease at one
 database-time snapshot. Its exact order is priority descending, creation time
 ascending, then ID ascending. Filters are deliberately small: inclusive minimum
 priority, exact normalized checkpoint tag, or one direct `parent-child` parent.
@@ -341,3 +341,29 @@ job completion report and the work that produced it. This typed provenance is
 not a sixth relationship type, `discovered-from`, a dependency, a child, or
 permission to reopen or redirect a frozen source. See
 [job-completion-reports.md](${CLAUDE_PLUGIN_ROOT}/reference/job-completion-reports.md).
+
+## Dependency cycles and explicit child closure
+
+A parent-child edge is descriptive unless `requires_child_closeout=true`. Declare
+that requirement only when the owner intends the child to reach Done, Won't do,
+or Promoted before the parent can close. A parent may still be worked on while
+its children are open. Blocks requires its source to be Done, as before.
+
+The server refuses cycles composed from blocks and required child-to-parent
+closure and names an ordered path. Do not retry by dropping a legitimate
+constraint. Ask the owner which recorded dependency should change. Use
+`add_relationship(replace_relationship_id=...)` to replace an exact parent edge
+of the same child, including its closure requirement, atomically; preserve every
+argument and the operation UUID on uncertain retries. No override accepts an
+enforced cycle. No graph repair is implied by a diagnostic.
+
+Read `dependency_issue`: `deadlock` means the item is on or depends on an enforced
+cycle and cannot become ready or complete without repair. `planning-cycle` means
+at least one parent link in the composed planning cycle is descriptive; inspect
+the intended sequencing with the owner. It does not change eligibility. The
+`role` distinguishes cycle members from downstream dependents; the upstream
+acyclic tail is not a deadlock. Ready pages expose nonzero project-wide pending
+cycle counts and up to ten work IDs even when no work is ready. Open those IDs
+for the path. Evidence includes at most 32 steps and an explicit total length;
+this is a display bound, never a traversal cutoff. Hidden constraints in prose
+or external systems are outside this guard.

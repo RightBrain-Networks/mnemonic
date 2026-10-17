@@ -93,7 +93,7 @@ function parseMigrationProof(serialized: string): Phase11MigrationProof {
   }
   const row = value as MigrationProofRow;
   if (
-    row.revision !== "0051_priority_rubrics"
+    row.revision !== "0052_dependency_cycles"
     || typeof row.completion_event_id !== "string"
     || !/^[1-9][0-9]*$/.test(row.completion_event_id)
     || typeof row.completion_generation !== "string"
@@ -215,4 +215,29 @@ export async function seedMigratedHistoricalCompletion(): Promise<E2EState> {
   } finally {
     await runCompose(composeProject, ["up", "-d", "--wait", "api", "worker", "web"]);
   }
+}
+
+/** A legacy bad graph, confined to the disposable acceptance database. */
+export async function seedRetainedDependencyCycle(projectId: string, sourceId: string, targetId: string): Promise<string> {
+  for (const id of [projectId, sourceId, targetId]) requireUuid(id, "dependency fixture ID");
+  const project = requireDisposableE2EComposeProject("Retained dependency cycle fixture");
+  const relationshipId = crypto.randomUUID();
+  await queryDatabase(project, `BEGIN;
+    ALTER TABLE work_relationships DISABLE TRIGGER precedence_cycle_guard;
+    INSERT INTO work_relationships(id, project_id, relationship_type, source_work_item_id,
+      target_work_item_id, created_by_client, created_by_session_id)
+    VALUES('${relationshipId}'::uuid, '${projectId}'::uuid, 'blocks', '${sourceId}'::uuid,
+      '${targetId}'::uuid, 'playwright', 'retained-cycle');
+    SET CONSTRAINTS ALL IMMEDIATE;
+    ALTER TABLE work_relationships ENABLE TRIGGER precedence_cycle_guard;
+    COMMIT;`);
+  return relationshipId;
+}
+
+export async function removeRetainedDependencyFixture(relationshipId: string): Promise<void> {
+  requireUuid(relationshipId, "dependency fixture relationship ID");
+  const project = requireDisposableE2EComposeProject("Retained dependency cycle cleanup");
+  await queryDatabase(project, `DELETE FROM work_relationships
+    WHERE id='${relationshipId}'::uuid AND created_by_client='playwright'
+      AND created_by_session_id='retained-cycle';`);
 }

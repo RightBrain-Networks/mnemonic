@@ -88,6 +88,9 @@ def work_summaries(
         canonical_ids,
     ) = _summary_inputs(database, ids, as_of=as_of)
     review_status_by_work = review_statuses(database, ids)
+    from mnemonic_api.services.precedence import dependency_issues
+
+    issues = dependency_issues(database, ids)
     current_contexts = {
         checkpoint.work_item_id: checkpoint
         for checkpoint in database.scalars(
@@ -114,6 +117,7 @@ def work_summaries(
                 gate_counts.get(work_item.id, 0),
                 canonical_work_item_id=canonical_ids.get(work_item.id, work_item.id),
                 review_status=review_status_by_work.get(work_item.id),
+                dependency_issue=issues.get(work_item.id),
             ),
         )
         for work_item in work_items
@@ -370,6 +374,7 @@ def assemble_work_context(
                             'id', adjacent.id,
                             'project_id', adjacent.project_id,
                             'relationship_type', adjacent.relationship_type,
+                            'requires_child_closeout', adjacent.requires_child_closeout,
                             'source_work_item_id', adjacent.source_work_item_id,
                             'target_work_item_id', adjacent.target_work_item_id,
                             'context_checkpoint_work_item_id',
@@ -707,6 +712,9 @@ def assemble_work_context(
         for edge in relationships
     ]
     counterpart_canonical_ids = canonical_work_item_ids(database, counterpart_ids)
+    from mnemonic_api.services.precedence import dependency_issues
+
+    issues = dependency_issues(database, [work_item_id, *counterpart_ids])
     for relationships in relationship_groups:
         for edge in relationships:
             counterpart = edge["counterpart"]
@@ -730,6 +738,7 @@ def assemble_work_context(
                     UUID(str(counterpart["id"])), UUID(str(counterpart["id"]))
                 ),
                 review_status=counterpart_inputs["review_status"],
+                dependency_issue=issues.get(UUID(str(counterpart["id"]))),
             )
     blocker_count = int(row["unresolved_blocker_count"])
     materialized_ids = {initial.id, current.id, *(item.id for item in recent)}
@@ -787,6 +796,7 @@ def assemble_work_context(
             bool(row["has_dropped_lease"]),
             unresolved_gate_total,
             canonical_work_item_id=canonical.canonical_work_item.id,
+            dependency_issue=issues.get(work_item_id),
             review_status=row["review_status"],
         ),
         unresolved_gates=unresolved_gates,

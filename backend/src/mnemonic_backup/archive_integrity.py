@@ -34,7 +34,8 @@ def validate_integrity(connection: Connection) -> None:
     checks = dict(audit._review_checks(HEAD))
     checks.update(RECOVERY_FINDINGS)
     for name in ("_ACTIVITY_FINDINGS", "_REPORT_FINDINGS", "_REFERENCE_FINDINGS",
-                 "_MOVE_FINDINGS", "_CROSS_PROJECT_RELATIONSHIP_FINDINGS", "_ARTIFACT_FINDINGS"):
+                 "_MOVE_FINDINGS", "_CROSS_PROJECT_RELATIONSHIP_FINDINGS", "_ARTIFACT_FINDINGS",
+                 "_PRECEDENCE_FINDINGS"):
         checks.update(getattr(audit, name))
     findings.update({name: connection.scalar(text(query)) for name, query in checks.items()})
     if any(findings.values()):

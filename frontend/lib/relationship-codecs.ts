@@ -27,7 +27,7 @@ const RELATIONSHIP_RESPONSE_FIELDS = [
 ] as const;
 
 export const RELATIONSHIP_DECODER_FIELDS = {
-  decodeRelationship: RELATIONSHIP_RESPONSE_FIELDS
+  decodeRelationship: [...RELATIONSHIP_RESPONSE_FIELDS, "requires_child_closeout"]
 } as const;
 
 type ExpectedRelationship = {
@@ -92,7 +92,8 @@ export function decodeRelationship(
   const relationship = objectValue(value);
   if (
     !relationship
-    || !exactKeys(relationship, RELATIONSHIP_RESPONSE_FIELDS)
+    || !exactKeys(relationship, [...RELATIONSHIP_RESPONSE_FIELDS, ...("requires_child_closeout" in relationship ? ["requires_child_closeout"] : [])])
+    || "requires_child_closeout" in relationship && (relationship.requires_child_closeout !== true || relationship.relationship_type !== "parent-child")
     || !validUuid(relationship.id)
     || !validUuid(relationship.project_id)
     || projectId !== undefined && !sameUuid(relationship.project_id, projectId)
@@ -121,6 +122,7 @@ export function decodeRelationship(
     if (!expected) throw new Error("The frozen mutation request is invalid.");
     if (
       relationship.relationship_type !== expected.type
+      || (relationship.requires_child_closeout ?? false) !== (input.requires_child_closeout ?? false)
       || !sameUuid(relationship.source_work_item_id, expected.source)
       || !sameUuid(relationship.target_work_item_id, expected.target)
       || requestDetailsMustMatch && (

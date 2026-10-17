@@ -1,3 +1,4 @@
+import { cycleDescription, decodeDependencyIssue } from "./dependency-cycles.ts";
 import { decodeHumanReviewDecision } from "./code-reviews.ts";
 import { sameExternalReferences } from "./external-references.ts";
 import { ApiError, detailMessage } from "./api.ts";
@@ -175,7 +176,8 @@ const DEFINITIVE_APPLICATION_ERRORS = new Map<number, ReadonlySet<string>>([
     "parent_already_set",
     "relationship_context_required",
     "relationship_context_invalid",
-    "relationship_cycle",
+    "relationship_cycle", "work_deadlocked", "work_children_open", "parent_already_closed",
+    "relationship_closeout_mismatch", "relationship_closeout_invalid", "relationship_replacement_invalid",
     "active_relationships",
     "work_move_same_project",
     "work_move_active_lease",
@@ -555,10 +557,14 @@ function decodeSuccess<K extends MutationKind>(
   } else if (request.kind === "add_relationship") {
     const path = parsePath(request.path, "/relationships");
     const result = objectValue(value);
-    if (!path || !result || !exactKeys(result, ["relationship", "created"]) || typeof result.created !== "boolean") {
+    if (!path || !result || !exactKeys(result, ["relationship", "created", ...("replaced_relationship_id" in result ? ["replaced_relationship_id"] : [])]) || typeof result.created !== "boolean") {
       throw new Error("Mnemonic returned an invalid mutation response.");
     }
+    if (!sameNullableUuid(result.replaced_relationship_id ?? null, body.replace_relationship_id ?? null)) {
+      throw new Error("Mnemonic returned an incoherent parent replacement.");
+    }
     decoded = {
+      ...(result.replaced_relationship_id ? { replaced_relationship_id: result.replaced_relationship_id as string } : {}),
       relationship: decodeRelationship(
         result.relationship,
         result.created ? path.projectId : undefined,
@@ -893,10 +899,10 @@ export function decodeMutationError(value: unknown): {
     !detail
     || !exactKeys(detail, STRUCTURED_ERROR_KEYS)
     || !boundedText(detail.code, 100)
-    || !boundedText(detail.message, 1_000)
+    || !boundedText(detail.message, ["relationship_cycle", "work_deadlocked"].includes(String(detail.code)) ? 8_000 : 1_000)
   ) return null;
   const context = objectValue(detail.context);
-  if (!context || Object.keys(context).some((key) => !SAFE_CONTEXT_KEYS.has(key))) return null;
+  if (!context || Object.keys(context).some((key) => !SAFE_CONTEXT_KEYS.has(key) && !["dependency_issue", "child_work_item_id"].includes(key))) return null;
   if (
     context.holder_client !== undefined && !boundedText(context.holder_client, 80)
     || context.expires_at !== undefined && !validUtcDateTime(context.expires_at)
@@ -907,6 +913,16 @@ export function decodeMutationError(value: unknown): {
     || context.canonical_work_item_id !== undefined
       && !validUuid(context.canonical_work_item_id)
   ) return null;
+  if (context.child_work_item_id !== undefined && !validUuid(context.child_work_item_id)) return null;
+  if (context.dependency_issue !== undefined) {
+    if (!["relationship_cycle", "work_deadlocked"].includes(String(detail.code))) return null;
+    try {
+      const issue = decodeDependencyIssue(context.dependency_issue);
+      const prefix = detail.code === "relationship_cycle" ? "This relationship closes" : "This work cannot finish because of";
+      return { code: String(detail.code), category: "application",
+        message: `${prefix} ${cycleDescription(issue)}; ask the owner to revise a dependency or parent assignment.` };
+    } catch { return null; }
+  }
   return { ...detailMessage(root.detail), category: "application" };
 }
 

@@ -4,6 +4,7 @@ from typing import Any
 
 from fastapi import HTTPException
 
+from mnemonic_api.precedence_schemas import DependencyIssue
 from mnemonic_api.search_ranking import SemanticDisposition, SemanticReason, unavailable_semantic
 
 SAFE_ERROR_CONTEXT_KEYS = frozenset(
@@ -12,6 +13,7 @@ SAFE_ERROR_CONTEXT_KEYS = frozenset(
         "human_approval_required", "instructions",
         "holder_client", "holder_session_id", "expires_at", "purpose", "code_review_id", "mode",
         "canonical_work_item_id", "max_bytes", "max_chars", "cause", "attempt_not_committed",
+        "child_work_item_id",
     }
 )
 SAFE_STORAGE_CAUSES = frozenset(
@@ -50,6 +52,13 @@ def _safe_context(context: dict[str, Any] | None) -> dict[str, Any]:
     if isinstance(context.get("semantic"), dict):
         try:
             safe["semantic"] = SemanticDisposition.model_validate(context["semantic"]).model_dump()
+        except ValueError:
+            pass
+    if isinstance(context.get("dependency_issue"), dict):
+        try:
+            safe["dependency_issue"] = DependencyIssue.model_validate(
+                context["dependency_issue"]
+            ).model_dump(mode="json")
         except ValueError:
             pass
     return safe

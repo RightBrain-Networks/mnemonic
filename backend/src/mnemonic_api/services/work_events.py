@@ -408,7 +408,9 @@ def stage_relationship_events(
             event_type=event_type,
             actor=actor,
             created_at=created_at,
-            metadata={"relationship_type": relationship.relationship_type},
+            metadata={"relationship_type": relationship.relationship_type,
+                      **({"requires_child_closeout": True}
+                         if relationship.requires_child_closeout else {})},
             relationship=relationship,
             created_for_duplicate_merge_id=created_for_duplicate_merge_id,
         )

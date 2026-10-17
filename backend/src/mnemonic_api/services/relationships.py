@@ -31,14 +31,18 @@ from mnemonic_api.schemas import (
     RelationshipRemovalResult,
     WorkPointer,
 )
+from mnemonic_api.services.graph_cycles import Edge
+from mnemonic_api.services.precedence import (
+    dependency_issues,
+    require_acyclic_relationship,
+    require_valid_child_closeout,
+)
 from mnemonic_api.services.readiness import (
     readiness,
     readiness_inputs,
     review_statuses,
 )
 from mnemonic_api.services.work_events import database_now, source_actor, stage_relationship_events
-
-CYCLE_TYPES = frozenset({"blocks", "parent-child"})
 
 
 def lock_relationship_graph(database: Session) -> None:
@@ -208,46 +212,6 @@ def _context_owner(
     return owner
 
 
-def _would_create_cycle(
-    database: Session,
-    relationship_type: str,
-    source_work_item_id: UUID,
-    target_work_item_id: UUID,
-) -> bool:
-    if relationship_type not in CYCLE_TYPES:
-        return False
-    return bool(
-        database.scalar(
-            text(
-                """
-                WITH RECURSIVE reachable(work_item_id) AS (
-                    SELECT target_work_item_id
-                    FROM work_relationships
-                    WHERE relationship_type = :relationship_type
-                      AND source_work_item_id = :target_work_item_id
-                    UNION
-                    SELECT edge.target_work_item_id
-                    FROM work_relationships AS edge
-                    JOIN reachable
-                      ON reachable.work_item_id = edge.source_work_item_id
-                    WHERE edge.relationship_type = :relationship_type
-                )
-                SELECT EXISTS (
-                    SELECT 1
-                    FROM reachable
-                    WHERE work_item_id = :source_work_item_id
-                )
-                """
-            ),
-            {
-                "relationship_type": relationship_type,
-                "source_work_item_id": source_work_item_id,
-                "target_work_item_id": target_work_item_id,
-            },
-        )
-    )
-
-
 def stage_relationship_locked(
     database: Session,
     *,
@@ -260,6 +224,7 @@ def stage_relationship_locked(
     created_by_model: str | None,
     context_checkpoint_id: UUID | None,
     locked_work_items: dict[UUID, WorkItem],
+    requires_child_closeout: bool = False,
 ) -> tuple[WorkRelationship, bool]:
     """Validate and stage an edge after the project and endpoints are locked."""
     source_work_item_id, target_work_item_id = normalize_endpoints(
@@ -283,6 +248,7 @@ def stage_relationship_locked(
         )
     )
     if existing is not None:
+        _require_same_closeout(existing, requires_child_closeout)
         return existing, False
 
     if relationship_type == "parent-child":
@@ -316,20 +282,17 @@ def stage_relationship_locked(
                 "Discovery context must belong to the originating target work item.",
             )
 
-    if _would_create_cycle(
-        database,
-        relationship_type,
-        source_work_item_id,
-        target_work_item_id,
-    ):
-        raise conflict(
-            "relationship_cycle",
-            "That relationship would create a cycle.",
-        )
+    _require_closeout_endpoints(requires_child_closeout, relationship_type,
+                               locked_work_items[source_work_item_id],
+                               locked_work_items[target_work_item_id])
+    require_acyclic_relationship(database,
+        Edge(None, relationship_type, source_work_item_id, target_work_item_id),
+        requires_child_closeout)
 
     relationship = WorkRelationship(
         project_id=project_id,
         relationship_type=relationship_type,
+        requires_child_closeout=requires_child_closeout,
         source_work_item_id=source_work_item_id,
         target_work_item_id=target_work_item_id,
         context_checkpoint_work_item_id=context_owner,
@@ -341,6 +304,22 @@ def stage_relationship_locked(
     database.add(relationship)
     database.flush()
     return relationship, True
+
+
+def _require_same_closeout(existing: WorkRelationship, required: bool) -> None:
+    if existing.requires_child_closeout != required:
+        raise conflict("relationship_closeout_mismatch",
+                       "This parent link has a different closure requirement; "
+                       "replace its exact relationship ID to change it atomically.")
+
+
+def _require_closeout_endpoints(required: bool, kind: str, source: WorkItem,
+                               target: WorkItem) -> None:
+    if required:
+        if kind != "parent-child":
+            raise conflict("relationship_closeout_invalid",
+                           "Child closeout applies only to parent-child relationships.")
+        require_valid_child_closeout(source, target)
 
 
 def stage_merge_relationship_locked(
@@ -403,9 +382,17 @@ def add_relationship_record(
         payload.source_work_item_id,
         payload.target_work_item_id,
     )
-    locked = lock_global_endpoint_work_items(database, [source_id, target_id])
-    if project_id not in {work_item.project_id for work_item in locked.values()}:
+    replacement = replacement_relationship(database, payload)
+    endpoint_ids = {source_id, target_id}
+    if replacement is not None:
+        endpoint_ids.update((replacement.source_work_item_id, replacement.target_work_item_id))
+    locked = lock_global_endpoint_work_items(database, endpoint_ids)
+    if project_id not in {locked[source_id].project_id, locked[target_id].project_id}:
         raise not_found("work_item_not_found", "Work item not found.")
+    if replacement is not None:
+        remove_relationship_record(database, replacement.project_id, replacement.id,
+            source_actor(payload.created_by_client, payload.created_by_session_id,
+                         payload.created_by_model))
     relationship, created = stage_relationship_locked(
         database,
         project_id=project_id,
@@ -417,6 +404,7 @@ def add_relationship_record(
         created_by_model=payload.created_by_model,
         context_checkpoint_id=payload.context_checkpoint_id,
         locked_work_items=locked,
+        requires_child_closeout=payload.requires_child_closeout,
     )
     if created:
         actor = source_actor(
@@ -435,7 +423,24 @@ def add_relationship_record(
     return RelationshipCreationResult(
         relationship=relationship_edge(relationship),
         created=created,
+        replaced_relationship_id=payload.replace_relationship_id,
     )
+
+
+def replacement_relationship(database: Session, payload: RelationshipCreate
+                             ) -> WorkRelationship | None:
+    if payload.replace_relationship_id is None:
+        return None
+    relationship = database.scalar(select(WorkRelationship).where(
+        WorkRelationship.id == payload.replace_relationship_id,
+    ).execution_options(populate_existing=True))
+    if relationship is None:
+        raise not_found("relationship_not_found", "The parent relationship to replace is gone.")
+    if (relationship.relationship_type != "parent-child"
+            or relationship.target_work_item_id != payload.target_work_item_id):
+        raise conflict("relationship_replacement_invalid",
+                       "A parent replacement must name the existing parent link of this child.")
+    return relationship
 
 
 def require_relationship(
@@ -459,6 +464,7 @@ def remove_relationship_record(
     actor: MutationActor | None = None,
 ) -> RelationshipRemovalResult:
     lock_project_graph(database, project_id)
+    lock_relationship_graph(database)
     relationship = database.scalar(
         select(WorkRelationship).where(
             WorkRelationship.id == relationship_id,
@@ -546,6 +552,7 @@ def _work_pointers(
         canonical_ids,
     ) = readiness_inputs(database, work_item_ids, as_of=as_of)
     review_status_by_work = review_statuses(database, work_item_ids)
+    issues = dependency_issues(database, work_item_ids)
     return {
         work_item.id: WorkPointer(
             project_id=work_item.project_id,
@@ -562,6 +569,7 @@ def _work_pointers(
                 gate_counts.get(work_item.id, 0),
                 canonical_work_item_id=canonical_ids.get(work_item.id, work_item.id),
                 review_status=review_status_by_work.get(work_item.id),
+                dependency_issue=issues.get(work_item.id),
             ),
         )
         for work_item in work_items

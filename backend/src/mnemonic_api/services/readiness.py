@@ -21,6 +21,7 @@ from mnemonic_api.models import (
     WorkLease,
     WorkRelationship,
 )
+from mnemonic_api.precedence_schemas import DependencyIssue
 from mnemonic_api.schemas import (
     LeasePublic,
     Readiness,
@@ -33,6 +34,11 @@ from mnemonic_api.schemas import (
     WorkSearchStatus,
     WorkSummaryMinimal,
 )
+from mnemonic_api.services.precedence import (
+    dependency_issues,
+    project_dependency_issues,
+    require_no_deadlock,
+)
 
 
 def readiness(
@@ -44,6 +50,7 @@ def readiness(
     *,
     canonical_work_item_id: UUID | None = None,
     review_status: ReviewDisposition | None = None,
+    dependency_issue: DependencyIssue | None = None,
 ) -> Readiness:
     """Project lifecycle, blocker, lease, and gate facts with fixed display precedence."""
     terminal = work_item.status in {"done", "wont-do", "promoted"}
@@ -53,10 +60,14 @@ def readiness(
     is_gated = unresolved_gate_count > 0
     canonical_id = canonical_work_item_id or work_item.id
     is_duplicate = canonical_id != work_item.id
+    issue = None if terminal or is_duplicate else dependency_issue
+    deadlocked = issue is not None and issue.kind == "deadlock"
     if is_duplicate:
         display_state = "duplicate"
     elif work_item.status == "done" and review_status:
         display_state = review_status
+    elif deadlocked:
+        display_state = "deadlocked"
     elif work_item.status != "pending":
         display_state = work_item.status
     elif is_gated:
@@ -70,6 +81,7 @@ def readiness(
     else:
         display_state = "pending"
     return Readiness(
+        dependency_issue=issue,
         review_status=review_status if work_item.status == "done" and not is_duplicate else None,
         lifecycle_status=work_item.status,
         is_duplicate=is_duplicate,
@@ -88,6 +100,7 @@ def readiness(
             and not is_blocked
             and not is_gated
             and not is_duplicate
+            and not deadlocked
         ),
         display_state=display_state,
     )
@@ -207,6 +220,7 @@ def readiness_inputs(
 
 
 def require_unblocked(database: Session, work_item_id: UUID) -> None:
+    require_no_deadlock(database, work_item_id)
     if unresolved_blocker_count(database, work_item_id):
         raise conflict("work_blocked", "This work item has an unresolved blocker.")
 
@@ -334,6 +348,7 @@ def eligibility_clauses(
 
 def require_fresh_claim_eligible(database: Session, work_item: WorkItem) -> None:
     """Re-evaluate canonical non-lease eligibility after replay decisions."""
+    require_no_deadlock(database, work_item.id)
     work_table = WorkItem.__table__
     clauses = eligibility_clauses(
         work_table.c.id,
@@ -382,6 +397,8 @@ def ready_work_page(
         parent = require_work_item(database, project_id, filters.parent_work_item_id)
         require_canonical_work_item(database, parent)
     validate_project_duplicate_graph(database, project_id)
+    issues = project_dependency_issues(database, project_id)
+    deadlocked = [work_id for work_id, issue in issues.items() if issue.kind == "deadlock"]
 
     canonical_eligibility = eligibility_clauses(
         literal_column("work_item.id"),
@@ -443,6 +460,7 @@ def ready_work_page(
                   AND work_item.deleted_at IS NULL
                   AND work_item.priority >= :min_priority
                   AND {eligibility_sql}
+                  AND NOT (work_item.id = ANY(CAST(:deadlocked AS uuid[])))
                   {tag_predicate}
                   {parent_predicate}
                 ORDER BY work_item.priority DESC, work_item.created_at, work_item.id
@@ -500,6 +518,7 @@ def ready_work_page(
             ),
             {
                 "project_id": project_id,
+                "deadlocked": deadlocked,
                 "min_priority": filters.min_priority,
                 "tag": filters.tag,
                 "parent_work_item_id": filters.parent_work_item_id,
@@ -511,6 +530,9 @@ def ready_work_page(
         .one()
     )
     return ReadyWorkPage(
+        deadlocked_count=len(deadlocked),
+        planning_cycle_count=len(issues) - len(deadlocked),
+        dependency_issue_work_item_ids=sorted(issues)[:10],
         items=[WorkSummaryMinimal.model_validate(item) for item in row["items"]],
         total=int(row["total"]),
         limit=filters.limit,
@@ -527,4 +549,5 @@ def work_readiness(database: Session, work_item: WorkItem) -> Readiness:
         work_item.id in dropped, gates.get(work_item.id, 0),
         canonical_work_item_id=canonical.get(work_item.id, work_item.id),
         review_status=review_statuses(database, ids).get(work_item.id),
+        dependency_issue=dependency_issues(database, ids).get(work_item.id),
     )

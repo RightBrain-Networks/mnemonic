@@ -1,7 +1,8 @@
 """Typed edges between work items.
 
-Only ``blocks`` affects readiness; ``parent-child``, ``discovered-from``,
-``duplicate-of``, and ``related`` describe. No edge is ever inferred from search
+``blocks`` gates readiness. Explicit child closeout requirements compose with
+blocks into an acyclic precedence graph; other parent links are descriptive.
+No edge is ever inferred from search
 similarity or checkpoint prose. Adding an edge that already exists or removing
 one that is already gone succeeds without applying anything; the result's
 ``created`` or ``removed`` flag says which, and the registry reads it.
@@ -33,6 +34,7 @@ from mnemonic_api.services.relationships import (
     relationship_edge,
     relationship_endpoint_project_ids,
     remove_relationship_record,
+    replacement_relationship,
     require_relationship,
     require_relationship_endpoint_project_scope,
 )
@@ -52,8 +54,13 @@ def add_relationship(
 
     def mutation_scope() -> tuple[UUID, ...]:
         nonlocal endpoint_projects
+        replacement = replacement_relationship(database, payload)
+        if replacement is not None:
+            endpoint_ids.extend((replacement.source_work_item_id,
+                                 replacement.target_work_item_id))
         endpoint_projects = relationship_endpoint_project_ids(database, endpoint_ids)
-        return endpoint_projects
+        return tuple(sorted({*endpoint_projects,
+            *(() if replacement is None else (replacement.project_id,))}))
 
     def execute(domain_payload: RelationshipCreate) -> RelationshipCreationResult:
         require_relationship_endpoint_project_scope(

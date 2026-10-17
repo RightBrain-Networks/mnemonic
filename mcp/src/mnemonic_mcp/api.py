@@ -16,6 +16,7 @@ from .artifact_approval import artifact_approval_message
 from .artifact_errors import artifact_storage_message
 from .config import Settings
 from .input_errors import InputValidationError
+from .precedence_models import DependencyIssue, cycle_description
 from .transport import (
     COMPLETION_EVIDENCE_RESPONSE_MAX_BYTES,
     MCP_STREAM_CHUNK_BYTES,
@@ -190,6 +191,12 @@ _APPLICATION_ERRORS = {
         "claim_request_id; confirm no other active session is working before using force=true."
     ),
     "relationship_cycle": "That relationship would create a cycle.",
+    "work_deadlocked": "This work is deadlocked; ask the owner to repair its dependency graph.",
+    "work_children_open": "A required child must close before this parent can close.",
+    "parent_already_closed": "Reopen the parent before requiring an unfinished child to close first.",
+    "relationship_closeout_mismatch": "This parent link has a different closure requirement; replace its exact relationship ID to change it atomically.",
+    "relationship_closeout_invalid": "Child closeout applies only to parent-child relationships.",
+    "relationship_replacement_invalid": "A parent replacement must name the existing parent link of this child.",
     "relationship_context_invalid": (
         "Discovery context must belong to the originating target work item."
     ),
@@ -452,6 +459,8 @@ def _semantic_error_message(context: dict[str, object],
 
 
 def _application_error_message(code: str, context: dict[str, object]) -> str | None:
+    if code in {"relationship_cycle", "work_deadlocked", "work_children_open"}:
+        return _dependency_error_message(code, context)
     if code == "artifact_revision_conflict":
         revision = context.get("current_revision")
         if type(revision) is int and revision > 0:
@@ -465,16 +474,24 @@ def _application_error_message(code: str, context: dict[str, object]) -> str | N
     if code in {"artifact_too_large", "artifact_library_disabled"}:
         return _artifact_policy_error(code, context)
     if code == "work_duplicate":
-        canonical_id = _safe_uuid(context.get("canonical_work_item_id"))
-        if canonical_id is not None:
-            return (
-                _APPLICATION_ERRORS[code]
-                + f" Its canonical work item is {canonical_id}."
-            )
-        return _APPLICATION_ERRORS[code]
+        return _duplicate_error_message(context)
     if code in {"lease_held", "work_move_active_lease"}:
         return _lease_contention_message(code, context)
     return _APPLICATION_ERRORS.get(code)
+
+
+def _dependency_error_message(code: str, context: dict[str, object]) -> str:
+    if code == "work_children_open":
+        child = _safe_uuid(context.get("child_work_item_id"))
+        return (_APPLICATION_ERRORS[code] if child is None else
+                f"Child {child} must close first; finish it or ask the owner to revise its closure requirement.")
+    try:
+        issue = DependencyIssue.model_validate(context.get("dependency_issue"))
+    except ValueError:
+        return _APPLICATION_ERRORS[code]
+    prefix = ("This relationship closes" if code == "relationship_cycle" else
+              "This work cannot finish because of")
+    return f"{prefix} {cycle_description(issue)}; ask the owner to revise a dependency or parent assignment."
 
 
 def _work_summary_limit_error(context: dict[str, object]) -> str:
@@ -910,3 +927,9 @@ class MnemonicAPI:
             response_validator=response_validator,
             strict_wire_response=strict_wire_response,
         )
+
+
+def _duplicate_error_message(context: dict[str, object]) -> str:
+    canonical_id = _safe_uuid(context.get("canonical_work_item_id"))
+    suffix = f" Its canonical work item is {canonical_id}." if canonical_id else ""
+    return _APPLICATION_ERRORS["work_duplicate"] + suffix

@@ -29,8 +29,10 @@ def initial_relationship(value: Any) -> bool:
     return (
         isinstance(value, dict)
         and allowed_keys(
-            value, ["type", "direction", "other_work_item_id", "context_checkpoint_id"]
+            value, ["type", "direction", "other_work_item_id", "context_checkpoint_id",
+                    "requires_child_closeout"]
         )
+        and closeout_requirement(value, "type")
         and value.get("type") in RELATIONSHIP_TYPES
         and value.get("direction") in ("incoming", "outgoing")
         and uuid(value.get("other_work_item_id"))
@@ -212,3 +214,9 @@ def work_completion(body: JsonObject) -> bool:
         and optional(body, "job_completion_report", job_report)
         and optional(body, "code_review_handoff", review_handoff)
     )
+
+
+def closeout_requirement(value: JsonObject, type_field: str) -> bool:
+    return ("requires_child_closeout" not in value
+            or isinstance(value["requires_child_closeout"], bool)
+            and (not value["requires_child_closeout"] or value.get(type_field) == "parent-child"))

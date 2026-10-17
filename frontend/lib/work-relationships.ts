@@ -54,12 +54,12 @@ export function relationshipPreview(
   return `${currentTitle} and ${counterpartTitle} are related.`;
 }
 
-export function relationshipConflictMessage(code?: string): string | null {
+export function relationshipConflictMessage(code?: string, detail?: string): string | null {
   if (code === "relationship_cycle") {
-    return "That edge would create a cycle. Reverse the direction or choose another work item.";
+    return detail ?? "That edge would create a cycle. Revise a dependency or parent assignment before retrying.";
   }
   if (code === "parent_already_set" || code === "parent_already_exists" || code === "relationship_parent_conflict") {
-    return "That child already has a parent. Remove its existing parent relationship first.";
+    return "That child already has a parent. Open the child and replace its parent relationship.";
   }
   return null;
 }

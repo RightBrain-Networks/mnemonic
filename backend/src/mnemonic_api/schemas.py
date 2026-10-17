@@ -62,6 +62,7 @@ from mnemonic_api.phase12_schemas import (
     PositiveRevision,
     RenderedAuthoringPrompt,
 )
+from mnemonic_api.precedence_schemas import DependencyIssue
 from mnemonic_api.search_diagnostics import TermDiagnostics
 from mnemonic_api.search_disclosure import SearchDisclosure
 from mnemonic_api.search_exploration_schemas import SearchOptions
@@ -1460,12 +1461,15 @@ class CompletionCheckpointCreate(CheckpointPayload):
 
 class InitialRelationshipCreate(APIModel):
     type: RelationshipType
+    requires_child_closeout: StrictBool = Field(default=False, exclude_if=lambda value: not value)
     direction: Literal["incoming", "outgoing"]
     other_work_item_id: UUID
     context_checkpoint_id: UUID | None = None
 
     @model_validator(mode="after")
     def discovery_context(self) -> Self:
+        if self.requires_child_closeout and self.type != "parent-child":
+            raise ValueError("Child closeout applies only to parent-child relationships")
         if self.type == "discovered-from":
             if self.direction != "outgoing":
                 raise ValueError(
@@ -1502,6 +1506,16 @@ class WorkItemCreate(APIModel):
 
 class RelationshipCreate(APIModel):
     relationship_type: RelationshipType
+    requires_child_closeout: StrictBool = Field(
+        default=False, exclude_if=lambda value: not value,
+        description="For parent-child only: the child must be Done, Won't do or Promoted before "
+        "the parent can close. Omitted/false is descriptive hierarchy only.",
+    )
+    replace_relationship_id: UUID | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None,
+        description="Atomically replace this exact parent-child edge for the same child. "
+        "The old edge is removed only if the replacement passes all graph checks.",
+    )
     source_work_item_id: UUID
     target_work_item_id: UUID
     created_by_client: ClientName
@@ -1514,6 +1528,9 @@ class RelationshipCreate(APIModel):
 
     @model_validator(mode="after")
     def relationship_rules(self) -> Self:
+        if (self.requires_child_closeout or self.replace_relationship_id is not None
+                ) and self.relationship_type != "parent-child":
+            raise ValueError("Child closeout and parent replacement require parent-child")
         if self.source_work_item_id == self.target_work_item_id:
             raise ValueError("A relationship cannot connect a work item to itself")
         if self.relationship_type == "discovered-from" and self.context_checkpoint_id is None:
@@ -2596,6 +2613,9 @@ class DashboardWorkPendingCreate(APIModel):
 
 
 class Readiness(APIModel):
+    dependency_issue: DependencyIssue | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
     review_status: (
         Literal["to-review", "deferred", "done", "wont-do", "promoted"] | SkipJsonSchema[None]
     ) = Field(
@@ -2615,6 +2635,7 @@ class Readiness(APIModel):
     is_gated: bool
     is_ready: bool
     display_state: Literal[
+        "deadlocked",
         "pending",
         "active",
         "to-review",
@@ -2710,6 +2731,7 @@ class WorkItemDetailRead(APIModel):
 
 
 class RelationshipEdgeRead(APIModel):
+    requires_child_closeout: bool = Field(default=False, exclude_if=lambda value: not value)
     id: UUID
     project_id: UUID
     relationship_type: RelationshipType
@@ -2746,6 +2768,9 @@ class AdjacentRelationshipRead(APIModel):
 
 
 class RelationshipCreationResult(APIModel):
+    replaced_relationship_id: UUID | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
     relationship: RelationshipEdgeRead
     created: bool
 
@@ -2794,6 +2819,13 @@ class WorkSummaryMinimal(APIModel):
 
 
 class ReadyWorkPage(APIModel):
+    deadlocked_count: int = Field(default=0, exclude_if=lambda value: not value, ge=0)
+    planning_cycle_count: int = Field(default=0, exclude_if=lambda value: not value, ge=0)
+    dependency_issue_work_item_ids: list[UUID] = Field(
+        default_factory=list, exclude_if=lambda value: not value, max_length=10,
+        description="Up to ten affected work pointers; inspect get_work for cycle evidence. "
+        "Counts cover pending work in this project before ready-list filters.",
+    )
     items: list[WorkSummaryMinimal]
     total: int
     limit: int
@@ -2841,11 +2873,15 @@ WorkSearchStatus = Literal[
 
 
 class CompactWorkHit(WorkMatchEvidence, SearchHitRanking):
+    dependency_issue: DependencyIssue | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
     id: UUID
     project_id: UUID
     title: str
     status: Status
     display_state: Literal[
+        "deadlocked",
         "pending", "active", "to-review", "dropped", "blocked", "waiting", "duplicate",
         "deferred", "done", "wont-do", "promoted",
     ]
@@ -3272,6 +3308,15 @@ class CheckpointAddedMetadata(APIModel):
 
 class RelationshipEventMetadata(APIModel):
     relationship_type: RelationshipType
+    requires_child_closeout: Literal[True] | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
+
+    @model_validator(mode="after")
+    def valid_child_closeout(self) -> Self:
+        if self.requires_child_closeout and self.relationship_type != "parent-child":
+            raise ValueError("Child closeout applies only to parent-child relationships")
+        return self
 
 
 class HumanGateEventMetadata(APIModel):

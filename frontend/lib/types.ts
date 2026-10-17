@@ -1,3 +1,4 @@
+import type { DependencyIssue } from "./dependency-cycles.ts";
 import type { HitRanking, SemanticDisposition } from "./search-ranking.ts";
 import type { WorkEvidence } from "./search-evidence.ts";
 import type { CodeReviewContext, CodeReview, WorkFollowUp, ReviewPolicy, CodeReviewHandoff } from "./code-reviews.ts";
@@ -137,6 +138,7 @@ export interface LeaseReleaseResult {
 }
 
 export interface Readiness {
+  dependency_issue?: DependencyIssue;
   review_status?: "to-review" | "deferred" | "done" | "wont-do" | "promoted";
   lifecycle_status: WorkStatus;
   is_terminal: boolean;
@@ -150,7 +152,7 @@ export interface Readiness {
   is_duplicate: boolean;
   canonical_work_item_id: string;
   is_ready: boolean;
-  display_state: WorkStatus | "active" | "to-review" | "dropped" | "blocked" | "waiting" | "duplicate";
+  display_state: WorkStatus | "active" | "to-review" | "dropped" | "blocked" | "waiting" | "duplicate" | "deadlocked";
 }
 
 export interface WorkIdentityPointer {
@@ -354,6 +356,7 @@ export interface ProgressEventInput extends ClientOperationInput {
 }
 
 export interface RelationshipEdgeRead {
+  requires_child_closeout?: boolean;
   id: string;
   project_id: string;
   relationship_type: RelationshipType;
@@ -384,6 +387,7 @@ export interface AdjacentRelationshipRead {
 }
 
 export interface RelationshipCreationResult {
+  replaced_relationship_id?: string;
   relationship: RelationshipEdgeRead;
   created: boolean;
 }
@@ -395,6 +399,8 @@ export interface RelationshipRemovalResult {
 }
 
 export interface RelationshipCreateInput extends ClientOperationInput {
+  replace_relationship_id?: string;
+  requires_child_closeout?: boolean;
   relationship_type: RelationshipType;
   source_work_item_id: string;
   target_work_item_id: string;
@@ -405,6 +411,7 @@ export interface RelationshipCreateInput extends ClientOperationInput {
 }
 
 export interface InitialRelationshipInput {
+  requires_child_closeout?: boolean;
   type: RelationshipType;
   direction: Exclude<RelationshipDirection, "undirected">;
   other_work_item_id: string;

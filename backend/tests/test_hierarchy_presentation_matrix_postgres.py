@@ -192,7 +192,7 @@ def empty_presentation(*, discovered: bool = False) -> dict:
 
 
 @pytest.mark.postgres
-def test_hierarchy_pages_use_one_coherent_aggregate_statement_after_preflight(
+def test_hierarchy_pages_batch_cycle_analysis_in_the_same_coherent_snapshot(
     api,
     project,
     work_payload,
@@ -261,13 +261,14 @@ def test_hierarchy_pages_use_one_coherent_aggregate_statement_after_preflight(
         assert normalized[0] == (
             "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY"
         )
-        assert normalized[-3:-1] == [
+        assert normalized[-4:-2] == [
             "SET LOCAL jit = off",
             "SET LOCAL statement_timeout = '5000ms'",
         ]
-        assert sum(statement.startswith("WITH RECURSIVE") for statement in normalized) == 1
+        assert sum(statement.startswith("WITH RECURSIVE") for statement in normalized) == 2
         assert normalized[-1].startswith("WITH RECURSIVE")
-        assert "candidate_branches AS MATERIALIZED" in normalized[-1]
+        assert "candidate_branches AS MATERIALIZED" in normalized[-2]
+        assert normalized[-1].startswith("WITH RECURSIVE members(id)")
 
 
 @pytest.mark.postgres

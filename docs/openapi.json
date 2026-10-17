@@ -4041,8 +4041,13 @@
             "title": "Canonical Work Item Id",
             "type": "string"
           },
+          "dependency_issue": {
+            "$ref": "#/components/schemas/DependencyIssue",
+            "title": "Dependency Issue"
+          },
           "display_state": {
             "enum": [
+              "deadlocked",
               "pending",
               "active",
               "to-review",
@@ -4580,8 +4585,13 @@
             "title": "Canonical Work Item Id",
             "type": "string"
           },
+          "dependency_issue": {
+            "$ref": "#/components/schemas/DependencyIssue",
+            "title": "Dependency Issue"
+          },
           "display_state": {
             "enum": [
+              "deadlocked",
               "pending",
               "active",
               "to-review",
@@ -6125,6 +6135,55 @@
           "actor"
         ],
         "title": "DashboardWorkPendingCreate",
+        "type": "object"
+      },
+      "DependencyIssue": {
+        "additionalProperties": false,
+        "properties": {
+          "cycle": {
+            "items": {
+              "$ref": "#/components/schemas/PrecedenceStep"
+            },
+            "maxItems": 32,
+            "minItems": 1,
+            "title": "Cycle",
+            "type": "array"
+          },
+          "cycle_id": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Cycle Id",
+            "type": "string"
+          },
+          "cycle_length": {
+            "minimum": 1.0,
+            "title": "Cycle Length",
+            "type": "integer"
+          },
+          "kind": {
+            "enum": [
+              "deadlock",
+              "planning-cycle"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "role": {
+            "enum": [
+              "cycle_member",
+              "depends_on_cycle"
+            ],
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "role",
+          "cycle_id",
+          "cycle_length",
+          "cycle"
+        ],
+        "title": "DependencyIssue",
         "type": "object"
       },
       "DirectoryUsage": {
@@ -7919,6 +7978,11 @@
             "title": "Other Work Item Id",
             "type": "string"
           },
+          "requires_child_closeout": {
+            "default": false,
+            "title": "Requires Child Closeout",
+            "type": "boolean"
+          },
           "type": {
             "enum": [
               "blocks",
@@ -9232,6 +9296,49 @@
         "title": "Page[ProjectRead]",
         "type": "object"
       },
+      "PrecedenceStep": {
+        "additionalProperties": false,
+        "properties": {
+          "relationship_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Relationship Id"
+          },
+          "relationship_type": {
+            "enum": [
+              "blocks",
+              "parent-child"
+            ],
+            "title": "Relationship Type",
+            "type": "string"
+          },
+          "source_work_item_id": {
+            "format": "uuid",
+            "title": "Source Work Item Id",
+            "type": "string"
+          },
+          "target_work_item_id": {
+            "format": "uuid",
+            "title": "Target Work Item Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "relationship_id",
+          "relationship_type",
+          "source_work_item_id",
+          "target_work_item_id"
+        ],
+        "title": "PrecedenceStep",
+        "type": "object"
+      },
       "PriorityChange": {
         "additionalProperties": false,
         "properties": {
@@ -10312,8 +10419,13 @@
             "title": "Canonical Work Item Id",
             "type": "string"
           },
+          "dependency_issue": {
+            "$ref": "#/components/schemas/DependencyIssue",
+            "title": "Dependency Issue"
+          },
           "display_state": {
             "enum": [
+              "deadlocked",
               "pending",
               "active",
               "to-review",
@@ -10409,6 +10521,22 @@
       "ReadyWorkPage": {
         "additionalProperties": false,
         "properties": {
+          "deadlocked_count": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Deadlocked Count",
+            "type": "integer"
+          },
+          "dependency_issue_work_item_ids": {
+            "description": "Up to ten affected work pointers; inspect get_work for cycle evidence. Counts cover pending work in this project before ready-list filters.",
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 10,
+            "title": "Dependency Issue Work Item Ids",
+            "type": "array"
+          },
           "items": {
             "items": {
               "$ref": "#/components/schemas/WorkSummaryMinimal"
@@ -10422,6 +10550,12 @@
           },
           "offset": {
             "title": "Offset",
+            "type": "integer"
+          },
+          "planning_cycle_count": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Planning Cycle Count",
             "type": "integer"
           },
           "total": {
@@ -10529,6 +10663,18 @@
             "title": "Relationship Type",
             "type": "string"
           },
+          "replace_relationship_id": {
+            "description": "Atomically replace this exact parent-child edge for the same child. The old edge is removed only if the replacement passes all graph checks.",
+            "format": "uuid",
+            "title": "Replace Relationship Id",
+            "type": "string"
+          },
+          "requires_child_closeout": {
+            "default": false,
+            "description": "For parent-child only: the child must be Done, Won't do or Promoted before the parent can close. Omitted/false is descriptive hierarchy only.",
+            "title": "Requires Child Closeout",
+            "type": "boolean"
+          },
           "source_work_item_id": {
             "format": "uuid",
             "title": "Source Work Item Id",
@@ -10559,6 +10705,11 @@
           },
           "relationship": {
             "$ref": "#/components/schemas/RelationshipEdgeRead"
+          },
+          "replaced_relationship_id": {
+            "format": "uuid",
+            "title": "Replaced Relationship Id",
+            "type": "string"
           }
         },
         "required": [
@@ -10639,6 +10790,11 @@
             "title": "Relationship Type",
             "type": "string"
           },
+          "requires_child_closeout": {
+            "default": false,
+            "title": "Requires Child Closeout",
+            "type": "boolean"
+          },
           "source_work_item_id": {
             "format": "uuid",
             "title": "Source Work Item Id",
@@ -10679,6 +10835,11 @@
             ],
             "title": "Relationship Type",
             "type": "string"
+          },
+          "requires_child_closeout": {
+            "const": true,
+            "title": "Requires Child Closeout",
+            "type": "boolean"
           }
         },
         "required": [
@@ -17783,7 +17944,7 @@
   "info": {
     "description": "Durable project-scoped work with immutable agent checkpoints.",
     "title": "Mnemonic API",
-    "version": "0.83.9"
+    "version": "0.84.0"
   },
   "openapi": "3.1.0",
   "paths": {

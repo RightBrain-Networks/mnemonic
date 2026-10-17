@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from mnemonic_api.models import WorkItem
 from mnemonic_api.schemas import CompactWorkHit, WorkIdentityPointer, WorkMatchEvidence
 from mnemonic_api.services.hierarchy import ancestor_paths
+from mnemonic_api.services.precedence import dependency_issues
 from mnemonic_api.services.readiness import (
     readiness,
     readiness_inputs,
@@ -28,7 +29,10 @@ def compact_work_hits(
     blockers, gates, leases, dropped, canonical = readiness_inputs(database, ids, as_of=as_of)
     reviews = review_statuses(database, ids)
     paths, truncated = ancestor_paths(database, project_id, ids)
+    issues = dependency_issues(database, ids)
     return [CompactWorkHit(
+        dependency_issue=(issues.get(item.id) if item.status not in {"done", "wont-do", "promoted"}
+                          and canonical.get(item.id, item.id) == item.id else None),
         id=item.id, project_id=project_id, title=item.title, status=item.status,
         **evidence[matched_members[item.id].id].model_dump(),
         priority=item.priority, updated_at=item.updated_at, rank=ranks[item.id],
@@ -40,6 +44,7 @@ def compact_work_hits(
             item, leases.get(item.id), blockers.get(item.id, 0), item.id in dropped,
             gates.get(item.id, 0), canonical_work_item_id=canonical.get(item.id, item.id),
             review_status=reviews.get(item.id),
+            dependency_issue=issues.get(item.id),
         ).display_state,
         ancestor_path=paths.get(item.id, []), ancestor_path_truncated=item.id in truncated,
         matched_member=(matched_members[item.id]

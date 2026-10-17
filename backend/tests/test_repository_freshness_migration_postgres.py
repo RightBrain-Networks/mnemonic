@@ -426,7 +426,10 @@ def _merge_receipt_body(connection: Connection, merge_id: UUID) -> dict[str, Any
                 defer(WorkItem.manual_review_request),
             ),
         )
-        relationship = database.get(WorkRelationship, merge.duplicate_relationship_id)
+        relationship = database.get(WorkRelationship, merge.duplicate_relationship_id,
+                                    options=(defer(WorkRelationship.requires_child_closeout),))
+        if relationship is not None:
+            set_committed_value(relationship, "requires_child_closeout", False)
         assert source is not None
         assert destination is not None
         assert relationship is not None

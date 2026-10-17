@@ -19,7 +19,11 @@ from mnemonic_api.application.browser_policy.values import (
     timestamp,
     uuid,
 )
-from mnemonic_api.application.browser_policy.work import OPERATION, RELATIONSHIP_TYPES
+from mnemonic_api.application.browser_policy.work import (
+    OPERATION,
+    RELATIONSHIP_TYPES,
+    closeout_requirement,
+)
 
 
 def progress_event(body: JsonObject) -> bool:
@@ -102,6 +106,8 @@ def relationship_creation(body: JsonObject) -> bool:
             body,
             [
                 "relationship_type",
+                "requires_child_closeout",
+                "replace_relationship_id",
                 "source_work_item_id",
                 "target_work_item_id",
                 "created_by_client",
@@ -111,6 +117,9 @@ def relationship_creation(body: JsonObject) -> bool:
                 OPERATION,
             ],
         )
+        and closeout_requirement(body, "relationship_type")
+        and optional(body, "replace_relationship_id", lambda item:
+                     uuid(item) and body.get("relationship_type") == "parent-child")
         and body.get("relationship_type") in RELATIONSHIP_TYPES
         and uuid(source)
         and uuid(target)

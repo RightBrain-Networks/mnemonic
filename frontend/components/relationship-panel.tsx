@@ -78,6 +78,8 @@ export default function RelationshipPanel({ context, projects, onChanged, onOpen
   const [type, setType] = useState<RelationshipType>("related");
   const [direction, setDirection] = useState<Exclude<RelationshipDirection, "undirected">>("outgoing");
   const [checkpointId, setCheckpointId] = useState("");
+  const [requiresChildCloseout, setRequiresChildCloseout] = useState(false);
+  const [replaceParent, setReplaceParent] = useState(false);
   const [saving, setSaving] = useState(false);
   const [removingId, setRemovingId] = useState("");
   const [actionError, setActionError] = useState("");
@@ -116,13 +118,16 @@ export default function RelationshipPanel({ context, projects, onChanged, onOpen
     ? work.project_id : counterpartProjectId;
   const targetProjectId = direction === "outgoing"
     ? counterpartProjectId : work.project_id;
+  const existingParent = context.incoming_relationships.find((entry) => entry.relationship.relationship_type === "parent-child");
+  const replacement = type === "parent-child" && direction === "incoming" && replaceParent ? existingParent : undefined;
   const workConflictKey = mutationWorkKey(work.project_id, work.id);
-  const relationshipConflictKeys = [
+  const relationshipConflictKeys = [...new Set([
     workConflictKey,
+    ...(replacement ? [mutationWorkKey(replacement.counterpart.project_id, replacement.counterpart.id)] : []),
     ...(counterpartId && counterpartProjectId
       ? [mutationWorkKey(counterpartProjectId, counterpartId)]
       : [])
-  ];
+  ])];
   const mutationScope = useMutationScope({ conflictKeys: relationshipConflictKeys }, mutationRegistry);
   const mutationBlocked = context.canonical.is_duplicate || mutationScope.blocked;
 
@@ -132,6 +137,8 @@ export default function RelationshipPanel({ context, projects, onChanged, onOpen
     setCounterpart(null);
     setActionError("");
     setActionNotice("");
+    setRequiresChildCloseout(false);
+    setReplaceParent(false);
   }, [work.id, work.project_id]);
 
   useEffect(() => {
@@ -191,6 +198,8 @@ export default function RelationshipPanel({ context, projects, onChanged, onOpen
       created_by_client: "dashboard",
       created_by_session_id: dashboardSessionId(),
       created_by_model: null,
+      ...(type === "parent-child" && requiresChildCloseout ? { requires_child_closeout: true } : {}),
+      ...(replacement ? { replace_relationship_id: replacement.relationship.id } : {}),
       ...(checkpointId ? { context_checkpoint_id: checkpointId } : {})
     };
     setSaving(true);
@@ -201,10 +210,7 @@ export default function RelationshipPanel({ context, projects, onChanged, onOpen
         kind: "add_relationship",
         slot: `add-relationship:${work.project_id}:${sourceProjectId}:${sourceId}:${targetProjectId}:${targetId}`,
         projectId: work.project_id,
-        conflictKeys: [
-          mutationWorkKey(sourceProjectId, sourceId),
-          mutationWorkKey(targetProjectId, targetId)
-        ],
+        conflictKeys: relationshipConflictKeys,
         method: "POST",
         path: `/projects/${encodeURIComponent(work.project_id)}/relationships`,
         payload
@@ -214,12 +220,12 @@ export default function RelationshipPanel({ context, projects, onChanged, onOpen
         setActionError("The relationship was saved, but the current work context could not be reloaded. Refresh before making another change.");
         return;
       }
-      setActionNotice(result.created ? "Relationship added." : "That exact relationship already existed.");
+      setActionNotice(result.replaced_relationship_id ? "Parent relationship replaced." : result.created ? "Relationship added." : "That exact relationship already existed.");
       setCounterpart(null);
       setQuery("");
       setCheckpointId("");
     } catch (error) {
-      const conflict = relationshipConflictMessage(error instanceof ApiError ? error.code : undefined);
+      const conflict = relationshipConflictMessage(error instanceof ApiError ? error.code : undefined, errorMessage(error));
       setActionError(conflict ?? errorMessage(error));
     } finally {
       setSaving(false);
@@ -287,6 +293,7 @@ export default function RelationshipPanel({ context, projects, onChanged, onOpen
                 <div><strong>{relationship.counterpart.title}</strong><StatusBadge status={relationship.counterpart.status} readiness={relationship.counterpart.readiness} /><OperationalBadge readiness={relationship.counterpart.readiness} /></div>
                 <span className="relationship-project">{crossProject ? "Cross-project · " : "Project · "}{counterpartProjectLabel}</span>
                 <span>Added {formatDate(relationship.relationship.created_at)} by {relationship.relationship.created_by_client}</span>
+                {relationship.relationship.relationship_type === "parent-child" && <span>{relationship.relationship.requires_child_closeout ? "Child must close before parent" : "Descriptive parent link"}</span>}
                 <ExternalReferences references={relationship.counterpart.external_references} />
                 {relationship.relationship.context_checkpoint_id && <span className="mono" title={relationship.relationship.context_checkpoint_id}>Context checkpoint {relationship.relationship.context_checkpoint_id}</span>}
               </div>
@@ -311,7 +318,7 @@ export default function RelationshipPanel({ context, projects, onChanged, onOpen
     }}>
       <summary>Add a relationship</summary>
       <div className="relationship-editor-body">
-        <p className="relationship-semantics">Only an unresolved <strong>blocks</strong> edge changes readiness. Parent/child affects navigation; discovery and related edges are descriptive. Historical duplicate marks remain audit evidence.</p>
+        <p className="relationship-semantics"><strong>Blocks</strong> requires its source to be Done. Parent/child organizes work; an optional closure requirement also makes the parent wait for this child to close. Dependency cycles are refused. Discovery and related edges are descriptive.</p>
         <label className="field">Project to search<select value={searchProjectId} disabled={mutationBlocked} onChange={(event) => { setSearchProjectId(event.target.value); setQuery(""); setCounterpart(null); setActionError(""); setActionNotice(""); }}>{!projectsById.has(work.project_id.toLowerCase()) && <option value={work.project_id}>{focalProjectLabel}</option>}{projects.map((project) => <option value={project.id} key={project.id}>{projectDisplay(project, project.id)}</option>)}</select><span className="field-hint">Current work is in {focalProjectLabel}. Relationships can cross projects and remain connected when work moves.</span></label>
         <label className="field">Find another work item<input type="search" value={query} disabled={mutationBlocked} maxLength={500} placeholder="Search titles, summaries, or checkpoints…" onChange={(event) => { setQuery(event.target.value); setCounterpart(null); }} /></label>
         {searching && <div className="relationship-search-status" role="status">Searching…</div>}
@@ -322,10 +329,12 @@ export default function RelationshipPanel({ context, projects, onChanged, onOpen
         {counterpart && <div className="relationship-fields">
           <label className="field">Relationship type<select value={type} disabled={mutationBlocked} onChange={(event) => setType(event.target.value as RelationshipType)}>{editableRelationshipTypes.map((value) => <option value={value} key={value}>{relationshipTypeLabels[value]}</option>)}</select></label>
           {type !== "related" && <fieldset className="relationship-direction"><legend>Direction</legend><label><input type="radio" name="relationship-direction" value="outgoing" checked={direction === "outgoing"} disabled={mutationBlocked} onChange={() => setDirection("outgoing")} /> From this work item</label><label><input type="radio" name="relationship-direction" value="incoming" checked={direction === "incoming"} disabled={mutationBlocked} onChange={() => setDirection("incoming")} /> Toward this work item</label></fieldset>}
+          {type === "parent-child" && <label><input type="checkbox" checked={requiresChildCloseout} disabled={mutationBlocked} onChange={(event) => setRequiresChildCloseout(event.target.checked)} /> Require the child to close before the parent can close</label>}
+          {type === "parent-child" && direction === "incoming" && existingParent && <label><input type="checkbox" checked={replaceParent} disabled={mutationBlocked} onChange={(event) => setReplaceParent(event.target.checked)} /> Replace the existing parent link from {existingParent.counterpart.title}. A refused change preserves that link.</label>}
           <div className="relationship-preview" role="status"><span>Preview</span><strong>{relationshipPreview(type, direction, work.title, counterpart.work_item.title)}</strong></div>
           <label className="field">{type === "discovered-from" ? "Originating checkpoint" : "Endpoint context checkpoint (optional)"}<select value={checkpointId} required={type === "discovered-from"} disabled={mutationBlocked || checkpointsLoading || Boolean(checkpointError)} onChange={(event) => setCheckpointId(event.target.value)}><option value="">{checkpointsLoading ? "Loading checkpoints…" : type === "discovered-from" ? "Choose a checkpoint…" : "No checkpoint context"}</option>{checkpointChoices.map(({ owner, checkpoint }) => <option key={checkpoint.id} value={checkpoint.id}>{owner} · {checkpoint.kind} · {formatDate(checkpoint.created_at)}</option>)}</select><span className="field-hint">{type === "discovered-from" ? "The checkpoint must belong to the originating target work item." : "Optional context must belong to either endpoint. The newest 100 checkpoints per endpoint are shown."}</span></label>
           {checkpointError && <div className="error-notice" role="alert"><p>{errorMessage(checkpointError)}</p><button type="button" className="button button-secondary" onClick={() => retryCheckpoints()}>Try again</button></div>}
-          <button type="button" className="button button-primary add-relationship-button" disabled={mutationBlocked || saving || Boolean(removingId) || checkpointsLoading || (type === "discovered-from" && !checkpointId)} onClick={() => void addRelationship()}>{saving ? "Adding…" : "Add relationship"}</button>
+          <button type="button" className="button button-primary add-relationship-button" disabled={mutationBlocked || saving || Boolean(removingId) || checkpointsLoading || (type === "discovered-from" && !checkpointId)} onClick={() => void addRelationship()}>{saving ? "Saving…" : replacement ? "Replace parent relationship" : "Add relationship"}</button>
         </div>}
       </div>
     </details>}
