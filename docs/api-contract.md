@@ -14,8 +14,9 @@ previous bundled rubric. Edits are retained in PostgreSQL and project backups.
 Use [unified search](search.md) to retrieve work, artifacts, and transcripts in one
 ranked, filtered, paginated read through REST or MCP.
 
-This is application/API/MCP/dashboard `0.83.0`, plugin `0.49.0`, and migration
-`0051_priority_rubrics`. The catalog has exactly 59 MCP tools, 17
+This is application/API/MCP/dashboard `0.84.0`, plugin `0.50.0`, and migration
+`0052_dependency_cycles`. See [dependency cycles](dependency-cycles.md) for explicit
+parent closure requirements, cycle refusal, and honest deadlock display. The catalog has exactly 59 MCP tools, 17
 protected MCP writes, 24 REST receipt kinds, 21 protected browser mutations and
 24 work-event types. The 24 REST receipt kinds comprise 18 work operations, four artifact operations
 with filesystem recovery journals, and two transcript operations (rebuild and import). See
@@ -913,7 +914,7 @@ maximum 100), and nonnegative `offset`. An unknown/cross-project parent returns
 the same `work_item_not_found` 404 as other project-scoped work lookups.
 
 A returned item is visible canonical `pending` work with no active lease, no
-unresolved incoming `blocks` edge, and no unresolved human gate at one captured
+unresolved incoming `blocks` edge, no enforced dependency deadlock, and no unresolved human gate at one captured
 database time. An alias is never ready. Only a blocker in `done` is resolved. A resolved gate no longer affects
 readiness; its answer remains in gate/event history and bounded recall.
 
@@ -999,7 +1000,8 @@ dropped, blocked, and ready booleans, unresolved blocker and human-gate counts,
 `is_gated`, `is_duplicate`, `canonical_work_item_id`, display state, and an
 optional safe active lease. An alias has `is_ready=false`; display precedence
 is duplicate, To review for Done work with an outstanding review obligation,
-other non-Pending lifecycle, waiting, blocked, active, dropped, then Pending;
+deadlocked (for nonterminal work), other non-Pending lifecycle, waiting, blocked,
+active, dropped, then Pending;
 independent flags remain authoritative because gated, lease, and blocked facts
 can overlap.
 
@@ -1871,10 +1873,30 @@ work ID, endpoint-relative direction, and a compact counterpart containing
 current project ID, work ID, title, optional external references, lifecycle
 status, and readiness. It never embeds checkpoint prompt or metadata.
 
-Only an unresolved incoming `blocks` edge changes readiness or claimability as
-a relationship, including when its source belongs to another project. The other
-four relationship types remain descriptive; the separate authoritative merge
-ledger, not its supporting `duplicate-of` mark, makes an alias non-actionable.
+An unresolved incoming `blocks` edge gates readiness, including across projects.
+A parent-child link is descriptive by default. Set `requires_child_closeout=true`
+to require a terminal child before the parent can close. This field also applies
+to initial relationships; it is returned only when true. Composed cycles over
+blocks and required child-to-parent closure are refused. Retained cycles expose
+`dependency_issue` and `display_state=deadlocked` and prevent fresh claims and Done.
+The separate authoritative merge ledger makes an alias non-actionable.
+
+`replace_relationship_id` on a parent-child create atomically removes that exact
+existing parent link of the same child and adds the proposed replacement. Use it
+for reparenting or changing the closure requirement. Failure rolls back both
+edges and their events. Success adds `replaced_relationship_id` to the result;
+exact retry receipts remain historical. There is no cycle override. Relationship
+events include `requires_child_closeout=true` only for explicit closure links.
+
+`dependency_issue` distinguishes `deadlock` from a `planning-cycle` involving at
+least one descriptive parent link. It contains `role` (`cycle_member` or
+`depends_on_cycle`), `cycle_id`, `cycle_length`, and ordered `cycle` steps, each
+with relationship ID/type and stored source/target IDs. Parent steps run child to
+parent. At most 32 witness steps are returned; `cycle_length` discloses truncation.
+Traversal itself has no depth cutoff. Planning warnings preserve eligibility.
+Ready pages disclose project-wide pending `deadlocked_count`, `planning_cycle_count`,
+and up to ten `dependency_issue_work_item_ids` when nonempty, before ready filters.
+Inspect those work IDs for cycle evidence even when the ready list is empty.
 
 ## Work events
 

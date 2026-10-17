@@ -1,5 +1,6 @@
 "use client";
 
+import DependencyCycleNotice from "@/components/dependency-cycle-notice";
 import ExternalReferences from "@/components/external-references";
 import WorkTranscriptLinks from "@/components/work-transcript-links";
 import { WorkArtifactLinks } from "@/components/artifact-library";
@@ -436,6 +437,7 @@ function OpenedPane({ opened, props }: { opened: WorkSummary; props: WorkDetailP
       {reconciling && <div className="detail-reconciliation-status" role="status"><span className="spinner" />Reconciling saved work context…</div>}
       {context && isDuplicate && <DuplicateAuditPanel context={context} copiedKey={props.copiedKey} onCopy={props.onCopy} onOpenCanonical={props.onOpenCanonical} onViewDuplicateGroup={props.onViewDuplicateGroup} />}
       {work.manual_review_request && work.status !== "done" && <p className="field-hint">Code review requested by a human operator. It will enter To review when this work is Done.</p>}
+      {readiness.dependency_issue && <DependencyCycleNotice issue={readiness.dependency_issue} />}
       {readiness.active_lease && <ActiveLeaseSummary lease={readiness.active_lease} detailed />}
       <div className="detail-actions">
         <button type="button" className={`button button-primary ${props.copiedKey === pointerKey ? "is-copied" : ""}`} onClick={() => props.onCopyPointer(pointerSummary)}><Icon name="copy" size={16} />{props.copiedKey === pointerKey ? "Copied" : "Copy recall pointer"}</button>

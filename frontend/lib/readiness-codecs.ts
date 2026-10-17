@@ -1,3 +1,4 @@
+import { decodeDependencyIssue } from "./dependency-cycles.ts";
 import type { LeasePublic, Readiness, WorkStatus } from "./types.ts";
 import {
   boundedText,
@@ -16,7 +17,8 @@ const DISPLAY_STATES = new Set([
   "dropped",
   "blocked",
   "waiting",
-  "duplicate"
+  "duplicate",
+  "deadlocked"
 ]);
 
 const LEASE_FIELDS = [
@@ -31,7 +33,7 @@ const READINESS_FIELDS = [
 
 export const READINESS_DECODER_FIELDS = {
   decodeLease: [...LEASE_FIELDS, "purpose", "code_review_id", "mode"],
-  decodeReadiness: [...READINESS_FIELDS, "review_status"]
+  decodeReadiness: [...READINESS_FIELDS, "review_status", "dependency_issue"]
 } as const;
 
 export function decodeLease(value: unknown): LeasePublic | null {
@@ -59,7 +61,7 @@ export function decodeReadiness(
   const readiness = objectValue(value);
   if (
     !readiness
-    || !exactKeys(readiness, [...READINESS_FIELDS, ...("review_status" in readiness ? ["review_status"] : [])])
+    || !exactKeys(readiness, [...READINESS_FIELDS, ...["review_status", "dependency_issue"].filter((key) => Object.hasOwn(readiness, key))])
     || ("review_status" in readiness && (status !== "done" || !["to-review", "deferred", "done", "wont-do", "promoted"].includes(String(readiness.review_status))))
     || readiness.lifecycle_status !== status
     || typeof readiness.is_duplicate !== "boolean"
@@ -79,8 +81,11 @@ export function decodeReadiness(
     || !DISPLAY_STATES.has(readiness.display_state)
   ) throw new Error("Mnemonic returned invalid attention readiness.");
   const lease = decodeLease(readiness.active_lease);
+  const issue = "dependency_issue" in readiness ? decodeDependencyIssue(readiness.dependency_issue) : undefined;
+  const deadlocked = issue?.kind === "deadlock";
   const terminal = ["done", "wont-do", "promoted"].includes(status);
   const ready = status === "pending"
+    && !deadlocked
     && !readiness.is_duplicate
     && lease === null
     && readiness.unresolved_blocker_count === 0
@@ -91,6 +96,8 @@ export function decodeReadiness(
     ? readiness.review_status
     : status === "done" && readiness.display_state === "to-review"
     ? "to-review"
+    : deadlocked
+    ? "deadlocked"
     : status !== "pending"
     ? status
     : readiness.unresolved_gate_count > 0
@@ -103,7 +110,8 @@ export function decodeReadiness(
             ? "dropped"
             : "pending";
   if (
-    readiness.is_terminal !== terminal
+    issue !== undefined && (terminal || readiness.is_duplicate)
+    || readiness.is_terminal !== terminal
     || readiness.has_active_lease !== (lease !== null)
     || readiness.has_active_lease && readiness.has_dropped_lease
     || readiness.is_blocked !== (readiness.unresolved_blocker_count > 0)

@@ -885,6 +885,10 @@ def _initial_relationships_match(
         )
         expected = expected_relationships.get(identity)
         if (
+            relationship.requires_child_closeout != (
+                expected.requires_child_closeout if expected is not None else False
+            )
+            or
             relationship.project_id != project_id
             or work.id
             not in {
@@ -999,6 +1003,8 @@ def _add_relationship_matches(
     return (
         (not result.created or result.relationship.project_id == project_id)
         and actual == expected
+        and result.relationship.requires_child_closeout == request.requires_child_closeout
+        and result.replaced_relationship_id == request.replace_relationship_id
         and (
             not result.created
             or _created_relationship_matches_request(

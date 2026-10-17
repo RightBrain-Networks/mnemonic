@@ -220,8 +220,10 @@ any edge. Three facts decide what you record:
   parent. When newly discovered work is also sub-work of the current durable
   objective, persist both facts atomically: the incoming `parent-child` edge and
   the outgoing `discovered-from` edge. Either may legitimately exist alone.
-- **Only an unresolved incoming `blocks` edge changes readiness, even across
-  projects.** A dependency stated only in prose does not keep the next session
+- **An unresolved incoming `blocks` edge gates readiness across projects.**
+  Parent links are descriptive unless `requires_child_closeout=true`; that
+  requirement joins blocks in the cycle guard. Enforced cycles are refused,
+  retained deadlocks are not ready, and descriptive mixed cycles are warnings. A dependency stated only in prose does not keep the next session
   from claiming the item. Never infer an edge from similar wording, adjacency,
   or search results.
 

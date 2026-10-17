@@ -45,14 +45,15 @@ export function readinessAfterWorkSave(
       has_active_lease: false,
       has_dropped_lease: false,
       active_lease: null,
-      is_ready: !readiness.is_duplicate && !readiness.is_blocked && !readiness.is_gated,
+      is_ready: !readiness.is_duplicate && !readiness.is_blocked && !readiness.is_gated && readiness.dependency_issue?.kind !== "deadlock",
       display_state: readiness.is_duplicate
         ? "duplicate"
-        : readiness.is_gated ? "waiting" : readiness.is_blocked ? "blocked" : "pending"
+        : readiness.dependency_issue?.kind === "deadlock" ? "deadlocked" : readiness.is_gated ? "waiting" : readiness.is_blocked ? "blocked" : "pending"
     };
   }
+  const { dependency_issue: _issue, ...terminalReadiness } = readiness;
   return {
-    ...readiness,
+    ...terminalReadiness,
     lifecycle_status: nextStatus,
     is_terminal: ["done", "wont-do", "promoted"].includes(nextStatus),
     has_active_lease: false,
@@ -73,7 +74,7 @@ export function terminalActionDisabled(
   return mutationBlocked
     || readiness.is_duplicate
     || readiness.is_gated
-    || action === "completion" && readiness.has_active_lease;
+    || action === "completion" && (readiness.has_active_lease || readiness.dependency_issue?.kind === "deadlock");
 }
 
 export function terminalActionGateExplanation(
@@ -82,6 +83,9 @@ export function terminalActionGateExplanation(
 ): string | null {
   if (readiness.is_duplicate) {
     return `This duplicate is an immutable audit record; ${action} is unavailable.`;
+  }
+  if (action === "completion" && readiness.dependency_issue?.kind === "deadlock") {
+    return "Ask the owner to repair the dependency cycle before completing this work.";
   }
   if (action === "completion" && readiness.has_active_lease) {
     return "This work is actively leased. Complete it from the owning client, or release the lease before completing it in the browser.";

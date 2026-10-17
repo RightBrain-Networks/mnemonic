@@ -330,6 +330,8 @@ def _relationship_matches_request(
     created_by_session_id: str,
     created_by_model: str | None,
     context_checkpoint_id: UUID | None,
+    requires_child_closeout: bool = False,
+    replace_relationship_id: UUID | None = None,
 ) -> bool:
     response = result.relationship
     source_work_item_id, target_work_item_id = _normalized_relationship_endpoints(
@@ -340,6 +342,8 @@ def _relationship_matches_request(
         and response.source_work_item_id == source_work_item_id
         and response.target_work_item_id == target_work_item_id
         and response.relationship_type == relationship_type
+        and response.requires_child_closeout == requires_child_closeout
+        and result.replaced_relationship_id == replace_relationship_id
         and (
             not result.created
             or (
@@ -449,6 +453,7 @@ def _creation_matches_request(
             or actual.source_work_item_id != source_id
             or actual.target_work_item_id != target_id
             or actual.relationship_type != requested.type
+            or actual.requires_child_closeout != requested.requires_child_closeout
             or actual.context_checkpoint_id != requested.context_checkpoint_id
             or actual.created_by_client != initial_checkpoint.source_client.strip()
             or actual.created_by_session_id
@@ -1038,7 +1043,7 @@ def _register_project_tools(server: FastMCP, api: MnemonicAPI) -> None:
         ] = None,
         external_references: ExternalReferences = [],  # noqa: B006
     ) -> WorkCreation:
-        """Every fresh create_work must supply discovered_from_work_item_id: the Mnemonic work item that initiated this session, or explicit null for a human prompt or external tool. A non-null ID atomically adds an outgoing discovered-from edge with origin-owned context; it does not add parent-child. Never substitute a search result or the most recently recalled item for the session origin. Omission exists only for historical receipt replay. Create pending work, initial context and up to ten requested relationships atomically. Search first to avoid duplicates; call get_prompt with prompt_id=priority-rubric for scoring guidance. Fresh duplicate-of relationships and terminal creation are refused; sparse historical requests exist only for receipt replay. Retire/promote through update_work with a report. Read both exact contexts before an authorized merge_work. source_session_id is the native agent session ID when exposed, otherwise one Mnemonic session UUID generated once and retained; never use a transport identity or invent a verified commit. affected_paths is an ordered declaration of repository dependencies, not just changed files. Non-empty scope requires the inspected verified_against commit; omission/[] declares no scope, and ** means all eligible paths. The server and MCP adapter do not inspect Git. external_references accepts up to ten exact credential-free links: tracked-by identifies this objective; references supplies context. Links and observed state never authorize execution/closeout. Only incoming parent-child attaches work to a parent; discovered-from needs target-owned context. Omit client_operation_id on fresh calls for an automatic UUID; retain it with the complete immutable tool arguments. Unknown outcomes retry with every argument unchanged; never invent a replacement if the UUID or arguments were lost: stop for direction. A new intent requires a new UUID. Replay is the historical original result; read again for current state. Use help({"topic":"create_work details"}) for the complete contract."""
+        """Every fresh create_work declares discovered_from_work_item_id: the exact session-origin work, or null for a human/external trigger; later reads never change origin. Omission is only for historical receipt replay. Create pending work, initial context and up to ten relationships atomically. Search first to avoid duplicates; get_prompt with priority-rubric supplies scoring guidance. Fresh terminal creation and duplicate-of are refused; retire/promote through update_work with a report, merge through merge_work after reading both exact contexts. source_session_id is the native agent session ID when exposed, otherwise one retained Mnemonic session UUID; never a transport identity or an invented verified commit. affected_paths is an ordered declaration of repository dependencies; nonempty scope requires the inspected verified_against commit; omission/[] means no scope, ** means all eligible paths. The server and MCP adapter do not inspect Git. external_references declares up to ten credential-free links, never execution/closeout authority. Only incoming parent-child attaches work to a parent; requires_child_closeout=true requires child closure before parent closeout. discovered-from needs target-owned context. Omit client_operation_id on fresh calls for an automatic UUID; retain it with the complete immutable tool arguments. Unknown outcomes retry with every argument unchanged; never invent a replacement if the UUID or arguments were lost: stop for direction. A new intent requires a new UUID. Replay is the historical original result; read again for current state. Use help({"topic":"create_work details"}) for the complete contract."""
         payload = _client_operation_payload(
             client_operation_id,
             {
@@ -1183,7 +1188,7 @@ def _register_discovery_tools(server: FastMCP, api: MnemonicAPI) -> None:
         limit: Annotated[int, Field(ge=1, le=100)] = 30,
         offset: Annotated[int, Field(ge=0)] = 0,
     ) -> ReadyWorkPage:
-        """List compact work pointers that appear actionable at one server snapshot. When parent_work_item_id is supplied, return only direct parent-child descendants of that parent; discovery edges do not make an item its child. For authorized implementation, choose from the result, then call claim_work followed by recall_work: appearance here is advisory, not execution authority, a reservation, or a lease, and claim atomically revalidates lifecycle, blockers, leases, and unresolved human gates. Waiting work is excluded even when another readiness fact overlaps. Concurrent changes can shift offset pages or make a chosen item lose at claim time."""
+        """List compact work pointers that appear actionable at one server snapshot. When parent_work_item_id is supplied, return only direct parent-child descendants of that parent; discovery edges do not make an item its child. For authorized implementation, choose from the result, then call claim_work followed by recall_work: appearance here is advisory, not execution authority, a reservation, or a lease, and claim atomically revalidates lifecycle, blockers, leases, and unresolved human gates. Waiting and deadlocked work are excluded even when another readiness fact overlaps. Inspect deadlocked_count, planning_cycle_count and dependency_issue_work_item_ids even when items is empty; open those IDs for cycle evidence and ask the owner to repair an enforced cycle. Counts cover pending project work before filters. Concurrent changes can shift offset pages or make a chosen item lose at claim time."""
         params: dict[str, object | None] = {
             "min_priority": min_priority,
             "tag": tag,
@@ -1806,8 +1811,10 @@ def _register_relationship_tools(server: FastMCP, api: MnemonicAPI) -> None:
         client_operation_id: UUID,
         created_by_model: Annotated[str | None, Field(max_length=120)] = None,
         context_checkpoint_id: UUID | None = None,
+        requires_child_closeout: Annotated[bool, Field(strict=True)] = False,
+        replace_relationship_id: UUID | None = None,
     ) -> RelationshipCreationResult:
-        """After changing work or related work, inspect affected unresolved human questions. If their facts or options changed, rewrite the original prose with request_human_input using its gate_id and expected_question_version; keep the human out of checkpoint and superseding-decision reconciliation. Add one explicit relationship, including across projects, using source --type--> target direction only when current authority established that exact fact. The requested project must currently contain at least one endpoint and becomes immutable recording/route authority only for a newly created edge; a duplicate add can return an existing edge with different authority, so retain the returned relationship.project_id. Never infer one from similar wording. Fresh duplicate-of writes are closed and return duplicate_merge_required; use merge_work after reviewing both exact contexts. This tool still accepts and dispatches duplicate-of exactly once solely so the backend can replay an old completed receipt. A historical duplicate mark is evidence, not an authoritative merge. parent-child alone shapes hierarchy and its source is the parent; discovered-from is provenance and requires target-owned checkpoint context; related is undirected. Omit client_operation_id on fresh calls for an automatic UUID and retain it with the complete immutable tool arguments. After a timeout, disconnect, malformed success, or client_operation_unavailable, retry only the same tool with that UUID and every argument unchanged. If either the UUID or exact arguments were lost, stop, inspect safely, and request direction; never invent a replacement. A changed argument or new intent requires a new UUID. A replay is the historical original result, so read again when current state matters."""
+        """Add an explicit source --type--> target fact only within current authority; never infer one from similar wording. Cross-project edges are allowed. The requested project must contain an endpoint; retain returned relationship.project_id for GET/DELETE, since a duplicate add may keep older authority. parent-child shapes hierarchy and its source is the parent. It is descriptive unless requires_child_closeout=true; then its child must be terminal before parent closeout. Blocks requires Done. Composed cycles are refused with a path; no override exists. replace_relationship_id atomically replaces the exact parent link of the same child, including closure changes; refusal preserves the original. dependency_issue distinguishes deadlock from descriptive planning-cycle. discovered-from requires target-owned context; related is undirected. Fresh duplicate-of is refused; use merge_work after reading both exact contexts. Historical duplicate-of dispatch exists only for receipt replay. After changes, inspect affected open human questions; revise changed prose with request_human_input, gate_id and expected_question_version. Omit client_operation_id on fresh calls for an automatic UUID; retain it with the complete immutable tool arguments. After timeout, disconnect, malformed success or client_operation_unavailable, retry with that UUID and every argument unchanged. If the UUID or arguments were lost, stop for direction; never invent a replacement. A new intent requires a new UUID. Replay is the historical original result; read again for current state. Use help({"topic":"add_relationship details"}) for the complete contract."""
         return cast(
             RelationshipCreationResult,
             await api.request(
@@ -1817,6 +1824,9 @@ def _register_relationship_tools(server: FastMCP, api: MnemonicAPI) -> None:
                     client_operation_id,
                     {
                         "source_work_item_id": str(source_work_item_id),
+                        **({"requires_child_closeout": True} if requires_child_closeout else {}),
+                        **({"replace_relationship_id": str(replace_relationship_id)}
+                           if replace_relationship_id is not None else {}),
                         "target_work_item_id": str(target_work_item_id),
                         "relationship_type": relationship_type,
                         "created_by_client": created_by_client,
@@ -1842,6 +1852,8 @@ def _register_relationship_tools(server: FastMCP, api: MnemonicAPI) -> None:
                     created_by_session_id=created_by_session_id,
                     created_by_model=created_by_model,
                     context_checkpoint_id=context_checkpoint_id,
+                    requires_child_closeout=requires_child_closeout,
+                    replace_relationship_id=replace_relationship_id,
                 ),
             ),
         )

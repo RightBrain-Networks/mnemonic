@@ -19,7 +19,7 @@ function clientLabel(client: string) {
   } as Record<string, string>)[client] ?? client;
 }
 
-type CardStatus = WorkStatus | "active" | "to-review" | "dropped" | "blocked" | "waiting";
+type CardStatus = WorkStatus | "active" | "to-review" | "dropped" | "blocked" | "waiting" | "deadlocked";
 
 const cardStatusLabels: Record<CardStatus, string> = {
   ...statusLabels,
@@ -27,12 +27,14 @@ const cardStatusLabels: Record<CardStatus, string> = {
   "to-review": "To review",
   dropped: "Dropped",
   blocked: "Blocked",
+  deadlocked: "Deadlocked",
   waiting: "Needs attention"
 };
 
 function effectiveCardStatus(status: WorkStatus, readiness?: Readiness): CardStatus {
   if (status === "done" && readiness?.review_status) return readiness.review_status;
   if (status === "done" && readiness?.display_state === "to-review") return "to-review";
+  if (readiness?.dependency_issue?.kind === "deadlock") return "deadlocked";
   if (status !== "pending" || !readiness || readiness.is_duplicate) return status;
   if (readiness.is_gated) return "waiting";
   if (readiness.is_blocked) return "blocked";
@@ -42,7 +44,7 @@ function effectiveCardStatus(status: WorkStatus, readiness?: Readiness): CardSta
 }
 
 function StatusBadge({ status, readiness, workItem = false }: { status: WorkStatus; readiness?: Readiness; workItem?: boolean }) {
-  const effective = workItem && status !== "pending" ? status : effectiveCardStatus(status, readiness);
+  const effective = workItem && status !== "pending" && readiness?.dependency_issue?.kind !== "deadlock" ? status : effectiveCardStatus(status, readiness);
   return <span className={`status-badge status-${effective}`}><span />{cardStatusLabels[effective]}</span>;
 }
 
@@ -50,7 +52,8 @@ function OperationalBadge({ readiness }: { readiness: Readiness }) {
   return <>
     {readiness.is_duplicate && <span className="operational-badge duplicate">Duplicate</span>}
     {readiness.is_gated && readiness.display_state !== "waiting" && <span className="operational-badge waiting">Needs attention</span>}
-    {readiness.is_blocked && readiness.display_state !== "blocked" && <span className="operational-badge blocked">Blocked</span>}
+    {readiness.dependency_issue?.kind === "planning-cycle" && <span className="operational-badge planning-cycle">Planning cycle</span>}
+    {readiness.is_blocked && !["blocked", "deadlocked"].includes(readiness.display_state) && <span className="operational-badge blocked">Blocked</span>}
     {readiness.has_active_lease && readiness.display_state !== "active" && <span className="operational-badge active">{readiness.active_lease?.purpose === "code_review" ? "Review in progress" : "Active"}</span>}
   </>;
 }

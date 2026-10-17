@@ -58,6 +58,9 @@ export function statusActionDisabledReason(
   readiness: Readiness,
   reportSettingsReady: boolean
 ): string | null {
+  if (action === "done" && readiness.dependency_issue?.kind === "deadlock") {
+    return "Ask the owner to repair the dependency cycle before marking this work Done.";
+  }
   if (action === "done" && readiness.is_blocked) {
     return "Resolve every incoming blocker before marking this work Done.";
   }

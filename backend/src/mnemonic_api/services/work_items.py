@@ -192,6 +192,7 @@ def create_work_records(
                 created_by_model=payload.initial_checkpoint.source_model,
                 context_checkpoint_id=item.context_checkpoint_id,
                 locked_work_items=locked_work_items,
+                requires_child_closeout=item.requires_child_closeout,
             )
             if relationship.id not in seen_relationship_ids:
                 relationships.append(relationship)
@@ -381,6 +382,9 @@ def _update_implementation_record(
         raise ApplicationError(422, "job_completion_report_not_applicable",
                                "Reports belong only to an actual closeout transition.")
     if terminal_transition:
+        from mnemonic_api.services.precedence import require_children_closed
+
+        require_children_closed(database, work_item.id)
         require_no_unresolved_gates(database, work_item.id)
         assert payload.actor is not None
         register_closeout_transcripts(database, work_item, payload.subagent_transcripts,
@@ -481,6 +485,9 @@ def complete_work_record(
     register_closeout_transcripts(database, work_item, subagent_transcripts,
                                  payload.source_client, payload.source_session_id)
     require_unblocked(database, work_item.id)
+    from mnemonic_api.services.precedence import require_children_closed
+
+    require_children_closed(database, work_item.id)
     require_no_unresolved_gates(database, work_item.id)
     consume_lease_for_terminal_mutation(database, work_item.id, lease_token)
     mutation_time = database_now(database)

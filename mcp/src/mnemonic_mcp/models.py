@@ -61,6 +61,7 @@ from .external_records import (
 )
 from .lease_models import LeaseSettingsRead
 from .phase12_models import JobCompletionReportRead, reject_null_report
+from .precedence_models import DependencyIssue
 from .response_validation import validate_page_bounds, validate_page_items
 from .search_diagnostics import TermDiagnostics
 from .search_disclosure import SearchDetail, SearchDisclosure
@@ -83,6 +84,7 @@ AppendCheckpointKind = Literal["context", "progress"]
 CheckpointOrder = Literal["oldest", "newest"]
 MigrationOrigin = Literal["legacy-handoff-snapshot", "legacy-comment"]
 DisplayState = Literal[
+    "deadlocked",
     "duplicate",
     "pending",
     "active",
@@ -1097,7 +1099,16 @@ class CheckpointAddedMetadata(CanonicalResponse):
 
 class RelationshipEventMetadata(CanonicalResponse):
     relationship_type: RelationshipType
+    requires_child_closeout: Literal[True] | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
 
+
+    @model_validator(mode="after")
+    def valid_child_closeout(self) -> Self:
+        if self.requires_child_closeout and self.relationship_type != "parent-child":
+            raise ValueError("Child closeout applies only to parent-child relationships")
+        return self
 
 class WorkMergedMetadata(CanonicalResponse):
     merge_id: UUID
@@ -1843,6 +1854,9 @@ def _validate_lease_review_identity(
 
 
 class Readiness(CanonicalResponse):
+    dependency_issue: DependencyIssue | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
     review_status: (
         Literal["to-review", "deferred", "done", "wont-do", "promoted"] | SkipJsonSchema[None]
     ) = Field(default=None, exclude_if=lambda value: value is None)
@@ -1871,6 +1885,8 @@ class Readiness(CanonicalResponse):
 
 
 def _validate_readiness_facts(readiness: Readiness) -> None:
+    if readiness.dependency_issue and (readiness.is_terminal or readiness.is_duplicate):
+        raise ValueError("Terminal and duplicate work cannot have active dependency issues")
     if readiness.is_terminal != (
         readiness.lifecycle_status in {"done", "wont-do", "promoted"}
     ):
@@ -1892,6 +1908,7 @@ def _validate_ready_state(readiness: Readiness) -> None:
         and not readiness.has_active_lease
         and readiness.unresolved_blocker_count == 0
         and readiness.unresolved_gate_count == 0
+        and (readiness.dependency_issue is None or readiness.dependency_issue.kind != "deadlock")
     )
     if readiness.is_ready != expected_ready:
         raise ValueError("Ready state must match lifecycle, lease, blocker, and gate facts.")
@@ -1904,6 +1921,8 @@ def _expected_display_state(readiness: Readiness) -> DisplayState:
         return readiness.review_status
     if readiness.lifecycle_status == "done" and readiness.display_state == "to-review":
         return "to-review"
+    if readiness.dependency_issue is not None and readiness.dependency_issue.kind == "deadlock":
+        return "deadlocked"
     if readiness.lifecycle_status != "pending":
         return readiness.lifecycle_status
     if readiness.is_gated:
@@ -2198,6 +2217,7 @@ class WorkPointer(CanonicalResponse):
     readiness: Readiness
 
 class RelationshipEdgeRead(CanonicalResponse):
+    requires_child_closeout: StrictBool = Field(default=False, exclude_if=lambda value: not value)
     id: UUID
     project_id: UUID
     relationship_type: RelationshipType
@@ -2210,6 +2230,12 @@ class RelationshipEdgeRead(CanonicalResponse):
     created_by_model: str | None
     created_at: datetime
 
+
+    @model_validator(mode="after")
+    def valid_child_closeout(self) -> Self:
+        if self.requires_child_closeout and self.relationship_type != "parent-child":
+            raise ValueError("Child closeout applies only to parent-child relationships")
+        return self
 
 class AdjacentRelationshipRead(CanonicalResponse):
     relationship: RelationshipEdgeRead
@@ -2243,6 +2269,9 @@ class RelationshipPage(CanonicalResponse):
 
 
 class RelationshipCreationResult(CanonicalResponse):
+    replaced_relationship_id: UUID | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
     relationship: RelationshipEdgeRead
     created: bool
 
@@ -2259,10 +2288,17 @@ class InitialRelationshipInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     type: RelationshipType
+    requires_child_closeout: StrictBool = Field(default=False, exclude_if=lambda value: not value)
     direction: InitialRelationshipDirection
     other_work_item_id: UUID
     context_checkpoint_id: UUID | None = None
 
+
+    @model_validator(mode="after")
+    def valid_child_closeout(self) -> Self:
+        if self.requires_child_closeout and self.type != "parent-child":
+            raise ValueError("Child closeout applies only to parent-child relationships")
+        return self
 
 class WorkSummary(CanonicalResponse):
     # Search must stay pointer-only even if an API regression adds checkpoint bodies.
@@ -2507,6 +2543,9 @@ class HierarchySummary(CanonicalResponse, SearchHitRanking):
 
 
 class CompactWorkHit(CanonicalResponse, WorkMatchEvidence, SearchHitRanking):
+    dependency_issue: DependencyIssue | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
     id: UUID
     project_id: UUID
     title: str
@@ -2543,7 +2582,15 @@ class CompactWorkHit(CanonicalResponse, WorkMatchEvidence, SearchHitRanking):
                     "done": {"done", "to-review", "deferred", "wont-do"}}
         if self.search_status not in statuses.get(self.status, {self.status}):
             raise ValueError("Compact search status disagrees with lifecycle")
-        masked = self.status == "pending" and self.display_state in {"waiting", "blocked"}
+        if self.dependency_issue and (self.status in {"done", "wont-do", "promoted"}
+                                      or self.canonical_work_item_id != self.id):
+            raise ValueError("Terminal and duplicate work cannot have active dependency issues")
+        deadlocked = self.dependency_issue is not None and self.dependency_issue.kind == "deadlock"
+        if (self.display_state == "deadlocked") != deadlocked:
+            raise ValueError("Deadlocked pointers require their cycle evidence")
+        masked = deadlocked or (
+            self.status == "pending" and self.display_state in {"waiting", "blocked"}
+        )
         if self.display_state != "duplicate" and not masked and (
             self.display_state != self.search_status
         ):
@@ -2594,6 +2641,12 @@ class WorkPage(CanonicalResponse, SearchDisclosure, SearchRanking, SearchPaginat
 class ReadyWorkPage(CanonicalResponse):
     """Strict pointer-only ready envelope, deliberately separate from search."""
 
+    deadlocked_count: StrictInt = Field(default=0, exclude_if=lambda value: not value, ge=0)
+    planning_cycle_count: StrictInt = Field(default=0, exclude_if=lambda value: not value, ge=0)
+    dependency_issue_work_item_ids: list[UUID] = Field(
+        default_factory=list, exclude_if=lambda value: not value, max_length=10,
+    )
+
     items: list[WorkSummaryMinimal]
     total: int = Field(ge=0)
     limit: int = Field(ge=1, le=100)
@@ -2601,6 +2654,10 @@ class ReadyWorkPage(CanonicalResponse):
 
     @model_validator(mode="after")
     def enforce_ready_page_contract(self) -> Self:
+        issue_count = self.deadlocked_count + self.planning_cycle_count
+        pointers = self.dependency_issue_work_item_ids
+        if len(pointers) != min(issue_count, 10) or len(set(pointers)) != len(pointers):
+            raise ValueError("Cycle counts require their bounded, unique work pointers")
         validate_page_items(
             self.items, total=self.total, limit=self.limit, offset=self.offset,
             key=lambda item: item.work_item.id,

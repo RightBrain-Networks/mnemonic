@@ -1010,6 +1010,7 @@ async def test_tool_catalog_mutation_and_relationship_schemas(settings):
         "direction",
         "other_work_item_id",
         "context_checkpoint_id",
+        "requires_child_closeout",
     }
     assert set(initial_relationship_schema["properties"]["type"]["enum"]) == (
         relationship_types

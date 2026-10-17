@@ -216,9 +216,9 @@ share an atomic snapshot. Warm reviews may use `claim_and_recall`.
   lifecycle, lease, and relationship mutations fail without redirect; every
   source-incident relationship is frozen. Raw exact history remains readable
   and the canonical continuation is an explicit, separate projection.
-- Only unresolved incoming `blocks` edges, including blockers in another
-  project, unresolved human gates, and an authoritative outgoing merge affect
-  readiness and fresh/replacement claimability. Existing leases survive a later
+- Unresolved incoming `blocks` edges, including blockers in another project,
+  enforced dependency deadlocks, unresolved human gates, and an authoritative
+  outgoing merge affect readiness and fresh/replacement claimability. Existing leases survive a later
   blocker or gate; a merge consumes the source lease before making that source
   an alias.
 - A gate request freezes the work version, newest context-checkpoint ID, and
@@ -881,7 +881,7 @@ untrusted context under a shared bearer, not verified human identity or renewed
 execution authority.
 
 Only explicit authoritative merging changes duplicate identity. A bare `duplicate-of`
-mark, `related`, `parent-child`, and `discovered-from` remain descriptive; only
+mark, `related`, descriptive `parent-child`, and `discovered-from` remain descriptive; only
 an authoritative merge makes its source a non-actionable alias. Suggestions are
 explicit, transient, and evidence-only. The release has no automatic merge,
 per-keystroke suggestion, creation suppression, unmerge/split/retarget, ID redirect, claim substitution,
@@ -973,3 +973,13 @@ against its configured API. Existing artifact operation receipts govern exact
 replays, including reauthorization after expiry. No client path is sent to the
 server, and no base64 enters agent context. See the
 [protocol and security boundary](artifact-upload-grants.md).
+
+## Dependency cycles and explicit closure
+
+See [dependency cycles](dependency-cycles.md). Migration 0052 adds explicit
+child closeout requirements without reinterpreting existing parent links. The
+relationship service checks the proposed enforced precedence graph under its
+global transaction lock; a deferred database constraint also enforces it for
+direct writes. Shared iterative SCC analysis supplies read diagnostics, ready
+queue exclusions and fresh-claim guards. Atomic parent replacement avoids
+committing a transient invalid topology.

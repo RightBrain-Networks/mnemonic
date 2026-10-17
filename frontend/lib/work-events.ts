@@ -256,7 +256,8 @@ function validMetadata(eventType: WorkEventType, origin: "live" | "backfill", va
     "relationship_removed"
   ].includes(eventType)) {
     if (
-      !exactKeys(metadata, ["relationship_type"])
+      !exactKeys(metadata, ["relationship_type", ...("requires_child_closeout" in metadata ? ["requires_child_closeout"] : [])])
+      || "requires_child_closeout" in metadata && (metadata.requires_child_closeout !== true || metadata.relationship_type !== "parent-child")
       || typeof metadata.relationship_type !== "string"
       || !RELATIONSHIP_TYPES.has(metadata.relationship_type as RelationshipType)
     ) {

@@ -39,7 +39,9 @@ GUIDES: dict[str, tuple[str, str, str]] = {
                                "Only capacity_exhausted offers one retry after one second. "
                                "Keep comparison_incomplete visible; creation stays independent.")),
     "list_ready_work": ("Work", "Find work that is ready to claim.",
-                        "Select a project and a small limit. Selection does not authorize execution."),
+                        ("Select a project and a small limit. Inspect cycle counts and issue work IDs even on an "
+                         "empty page. Deadlocks require graph repair; planning cycles are warnings. "
+                         "Selection does not authorize execution.")),
     "get_work": ("Work", "Read a work item's current status or detail.",
                  ("Start with status_only=true for current status and lease_settings. "
                  "Cold reviewers must avoid context until findings freeze.")),
@@ -112,7 +114,9 @@ GUIDES: dict[str, tuple[str, str, str]] = {
                         "Check drift flags and current facts; an answer alone grants no execution authority."),
     "add_relationship": ("Relationships", "Add a typed relationship between work items.",
                          ("Read both endpoints. Supply relationship_type and truthful creator identity. "
-                         "Discovery links require their retained context checkpoint.")),
+                         "Discovery links require their retained context checkpoint. Parent links are descriptive unless "
+                         "requires_child_closeout=true; required closure composes with blocks in the cycle guard. "
+                         "Use replace_relationship_id for atomic parent replacement. No cycle override exists.")),
     "get_relationship": ("Relationships", "Read one relationship.",
                          "Use the relationship's owning project and exact relationship_id."),
     "list_relationships": ("Relationships", "List a work item's relationships.",

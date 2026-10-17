@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from mnemonic_api.database import begin_coherent_read, database_sqlstate
 from mnemonic_api.errors import ApplicationError, not_found
+from mnemonic_api.precedence_schemas import DependencyIssue
 from mnemonic_api.schemas import (
     ChildrenListQuery,
     CompactHierarchyHit,
@@ -686,13 +687,19 @@ def hierarchy_page(
         raise not_found("project_not_found", "Project not found.")
     if not row["parent_exists"]:
         raise not_found("work_item_not_found", "Work item not found in this project.")
-    items = [_hierarchy_result(item, filters.offset + rank, compact)
+    from mnemonic_api.services.precedence import dependency_issues
+
+    ids = [UUID(str(item["id"] if compact else item["summary"]["work_item"]["id"]))
+           for item in row["items"]]
+    issues = dependency_issues(database, ids)
+    items = [_hierarchy_result(item, filters.offset + rank, compact,
+                              issues.get(ids[rank - 1]))
              for rank, item in enumerate(row["items"], 1)]
     return items, int(row["total"])
 
 
 def _hierarchy_result(
-    item: dict, rank: int, compact: bool,
+    item: dict, rank: int, compact: bool, dependency_issue: DependencyIssue | None = None,
 ) -> HierarchySummary | CompactHierarchyHit:
     summary = item if compact else item["summary"]
     facts = summary.pop("_readiness") if compact else summary["readiness"]
@@ -706,12 +713,14 @@ def _hierarchy_result(
         int(facts["unresolved_blocker_count"]), bool(facts["has_dropped_lease"]),
         int(facts["unresolved_gate_count"]), canonical_work_item_id=work.id,
         review_status=facts["review_status"],
+        dependency_issue=dependency_issue,
     )
     if compact:
         return CompactHierarchyHit(
             evidence_mode="browse", matched_fields=[], excerpts=[], excerpts_truncated=False,
             **item, rank=rank, display_state=state.display_state,
             canonical_work_item_id=work.id,
+            dependency_issue=state.dependency_issue,
             search_status=work_search_status(
                 work.status, active_lease is not None, bool(facts["has_dropped_lease"]),
                 facts["review_status"],

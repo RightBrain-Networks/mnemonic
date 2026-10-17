@@ -2691,3 +2691,20 @@ html:not([data-hide-nemo="false"]) .sidebar-note { display: none; }
 }
 
 .bootstrap-state { max-width: 48rem; margin: 15vh auto; padding: 2rem; }
+
+.status-deadlocked, .operational-badge.deadlocked { color: #b42318; background: #fff0ee; }
+.operational-badge.planning-cycle { color: #854d0e; background: #fef3c7; }
+.dependency-cycle-notice { color: #49320f; padding: 16px; margin: 16px 0; border: 1px solid #d6a655; border-radius: 8px; background: #fffbeb; }
+.dependency-cycle-notice.deadlocked { color: #8f1d14; border-color: #e59c94; background: #fff0ee; }
+.dependency-cycle-notice p { margin: 8px 0; }
+.dependency-cycle-notice summary { cursor: pointer; }
+.dependency-cycle-notice li { padding: 6px 0; overflow-wrap: anywhere; }
+.dependency-cycle-notice li span { display: block; }
+.dependency-cycle-notice small { overflow-wrap: anywhere; }
+
+html[data-theme="dark"] :is(.status-deadlocked, .operational-badge.deadlocked, .dependency-cycle-notice.deadlocked) {
+  color: var(--dark-danger-text); background: var(--dark-danger-bg); border-color: var(--dark-danger-line);
+}
+html[data-theme="dark"] :is(.operational-badge.planning-cycle, .dependency-cycle-notice.planning-cycle) {
+  color: var(--dark-warning-text); background: var(--dark-warning-bg); border-color: var(--dark-warning-line);
+}

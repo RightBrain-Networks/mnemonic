@@ -763,6 +763,10 @@ class WorkRelationship(Base):
     __tablename__ = "work_relationships"
     __table_args__ = (
         CheckConstraint(
+            "NOT requires_child_closeout OR relationship_type = 'parent-child'",
+            name="child_closeout_type",
+        ),
+        CheckConstraint(
             "relationship_type IN "
             "('blocks', 'parent-child', 'discovered-from', 'duplicate-of', 'related')",
             name="type_valid",
@@ -868,6 +872,9 @@ class WorkRelationship(Base):
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     project_id: Mapped[UUID] = mapped_column()
     relationship_type: Mapped[str] = mapped_column(String(32))
+    requires_child_closeout: Mapped[bool] = mapped_column(
+        default=False, server_default=text("false"),
+    )
     source_work_item_id: Mapped[UUID] = mapped_column()
     target_work_item_id: Mapped[UUID] = mapped_column()
     context_checkpoint_work_item_id: Mapped[UUID | None] = mapped_column()
