@@ -1,5 +1,34 @@
 # Mnemonic validation record
 
+## Embedding memory retention (0.84.1)
+
+The API and background worker disable ONNX Runtime's retaining CPU arena and
+use native document batches of at most four texts. Background inference respects
+the existing configured thread limit. The persisted 16-document batch, embedding
+model/tokenizer and cache identities are unchanged. There is no migration,
+API contract or plugin change; the application patch release is 0.84.1.
+
+Validation on 2026-10-20 used Python 3.14 and a dedicated PostgreSQL 17 container:
+
+- All 198 affected backend tests passed, including semantic work/artifact search,
+  duplicate background embeddings, admission/deadlines, tokenizer preservation,
+  model-pool concurrency, worker configuration and the OpenAPI snapshot.
+- All 63 MCP transport and duplicate-suggestion checks passed; backend and MCP
+  Ruff and type checks passed. The tokenizer regression now injects its
+  fake into the actual pool worker, avoiding an unintended real model load.
+- Offline, disposable-container measurements using the actual adapter reduced
+  one-model idle RSS from 778 to 310 MiB and peak RSS from 836 to 432 MiB.
+  Median mixed-burst time changed from 16.42 to 16.70 seconds. A separate native
+  comparison returned identical vectors for the measured synthetic inputs.
+- The configured two-model pool completed the same workload with 419 MiB idle
+  RSS and 616 MiB peak RSS.
+- All four dashboard release/freshness checks passed on Node 24; the full
+  pre-commit secret scan passed.
+
+See [semantic inference](semantic-inference.md#retained-memory-correction-0841)
+for the workload and allocator explanation. These are isolated measurements,
+not post-deployment production RSS. Production services were not restarted.
+
 ## Dependency cycles and explicit child closure (0.84.0)
 
 The [cycle guard](dependency-cycles.md) refuses cycles over blocks and explicitly

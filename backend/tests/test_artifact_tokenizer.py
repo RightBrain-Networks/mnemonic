@@ -6,7 +6,7 @@ import pytest
 
 from mnemonic_api.artifact_passages import BATCH_CHARS, next_passage_offset, passage_batch
 from mnemonic_api.artifact_tokenizer import PassageTokenizer
-from mnemonic_api.semantic import FastembedEmbedder
+from mnemonic_api.semantic import FastembedEmbedder, _EmbeddingWorker
 
 from .artifact_passage_fixtures import document_tokenizer, passage_policy
 
@@ -40,10 +40,11 @@ def test_every_character_is_covered_and_each_retokenized_passage_fits(body):
     assert any("needle" in chunk.text for chunk in chunks) == ("needle" in body)
 
 
-def test_fastembed_adapter_clones_exact_native_tokenizer_without_mutating_inference():
+def test_fastembed_adapter_clones_exact_native_tokenizer_without_mutating_inference(monkeypatch):
     native = document_tokenizer()
+    monkeypatch.setattr(_EmbeddingWorker, "_load", lambda _self: SimpleNamespace(
+        model=SimpleNamespace(tokenizer=native)))
     embedder = FastembedEmbedder()
-    embedder._model = SimpleNamespace(model=SimpleNamespace(tokenizer=native))
     policy = embedder.passage_tokenizer()
     assert policy is embedder.passage_tokenizer()
     assert native.truncation["max_length"] == 512 and policy.tokenizer.truncation is None

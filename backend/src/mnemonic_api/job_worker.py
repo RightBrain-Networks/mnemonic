@@ -89,7 +89,7 @@ def create_app() -> FastAPI:
     engine = build_engine(settings)
     factory = build_session_factory(engine, work_summary_max_chars=settings.work_summary_max_chars)
     state = WorkerState()
-    embedder = FastembedEmbedder()
+    embedder = FastembedEmbedder(threads=settings.duplicate_suggestion_inference_threads)
     health = TranscriptHealthReporter()
 
     @asynccontextmanager

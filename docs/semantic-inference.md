@@ -21,6 +21,14 @@ coordination; the API queue settings below remain valid.
 
 ## Behavior and configuration
 
+Since 0.84.1, all embedding models disable ONNX Runtime's retaining CPU memory
+arena and split document inference into at most four texts per native call.
+The outer 16-document job/cache batch, model, tokenizer, vector dimensions and
+cache identities stay unchanged. Admission capacity remains occupied until
+the complete document call returns, including every smaller native batch.
+This bounds temporary tensor allocations without invalidating saved vectors.
+The background worker now uses the configured native thread count too.
+
 All API semantic searches (work, artifact, unified, and multi-project) and
 duplicate suggestions share a fixed pool of independently loaded local models.
 Each query embedding or document batch acquires a model permit and releases it
@@ -34,7 +42,7 @@ these values. Every suffix below starts with `MNEMONIC_DUPLICATE_SUGGESTION_`.
 | Suffix | Default | Accepted range | Meaning |
 | --- | ---: | --- | --- |
 | `INFERENCE_SLOTS` | 2 | 1–4 | Independent, lazily loaded API model workers |
-| `INFERENCE_THREADS` | 1 | 1–8 | Native inference threads per API model instance |
+| `INFERENCE_THREADS` | 1 | 1–8 | Native inference threads per API model instance and background model |
 | `INFERENCE_QUEUE_SIZE` | 8 | 0–16 | Waiting model calls per API process; zero disables waiting |
 | `INFERENCE_WAIT_MS` | 5000 | 1–30000 | Maximum queue wait per call, clipped to its remaining deadline |
 
@@ -87,6 +95,55 @@ the queue ceiling deliberately stays below the framework's ordinary worker pool
 size; an unbounded queue would delay unrelated requests under overload.
 
 ## Reproducible sizing evidence
+
+### Retained-memory correction (0.84.1)
+
+On October 20, 2026 the running 0.84.0 worker had 1,845,848 KiB RSS (1,803 MiB),
+and the API had 2,239,548 KiB (2,187 MiB).
+Their private anonymous memory was 1,787,704 KiB and 2,175,540 KiB respectively;
+this was not just file-backed search-index cache. The worker also had 103
+threads and constructed its model without the configured inference thread bound.
+
+The embedding adapter used ONNX Runtime's default per-session CPU arena.
+[ONNX Runtime documents](https://onnxruntime.ai/docs/get-started/with-c.html#features)
+that this allocator retains acquired memory for the session lifetime. Long
+16-document batches therefore left large temporary tensor allocations attached
+to each reusable model. The worker and API each keep their own models.
+
+The updated benchmark uses the actual application adapter and reports current
+RSS after each burst as well as lifetime peak. It can run against the prior image
+and the fixed source with the same cached model. Run each variant in a fresh,
+offline process; the measured container limit was two CPUs and 3 GiB:
+
+```sh
+HF_HUB_OFFLINE=1 uv run --project backend python \
+  scripts/benchmark_semantic_inference.py --workers 1 --threads 1 \
+  --requests 8 --bursts 3 --document-repeats 16 \
+  --cache-dir /path/to/cached/models
+```
+
+Each mixed burst contains two 16-document batches and six queries. The repeated
+synthetic text reaches the model's 512-token window. The measured baseline used
+release 0.84.0 (`f1c67fa`); both variants used FastEmbed 0.8.0 and ONNX Runtime
+1.29.0. No production database or private document was accessed.
+
+| Adapter | Warm RSS | Idle RSS after bursts | Peak RSS | Median mixed burst |
+| --- | ---: | ---: | ---: | ---: |
+| 0.84.0 | 241 MiB | 778 MiB | 836 MiB | 16.42 s |
+| 0.84.1 | 241 MiB | 310 MiB | 432 MiB | 16.70 s |
+
+The fixed two-model pool also completed all bursts: 419 MiB idle RSS and
+616 MiB peak RSS. Its median mixed burst was 7.35 seconds.
+
+A separate native-model comparison processed three batches of sixteen synthetic
+long documents for each combination of arena enabled/disabled and inference
+batch size sixteen/four. All resulting vectors matched exactly in that sample.
+These figures isolate inference allocations; they do not promise a fixed RSS for
+production processes that also handle transcripts, indexes and concurrent work.
+The system allocator can retain some freed memory even with the ONNX arena off.
+Existing processes require an approved restart to load this correction.
+
+### Original pool sizing (0.73.0)
 
 Measured September 22, 2026 in isolated offline containers using the existing
 API image's cached `BAAI/bge-small-en-v1.5` model, with a four-CPU quota and a

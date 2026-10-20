@@ -66,7 +66,7 @@ Important API settings are:
 - `MNEMONIC_DUPLICATE_SUGGESTION_INFERENCE_SLOTS`, default 2, range 1–4,
   selects independently loaded models shared by all semantic searches and suggestions.
 - `MNEMONIC_DUPLICATE_SUGGESTION_INFERENCE_THREADS`, default 1, range 1–8,
-  bounds native threads per API model instance.
+  bounds native threads per API model instance and the background worker's single model.
 - `MNEMONIC_DUPLICATE_SUGGESTION_INFERENCE_WAIT_MS`, default 5000, range 1–30000,
   bounds each model-call wait, clipped to its remaining request/stage deadline.
 - `MNEMONIC_DUPLICATE_SUGGESTION_INFERENCE_QUEUE_SIZE`, default 8, range 0–16,
