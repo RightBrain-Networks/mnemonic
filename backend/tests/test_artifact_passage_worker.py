@@ -64,3 +64,23 @@ def test_tokenizer_preparation_precedes_sql_and_failure_keeps_other_jobs(monkeyp
     schedule_jobs(None, settings, None, embedder=SimpleNamespace(passage_tokenizer=unavailable))
     assert order == ["refresh_outdated_normalizations", "enqueue_transcript_jobs",
                      "enqueue_duplicate_embedding_jobs", "schedule_backups"]
+
+
+@pytest.mark.parametrize("threads", [1, 4])
+def test_worker_uses_configured_native_threads_with_one_model(monkeypatch, threads):
+    from mnemonic_api import job_worker
+    from mnemonic_api.config import Settings
+
+    monkeypatch.setenv("MNEMONIC_DUPLICATE_SUGGESTION_INFERENCE_THREADS", str(threads))
+    settings = Settings(
+        api_key="synthetic-worker-test-key-32-characters",
+        database_url="postgresql+psycopg://unused:unused@127.0.0.1/unused",
+    )
+    monkeypatch.setattr(job_worker, "Settings", lambda: settings)
+    for name in ("BackupSettings", "WorkerSettings", "build_engine", "build_session_factory",
+                 "create_backup_app"):
+        monkeypatch.setattr(job_worker, name, Mock())
+    embedder = Mock()
+    monkeypatch.setattr(job_worker, "FastembedEmbedder", embedder)
+    job_worker.create_app()
+    embedder.assert_called_once_with(threads=threads)

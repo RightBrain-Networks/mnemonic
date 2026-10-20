@@ -97,3 +97,40 @@ def test_model_pool_returns_worker_after_a_native_failure(monkeypatch):
     with pytest.raises(ValueError):
         model.embed_query("first")
     assert model.embed_query("next") == [1, 0]
+
+
+def test_native_model_bounds_document_batches_without_changing_order_or_query(monkeypatch):
+    import sys
+
+    from mnemonic_api import semantic
+
+    loads = []
+    batches = []
+    queries = []
+
+    class Model:
+        def __init__(self, name, *, cache_dir, threads, enable_cpu_mem_arena=True):
+            loads.append((name, cache_dir, threads, enable_cpu_mem_arena))
+
+        def embed(self, texts, batch_size=256):
+            for start in range(0, len(texts), batch_size):
+                batch = texts[start:start + batch_size]
+                batches.append(batch)
+                yield from ([int(text), 1] for text in batch)
+
+        def query_embed(self, texts):
+            queries.extend(texts)
+            yield [1, 0]
+
+    monkeypatch.setitem(sys.modules, "fastembed", SimpleNamespace(TextEmbedding=Model))
+    monkeypatch.setenv("MNEMONIC_EMBEDDING_CACHE", "/synthetic/model-cache")
+    embedder = semantic.FastembedEmbedder(workers=2, threads=1)
+    texts = [str(index) for index in range(19)]
+    assert loads == []  # Models remain lazy and serial calls reuse one pool member.
+    assert embedder.embed_documents(texts) == [[float(index), 1.0] for index in range(19)]
+    assert max(map(len, batches)) <= 4
+    assert [text for batch in batches for text in batch] == texts
+    assert embedder.embed_query("exact query") == [1.0, 0.0]
+    assert queries == ["exact query"]
+    assert loads == [(semantic.EMBED_MODEL, "/synthetic/model-cache", 1, False)]
+    assert embedder.embed_documents([]) == []

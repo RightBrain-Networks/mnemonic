@@ -26,6 +26,8 @@ EMBED_MODEL = "BAAI/bge-small-en-v1.5"
 EMBED_BODY_CHARS = 1500
 EMBED_COMMENT_CHARS = 1500
 EMBED_BATCH_SIZE = 16
+# Bound native tensor memory independently of persistence batches/cache identities.
+EMBED_INFERENCE_BATCH_SIZE = 4
 EMBED_CONFIG = (
     f"{EMBED_MODEL}:work-title-summary-initial-{EMBED_BODY_CHARS}-later-"
     f"{EMBED_COMMENT_CHARS}:v3"
@@ -102,7 +104,13 @@ class _EmbeddingWorker:
             from fastembed import TextEmbedding
 
             cache_dir = os.getenv("MNEMONIC_EMBEDDING_CACHE")
-            self._model = TextEmbedding(EMBED_MODEL, cache_dir=cache_dir, threads=self._threads)
+            # The default CPU arena retains its largest tensor allocations for
+            # the model's lifetime. Long document batches inflated each warm
+            # worker by hundreds of MiB, even after requests had finished.
+            self._model = TextEmbedding(
+                EMBED_MODEL, cache_dir=cache_dir, threads=self._threads,
+                enable_cpu_mem_arena=False,
+            )
         return self._model
 
     def passage_tokenizer(self):
@@ -116,7 +124,10 @@ class _EmbeddingWorker:
 
     def embed_documents(self, texts: Sequence[str]) -> list[list[float]]:
         with self._lock:
-            return [[float(value) for value in vector] for vector in self._load().embed(texts)]
+            return [
+                [float(value) for value in vector]
+                for vector in self._load().embed(texts, batch_size=EMBED_INFERENCE_BATCH_SIZE)
+            ]
 
     def embed_query(self, text: str) -> list[float]:
         with self._lock:
