@@ -90,12 +90,14 @@ class SearchHitRanking(RankingModel):
 
 
 class FacetTotalKinds(RankingModel):
+    decisions: TotalKind | None = None
     work_items: TotalKind | None = None
     artifacts: TotalKind | None = None
     transcripts: TotalKind | None = None
 
 
 class FacetScoreTypes(RankingModel):
+    decisions: ScoreType | None = None
     work_items: ScoreType | None = None
     artifacts: ScoreType | None = None
     transcripts: ScoreType | None = None

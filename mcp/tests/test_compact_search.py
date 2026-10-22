@@ -17,6 +17,7 @@ from mnemonic_mcp.api import MnemonicAPI
 from mnemonic_mcp.artifact_models import ArtifactRead
 from mnemonic_mcp.search_disclosure import (
     ArtifactAppliedFilters,
+    DecisionAppliedFilters,
     TranscriptAppliedFilters,
     WorkAppliedFilters,
     search_disclosure,
@@ -80,7 +81,7 @@ def response_page(tool, summary, *, q="needle", detail="compact"):
             "indexing_incomplete": result["indexing_incomplete"],
         }]
         scopes = {"work_items": WorkAppliedFilters(), "artifacts": ArtifactAppliedFilters(),
-                  "transcripts": TranscriptAppliedFilters()}
+                  "transcripts": TranscriptAppliedFilters(), "decisions": DecisionAppliedFilters()}
     elif tool == "search_work":
         result = {"items": [work], "total": 1, "limit": 20, "offset": 0}
         scopes = {"work_items": WorkAppliedFilters()}

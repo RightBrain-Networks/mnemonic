@@ -13,6 +13,7 @@ from mnemonic_api.artifact_search_schemas import (
     CompactArtifactMatch,
 )
 from mnemonic_api.artifact_semantic_schemas import ArtifactEmbeddingCoverage
+from mnemonic_api.decision_search_schemas import DecisionSearchFilters, DecisionSearchMatch
 from mnemonic_api.schemas import (
     APIModel,
     ClientName,
@@ -47,8 +48,8 @@ from mnemonic_api.work_search_fields import WORK_FIELDS, WorkFields
 
 def _default_facets(data: dict[str, Any]) -> list[SearchFacet]:
     if len(literal_terms(data.get("q", ""))) > 1:
-        return ["work_items", "artifacts"]
-    return ["work_items", "artifacts", "transcripts"]
+        return ["work_items", "artifacts", "decisions"]
+    return ["work_items", "artifacts", "transcripts", "decisions"]
 
 
 class SearchSort(APIModel):
@@ -108,6 +109,7 @@ class TranscriptSearchFilters(APIModel, DateBounds):
 
 
 class SearchFilters(APIModel):
+    decisions: DecisionSearchFilters = Field(default_factory=DecisionSearchFilters)
     work_items: WorkSearchFilters = Field(default_factory=WorkSearchFilters)
     artifacts: ArtifactSearchFilters = Field(default_factory=ArtifactSearchFilters)
     transcripts: TranscriptSearchFilters = Field(default_factory=TranscriptSearchFilters)
@@ -121,13 +123,13 @@ class SearchRequest(APIModel):
     q: str = Field(default="", max_length=1000)
     facets: list[SearchFacet] = Field(
         default_factory=_default_facets, min_length=1,
-        max_length=3,
+        max_length=4,
     )
     fulltext: bool = False
     detail: Literal["compact", "full"] = "compact"
     filters: SearchFilters = Field(default_factory=SearchFilters)
     sort: SearchSort = Field(default_factory=SearchSort)
-    facet_order: list[FacetOrder] = Field(default_factory=list, max_length=3)
+    facet_order: list[FacetOrder] = Field(default_factory=list, max_length=4)
     limit: int = Field(default=20, ge=1, le=100)
     offset: int = Field(default=0, ge=0, le=1_000_000)
 
@@ -227,12 +229,19 @@ class TranscriptFacetHit(SearchHitBase):
     transcript: TranscriptRead | CompactTranscriptRead
 
 
+class DecisionFacetHit(SearchHitBase):
+    facet: Literal["decisions"] = "decisions"
+    decision: DecisionSearchMatch
+
+
 SearchHit = Annotated[
-    WorkFacetHit | ArtifactFacetHit | TranscriptFacetHit, Field(discriminator="facet")
+    WorkFacetHit | ArtifactFacetHit | TranscriptFacetHit | DecisionFacetHit,
+    Field(discriminator="facet"),
 ]
 
 
 class FacetTotals(APIModel):
+    decisions: int = Field(default=0, ge=0)
     work_items: int = Field(default=0, ge=0)
     artifacts: int = Field(default=0, ge=0)
     transcripts: int = Field(default=0, ge=0)
@@ -293,6 +302,6 @@ class SearchPage(APIModel, SearchDisclosure, SearchPagination):
         fields = {"work_items": "work_item", "artifacts": "artifact", "transcripts": "transcript"}
         compact_types = (CompactWorkHit, CompactArtifactMatch, CompactTranscriptRead)
         if any(isinstance(getattr(hit, fields[hit.facet]), compact_types)
-               != (self.detail == "compact") for hit in self.items):
+               != (self.detail == "compact") for hit in self.items if hit.facet != "decisions"):
             raise ValueError("Unified search projection must match detail")
         return self

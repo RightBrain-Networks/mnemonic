@@ -43,7 +43,7 @@ from .search_ranking import (
 from .transcript_models import CompactTranscriptRead, TranscriptRead, TranscriptStatus
 from .transcript_segments import ContentKinds
 
-SearchFacet = Literal["work_items", "artifacts", "transcripts"]
+SearchFacet = Literal["work_items", "artifacts", "transcripts", "decisions"]
 SearchQuery = Annotated[str, Field(max_length=1000)]
 SearchLimit = Annotated[StrictInt, Field(ge=1, le=100)]
 SearchOffset = Annotated[StrictInt, Field(ge=0, le=1_000_000)]
@@ -78,10 +78,10 @@ def _distinct_order(value: list[FacetOrder]) -> list[FacetOrder]:
 
 
 SearchFacets = Annotated[
-    list[SearchFacet], Field(min_length=1, max_length=3), AfterValidator(_distinct_facets),
+    list[SearchFacet], Field(min_length=1, max_length=4), AfterValidator(_distinct_facets),
 ]
 SearchFacetOrder = Annotated[
-    list[FacetOrder], Field(max_length=3), AfterValidator(_distinct_order),
+    list[FacetOrder], Field(max_length=4), AfterValidator(_distinct_order),
 ]
 
 
@@ -125,14 +125,29 @@ class TranscriptSearchFilters(DateBounds, SearchModel):
     status: TranscriptStatus | None = None
 
 
+class DecisionSearchFilters(DateBounds, SearchModel):
+    domain_ids: Annotated[list[UUID], Field(min_length=1, max_length=100)] | None = None
+    all_revisions: StrictBool = False
+    state: Literal[
+        "proposed", "rejected", "accepted", "superseded", "partially-superseded",
+    ] | None = None
+
+    @model_validator(mode="after")
+    def distinct_domains(self) -> Self:
+        if self.domain_ids is not None and len(set(self.domain_ids)) != len(self.domain_ids):
+            raise ValueError("Decision domain filters must be unique")
+        return self
+
+
 class SearchFilters(SearchModel):
     work_items: WorkSearchFilters = Field(default_factory=WorkSearchFilters)
     artifacts: ArtifactSearchFilters = Field(default_factory=ArtifactSearchFilters)
     transcripts: TranscriptSearchFilters = Field(default_factory=TranscriptSearchFilters)
+    decisions: DecisionSearchFilters = Field(default_factory=DecisionSearchFilters)
 
 
 def _all_facets() -> list[SearchFacet]:
-    return ["work_items", "artifacts", "transcripts"]
+    return ["work_items", "artifacts", "transcripts", "decisions"]
 
 
 class SearchRequest(SearchModel):
@@ -175,6 +190,7 @@ class FacetTotals(SearchModel):
     work_items: Annotated[StrictInt, Field(ge=0)] = 0
     artifacts: Annotated[StrictInt, Field(ge=0)] = 0
     transcripts: Annotated[StrictInt, Field(ge=0)] = 0
+    decisions: Annotated[StrictInt, Field(ge=0)] = 0
 
 
 class ArtifactSearchCoverage(SearchModel):
@@ -240,8 +256,38 @@ class TranscriptFacetHit(SearchHitBase):
     transcript: TranscriptRead | CompactTranscriptRead
 
 
+class DecisionSearchMatch(SearchModel, SearchHitRanking):
+    id: UUID
+    project_id: UUID
+    decision_id: Annotated[str, Field(pattern=r"^[A-Z]{1,5}-[0-9]{5,}$")]
+    reference: Annotated[str, Field(pattern=r"^[A-Z]{1,5}-[0-9]{5,}-[0-9]+$")]
+    domain_id: UUID
+    domain_name: str
+    prefix: Annotated[str, Field(pattern=r"^[A-Z]{1,5}$")]
+    ordinal: Annotated[StrictInt, Field(ge=1)]
+    revision: Annotated[StrictInt, Field(ge=0)]
+    title: str
+    state: Literal["proposed", "rejected", "accepted", "superseded", "partially-superseded"]
+    media_type: Literal["text/plain", "text/markdown"]
+    size_bytes: Annotated[StrictInt, Field(ge=0)]
+    sha256: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
+    created_at: datetime
+    updated_at: datetime
+    author_kind: Literal["human", "agent"]
+    agent_session_id: str | None
+    model_id: str | None
+    snippet: Annotated[str, Field(max_length=1000)] | None = None
+    matched_fields: Annotated[list[Literal["metadata", "content"]], Field(max_length=2)]
+
+
+class DecisionFacetHit(SearchHitBase):
+    facet: Literal["decisions"] = "decisions"
+    decision: DecisionSearchMatch
+
+
 SearchHit = Annotated[
-    WorkFacetHit | ArtifactFacetHit | TranscriptFacetHit, Field(discriminator="facet"),
+    WorkFacetHit | ArtifactFacetHit | TranscriptFacetHit | DecisionFacetHit,
+    Field(discriminator="facet"),
 ]
 
 
@@ -289,7 +335,8 @@ class ArtifactToolFacetHit(SearchHitBase):
 
 
 SearchToolHit = Annotated[
-    WorkFacetHit | ArtifactToolFacetHit | TranscriptFacetHit, Field(discriminator="facet"),
+    WorkFacetHit | ArtifactToolFacetHit | TranscriptFacetHit | DecisionFacetHit,
+    Field(discriminator="facet"),
 ]
 
 

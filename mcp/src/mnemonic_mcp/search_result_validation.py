@@ -3,6 +3,7 @@
 from .models import CompactWorkHit, HierarchySummary, WorkPage
 from .search_models import (
     ArtifactFacetHit,
+    DecisionFacetHit,
     SearchPage,
     SearchRequest,
     TranscriptFacetHit,
@@ -37,10 +38,11 @@ def work_ranking_matches(page: WorkPage, query: str | None, mode: QueryMode,
     return True
 
 
-def _native_matches(hit: WorkFacetHit | ArtifactFacetHit | TranscriptFacetHit,
+def _native_matches(hit: WorkFacetHit | ArtifactFacetHit | TranscriptFacetHit | DecisionFacetHit,
                     page: SearchPage, request: SearchRequest) -> bool:
     native = (hit.work_item if isinstance(hit, WorkFacetHit) else hit.artifact
-              if isinstance(hit, ArtifactFacetHit) else hit.transcript)
+              if isinstance(hit, ArtifactFacetHit) else hit.decision
+              if isinstance(hit, DecisionFacetHit) else hit.transcript)
     if native.rank is None or native.rank > getattr(page.facet_totals, hit.facet) or (
         native.score_type != getattr(page.facet_score_types, hit.facet)
     ):
@@ -70,8 +72,9 @@ def unified_ranking_matches(page: SearchPage, request: SearchRequest) -> bool:
     if embedding is not None and page.semantic.partial_vectors != embedding.partial_vectors:
         return False
     kinds = set()
-    for source in ("work_items", "artifacts", "transcripts"):
-        expected = source_ranking(request.q, request.query_mode, work=source == "work_items",
+    for source in ("work_items", "artifacts", "transcripts", "decisions"):
+        expected = source_ranking(request.q, request.query_mode,
+                                  work=source in {"work_items", "decisions"},
                                   semantic=(request.filters.work_items.semantic and source == "work_items")
                                   or (request.filters.artifacts.semantic and source == "artifacts"))
         actual = (getattr(page.facet_score_types, source), getattr(page.facet_total_kinds, source))
@@ -86,7 +89,8 @@ def unified_ranking_matches(page: SearchPage, request: SearchRequest) -> bool:
         return False
     for source in selected:
         ranks = [hit.work_item.rank if isinstance(hit, WorkFacetHit) else hit.artifact.rank
-                 if isinstance(hit, ArtifactFacetHit) else hit.transcript.rank
+                 if isinstance(hit, ArtifactFacetHit) else hit.decision.rank
+                 if isinstance(hit, DecisionFacetHit) else hit.transcript.rank
                  for hit in page.items if hit.facet == source]
         if len(set(ranks)) != len(ranks):
             return False

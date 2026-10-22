@@ -34,7 +34,7 @@ def test_work_positive_diagnostics_obey_fields_dates_and_exact_tag_population(
                             diagnostics="always", **options)
     assert result["total"] == dedicated["total"] == 1
     assert counts(result) == counts(dedicated) == {
-        word: {"work_items": 1, "artifacts": None, "transcripts": None}
+        word: {"decisions": None, "work_items": 1, "artifacts": None, "transcripts": None}
         for word in ("copper", "zircon")
     }
     assert result["tag_counts"]["items"] == [{"tag": "matching", "count": 1}]
@@ -78,7 +78,7 @@ def test_literal_positive_transcript_diagnostics_use_current_kind_and_date_scope
                                 endpoint=endpoint, diagnostics="always", **options)
     assert result["total"] == 1 and result["items"][0]["id"] == latest["id"]
     assert counts(result) == {
-        word: {"work_items": None, "artifacts": None, "transcripts": 1}
+        word: {"decisions": None, "work_items": None, "artifacts": None, "transcripts": 1}
         for word in ("copper", "zircon")
     }
 
@@ -101,6 +101,6 @@ def test_literal_positive_artifact_diagnostics_preserve_date_scope_and_sensitive
                   facets=["artifacts"], filters={"artifacts": filters}, **options))
     assert result["total"] == 1
     assert counts(result) == {
-        word: {"work_items": None, "artifacts": 1, "transcripts": None}
+        word: {"decisions": None, "work_items": None, "artifacts": 1, "transcripts": None}
         for word in ("copper", "zircon")
     }

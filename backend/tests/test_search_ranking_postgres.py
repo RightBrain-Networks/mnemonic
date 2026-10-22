@@ -58,9 +58,9 @@ def test_unified_total_and_score_types_distinguish_ranked_and_unsearched_facets(
     assert response.status_code == 200, response.text
     page = response.json()
     assert page["total_kind"] == "mixed" and page["score_type"] == "unified_reciprocal_rank"
-    assert page["facet_total_kinds"] == {
+    assert page["facet_total_kinds"] == {"decisions": None,
         "work_items": "ranked_candidates", "artifacts": "lexical_matches", "transcripts": None}
-    assert page["facet_score_types"] == {
+    assert page["facet_score_types"] == {"decisions": None,
         "work_items": "hybrid_reciprocal_rank", "artifacts": "tantivy_relevance",
         "transcripts": None}
     assert page["items"][0]["rank"] == 1

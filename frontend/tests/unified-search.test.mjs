@@ -66,6 +66,21 @@ test("transcript unified results preserve work scope and metadata-only content b
   assert.throws(() => decodeUnifiedTranscriptSearchPage(page, work));
 });
 
+test("existing single-facet clients accept explicitly unsearched decision disclosures and reject leaked decision results", () => {
+  const page = result("transcripts", transcript);
+  page.applied_filters.decisions = null;
+  page.query_interpretation.decisions = null;
+  page.facet_totals.decisions = 0;
+  page.facet_total_kinds.decisions = null;
+  page.facet_score_types.decisions = null;
+  projectCoverage(page, project);
+  assert.equal(decodeUnifiedTranscriptSearchPage(page, project).items.length, 1);
+  for (const field of ["applied_filters", "query_interpretation"]) {
+    assert.throws(() => decodeUnifiedTranscriptSearchPage({ ...page, [field]: { ...page[field], decisions: {} } }, project));
+  }
+  assert.throws(() => decodeUnifiedTranscriptSearchPage({ ...page, items: [{ ...page.items[0], decision: { title: "Unexpected" } }] }, project));
+});
+
 test("single-facet views reject mixed, duplicate, mismatched, and truncated envelopes", () => {
   const page = result("transcripts", transcript);
   const mutations = [

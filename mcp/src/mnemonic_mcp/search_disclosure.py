@@ -63,6 +63,14 @@ class TranscriptAppliedFilters(EchoedDateBounds, DisclosureModel):
     status: Literal["waiting", "pending", "processing", "ready", "failed"] | None = None
 
 
+class DecisionAppliedFilters(EchoedDateBounds, DisclosureModel):
+    domain_ids: list[UUID] | None = Field(default=None, min_length=1, max_length=100)
+    all_revisions: StrictBool = False
+    state: Literal[
+        "proposed", "rejected", "accepted", "superseded", "partially-superseded",
+    ] | None = None
+
+
 class AppliedSearchFilters(DisclosureModel):
     project_id: UUID | None
     project_ids: list[UUID] | None = Field(default=None, min_length=1, max_length=10)
@@ -70,6 +78,7 @@ class AppliedSearchFilters(DisclosureModel):
     work_items: WorkAppliedFilters | None = None
     artifacts: ArtifactAppliedFilters | None = None
     transcripts: TranscriptAppliedFilters | None = None
+    decisions: DecisionAppliedFilters | None = None
 
 
 class SourceQueryInterpretation(DisclosureModel):
@@ -90,11 +99,12 @@ class QueryInterpretation(DisclosureModel):
     work_items: SourceQueryInterpretation | None = None
     artifacts: SourceQueryInterpretation | None = None
     transcripts: SourceQueryInterpretation | None = None
+    decisions: SourceQueryInterpretation | None = None
 
 
 class SearchWarning(DisclosureModel):
     code: Literal["phrase_operators_ignored", "sensitive_content_withheld"] = "phrase_operators_ignored"
-    sources: list[SearchFacet] = Field(min_length=1, max_length=3)
+    sources: list[SearchFacet] = Field(min_length=1, max_length=4)
     message: Literal[
         "Quoted phrases are not supported; quotation marks do not require adjacent words.",
         "Sensitive artifact contents were withheld; zero matches do not establish absence."
@@ -124,13 +134,14 @@ def search_disclosure(
     work_items: WorkAppliedFilters | None = None,
     artifacts: ArtifactAppliedFilters | None = None,
     transcripts: TranscriptAppliedFilters | None = None,
+    decisions: DecisionAppliedFilters | None = None,
     semantic: bool = False, fulltext: bool = False, diagnostics: DiagnosticsMode = "on_empty",
 ) -> SearchDisclosure:
     query = (q or "").strip()
     applied = AppliedSearchFilters(
         project_id=project_id if isinstance(project_id, UUID) else None,
         project_ids=None if isinstance(project_id, UUID) else list(project_id),
-        work_items=work_items, artifacts=artifacts, transcripts=transcripts,
+        work_items=work_items, artifacts=artifacts, transcripts=transcripts, decisions=decisions,
     )
     interpretation = QueryInterpretation(q=query, query_mode=query_mode)
     sources: list[SearchFacet] = []
@@ -143,7 +154,9 @@ def search_disclosure(
             match_mode=mode if query else "browse", fulltext=None,
             fields=work_items.work_fields,
         )
-    for facet, filters in (("artifacts", artifacts), ("transcripts", transcripts)):
+    for facet, filters in (
+        ("artifacts", artifacts), ("transcripts", transcripts), ("decisions", decisions),
+    ):
         if filters is None:
             continue
         sources.append(facet)
@@ -180,7 +193,8 @@ def disclosure_matches(actual: SearchDisclosure, expected: SearchDisclosure) -> 
         source is None or (source.model_fields_set - set(DATE_FIELDS) - _optional_filters(source)
                            == set(type(source).model_fields) - set(DATE_FIELDS)
                            - _optional_filters(source))
-        for group in sources for source in (group.work_items, group.artifacts, group.transcripts)
+        for group in sources
+        for source in (group.work_items, group.artifacts, group.transcripts, group.decisions)
     )
 
 

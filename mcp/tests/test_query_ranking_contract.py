@@ -15,6 +15,7 @@ from test_duplicate_suggestions import required_arguments, suggestion_page
 from mnemonic_mcp.api import MnemonicAPI
 from mnemonic_mcp.search_disclosure import (
     ArtifactAppliedFilters,
+    DecisionAppliedFilters,
     TranscriptAppliedFilters,
     WorkAppliedFilters,
     search_disclosure,
@@ -22,7 +23,7 @@ from mnemonic_mcp.search_disclosure import (
 from mnemonic_mcp.server import build_server
 
 MODELS = {"work_items": WorkAppliedFilters, "artifacts": ArtifactAppliedFilters,
-          "transcripts": TranscriptAppliedFilters}
+          "transcripts": TranscriptAppliedFilters, "decisions": DecisionAppliedFilters}
 TOOLS = ["search_work", "search", "search_artifact_contents", "search_transcript_contents"]
 
 
@@ -174,6 +175,7 @@ async def test_exact_transcript_span_can_omit_excerpt_but_keep_pinned_segment(se
         row = page["items"][2]["transcript"]
         page["query_interpretation"]["artifacts"]["fulltext"] = True
         page["query_interpretation"]["artifacts"]["fields"] = ["metadata", "content"]
+        page["query_interpretation"]["decisions"].update(fulltext=True, fields=["metadata", "content"])
     else:
         row = page["items"][0]
     page["query_interpretation"]["transcripts"].update(fulltext=True, fields=["metadata", "content"])

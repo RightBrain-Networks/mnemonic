@@ -14,7 +14,7 @@ test("resources menu groups its leaves below Needs Attention and opens the Trans
   ]);
   await expect(toggle).toHaveAttribute("aria-expanded", "false");
   await toggle.click();
-  await expect(resources.locator("a")).toHaveText(["Artifacts", "Transcripts"]);
+  await expect(resources.locator("a")).toHaveText(["Artifacts", "Transcripts", "Knowledge graph"]);
   await resources.getByRole("link", { name: "Transcripts", exact: true }).click();
   await expect(page).toHaveURL(/\/transcripts(?:\?project=[a-f0-9-]+)?$/);
   await expect(page.locator("h1")).toHaveText("Transcripts.");

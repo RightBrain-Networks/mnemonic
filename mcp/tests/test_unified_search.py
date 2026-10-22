@@ -11,7 +11,7 @@ from test_transcripts import TRANSCRIPT_ID, transcript
 
 from mnemonic_mcp.server import build_server
 
-FACETS = ["work_items", "artifacts", "transcripts"]
+FACETS = ["work_items", "artifacts", "transcripts", "decisions"]
 
 
 def artifact_hit(**changes):
@@ -69,7 +69,7 @@ async def test_defaults_search_every_facet_and_status_in_one_safe_post(settings,
 
     result = await call(settings, "search", {"project_id": PROJECT_ID, "q": "report"}, handler)
     assert len(requests) == 1
-    assert [item["facet"] for item in result["items"]] == FACETS
+    assert [item["facet"] for item in result["items"]] == FACETS[:3]
     compact = result["items"][1]["artifact"]["artifact"]
     assert (compact["id"], compact["filename"], compact["revision"]) == (
         ARTIFACT_ID, "private report.pdf", 1,
@@ -77,7 +77,7 @@ async def test_defaults_search_every_facet_and_status_in_one_safe_post(settings,
     assert compact["sha256"] == hits[1]["artifact"]["artifact"]["sha256"]
     assert "metadata" not in compact["extraction"] and "description" not in compact
     assert "transcript" not in result["items"][1]
-    assert result["facet_totals"] == dict.fromkeys(FACETS, 1)
+    assert result["facet_totals"] == {**dict.fromkeys(FACETS[:3], 1), "decisions": 0}
 
 
 async def test_filters_group_sorts_and_global_offset_forward(settings, work_summary):
@@ -130,7 +130,7 @@ async def test_unavailable_and_sensitive_coverage_is_preserved(settings):
 async def test_disabled_artifacts_do_not_block_other_source_results(settings):
     response = page([transcript_hit(score=0.0)])
     response["coverage"]["artifacts"]["enabled"] = False
-    response["search_scope"]["searched_facets"] = ["work_items", "transcripts"]
+    response["search_scope"]["searched_facets"] = ["work_items", "transcripts", "decisions"]
     response["indexing_incomplete"] = True
     result = await call(settings, "search", {"project_id": PROJECT_ID},
                         lambda request: httpx.Response(200, json=response))
@@ -322,7 +322,7 @@ async def test_blank_query_browses_all_facets_without_artifact_match_fields(sett
     payload = page([work_hit(work_summary, score=0.0), artifact, transcript_hit(score=0.0)])
     result = await call(settings, "search", {"project_id": PROJECT_ID},
                         lambda request: httpx.Response(200, json=payload))
-    assert [item["facet"] for item in result["items"]] == FACETS
+    assert [item["facet"] for item in result["items"]] == FACETS[:3]
     assert result["items"][1]["artifact"]["matched_fields"] == []
     with pytest.raises(ToolError):
         await call(settings, "search", {"project_id": PROJECT_ID, "q": "report"},

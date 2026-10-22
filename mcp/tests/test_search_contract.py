@@ -31,6 +31,7 @@ def search_result(tool, status="all"):
         scopes = {"work_items": WorkAppliedFilters(status=status)}
     elif tool == "search":
         result = unified_page()
+        result["search_scope"]["searched_facets"] = ["work_items", "artifacts", "transcripts"]
         scopes = {"work_items": WorkAppliedFilters(status=status),
                   "artifacts": ArtifactAppliedFilters(), "transcripts": TranscriptAppliedFilters()}
     elif tool == "search_artifact_contents":

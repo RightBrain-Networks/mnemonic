@@ -82,9 +82,11 @@ def test_positive_diagnostics_are_optional_and_preserve_unsearched_null(api, pro
     assert default["term_diagnostics"] == [] and default["diagnostics"] == "on_empty"
     always = search(api, project, q="needle", fulltext=True, diagnostics="always",
                     facets=["work_items", "artifacts"])
-    assert counts(always)["needle"] == {"work_items": 2, "artifacts": 1, "transcripts": None}
+    assert counts(always)["needle"] == {"decisions": None,
+        "work_items": 2, "artifacts": 1, "transcripts": None}
     dedicated = _work_page(api, project, q="needle", diagnostics="always")
-    assert counts(dedicated)["needle"] == {"work_items": 2, "artifacts": None, "transcripts": None}
+    assert counts(dedicated)["needle"] == {"decisions": None,
+        "work_items": 2, "artifacts": None, "transcripts": None}
     artifact = artifact_search(api, project, "needle", fulltext=True, diagnostics="always")
     assert counts(artifact)["needle"]["artifacts"] == 1
     response = api.post(f"/api/v1/projects/{project['id']}/transcripts/search-content",
@@ -115,7 +117,7 @@ def _bound(timestamp):
 def test_inclusive_created_lower_and_exclusive_upper_bounds_match_diagnostics(
     api, project, mixed, facet,
 ):
-    record = mixed[{"work_items": 0, "artifacts": 1, "transcripts": 3}[facet]]
+    record = mixed[{"decisions": None, "work_items": 0, "artifacts": 1, "transcripts": 3}[facet]]
     timestamp = datetime.fromisoformat(record["created_at"].replace("Z", "+00:00"))
     bounds = {"created_after": _bound(record["created_at"]),
               "created_before": (timestamp + timedelta(microseconds=1)).isoformat()}
@@ -184,8 +186,8 @@ def test_positive_term_counts_explain_narrow_conjunction_inside_date_scope(
                     filters={"work_items": bounds})
     assert result["total"] == 1
     assert counts(result) == {
-        "copper": {"work_items": 2, "artifacts": None, "transcripts": None},
-        "zircon": {"work_items": 1, "artifacts": None, "transcripts": None},
+        "copper": {"decisions": None, "work_items": 2, "artifacts": None, "transcripts": None},
+        "zircon": {"decisions": None, "work_items": 1, "artifacts": None, "transcripts": None},
     }
     dedicated = _work_page(api, project, q="copper zircon", diagnostics="always", **bounds)
     assert counts(dedicated) == counts(result)
@@ -212,7 +214,7 @@ def test_tag_counts_rejection_names_static_rule_through_api(api, project):
 
 @pytest.mark.parametrize("facet", ["work_items", "artifacts", "transcripts"])
 def test_updated_bounds_use_the_source_sort_timestamp(api, project, mixed, facet):
-    record = mixed[{"work_items": 0, "artifacts": 1, "transcripts": 3}[facet]]
+    record = mixed[{"decisions": None, "work_items": 0, "artifacts": 1, "transcripts": 3}[facet]]
     baseline = search(api, project, facets=[facet])
     row = next(item for item in baseline["items"] if item["id"] == record["id"])
     stamp = datetime.fromisoformat(row["updated_at"].replace("Z", "+00:00"))

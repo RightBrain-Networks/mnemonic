@@ -21,6 +21,6 @@ def test_default_sources_follow_distinct_normalized_terms(query, transcripts):
 
 def test_transcript_filters_do_not_opt_into_a_conjunctive_source():
     request = SearchRequest(q="needle absent", filters={"transcripts": {"client": "claude_code"}})
-    assert request.facets == ["work_items", "artifacts"]
+    assert request.facets == ["work_items", "artifacts", "decisions"]
     with pytest.raises(ValueError):
         SearchRequest(q="needle absent", facet_order=[{"facet": "transcripts"}])

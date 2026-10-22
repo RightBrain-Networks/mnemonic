@@ -77,7 +77,9 @@ def test_inventory_covers_every_current_machine_template_and_method():
             if isinstance(route, APIRoute):
                 path = re.sub(
                     r"\{[^}]+\}",
-                    lambda match: "recall-pointer" if match.group() == "{prompt_id}" else PROJECT,
+                    lambda match: {
+                        "{prompt_id}": "recall-pointer", "{decision_id}": "ADR-00001",
+                    }.get(match.group(), PROJECT),
                     route.path,
                 )
                 paths.add(path.lstrip("/"))

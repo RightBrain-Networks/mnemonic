@@ -54,7 +54,9 @@ def test_global_pagination_reaches_work_candidates_after_the_first_hundred(
     grouped = search(api, project, offset=100, limit=3, **payload,
                      facet_order=[{"facet": "artifacts"}])
     assert identities(grouped) == work_ids[99:102]
-    assert grouped["facet_totals"] == {"work_items": 103, "artifacts": 1, "transcripts": 0}
+    assert grouped["facet_totals"] == {
+        "decisions": 0, "work_items": 103, "artifacts": 1, "transcripts": 0,
+    }
 
 
 def test_human_sensitive_search_is_audited_and_does_not_populate_agent_results(

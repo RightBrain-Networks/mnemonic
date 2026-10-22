@@ -35,8 +35,8 @@ def test_project_union_keeps_tags_diagnostics_dates_and_field_scope_together(
     ]
     counts = {row["term"]: row["matches"] for row in result["term_diagnostics"]}
     assert counts == {
-        "copper": {"work_items": 3, "artifacts": None, "transcripts": None},
-        "zircon": {"work_items": 2, "artifacts": None, "transcripts": None},
+        "copper": {"decisions": None, "work_items": 3, "artifacts": None, "transcripts": None},
+        "zircon": {"decisions": None, "work_items": 2, "artifacts": None, "transcripts": None},
     }
     assert {row["project_id"]: row["facet_totals"]["work_items"]
             for row in result["project_coverage"]} == {project["id"]: 1, other["id"]: 1}

@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
-import MarkdownContent from "@/components/markdown-content";
+import { useEffect, useState } from "react";
+import DocumentPreviewDrawer, { DocumentPreviewText } from "@/components/document-preview-drawer";
 import { artifactPath, type Artifact, type ArtifactSearchMatch } from "@/lib/artifacts";
 import { type ArtifactPreviewKind } from "@/lib/artifact-preview";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -14,8 +14,6 @@ export default function ArtifactPreviewDrawer({ artifact, kind, match, onClose }
   match?: ArtifactSearchMatch;
   onClose: () => void;
 }) {
-  const dialogRef = useRef<HTMLDialogElement>(null);
-  const titleId = useId();
   const client = useQueryClient();
   const metadata = useQuery({ ...artifactDetailOptions(client, artifact.project_id, artifact.id), refetchInterval: 30_000 });
   const current = artifactPreviewCurrent(artifact, metadata.data) && !metadata.isError;
@@ -27,21 +25,6 @@ export default function ArtifactPreviewDrawer({ artifact, kind, match, onClose }
   const error = metadata.isError ? "Unable to verify this file. Close the preview and try again."
     : metadata.data && !current ? "This file changed after it was opened. Close the preview and open it again."
       : passageRead.error instanceof Error ? passageRead.error.message : transferError;
-  const [copyStatus, setCopyStatus] = useState("");
-
-  useEffect(() => {
-    const dialog = dialogRef.current!;
-    const returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const previousOverflow = document.body.style.overflow;
-    dialog.showModal();
-    document.body.style.overflow = "hidden";
-    return () => {
-      dialog.close();
-      document.body.style.overflow = previousOverflow;
-      if (returnFocus?.isConnected) returnFocus.focus({ preventScroll: true });
-    };
-  }, []);
-
   useEffect(() => {
     setText(null); setImageUrl(null); setError("");
     if (!current || match?.passage) return;
@@ -76,45 +59,15 @@ export default function ArtifactPreviewDrawer({ artifact, kind, match, onClose }
     };
   }, [artifact.project_id, artifact.id, artifact.revision, artifact.sha256, artifact.mime_type, kind, match, current]);
 
-  async function copyContents() {
-    if (text === null) return;
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopyStatus("Contents copied.");
-    } catch { setCopyStatus("Unable to copy. Select the contents and copy them manually."); }
-  }
-
-  return <dialog ref={dialogRef} className={`artifact-preview-drawer${match?.passage ? " artifact-passage-drawer" : ""}`} aria-labelledby={titleId}
-    onCancel={(event) => { event.preventDefault(); onClose(); }}
-    onDragEnter={(event) => { event.preventDefault(); event.stopPropagation(); }}
-    onDragOver={(event) => { event.preventDefault(); event.stopPropagation(); event.dataTransfer.dropEffect = "none"; }}
-    onDrop={(event) => { event.preventDefault(); event.stopPropagation(); }}
-    onClick={(event) => {
-      if (event.target !== event.currentTarget) return;
-      const bounds = event.currentTarget.getBoundingClientRect();
-      if (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom) onClose();
-    }}>
-    <header className="artifact-preview-header">
-      <div><span className="section-label">{match?.passage ? "Supporting passage" : "Artifact preview"}</span><h2 id={titleId} title={artifact.filename}>{artifact.filename}</h2></div>
-      <div className="artifact-preview-actions">
-        {kind !== "image" && <button type="button" className="icon-button" aria-label="Copy contents" title="Copy contents" disabled={text === null || Boolean(error)} onClick={() => void copyContents()}>
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><rect x="8" y="8" width="12" height="13" rx="2" /><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3" /></svg>
-        </button>}
-        <button type="button" className="icon-button" aria-label="Close preview" title="Close preview (Esc)" autoFocus onClick={onClose}>
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg>
-        </button>
-      </div>
-    </header>
+  return <DocumentPreviewDrawer title={artifact.filename} label={match?.passage ? "Supporting passage" : "Artifact preview"}
+    text={error ? null : text} copyable={kind !== "image"} className={match?.passage ? "artifact-passage-drawer" : ""} onClose={onClose}>
     {artifact.sensitive && <p className="artifact-preview-notice"><span className="artifact-sensitive-badge">Sensitive</span> Agents need explicit human approval for each content access.</p>}
     {match?.passage && <p className="artifact-preview-notice">Semantic evidence · revision {match.passage.artifact_revision} · characters {match.passage.start_offset + 1}–{match.passage.end_offset}. Cosine similarity {match.passage.cosine_similarity.toFixed(3)}; not a probability.</p>}
-    {copyStatus && <p className="artifact-preview-notice" role="status">{copyStatus}</p>}
     <div className="artifact-preview-body">
       {error ? <p className="error-notice" role="alert">{error}</p> : kind === "image" && imageUrl ? <>
         <div className="artifact-preview-image"><img src={imageUrl} alt={artifact.filename} onError={() => setError("This image cannot be displayed by your browser. Download the file to view it.")} /></div>
         <a className="artifact-preview-image-link" href={imageUrl} target="_blank" rel="noopener noreferrer">Open image in new tab</a>
-      </> : text !== null ? kind === "markdown" ? <div className="artifact-preview-markdown" role="region" aria-label="Markdown contents" tabIndex={0}>
-        <MarkdownContent>{text}</MarkdownContent>
-      </div> : <textarea className="artifact-preview-text" aria-label={match?.passage ? "Supporting passage text" : "Plain text contents"} value={text} readOnly spellCheck={false} /> : <p role="status">Loading preview…</p>}
+      </> : text !== null ? <DocumentPreviewText text={text} markdown={kind === "markdown"} label={match?.passage ? "Supporting passage text" : "Plain text contents"} /> : <p role="status">Loading preview…</p>}
     </div>
-  </dialog>;
+  </DocumentPreviewDrawer>;
 }

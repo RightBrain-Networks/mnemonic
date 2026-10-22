@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { canonicalDashboardPath, dashboardPaths, parseDashboardSearch, savedWorkRedirect, stringifyDashboardSearch } from "../lib/dashboard-routes.ts";
 
-test("dashboard routes expose the eleven current paths and exclude the retired settings root", () => {
-  assert.equal(new Set(dashboardPaths).size, 11);
+test("dashboard routes expose the twelve current paths and exclude the retired settings root", () => {
+  assert.equal(new Set(dashboardPaths).size, 12);
   assert.equal(dashboardPaths.includes("/settings"), false);
   assert.equal(dashboardPaths.includes("/missing"), false);
 });

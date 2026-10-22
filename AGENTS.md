@@ -105,9 +105,9 @@ one-off ID needed before dispatch. Explicit IDs and REST receipts retain their
 contracts; prepared upload intents keep their helper-generated IDs. See
 `docs/automatic-uuids.md`. The tool idempotence hint is false for these calls.
 
-The current application/API/MCP/dashboard release is `0.84.1`, Claude plugin
-`0.50.0`, and Alembic head `0052_dependency_cycles`. The catalog is exactly
-59 MCP tools, 17 receipt-protected MCP writes, 24 REST receipt kinds, 21 protected
+The current application/API/MCP/dashboard release is `0.85.0`, Claude plugin
+`0.50.0`, and Alembic head `0053_knowledge_graph`. The catalog is exactly
+67 MCP tools, 21 receipt-protected MCP writes, 28 REST receipt kinds, 23 protected
 browser mutations, 24 work-event types, and three plugin skills. Project priority
 guidance is editable in Settings > Workspace; agents explicitly call
 `get_prompt(project_id, prompt_id="priority-rubric")` when needed. MCP
@@ -201,9 +201,9 @@ reports per-project coverage. Missing projects fail the whole request. See
 `docs/multi-project-search.md`.
 
 Unified REST `POST /projects/{project_id}/search` and MCP `search` default multi-term queries to work
-and artifacts; transcripts require explicit inclusion in facets. Blank/single-term
-queries retain all three facets. Defaults retain all work statuses, metadata-only
-file/transcript matching and relevance. Zero-hit queries report per-term counts
+and artifacts and decisions; transcripts require explicit inclusion in facets. Blank/single-term
+queries retain all four facets. Defaults retain all work statuses, metadata-only
+file/transcript/decision matching and relevance. Zero-hit queries report per-term counts
 per searched source, with null for unsearched sources; search_scope states transcript
 omission and how to opt into session search.
 Offset/limit apply after mixed ranking or explicit facet groups. Report coverage;
@@ -332,3 +332,12 @@ Use short, specific, sentence-case subjects instead of generic `Updates`. Keep c
 `CLAUDE.md` is an intentionally local, ignored operator/client note rather than a
 tracked source of truth. Refresh any local copy when a phase changes the tool
 catalog, migration head, shipped-phase status, client retry rules, or error codes.
+
+Knowledge decisions live in PostgreSQL with immutable text and metadata revisions.
+Use `decision_get` to read a pinned revision, `decision_put` to create/revise a
+document with explicit state, and `decision_scope_append` after implementing code
+based on it. The full resulting commit hash and consulted revision are mandatory;
+include work item ID and native agent session ID when available. Domain prefixes
+are fixed and unique within a project. Search includes `decisions`; narrow with
+`filters.decisions.domain_ids` and opt into history using `all_revisions=true`.
+See `docs/knowledge-graph.md`.

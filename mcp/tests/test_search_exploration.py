@@ -12,6 +12,7 @@ from test_compact_search import native_call, response_page
 
 from mnemonic_mcp.search_disclosure import (
     ArtifactAppliedFilters,
+    DecisionAppliedFilters,
     TranscriptAppliedFilters,
     WorkAppliedFilters,
     search_disclosure,
@@ -23,7 +24,7 @@ TOOLS = ["search", "search_work", "search_artifact_contents", "search_transcript
 LOWER = "2000-01-01T00:00:00Z"
 UPPER = "2100-01-01T00:00:00Z"
 MODELS = {"work_items": WorkAppliedFilters, "artifacts": ArtifactAppliedFilters,
-          "transcripts": TranscriptAppliedFilters}
+          "transcripts": TranscriptAppliedFilters, "decisions": DecisionAppliedFilters}
 
 
 def exploratory_page(tool, work_summary):

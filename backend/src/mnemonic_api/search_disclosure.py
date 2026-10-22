@@ -5,6 +5,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from mnemonic_api.decision_search_schemas import DecisionSearchFilters
 from mnemonic_api.search_diagnostics import SearchFacet
 from mnemonic_api.search_exploration_schemas import DateBounds, DiagnosticsMode
 from mnemonic_api.search_projects import ProjectSelection, selected_project_ids
@@ -54,7 +55,12 @@ class TranscriptAppliedFilters(DisclosureModel, DateBounds):
     status: Literal["waiting", "pending", "processing", "ready", "failed"] | None = None
 
 
+class DecisionAppliedFilters(DecisionSearchFilters):
+    pass
+
+
 class AppliedSearchFilters(DisclosureModel):
+    decisions: DecisionAppliedFilters | None = None
     project_id: UUID | None
     project_ids: list[UUID] | None = Field(default=None, min_length=1, max_length=10)
     # Null identifies an unsearched source, including a disabled artifact library.
@@ -78,6 +84,7 @@ class SourceQueryInterpretation(DisclosureModel):
 
 
 class QueryInterpretation(DisclosureModel):
+    decisions: SourceQueryInterpretation | None = None
     query_mode: QueryMode = "terms"
     q: str = Field(max_length=1000)
     work_items: SourceQueryInterpretation | None = None
@@ -89,7 +96,7 @@ class SearchWarning(DisclosureModel):
     code: Literal["phrase_operators_ignored", "sensitive_content_withheld"] = (
         "phrase_operators_ignored"
     )
-    sources: list[SearchFacet] = Field(min_length=1, max_length=3)
+    sources: list[SearchFacet] = Field(min_length=1, max_length=4)
     message: Literal[
         "Quoted phrases are not supported; quotation marks do not require adjacent words.",
         "Sensitive artifact contents were withheld; zero matches do not establish absence."
@@ -126,6 +133,7 @@ def search_disclosure(
     work_items: WorkAppliedFilters | None = None,
     artifacts: ArtifactAppliedFilters | None = None,
     transcripts: TranscriptAppliedFilters | None = None,
+    decisions: DecisionAppliedFilters | None = None,
     semantic: bool = False, fulltext: bool = False, query_mode: QueryMode = "terms",
     diagnostics: DiagnosticsMode = "on_empty",
 ) -> SearchDisclosure:
@@ -134,7 +142,7 @@ def search_disclosure(
         project_id=project_id if isinstance(project_id, UUID) else None,
         project_ids=(None if isinstance(project_id, UUID)
                      else list(selected_project_ids(project_id))),
-        work_items=work_items, artifacts=artifacts, transcripts=transcripts,
+        work_items=work_items, artifacts=artifacts, transcripts=transcripts, decisions=decisions,
     )
     intent = parse_query(query, query_mode)
     interpretation = QueryInterpretation(q=query, query_mode=query_mode)
@@ -163,6 +171,13 @@ def search_disclosure(
             source.match_mode = "semantic_passages"
             source.fields = ["content"]
         setattr(interpretation, facet, source)
+    if decisions is not None:
+        interpretation.decisions = SourceQueryInterpretation(
+            match_mode=("literal" if query_mode == "literal" else
+                        "postgresql_phrase_terms" if intent.constrained else
+                        "postgresql_plain_terms_or_substring") if query else "browse",
+            fulltext=fulltext, fields=["metadata", "content"] if fulltext else ["metadata"],
+        )
     return SearchDisclosure(
         diagnostics=diagnostics, applied_filters=applied, query_interpretation=interpretation,
         warnings=[],

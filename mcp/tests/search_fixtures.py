@@ -9,6 +9,7 @@ from search_ranking_fixtures import add_ranking
 
 from mnemonic_mcp.search_disclosure import (
     ArtifactAppliedFilters,
+    DecisionAppliedFilters,
     TranscriptAppliedFilters,
     WorkAppliedFilters,
     search_disclosure,
@@ -62,7 +63,8 @@ def disclosed_response(request: httpx.Request, response: httpx.Response) -> http
                                         if key in model.model_fields})
            for source, model in (("work_items", WorkAppliedFilters),
                                  ("artifacts", ArtifactAppliedFilters),
-                                 ("transcripts", TranscriptAppliedFilters)) if source in scopes},
+                                 ("transcripts", TranscriptAppliedFilters),
+                                 ("decisions", DecisionAppliedFilters)) if source in scopes},
     )
     withheld = value.get("sensitive_content_withheld", value.get("coverage", {}).get(
         "artifacts", {}).get("sensitive_content_withheld", 0))

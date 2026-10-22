@@ -1,5 +1,42 @@
 # Mnemonic validation record
 
+## Knowledge graph (0.85.0)
+
+The [knowledge graph](knowledge-graph.md) adds named domains, permanent UTF-8
+decision revisions, revision-specific commit provenance, unified decision search,
+eight MCP tools, and a read-only document dashboard with domain management.
+Migration `0053_knowledge_graph` is additive. Plugin version remains `0.50.0`;
+the catalogs contain 67 MCP tools, 21 protected MCP writes, 28 REST receipt kinds,
+23 protected browser mutations, and 24 work-event types.
+
+Validation on 2026-10-22 used Python 3.14, Node 24, PostgreSQL 17, and isolated
+RabbitMQ and browser stacks:
+
+- The full backend run executed 5,027 tests. Eight failures exposed blank-query
+  SQL construction and one exposed an unseeded reset fixture; the corrections
+  were checked with 74 passing search/reset cases and a final 30-case reset and
+  decision-search run, including all previously failing cases.
+- Knowledge coverage includes concurrent ordinal allocation, hash deduplication,
+  immutable revisions and links, exact retries, author validation, project and
+  domain boundaries, revision-pinned scope, and backup round trips. Restore tests
+  reject altered content, metadata, or scope that disagrees with permanent receipts.
+- Eleven decision-search regressions cover current/history discovery, filters,
+  cross-project ranking, pagination, literal and phrase matching, mixed-field
+  evidence, large valid documents, and long phrases with native compound/URL positions.
+- MCP: 2,209 tests passed in the full run. Four expectations loaded before their
+  corrections failed; all four passed on an exact fresh rerun. The focused knowledge,
+  search, and large-text transport suites also passed.
+- Dashboard: 552 unit tests, TypeScript, production build, 16 desktop/narrow browser
+  cases, and the isolated backup/restore smoke harness passed.
+- All 72 repository-freshness cases were covered, including the separately enabled
+  authentic Bash/Git runtime. Python lint/type checks and operational-script lint passed.
+
+The dashboard was inspected at [desktop](images/knowledge-graph-directory-desktop.png)
+and [narrow](images/knowledge-graph-directory-narrow.png) sizes, with
+[document history](images/knowledge-graph-document-desktop.png) and
+[commit provenance](images/knowledge-graph-scope-desktop.png).
+No production service was restarted or recreated.
+
 ## Embedding memory retention (0.84.1)
 
 The API and background worker disable ONNX Runtime's retaining CPU arena and

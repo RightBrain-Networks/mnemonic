@@ -25,14 +25,14 @@ def test_default_conjunction_never_opens_transcripts(api, project, mixed, monkey
     monkeypatch.setattr("mnemonic_api.services.search.transcript_source", forbidden)
     result = search(api, project, q="needle absentword", fulltext=True)
     assert result["total"] == 0
-    assert result["search_scope"]["searched_facets"] == ["work_items", "artifacts"]
+    assert result["search_scope"]["searched_facets"] == ["work_items", "artifacts", "decisions"]
     assert result["search_scope"]["transcripts"] == "omitted_by_default"
     assert 'explicitly including "transcripts" in facets' in (
         result["search_scope"]["transcript_search_hint"]
     )
     assert counts(result) == {
-        "needle": {"work_items": 2, "artifacts": 1, "transcripts": None},
-        "absentword": {"work_items": 0, "artifacts": 0, "transcripts": None},
+        "needle": {"decisions": 0, "work_items": 2, "artifacts": 1, "transcripts": None},
+        "absentword": {"decisions": 0, "work_items": 0, "artifacts": 0, "transcripts": None},
     }
 
 
@@ -41,30 +41,40 @@ def test_explicit_transcript_selection_counts_sessions(api, project, mixed):
                     facets=["work_items", "artifacts", "transcripts"])
     assert result["search_scope"]["transcripts"] == "searched"
     assert result["search_scope"]["searched_facets"] == ["work_items", "artifacts", "transcripts"]
-    assert counts(result)["needle"] == {"work_items": 2, "artifacts": 1, "transcripts": 1}
-    assert counts(result)["absentword"] == {"work_items": 0, "artifacts": 0, "transcripts": 0}
+    assert counts(result)["needle"] == {
+        "decisions": None, "work_items": 2, "artifacts": 1, "transcripts": 1,
+    }
+    assert counts(result)["absentword"] == {
+        "decisions": None, "work_items": 0, "artifacts": 0, "transcripts": 0,
+    }
     response = api.post(f"/api/v1/projects/{project['id']}/transcripts/search-content",
                         json={"query": "needle absentword", "fulltext": True})
     assert response.status_code == 200, response.text
-    assert counts(response.json())["needle"] == {
+    assert counts(response.json())["needle"] == {"decisions": None,
         "work_items": None, "artifacts": None, "transcripts": 1,
     }
 
 
 def test_term_counts_follow_filters_and_metadata_opt_in(api, project, mixed):
     result = search(api, project, q="needle absentword", facets=["artifacts", "transcripts"])
-    assert counts(result)["needle"] == {"work_items": None, "artifacts": 1, "transcripts": 0}
+    assert counts(result)["needle"] == {
+        "decisions": None, "work_items": None, "artifacts": 1, "transcripts": 0,
+    }
     narrowed = search(api, project, q="needle absentword", fulltext=True,
                       filters={"artifacts": {"artifact_id": str(uuid4())},
                                "work_items": {"status": "done"}})
-    assert counts(narrowed)["needle"] == {"work_items": 0, "artifacts": 0, "transcripts": None}
+    assert counts(narrowed)["needle"] == {
+        "decisions": 0, "work_items": 0, "artifacts": 0, "transcripts": None,
+    }
 
 
 def test_disabled_sources_have_unknown_counts_not_zero(api, project, mixed):
     api.app.state.settings.artifact_max_bytes = 0
     result = search(api, project, q="needle absentword", fulltext=True)
-    assert result["search_scope"]["searched_facets"] == ["work_items"]
-    assert counts(result)["needle"] == {"work_items": 2, "artifacts": None, "transcripts": None}
+    assert result["search_scope"]["searched_facets"] == ["work_items", "decisions"]
+    assert counts(result)["needle"] == {
+        "decisions": 0, "work_items": 2, "artifacts": None, "transcripts": None,
+    }
     assert result["indexing_incomplete"]
 
 
@@ -88,8 +98,9 @@ def test_artifact_counts_distinguish_absence_from_no_cooccurrence(api, project, 
     result = artifact_search(api, project, "FastAPI AsyncSession", fulltext=True)
     assert result["match_mode"] == "all_terms" and result["total"] == 0
     assert counts(result) == {
-        "fastapi": {"work_items": None, "artifacts": 1, "transcripts": None},
-        "asyncsession": {"work_items": None, "artifacts": 1, "transcripts": None},
+        "fastapi": {"decisions": None, "work_items": None, "artifacts": 1, "transcripts": None},
+        "asyncsession": {"decisions": None,
+            "work_items": None, "artifacts": 1, "transcripts": None},
     }
     scoped = artifact_search(api, project, "FastAPI AsyncSession", fulltext=True,
                              artifact_id=first["id"])
@@ -123,7 +134,7 @@ def test_term_counts_preserve_source_specific_accent_matching(
     result = search(api, project, q="Café cafe absentword", fulltext=True)
     assert result["total"] == 0
     assert counts(result) == {
-        "café": {"work_items": 1, "artifacts": 1, "transcripts": None},
-        "cafe": {"work_items": 0, "artifacts": 1, "transcripts": None},
-        "absentword": {"work_items": 0, "artifacts": 0, "transcripts": None},
+        "café": {"decisions": 0, "work_items": 1, "artifacts": 1, "transcripts": None},
+        "cafe": {"decisions": 0, "work_items": 0, "artifacts": 1, "transcripts": None},
+        "absentword": {"decisions": 0, "work_items": 0, "artifacts": 0, "transcripts": None},
     }

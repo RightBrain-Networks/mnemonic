@@ -15,7 +15,8 @@ export function decodeTermDiagnostics(value: unknown, total: number, searched: S
     const row = objectValue(entry);
     const matches = objectValue(row?.matches);
     if (!row || !exactKeys(row, ["term", "matches"]) || !boundedText(row.term, 1000) || row.term === ""
-      || seen.has(row.term) || !matches || !exactKeys(matches, SOURCES)
+      || seen.has(row.term) || !matches || !exactKeys(matches, [...SOURCES, ...("decisions" in matches ? ["decisions"] : [])])
+      || "decisions" in matches && matches.decisions !== null
       || SOURCES.some((source) => searched.includes(source) ? !finiteInteger(matches[source]) : matches[source] !== null)) {
       throw new Error("Mnemonic returned invalid search diagnostics.");
     }

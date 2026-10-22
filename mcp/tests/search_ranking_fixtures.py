@@ -18,13 +18,16 @@ def add_ranking(page, source, query="", mode="terms", semantic=False):
     def kind(facet):
         return "browsed_records" if not query.strip() else "ranked_candidates" if semantic and facet == "work_items" else "lexical_matches"
     def score(facet):
-        return "none" if not query.strip() else "hybrid_reciprocal_rank" if semantic and facet == "work_items" else "postgresql_lexical" if facet == "work_items" else "literal_presence" if mode == "literal" else "tantivy_relevance"
+        return "none" if not query.strip() else "hybrid_reciprocal_rank" if semantic and facet == "work_items" else "postgresql_lexical" if facet in {"work_items", "decisions"} else "literal_presence" if mode == "literal" else "tantivy_relevance"
     _semantic_defaults(page, semantic and bool(query.strip()))
     _embedding_defaults(page, source)
     if source == "search":
         selected = page.get("search_scope", {}).get("searched_facets", [])
-        page.setdefault("facet_total_kinds", {facet: kind(facet) if facet in selected else None for facet in ("work_items", "artifacts", "transcripts")})
-        page.setdefault("facet_score_types", {facet: score(facet) if facet in selected else None for facet in ("work_items", "artifacts", "transcripts")})
+        page["facet_totals"].setdefault("decisions", 0)
+        for owner in page.get("project_coverage", []):
+            owner["facet_totals"].setdefault("decisions", 0)
+        page.setdefault("facet_total_kinds", {facet: kind(facet) if facet in selected else None for facet in ("work_items", "artifacts", "transcripts", "decisions")})
+        page.setdefault("facet_score_types", {facet: score(facet) if facet in selected else None for facet in ("work_items", "artifacts", "transcripts", "decisions")})
         kinds = {kind(facet) for facet in selected}
         page.setdefault("total_kind", "mixed" if len(kinds) > 1 else next(iter(kinds), "lexical_matches" if query.strip() else "browsed_records"))
         page.setdefault("score_type", "unified_reciprocal_rank" if query.strip() else "none")
@@ -36,7 +39,7 @@ def add_ranking(page, source, query="", mode="terms", semantic=False):
     counters = {}
     for index, row in enumerate(page["items"], page.get("offset", 0) + 1):
         facet = row["facet"] if source == "search" else source
-        item = row[{"work_items": "work_item", "artifacts": "artifact", "transcripts": "transcript"}[facet]] if source == "search" else row
+        item = row[{"work_items": "work_item", "artifacts": "artifact", "transcripts": "transcript", "decisions": "decision"}[facet]] if source == "search" else row
         counters[facet] = counters.get(facet, 0) + 1
         if source == "search":
             row.setdefault("rank", index)

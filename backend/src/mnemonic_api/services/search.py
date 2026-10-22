@@ -11,6 +11,7 @@ from mnemonic_api.models import Project
 from mnemonic_api.search_diagnostics import SearchScope, TermDiagnostic, TermMatchCounts
 from mnemonic_api.search_disclosure import (
     ArtifactAppliedFilters,
+    DecisionAppliedFilters,
     SearchDisclosure,
     TranscriptAppliedFilters,
     WorkAppliedFilters,
@@ -41,6 +42,7 @@ from mnemonic_api.search_timing import refresh_cache
 from mnemonic_api.search_transactions import search_transaction
 from mnemonic_api.semantic import Embedder, EmbeddingCacheUpdate, persist_embedding_updates
 from mnemonic_api.services.search_artifacts import artifact_source
+from mnemonic_api.services.search_decisions import decision_source
 from mnemonic_api.services.search_sources import SearchCandidate, SearchSource
 from mnemonic_api.services.search_transcripts import transcript_source
 from mnemonic_api.services.search_work import work_source
@@ -182,7 +184,7 @@ def _page(
                             for identity, hit in source.hydrate(page).items()})
     incomplete = _incomplete(coverage, request)
     ranking = {facet: search_ranking(
-        request.q, request.query_mode, work=facet == "work_items",
+        request.q, request.query_mode, work=facet in {"work_items", "decisions"},
         semantic=(facet == "work_items" and request.filters.work_items.semantic)
         or (facet == "artifacts" and request.filters.artifacts.semantic))
         for facet in sources}
@@ -220,6 +222,9 @@ def _disclosure(
     return search_disclosure(
         project_id, request.q, fulltext=request.fulltext, semantic=filters.work_items.semantic,
         query_mode=request.query_mode, diagnostics=request.diagnostics,
+        decisions=DecisionAppliedFilters.model_validate(
+            filters.decisions.model_dump(),
+        ) if "decisions" in sources else None,
         work_items=WorkAppliedFilters.model_validate(
             filters.work_items.model_dump(exclude={"semantic"}),
         ) if "work_items" in sources else None,
@@ -261,6 +266,8 @@ def _search_locked(
             sources["transcripts"], coverage.transcripts = stack.enter_context(transcript_source(
                 database, project_id, request, transcript_index,
             ))
+        if "decisions" in request.facets:
+            sources["decisions"] = decision_source(database, project_id, request)
         projects = list(database.scalars(select(Project).where(
             Project.id.in_(selected_project_ids(project_id)),
         ).order_by(Project.id)))

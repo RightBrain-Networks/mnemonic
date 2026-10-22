@@ -43,6 +43,8 @@ def _index(tools: dict[str, Tool]) -> str:
         'Call help({"topic":"<command>"}) for arguments; append usage for workflow,',
         'field names to drill down, or schema for full JSON Schema. Example:',
         'help({"topic":"complete_work completion_evidence artifact_references"})',
+        ("When decisions inform code, retain the exact revision and record resulting commits "
+         "with decision_scope_append."),
     ]
     lines += [group + ": " + ", ".join(names) for group, names in groups.items()]
     return "\n".join(lines)

@@ -2,7 +2,7 @@
 // deliberately do not resolve to the dashboard.
 export const dashboardPaths = [
   "/", "/work-items", "/code-reviews", "/attention", "/summaries",
-  "/artifacts", "/transcripts", "/settings/workspace", "/settings/prompts",
+  "/artifacts", "/transcripts", "/knowledge", "/settings/workspace", "/settings/prompts",
   "/settings/code-reviews", "/settings/backups"
 ] as const;
 

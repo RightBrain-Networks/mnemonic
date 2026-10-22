@@ -16,8 +16,9 @@ the same live task overview used by the dashboard; zero counts have no pip.
 
 Application/API/MCP/dashboard `0.43.0` and plugin `0.26.0` add one project search
 surface across work items, artifacts, and transcripts. No migration or new
-configuration was required for that release. Current release 0.60.0 uses migration
-`0041_artifact_passages` and also searches [imported transcripts](transcripts.md#import-existing-transcripts).
+configuration was required for that release. Current release 0.85.0 uses migration
+`0053_knowledge_graph` and also searches decision documents and
+[imported transcripts](transcripts.md#import-existing-transcripts).
 The dashboard retains its separate work, artifact, and transcript interfaces.
 Their searches use the shared API, including the work semantic toggle. Hierarchy
 and file-directory browsing retain their existing endpoints and sort controls.
@@ -29,17 +30,17 @@ Call MCP `search(project_id, q="cache invalidation")` or REST
 {"q": "cache invalidation"}
 ```
 
-Multi-term queries default to the work_items and artifacts facets. Agent transcripts
+Multi-term queries default to the work_items, artifacts, and decisions facets. Agent transcripts
 are omitted by default to avoid their corpus-loading and indexing cost. Explicitly
-set `facets=["work_items", "artifacts", "transcripts"]` to include agent sessions,
+set `facets=["work_items", "artifacts", "decisions", "transcripts"]` to include agent sessions,
 or select `facets=["transcripts"]` for sessions alone. Blank and single-term queries
-retain the default of all three facets. Transcript filters and facet ordering do
+retain the default of all four facets. Transcript filters and facet ordering do
 not implicitly opt in: include transcripts in `facets`. Other defaults are all
 work statuses, canonical work identities,
-metadata-only artifact/transcript matching, relevance descending, offset 0 and
+metadata-only artifact/transcript/decision matching, relevance descending, offset 0 and
 limit 20 and `detail="compact"`. An empty query browses all selected sources. Work matching includes
-checkpoint prose and provenance as before. To match text inside artifact or
-transcript bodies, explicitly add `"fulltext": true`.
+checkpoint prose and provenance as before. To match text inside artifact,
+transcript, or decision bodies, explicitly add `"fulltext": true`.
 
 The POST is a safe read and needs no operation UUID. JSON is limited to 16 KiB;
 queries to 1000 characters; limits to 1–100; offsets to 0–1,000,000. Unknown fields,
@@ -379,3 +380,14 @@ remains available. Artifact `semantic=true` searches current token-bounded body
 passages, requires `fulltext=true`, and returns pinned evidence with embedding
 coverage; see [semantic artifact search](artifact-semantic-search.md). This release
 requires migration `0041_artifact_passages` and coordinated consumer upgrades.
+
+## Decision documents
+
+Release 0.85.0 adds the `decisions` facet to default unified searches.
+Use `filters.decisions.domain_ids` to select domains, `all_revisions=true` to
+include historical revisions (current revisions are the default), and `state`
+to restrict decision state. Date bounds apply as on other sources.
+`fulltext=true` includes document text. Matches carry revision-specific UUIDs,
+human-readable references, hashes and bounded excerpts. Retrieve text with
+`decision_get`. Decision search uses PostgreSQL lexical matching and participates
+in global ranking, diagnostics and pagination. See [Knowledge graph](knowledge-graph.md).

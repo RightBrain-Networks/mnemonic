@@ -138,16 +138,16 @@ async def test_claim_operation_id_refusal_teaches_correct_retry_key(settings, to
 async def test_unified_empty_conjunction_discloses_counts_and_transcript_opt_in(settings, explicit):
     from test_unified_search import FACETS, page
 
-    selected = FACETS if explicit else ["work_items", "artifacts"]
+    selected = FACETS if explicit else ["work_items", "artifacts", "decisions"]
     result = page()
     result["search_scope"].update(
         searched_facets=selected, transcripts="searched" if explicit else "omitted_by_default",
     )
     result["term_diagnostics"] = [
         {"term": "fastapi", "matches": {"work_items": 2, "artifacts": 1,
-                                         "transcripts": 3 if explicit else None}},
+                                         "transcripts": 3 if explicit else None, "decisions": 1}},
         {"term": "absent", "matches": {"work_items": 0, "artifacts": 0,
-                                        "transcripts": 0 if explicit else None}},
+                                        "transcripts": 0 if explicit else None, "decisions": 0}},
     ]
     arguments = {"project_id": PROJECT_ID, "q": "FastAPI absent", "fulltext": True}
     if explicit:
@@ -173,9 +173,9 @@ async def test_dedicated_search_preserves_per_term_counts(settings, tool):
     artifact = tool == "search_artifact_contents"
     facet = "artifacts" if artifact else "transcripts"
     diagnostics = [{"term": "present", "matches": {
-        "work_items": None, "artifacts": None, "transcripts": None, facet: 2,
+        "work_items": None, "artifacts": None, "transcripts": None, "decisions": None, facet: 2,
     }}, {"term": "absent", "matches": {
-        "work_items": None, "artifacts": None, "transcripts": None, facet: 0,
+        "work_items": None, "artifacts": None, "transcripts": None, "decisions": None, facet: 0,
     }}]
     result = (search_page(term_diagnostics=diagnostics) if artifact else
               transcript_page(items=[], total=0, term_diagnostics=diagnostics))
@@ -190,9 +190,9 @@ async def test_unified_diagnostics_reject_incoherent_or_untrusted_envelopes(sett
     from test_unified_search import page
 
     result = page()
-    result["search_scope"].update(searched_facets=["work_items", "artifacts"],
+    result["search_scope"].update(searched_facets=["work_items", "artifacts", "decisions"],
                                   transcripts="omitted_by_default")
-    counts = {"work_items": 0, "artifacts": 1, "transcripts": None}
+    counts = {"work_items": 0, "artifacts": 1, "transcripts": None, "decisions": 0}
     result["term_diagnostics"] = [{"term": "present", "matches": counts}]
     arguments = {"project_id": PROJECT_ID, "q": "present absent"}
     if failure in {"negative", "bool", "missing-count"}:

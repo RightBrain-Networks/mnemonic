@@ -47,6 +47,16 @@
               }
             ]
           },
+          "decisions": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DecisionAppliedFilters"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "project_id": {
             "anyOf": [
               {
@@ -6137,6 +6147,1089 @@
         "title": "DashboardWorkPendingCreate",
         "type": "object"
       },
+      "DecisionAppliedFilters": {
+        "additionalProperties": false,
+        "properties": {
+          "all_revisions": {
+            "default": false,
+            "title": "All Revisions",
+            "type": "boolean"
+          },
+          "created_after": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Inclusive lower creation-time bound; include a timezone; normalized to UTC.",
+            "title": "Created After"
+          },
+          "created_before": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Exclusive upper creation-time bound; include a timezone; normalized to UTC.",
+            "title": "Created Before"
+          },
+          "domain_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "maxItems": 100,
+                "minItems": 1,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Domain Ids"
+          },
+          "state": {
+            "anyOf": [
+              {
+                "enum": [
+                  "proposed",
+                  "rejected",
+                  "accepted",
+                  "superseded",
+                  "partially-superseded"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "State"
+          },
+          "updated_after": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Inclusive lower update-time bound; include a timezone; normalized to UTC.",
+            "title": "Updated After"
+          },
+          "updated_before": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Exclusive upper update-time bound; include a timezone; normalized to UTC.",
+            "title": "Updated Before"
+          }
+        },
+        "title": "DecisionAppliedFilters",
+        "type": "object"
+      },
+      "DecisionFacetHit": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "decision": {
+            "$ref": "#/components/schemas/DecisionSearchMatch"
+          },
+          "facet": {
+            "const": "decisions",
+            "default": "decisions",
+            "title": "Facet",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "rank": {
+            "minimum": 1.0,
+            "title": "Rank",
+            "type": "integer"
+          },
+          "score": {
+            "minimum": 0.0,
+            "title": "Score",
+            "type": "number"
+          },
+          "score_type": {
+            "enum": [
+              "none",
+              "literal_presence",
+              "postgresql_lexical",
+              "tantivy_relevance",
+              "hybrid_reciprocal_rank",
+              "unified_reciprocal_rank",
+              "semantic_reciprocal_rank",
+              "cosine_similarity"
+            ],
+            "title": "Score Type",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "rank",
+          "score_type",
+          "id",
+          "created_at",
+          "updated_at",
+          "score",
+          "decision"
+        ],
+        "title": "DecisionFacetHit",
+        "type": "object"
+      },
+      "DecisionPut": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_session_id": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Session Id"
+          },
+          "author_kind": {
+            "enum": [
+              "agent",
+              "human"
+            ],
+            "title": "Author Kind",
+            "type": "string"
+          },
+          "client_operation_id": {
+            "format": "uuid",
+            "title": "Client Operation Id",
+            "type": "string"
+          },
+          "content": {
+            "maxLength": 1048576,
+            "title": "Content",
+            "type": "string"
+          },
+          "decision_id": {
+            "anyOf": [
+              {
+                "pattern": "^[A-Z]{1,5}-[0-9]{5,19}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decision Id"
+          },
+          "domain_id": {
+            "format": "uuid",
+            "title": "Domain Id",
+            "type": "string"
+          },
+          "expected_revision": {
+            "anyOf": [
+              {
+                "maximum": 2147483647.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Revision"
+          },
+          "media_type": {
+            "enum": [
+              "text/plain",
+              "text/markdown"
+            ],
+            "title": "Media Type",
+            "type": "string"
+          },
+          "model_id": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Id"
+          },
+          "related_artifact_ids": {
+            "default": [],
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 100,
+            "title": "Related Artifact Ids",
+            "type": "array"
+          },
+          "related_decision_ids": {
+            "default": [],
+            "items": {
+              "pattern": "^[A-Z]{1,5}-[0-9]{5,19}$",
+              "type": "string"
+            },
+            "maxItems": 100,
+            "title": "Related Decision Ids",
+            "type": "array"
+          },
+          "related_work_item_ids": {
+            "default": [],
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 100,
+            "title": "Related Work Item Ids",
+            "type": "array"
+          },
+          "state": {
+            "enum": [
+              "proposed",
+              "rejected",
+              "accepted",
+              "superseded",
+              "partially-superseded"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "supersedes": {
+            "default": [],
+            "items": {
+              "pattern": "^[A-Z]{1,5}-[0-9]{5,19}$",
+              "type": "string"
+            },
+            "maxItems": 100,
+            "title": "Supersedes",
+            "type": "array"
+          },
+          "title": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "domain_id",
+          "title",
+          "content",
+          "media_type",
+          "state",
+          "author_kind",
+          "client_operation_id"
+        ],
+        "title": "DecisionPut",
+        "type": "object"
+      },
+      "DecisionPutResult": {
+        "additionalProperties": false,
+        "properties": {
+          "created": {
+            "title": "Created",
+            "type": "boolean"
+          },
+          "decision": {
+            "$ref": "#/components/schemas/DecisionRead"
+          }
+        },
+        "required": [
+          "decision",
+          "created"
+        ],
+        "title": "DecisionPutResult",
+        "type": "object"
+      },
+      "DecisionRead": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Session Id"
+          },
+          "author_kind": {
+            "enum": [
+              "agent",
+              "human"
+            ],
+            "title": "Author Kind",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "decision_id": {
+            "title": "Decision Id",
+            "type": "string"
+          },
+          "domain_id": {
+            "format": "uuid",
+            "title": "Domain Id",
+            "type": "string"
+          },
+          "domain_name": {
+            "title": "Domain Name",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "media_type": {
+            "enum": [
+              "text/plain",
+              "text/markdown"
+            ],
+            "title": "Media Type",
+            "type": "string"
+          },
+          "model_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Id"
+          },
+          "ordinal": {
+            "title": "Ordinal",
+            "type": "integer"
+          },
+          "prefix": {
+            "title": "Prefix",
+            "type": "string"
+          },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "reference": {
+            "title": "Reference",
+            "type": "string"
+          },
+          "referenced_by": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Referenced By",
+            "type": "array"
+          },
+          "related_artifact_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Related Artifact Ids",
+            "type": "array"
+          },
+          "related_decision_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Related Decision Ids",
+            "type": "array"
+          },
+          "related_work_item_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Related Work Item Ids",
+            "type": "array"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          },
+          "scope_count": {
+            "title": "Scope Count",
+            "type": "integer"
+          },
+          "sha256": {
+            "title": "Sha256",
+            "type": "string"
+          },
+          "size_bytes": {
+            "title": "Size Bytes",
+            "type": "integer"
+          },
+          "state": {
+            "enum": [
+              "proposed",
+              "rejected",
+              "accepted",
+              "superseded",
+              "partially-superseded"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "superseded_by": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Superseded By",
+            "type": "array"
+          },
+          "supersedes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Supersedes",
+            "type": "array"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "project_id",
+          "domain_id",
+          "domain_name",
+          "prefix",
+          "ordinal",
+          "decision_id",
+          "reference",
+          "revision",
+          "title",
+          "state",
+          "media_type",
+          "size_bytes",
+          "sha256",
+          "created_at",
+          "updated_at",
+          "author_kind",
+          "agent_session_id",
+          "model_id",
+          "related_decision_ids",
+          "referenced_by",
+          "related_work_item_ids",
+          "related_artifact_ids",
+          "supersedes",
+          "superseded_by",
+          "scope_count"
+        ],
+        "title": "DecisionRead",
+        "type": "object"
+      },
+      "DecisionScopeAppend": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_session_id": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Session Id"
+          },
+          "client_operation_id": {
+            "format": "uuid",
+            "title": "Client Operation Id",
+            "type": "string"
+          },
+          "commit_hash": {
+            "pattern": "^(?:[a-fA-F0-9]{40}|[a-fA-F0-9]{64})$",
+            "title": "Commit Hash",
+            "type": "string"
+          },
+          "revision": {
+            "maximum": 2147483647.0,
+            "minimum": 0.0,
+            "title": "Revision",
+            "type": "integer"
+          },
+          "work_item_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Work Item Id"
+          }
+        },
+        "required": [
+          "revision",
+          "commit_hash",
+          "client_operation_id"
+        ],
+        "title": "DecisionScopeAppend",
+        "type": "object"
+      },
+      "DecisionScopeRead": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Session Id"
+          },
+          "commit_hash": {
+            "title": "Commit Hash",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "decision_id": {
+            "title": "Decision Id",
+            "type": "string"
+          },
+          "document_id": {
+            "format": "uuid",
+            "title": "Document Id",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          },
+          "work_item_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Work Item Id"
+          }
+        },
+        "required": [
+          "id",
+          "project_id",
+          "document_id",
+          "decision_id",
+          "revision",
+          "commit_hash",
+          "work_item_id",
+          "agent_session_id",
+          "created_at"
+        ],
+        "title": "DecisionScopeRead",
+        "type": "object"
+      },
+      "DecisionScopeResult": {
+        "additionalProperties": false,
+        "properties": {
+          "created": {
+            "title": "Created",
+            "type": "boolean"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/DecisionScopeRead"
+          }
+        },
+        "required": [
+          "scope",
+          "created"
+        ],
+        "title": "DecisionScopeResult",
+        "type": "object"
+      },
+      "DecisionSearchMatch": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Session Id"
+          },
+          "author_kind": {
+            "enum": [
+              "human",
+              "agent"
+            ],
+            "title": "Author Kind",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "decision_id": {
+            "title": "Decision Id",
+            "type": "string"
+          },
+          "domain_id": {
+            "format": "uuid",
+            "title": "Domain Id",
+            "type": "string"
+          },
+          "domain_name": {
+            "title": "Domain Name",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "matched_fields": {
+            "items": {
+              "enum": [
+                "metadata",
+                "content"
+              ],
+              "type": "string"
+            },
+            "title": "Matched Fields",
+            "type": "array"
+          },
+          "media_type": {
+            "enum": [
+              "text/plain",
+              "text/markdown"
+            ],
+            "title": "Media Type",
+            "type": "string"
+          },
+          "model_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Id"
+          },
+          "ordinal": {
+            "minimum": 1.0,
+            "title": "Ordinal",
+            "type": "integer"
+          },
+          "prefix": {
+            "title": "Prefix",
+            "type": "string"
+          },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "rank": {
+            "default": 1,
+            "minimum": 1.0,
+            "title": "Rank",
+            "type": "integer"
+          },
+          "reference": {
+            "title": "Reference",
+            "type": "string"
+          },
+          "revision": {
+            "minimum": 0.0,
+            "title": "Revision",
+            "type": "integer"
+          },
+          "score": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Score",
+            "type": "number"
+          },
+          "score_type": {
+            "default": "none",
+            "enum": [
+              "none",
+              "literal_presence",
+              "postgresql_lexical",
+              "tantivy_relevance",
+              "hybrid_reciprocal_rank",
+              "unified_reciprocal_rank",
+              "semantic_reciprocal_rank",
+              "cosine_similarity"
+            ],
+            "title": "Score Type",
+            "type": "string"
+          },
+          "sha256": {
+            "title": "Sha256",
+            "type": "string"
+          },
+          "size_bytes": {
+            "minimum": 0.0,
+            "title": "Size Bytes",
+            "type": "integer"
+          },
+          "snippet": {
+            "anyOf": [
+              {
+                "maxLength": 960,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Snippet"
+          },
+          "state": {
+            "enum": [
+              "proposed",
+              "rejected",
+              "accepted",
+              "superseded",
+              "partially-superseded"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "project_id",
+          "decision_id",
+          "reference",
+          "domain_id",
+          "domain_name",
+          "prefix",
+          "ordinal",
+          "revision",
+          "title",
+          "state",
+          "media_type",
+          "size_bytes",
+          "sha256",
+          "created_at",
+          "updated_at",
+          "author_kind",
+          "agent_session_id",
+          "model_id"
+        ],
+        "title": "DecisionSearchMatch",
+        "type": "object"
+      },
+      "DecisionTextRead": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Session Id"
+          },
+          "author_kind": {
+            "enum": [
+              "agent",
+              "human"
+            ],
+            "title": "Author Kind",
+            "type": "string"
+          },
+          "content": {
+            "title": "Content",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "decision_id": {
+            "title": "Decision Id",
+            "type": "string"
+          },
+          "domain_id": {
+            "format": "uuid",
+            "title": "Domain Id",
+            "type": "string"
+          },
+          "domain_name": {
+            "title": "Domain Name",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "line_end": {
+            "title": "Line End",
+            "type": "integer"
+          },
+          "line_start": {
+            "title": "Line Start",
+            "type": "integer"
+          },
+          "media_type": {
+            "enum": [
+              "text/plain",
+              "text/markdown"
+            ],
+            "title": "Media Type",
+            "type": "string"
+          },
+          "model_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Id"
+          },
+          "ordinal": {
+            "title": "Ordinal",
+            "type": "integer"
+          },
+          "prefix": {
+            "title": "Prefix",
+            "type": "string"
+          },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "reference": {
+            "title": "Reference",
+            "type": "string"
+          },
+          "referenced_by": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Referenced By",
+            "type": "array"
+          },
+          "related_artifact_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Related Artifact Ids",
+            "type": "array"
+          },
+          "related_decision_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Related Decision Ids",
+            "type": "array"
+          },
+          "related_work_item_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Related Work Item Ids",
+            "type": "array"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          },
+          "scope_count": {
+            "title": "Scope Count",
+            "type": "integer"
+          },
+          "sha256": {
+            "title": "Sha256",
+            "type": "string"
+          },
+          "size_bytes": {
+            "title": "Size Bytes",
+            "type": "integer"
+          },
+          "state": {
+            "enum": [
+              "proposed",
+              "rejected",
+              "accepted",
+              "superseded",
+              "partially-superseded"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "superseded_by": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Superseded By",
+            "type": "array"
+          },
+          "supersedes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Supersedes",
+            "type": "array"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "total_lines": {
+            "title": "Total Lines",
+            "type": "integer"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "project_id",
+          "domain_id",
+          "domain_name",
+          "prefix",
+          "ordinal",
+          "decision_id",
+          "reference",
+          "revision",
+          "title",
+          "state",
+          "media_type",
+          "size_bytes",
+          "sha256",
+          "created_at",
+          "updated_at",
+          "author_kind",
+          "agent_session_id",
+          "model_id",
+          "related_decision_ids",
+          "referenced_by",
+          "related_work_item_ids",
+          "related_artifact_ids",
+          "supersedes",
+          "superseded_by",
+          "scope_count",
+          "content",
+          "total_lines",
+          "line_start",
+          "line_end"
+        ],
+        "title": "DecisionTextRead",
+        "type": "object"
+      },
       "DependencyIssue": {
         "additionalProperties": false,
         "properties": {
@@ -6258,6 +7351,63 @@
           "checked_at"
         ],
         "title": "DirectoryUsage",
+        "type": "object"
+      },
+      "DomainCreate": {
+        "additionalProperties": false,
+        "properties": {
+          "client_operation_id": {
+            "format": "uuid",
+            "title": "Client Operation Id",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "prefix": {
+            "maxLength": 5,
+            "minLength": 1,
+            "title": "Prefix",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "prefix",
+          "client_operation_id"
+        ],
+        "title": "DomainCreate",
+        "type": "object"
+      },
+      "DomainRename": {
+        "additionalProperties": false,
+        "properties": {
+          "client_operation_id": {
+            "format": "uuid",
+            "title": "Client Operation Id",
+            "type": "string"
+          },
+          "expected_version": {
+            "minimum": 1.0,
+            "title": "Expected Version",
+            "type": "integer"
+          },
+          "name": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "expected_version",
+          "client_operation_id"
+        ],
+        "title": "DomainRename",
         "type": "object"
       },
       "DuplicateCandidateSummary": {
@@ -6767,6 +7917,27 @@
             ],
             "title": "Artifacts"
           },
+          "decisions": {
+            "anyOf": [
+              {
+                "enum": [
+                  "none",
+                  "literal_presence",
+                  "postgresql_lexical",
+                  "tantivy_relevance",
+                  "hybrid_reciprocal_rank",
+                  "unified_reciprocal_rank",
+                  "semantic_reciprocal_rank",
+                  "cosine_similarity"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decisions"
+          },
           "transcripts": {
             "anyOf": [
               {
@@ -6832,6 +8003,22 @@
             ],
             "title": "Artifacts"
           },
+          "decisions": {
+            "anyOf": [
+              {
+                "enum": [
+                  "lexical_matches",
+                  "ranked_candidates",
+                  "browsed_records"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decisions"
+          },
           "transcripts": {
             "anyOf": [
               {
@@ -6875,6 +8062,12 @@
             "default": 0,
             "minimum": 0.0,
             "title": "Artifacts",
+            "type": "integer"
+          },
+          "decisions": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Decisions",
             "type": "integer"
           },
           "transcripts": {
@@ -8712,6 +9905,155 @@
         "type": "object"
       },
       "JsonValue": {},
+      "KnowledgeDomainRead": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "decision_count": {
+            "title": "Decision Count",
+            "type": "integer"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "prefix": {
+            "title": "Prefix",
+            "type": "string"
+          },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "project_id",
+          "name",
+          "prefix",
+          "version",
+          "created_at",
+          "updated_at",
+          "decision_count"
+        ],
+        "title": "KnowledgeDomainRead",
+        "type": "object"
+      },
+      "KnowledgePage_DecisionRead_": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/DecisionRead"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "KnowledgePage[DecisionRead]",
+        "type": "object"
+      },
+      "KnowledgePage_DecisionScopeRead_": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/DecisionScopeRead"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "KnowledgePage[DecisionScopeRead]",
+        "type": "object"
+      },
+      "KnowledgePage_KnowledgeDomainRead_": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/KnowledgeDomainRead"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "KnowledgePage[KnowledgeDomainRead]",
+        "type": "object"
+      },
       "LeasePublic": {
         "additionalProperties": false,
         "properties": {
@@ -10359,6 +11701,16 @@
               }
             ]
           },
+          "decisions": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SourceQueryInterpretation"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "q": {
             "maxLength": 1000,
             "title": "Q",
@@ -11488,6 +12840,7 @@
               "discriminator": {
                 "mapping": {
                   "artifacts": "#/components/schemas/ArtifactFacetHit",
+                  "decisions": "#/components/schemas/DecisionFacetHit",
                   "transcripts": "#/components/schemas/TranscriptFacetHit",
                   "work_items": "#/components/schemas/WorkFacetHit"
                 },
@@ -11502,6 +12855,9 @@
                 },
                 {
                   "$ref": "#/components/schemas/TranscriptFacetHit"
+                },
+                {
+                  "$ref": "#/components/schemas/DecisionFacetHit"
                 }
               ]
             },
@@ -11654,11 +13010,12 @@
               "enum": [
                 "work_items",
                 "artifacts",
-                "transcripts"
+                "transcripts",
+                "decisions"
               ],
               "type": "string"
             },
-            "maxItems": 3,
+            "maxItems": 4,
             "title": "Searched Facets",
             "type": "array"
           },
@@ -11711,11 +13068,12 @@
               "enum": [
                 "work_items",
                 "artifacts",
-                "transcripts"
+                "transcripts",
+                "decisions"
               ],
               "type": "string"
             },
-            "maxItems": 3,
+            "maxItems": 4,
             "minItems": 1,
             "title": "Sources",
             "type": "array"
@@ -12525,6 +13883,18 @@
               }
             ],
             "title": "Artifacts"
+          },
+          "decisions": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decisions"
           },
           "transcripts": {
             "anyOf": [
@@ -17944,7 +19314,7 @@
   "info": {
     "description": "Durable project-scoped work with immutable agent checkpoints.",
     "title": "Mnemonic API",
-    "version": "0.84.1"
+    "version": "0.85.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -20089,6 +21459,707 @@
         "summary": "Follow Up"
       }
     },
+    "/api/v1/projects/{project_id}/knowledge/decisions": {
+      "get": {
+        "operationId": "list_knowledge_decisions_api_v1_projects__project_id__knowledge_decisions_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "domain_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Domain Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "state",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "proposed",
+                    "rejected",
+                    "accepted",
+                    "superseded",
+                    "partially-superseded"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "State"
+            }
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "default": "",
+              "maxLength": 1000,
+              "title": "Q",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgePage_DecisionRead_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Knowledge Decisions"
+      },
+      "put": {
+        "description": "Unicode JSON text is encoded to UTF-8 before hashing and database persistence.\n\nFresh uploads deduplicate by domain/content hash and return the retained original\nmetadata. Explicit decision_id + expected_revision updates create a new revision\nfor changed content or metadata. Exact content/metadata repeats do not revise.",
+        "operationId": "put_knowledge_decision_api_v1_projects__project_id__knowledge_decisions_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DecisionPut"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DecisionPutResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Put Knowledge Decision"
+      }
+    },
+    "/api/v1/projects/{project_id}/knowledge/decisions/{decision_id}": {
+      "get": {
+        "operationId": "get_knowledge_decision_api_v1_projects__project_id__knowledge_decisions__decision_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "decision_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Z]{1,5}-[0-9]{5,19}(?:-[0-9]{1,10})?$",
+              "title": "Decision Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "revision",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Revision"
+            }
+          },
+          {
+            "in": "query",
+            "name": "line_start",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Line Start"
+            }
+          },
+          {
+            "in": "query",
+            "name": "line_end",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Line End"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DecisionTextRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Knowledge Decision"
+      }
+    },
+    "/api/v1/projects/{project_id}/knowledge/decisions/{decision_id}/history": {
+      "get": {
+        "operationId": "get_knowledge_decision_history_api_v1_projects__project_id__knowledge_decisions__decision_id__history_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "decision_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Z]{1,5}-[0-9]{5,19}(?:-[0-9]{1,10})?$",
+              "title": "Decision Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgePage_DecisionRead_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Knowledge Decision History"
+      }
+    },
+    "/api/v1/projects/{project_id}/knowledge/decisions/{decision_id}/scope": {
+      "get": {
+        "operationId": "get_knowledge_decision_scope_api_v1_projects__project_id__knowledge_decisions__decision_id__scope_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "decision_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Z]{1,5}-[0-9]{5,19}(?:-[0-9]{1,10})?$",
+              "title": "Decision Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "revision",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Revision"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgePage_DecisionScopeRead_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Knowledge Decision Scope"
+      },
+      "post": {
+        "operationId": "append_knowledge_decision_scope_api_v1_projects__project_id__knowledge_decisions__decision_id__scope_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "decision_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Z]{1,5}-[0-9]{5,19}(?:-[0-9]{1,10})?$",
+              "title": "Decision Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DecisionScopeAppend"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DecisionScopeResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Append Knowledge Decision Scope"
+      }
+    },
+    "/api/v1/projects/{project_id}/knowledge/domains": {
+      "get": {
+        "operationId": "list_knowledge_domains_api_v1_projects__project_id__knowledge_domains_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgePage_KnowledgeDomainRead_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Knowledge Domains"
+      },
+      "post": {
+        "operationId": "create_knowledge_domain_api_v1_projects__project_id__knowledge_domains_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DomainCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeDomainRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Knowledge Domain"
+      }
+    },
+    "/api/v1/projects/{project_id}/knowledge/domains/{domain_id}": {
+      "patch": {
+        "operationId": "rename_knowledge_domain_api_v1_projects__project_id__knowledge_domains__domain_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "domain_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Domain Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DomainRename"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeDomainRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Rename Knowledge Domain"
+      }
+    },
     "/api/v1/projects/{project_id}/priority-rubric": {
       "get": {
         "operationId": "get_priority_rubric_api_v1_projects__project_id__priority_rubric_get",
@@ -20757,7 +22828,8 @@
                           "enum": [
                             "work_items",
                             "artifacts",
-                            "transcripts"
+                            "transcripts",
+                            "decisions"
                           ],
                           "title": "Facet",
                           "type": "string"
@@ -20803,7 +22875,7 @@
                       "title": "FacetOrder",
                       "type": "object"
                     },
-                    "maxItems": 3,
+                    "maxItems": 4,
                     "title": "Facet Order",
                     "type": "array"
                   },
@@ -20812,11 +22884,12 @@
                       "enum": [
                         "work_items",
                         "artifacts",
-                        "transcripts"
+                        "transcripts",
+                        "decisions"
                       ],
                       "type": "string"
                     },
-                    "maxItems": 3,
+                    "maxItems": 4,
                     "minItems": 1,
                     "title": "Facets",
                     "type": "array"
@@ -20952,6 +23025,105 @@
                           }
                         },
                         "title": "ArtifactSearchFilters",
+                        "type": "object"
+                      },
+                      "decisions": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "all_revisions": {
+                            "default": false,
+                            "title": "All Revisions",
+                            "type": "boolean"
+                          },
+                          "created_after": {
+                            "anyOf": [
+                              {
+                                "format": "date-time",
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Inclusive lower creation-time bound; include a timezone; normalized to UTC.",
+                            "title": "Created After"
+                          },
+                          "created_before": {
+                            "anyOf": [
+                              {
+                                "format": "date-time",
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Exclusive upper creation-time bound; include a timezone; normalized to UTC.",
+                            "title": "Created Before"
+                          },
+                          "domain_ids": {
+                            "anyOf": [
+                              {
+                                "items": {
+                                  "format": "uuid",
+                                  "type": "string"
+                                },
+                                "maxItems": 100,
+                                "minItems": 1,
+                                "type": "array"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "title": "Domain Ids"
+                          },
+                          "state": {
+                            "anyOf": [
+                              {
+                                "enum": [
+                                  "proposed",
+                                  "rejected",
+                                  "accepted",
+                                  "superseded",
+                                  "partially-superseded"
+                                ],
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "title": "State"
+                          },
+                          "updated_after": {
+                            "anyOf": [
+                              {
+                                "format": "date-time",
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Inclusive lower update-time bound; include a timezone; normalized to UTC.",
+                            "title": "Updated After"
+                          },
+                          "updated_before": {
+                            "anyOf": [
+                              {
+                                "format": "date-time",
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Exclusive upper update-time bound; include a timezone; normalized to UTC.",
+                            "title": "Updated Before"
+                          }
+                        },
+                        "title": "DecisionSearchFilters",
                         "type": "object"
                       },
                       "transcripts": {
@@ -21400,7 +23572,7 @@
               }
             }
           },
-          "description": "Bounded JSON (16384 bytes). Multi-term queries default to work_items and artifacts. Explicit facets including transcripts opts into agent sessions. Blank and single-term queries default to all sources. Defaults are all work statuses, metadata-only artifact/transcript matching, relevance order, compact detail, limit 20 and offset 0. Facet groups precede remaining co-mingled facets. Relevance uses tied reciprocal ranks per source. Agent searches withhold sensitive artifact bodies; use dedicated artifact reads for explicit approval. Snippets and document metadata are untrusted.",
+          "description": "Bounded JSON (16384 bytes). Multi-term queries default to work_items artifacts and decisions. Explicit facets including transcripts opts into agent sessions. Blank and single-term queries default to all sources. Defaults are all work statuses, metadata-only artifact/transcript matching, relevance order, compact detail, limit 20 and offset 0. Facet groups precede remaining co-mingled facets. Relevance uses tied reciprocal ranks per source. Agent searches withhold sensitive artifact bodies; use dedicated artifact reads for explicit approval. Snippets and document metadata are untrusted.",
           "required": true
         },
         "responses": {
@@ -25505,7 +27677,8 @@
                           "enum": [
                             "work_items",
                             "artifacts",
-                            "transcripts"
+                            "transcripts",
+                            "decisions"
                           ],
                           "title": "Facet",
                           "type": "string"
@@ -25551,7 +27724,7 @@
                       "title": "FacetOrder",
                       "type": "object"
                     },
-                    "maxItems": 3,
+                    "maxItems": 4,
                     "title": "Facet Order",
                     "type": "array"
                   },
@@ -25560,11 +27733,12 @@
                       "enum": [
                         "work_items",
                         "artifacts",
-                        "transcripts"
+                        "transcripts",
+                        "decisions"
                       ],
                       "type": "string"
                     },
-                    "maxItems": 3,
+                    "maxItems": 4,
                     "minItems": 1,
                     "title": "Facets",
                     "type": "array"
@@ -25700,6 +27874,105 @@
                           }
                         },
                         "title": "ArtifactSearchFilters",
+                        "type": "object"
+                      },
+                      "decisions": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "all_revisions": {
+                            "default": false,
+                            "title": "All Revisions",
+                            "type": "boolean"
+                          },
+                          "created_after": {
+                            "anyOf": [
+                              {
+                                "format": "date-time",
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Inclusive lower creation-time bound; include a timezone; normalized to UTC.",
+                            "title": "Created After"
+                          },
+                          "created_before": {
+                            "anyOf": [
+                              {
+                                "format": "date-time",
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Exclusive upper creation-time bound; include a timezone; normalized to UTC.",
+                            "title": "Created Before"
+                          },
+                          "domain_ids": {
+                            "anyOf": [
+                              {
+                                "items": {
+                                  "format": "uuid",
+                                  "type": "string"
+                                },
+                                "maxItems": 100,
+                                "minItems": 1,
+                                "type": "array"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "title": "Domain Ids"
+                          },
+                          "state": {
+                            "anyOf": [
+                              {
+                                "enum": [
+                                  "proposed",
+                                  "rejected",
+                                  "accepted",
+                                  "superseded",
+                                  "partially-superseded"
+                                ],
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "title": "State"
+                          },
+                          "updated_after": {
+                            "anyOf": [
+                              {
+                                "format": "date-time",
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Inclusive lower update-time bound; include a timezone; normalized to UTC.",
+                            "title": "Updated After"
+                          },
+                          "updated_before": {
+                            "anyOf": [
+                              {
+                                "format": "date-time",
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Exclusive upper update-time bound; include a timezone; normalized to UTC.",
+                            "title": "Updated Before"
+                          }
+                        },
+                        "title": "DecisionSearchFilters",
                         "type": "object"
                       },
                       "transcripts": {

@@ -66,6 +66,8 @@ _AUDIT_VISIBLE_DAMAGE = (
 )
 
 _GUARDED_TABLES = (
+    "knowledge_domains", "decision_documents", "decision_revisions", "decision_relationships",
+    "decision_work_item_links", "decision_artifact_links", "decision_scopes",
     "artifacts", "artifact_revisions", "artifact_audit",
     "artifact_access_approvals", "artifact_links",
     "artifact_work_links", "artifact_operations", "artifact_extractions",
@@ -273,6 +275,45 @@ def _recover_transcript(api: TestClient, project_id: UUID, directory: Path) -> N
     ))
 
 
+def _seed_knowledge(api: TestClient, engine: Engine, project_id: UUID) -> None:
+    """Populate immutable decisions, all link tables and commit provenance via the API."""
+    with engine.connect() as connection:
+        work_id = connection.execute(
+            text("SELECT id FROM work_items WHERE project_id=:project_id"),
+            {"project_id": project_id},
+        ).scalar_one()
+        artifact_id = connection.execute(
+            text("SELECT id FROM artifacts WHERE project_id=:project_id"),
+            {"project_id": project_id},
+        ).scalar_one()
+    collection = f"/api/v1/projects/{project_id}/knowledge"
+    domain = api.post(collection + "/domains", json={
+        "name": "Schema reset decisions", "prefix": "ADR", "client_operation_id": str(uuid4()),
+    })
+    assert domain.status_code == 201, domain.text
+    body = {"domain_id": domain.json()["id"], "title": "Original storage policy",
+            "content": "Keep the original decision.", "media_type": "text/plain",
+            "state": "accepted", "author_kind": "human"}
+    original = api.put(collection + "/decisions", json={
+        **body, "client_operation_id": str(uuid4()),
+    })
+    assert original.status_code == 200, original.text
+    original_id = original.json()["decision"]["decision_id"]
+    replacement = api.put(collection + "/decisions", json={
+        **body, "title": "Updated storage policy", "content": "Retain all revision history.",
+        "related_decision_ids": [original_id], "supersedes": [original_id],
+        "related_work_item_ids": [str(work_id)], "related_artifact_ids": [str(artifact_id)],
+        "client_operation_id": str(uuid4()),
+    })
+    assert replacement.status_code == 200, replacement.text
+    replacement_id = replacement.json()["decision"]["decision_id"]
+    scope = api.post(collection + f"/decisions/{replacement_id}/scope", json={
+        "revision": 0, "commit_hash": "a" * 40, "work_item_id": str(work_id),
+        "agent_session_id": "schema-reset", "client_operation_id": str(uuid4()),
+    })
+    assert scope.status_code == 200, scope.text
+
+
 def test_reset_of_an_intact_schema_never_replays_the_migration_chain(
     api: TestClient, postgres_engine: Engine, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -337,6 +378,7 @@ def test_reset_empties_every_table_but_keeps_the_migration_head(
     api.app.state.artifact_storage = ArtifactStorage(tmp_path / "artifacts", max_bytes=1024)
     project_id = _complete_with_evidence(api, work_payload)
     _recover_transcript(api, project_id, tmp_path / "transcripts")
+    _seed_knowledge(api, postgres_engine, project_id)
     seeded = _row_counts(postgres_engine)
     assert all(seeded[table] > 0 for table in _POPULATED_TABLES), seeded
 

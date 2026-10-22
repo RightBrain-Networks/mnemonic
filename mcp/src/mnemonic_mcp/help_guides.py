@@ -1,9 +1,11 @@
 """Short task guidance; argument shapes come from the live registered schemas."""
 
+from .knowledge_help import KNOWLEDGE_FIELD_NOTES, KNOWLEDGE_GUIDES
 from .operation_ids import AUTOMATIC_ID_GUIDANCE
 
 # A command's overview stays small. Workflow instructions live one level below, at usage.
 GUIDES: dict[str, tuple[str, str, str]] = {
+    **KNOWLEDGE_GUIDES,
     "generate_uuid": ("Help", "Mint one random UUID for use with Mnemonic.",
                       ("Takes no arguments and stores nothing. Each call returns a new UUIDv4. "
                       "Use it when an ID must be retained before a call. Fresh writes and claims "
@@ -25,9 +27,9 @@ GUIDES: dict[str, tuple[str, str, str]] = {
                     "not execution authority. Never replace a frozen retry intent with a newer prompt.")),
     "get_activity": ("Projects", "Page committed project activity.",
                      "Use after to continue or start=now to begin now, never both. Keep each cursor."),
-    "search": ("Search", "Search work, artifacts, and optionally transcripts.",
-               ("Supply exactly one of project_id or project_ids. Multi-term queries default to work "
-               "and artifacts; set facets to include transcripts. fulltext=true opts into content. "
+    "search": ("Search", "Search work, artifacts, decisions, and optionally transcripts.",
+               ("Supply exactly one of project_id or project_ids. Multi-term queries default to work, "
+               "artifacts and decisions; set facets to include transcripts. fulltext=true opts into content. "
                "Use small limits and filters; query_mode controls terms, phrase, or literal matching.")),
     "search_work": ("Search", "Search work within one project.",
                     ("Select project_id; q is optional for browsing. Use status, duplicate_scope, and view. "
@@ -195,6 +197,7 @@ GUIDES: dict[str, tuple[str, str, str]] = {
 }
 
 FIELD_NOTES: dict[str, str] = {
+    **KNOWLEDGE_FIELD_NOTES,
     "priority": "Honor an explicit user score; otherwise call get_prompt with prompt_id=priority-rubric "
                 "for current guidance. Freeze the score and rationale before writing.",
     "checkpoint": "Supply prompt, source_client, source_session_id; these describe the actual author. "

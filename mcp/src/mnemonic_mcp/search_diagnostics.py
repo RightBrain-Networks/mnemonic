@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
 from .search_exploration import DiagnosticsMode
 
-SearchFacet = Literal["work_items", "artifacts", "transcripts"]
+SearchFacet = Literal["work_items", "artifacts", "transcripts", "decisions"]
 MatchCount = Annotated[StrictInt, Field(ge=0)]
 
 
@@ -19,6 +19,7 @@ class TermMatchCounts(DiagnosticModel):
     work_items: MatchCount | None = None
     artifacts: MatchCount | None = None
     transcripts: MatchCount | None = None
+    decisions: MatchCount | None = None
 
 
 class TermDiagnostic(DiagnosticModel):
@@ -30,7 +31,7 @@ TermDiagnostics = Annotated[list[TermDiagnostic], Field(max_length=500)]
 
 
 class SearchScope(DiagnosticModel):
-    searched_facets: Annotated[list[SearchFacet], Field(max_length=3)]
+    searched_facets: Annotated[list[SearchFacet], Field(max_length=4)]
     transcripts: Literal["searched", "omitted_by_default", "not_selected"]
     transcript_search_hint: Literal[
         'Agent sessions can be searched by explicitly including "transcripts" in facets '

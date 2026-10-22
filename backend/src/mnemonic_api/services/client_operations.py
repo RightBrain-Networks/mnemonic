@@ -27,6 +27,19 @@ from mnemonic_api.errors import (
     client_operation_secret_echo,
     client_operation_unavailable,
 )
+from mnemonic_api.knowledge_schemas import (
+    DecisionPut,
+    DecisionPutRequest,
+    DecisionPutResult,
+    DecisionScopeAppend,
+    DecisionScopeRequest,
+    DecisionScopeResult,
+    DomainCreate,
+    DomainCreateRequest,
+    DomainRename,
+    DomainRenameRequest,
+    KnowledgeDomainRead,
+)
 from mnemonic_api.models import ClientOperation, WorkItemMove
 from mnemonic_api.schemas import (
     APIModel,
@@ -75,8 +88,15 @@ from mnemonic_api.schemas import (
     WorkMoveRead,
     WorkUpdateRead,
 )
+from mnemonic_api.services.knowledge_receipts import (
+    appended_scope_matches,
+    created_domain_matches,
+    put_decision_matches,
+    renamed_domain_matches,
+)
 
 type OperationKind = Literal[
+    "create_knowledge_domain", "rename_knowledge_domain", "put_decision", "append_decision_scope",
     "create_work",
     "add_checkpoint",
     "append_event",
@@ -96,6 +116,7 @@ type OperationKind = Literal[
     "respond_to_work_follow_up", "complete_code_review",
 ]
 REGISTERED_OPERATION_KINDS: tuple[OperationKind, ...] = (
+    "create_knowledge_domain", "rename_knowledge_domain", "put_decision", "append_decision_scope",
     "respond_to_work_follow_up", "complete_code_review",
     "create_work",
     "add_checkpoint",
@@ -196,6 +217,22 @@ def _spec(
 
 
 _REGISTRY: dict[OperationKind, OperationSpec] = {
+    "create_knowledge_domain": _spec(
+        "create_knowledge_domain", DomainCreate, KnowledgeDomainRead, 201,
+        domain_model=DomainCreateRequest,
+    ),
+    "rename_knowledge_domain": _spec(
+        "rename_knowledge_domain", DomainRename, KnowledgeDomainRead, 200, "domain_id",
+        domain_model=DomainRenameRequest,
+    ),
+    "put_decision": _spec(
+        "put_decision", DecisionPut, DecisionPutResult, 200,
+        domain_model=DecisionPutRequest, mutation_applied_field="created",
+    ),
+    "append_decision_scope": _spec(
+        "append_decision_scope", DecisionScopeAppend, DecisionScopeResult, 200, "document_id",
+        domain_model=DecisionScopeRequest, mutation_applied_field="created",
+    ),
     "respond_to_work_follow_up": _spec(
         "respond_to_work_follow_up", WorkFollowUpResponseCreate, WorkFollowUpResponseResult,
         200, "work_item_id", "follow_up_id", domain_model=WorkFollowUpResponseRequest,
@@ -1382,6 +1419,10 @@ def _follow_up_matches(project_id: UUID, target: Mapping[str, str],
 
 _RESPONSE_MATCHERS: Mapping[OperationKind, ResponseMatcher] = MappingProxyType(
     {
+        "create_knowledge_domain": created_domain_matches,
+        "rename_knowledge_domain": renamed_domain_matches,
+        "put_decision": put_decision_matches,
+        "append_decision_scope": appended_scope_matches,
         "respond_to_work_follow_up": lambda p, t, q, r: _follow_up_response_matches(p, t, q, r),
         "complete_code_review": lambda p, t, q, r: _review_completion_matches(p, t, q, r),
         "create_work": _create_work_matches,

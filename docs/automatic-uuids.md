@@ -3,9 +3,9 @@
 Starting with application 0.78.0 and plugin 0.45.0, agents can omit the top-level
 `client_operation_id` on a fresh protected write or `claim_request_id` on a fresh
 claim. The MCP adapter generates a random UUIDv4 before sending the request to
-the API. This covers all 17 receipt-protected tools and both claim tools,
+the API. This covers all 21 receipt-protected tools and both claim tools,
 including work creation, checkpoints, completion, relationships and direct
-artifact mutations. No shell command or preparatory UUID call is needed.
+artifact and knowledge graph mutations. No shell command or preparatory UUID call is needed.
 
 The UUID is generated once per invocation, with no argument-based deduplication
 or shared session state. Two identical calls with omitted IDs are two distinct
@@ -44,5 +44,5 @@ client-provided session ID for provenance whenever available.
 REST callers retain their existing contracts. Backend entity identifiers were
 already generated automatically. Prepared local artifact uploads retain the
 UUID frozen by `upload_artifact.py prepare` inside the upload intent; the adapter
-does not rewrite it or any other nested identifier. The tool catalog is now 58
-tools, with the same 17 receipt-protected MCP writes and 24 REST receipt kinds.
+does not rewrite it or any other nested identifier. The current tool catalog has
+67 tools, 21 receipt-protected MCP writes and 28 REST receipt kinds.
