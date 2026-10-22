@@ -1,6 +1,10 @@
 """Knowledge invariants also checked when privileged backup restore bypasses triggers."""
 
 
+from mnemonic_api.impact_integrity import IMPACT_FINDINGS
+from mnemonic_api.provenance_integrity import PROVENANCE_FINDINGS
+
+
 def _timestamp_matches(value: str, column: str) -> str:
     return (
         f"CASE WHEN pg_input_is_valid({value}, 'timestamp with time zone') "
@@ -72,6 +76,8 @@ _SCOPE_MATCH = f"""
         'decision_id', {_IDENTIFIER}, 'revision', scope.revision,
         'commit_hash', scope.commit_hash, 'work_item_id', scope.work_item_id,
         'agent_session_id', scope.agent_session_id)
+    AND receipt.response_body#>>'{{scope,repository}}' IS NOT DISTINCT FROM scope.repository
+    AND scope.completion_report_id IS NULL
     AND {_timestamp_matches("receipt.response_body#>>'{scope,created_at}'", 'scope.created_at')}
 """
 
@@ -175,7 +181,8 @@ KNOWLEDGE_FINDINGS = {
           )
     """,
     "decision_scopes_without_creation_receipts": """
-        SELECT count(*) FROM decision_scopes scope WHERE NOT EXISTS (
+        SELECT count(*) FROM decision_scopes scope WHERE scope.completion_report_id IS NULL
+        AND NOT EXISTS (
             SELECT 1 FROM client_operations receipt
             WHERE receipt.project_id=scope.project_id
               AND receipt.operation_kind='append_decision_scope' AND receipt.state='completed'
@@ -183,3 +190,6 @@ KNOWLEDGE_FINDINGS = {
         )
     """,
 }
+
+KNOWLEDGE_FINDINGS.update(PROVENANCE_FINDINGS)
+KNOWLEDGE_FINDINGS.update(IMPACT_FINDINGS)

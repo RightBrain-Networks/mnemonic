@@ -1,7 +1,8 @@
 # Knowledge graph
 
-Release 0.85.0 adds project-owned decision domains and permanently retained decision
-revisions in PostgreSQL (migration `0053_knowledge_graph`). Existing work graphs and
+Release 0.86.0 adds pinned dependencies, impact reassessment, and completion
+provenance through migrations 0054 and 0055. Project-owned decision domains and permanently retained
+revisions began with `0053_knowledge_graph` in 0.85.0. Existing work graphs and
 artifact storage remain separate. Database backups include decision text and history.
 
 A domain has a case-insensitively unique name and a unique prefix within its project. Prefixes are uppercased
@@ -42,10 +43,13 @@ content, not instructions to an agent.
 
 ## Code provenance
 
-When code is implemented using a decision, the implementing agent **must append
+When code is implemented using a decision, the implementing agent **must record
 its resulting commit hash and the exact decision revision consulted**. Do this
 for every decision that informed the implementation. Supply the associated
 Mnemonic work item ID and native agent session ID whenever available.
+Prefer the atomic closeout declaration described below when completing work;
+otherwise use `decision_scope_append`. Do not manually duplicate an already
+registered closeout declaration.
 
 `decision_scope_append` accepts a full Git commit hash (40 hexadecimal characters
 for SHA-1, or 64 for SHA-256), a mandatory revision, and optional work/session IDs.
@@ -54,6 +58,101 @@ reattributes earlier commits to the new revision. `decision_scope` pages through
 these records so a developer can identify affected commits before amending a
 decision. Commit hashes identify recorded provenance; Mnemonic does not fetch or
 verify an external Git repository.
+
+Scope also accepts a credential-free `repository` identity. Use the same stable
+identity for writes and reverse lookup. `decision_commit_lookup` finds registered
+citations by repository and full original or reconciled merged hash. Historical
+scopes without repository identity remain readable but cannot prove which
+repository contained a commit. After a verified squash/rebase/merge,
+`decision_scope_reconcile` appends an original-to-merged hash mapping; it never
+rewrites the original scope record. Finding both objects alone does not prove an
+integration relationship: inspect actual merge evidence first.
+
+Fresh Done closeouts in projects with knowledge domains require a nested
+`job_completion_report.decision_provenance` declaration:
+
+```json
+{
+  "disposition": "cited",
+  "citations": [{"decision_id": "ADR-00194", "revision": 0}],
+  "commits": [{"repository": "github.com/team/repository", "commit_hash": "FULL_HASH"}]
+}
+```
+
+`cited` requires nonempty exact citations and commits, with every citation
+applying to every listed commit. At most 100 citations, 100 commits, and 500
+pairs are accepted. The closeout transaction appends scope with the work, session,
+and completion report identity. `no-applicable-decisions` requires a concrete
+reason and no citations; commits may be supplied. `not-code` requires a reason
+and neither citations nor commits. A read does not imply use. Missing historical
+declarations mean unknown provenance, and structural completeness never proves
+all influences were disclosed. Existing immutable closeout receipts remain
+replayable with their original arguments.
+
+`scripts/decision_provenance.py` resolves actual local Git commits and emits the
+declaration without network access or writes. It also prepares reconciliation
+payloads using `--original` and `--merged`. The helper ships in the plugin and
+portable skills. It verifies local commit existence, not semantic equivalence
+or server verification; repository and decision use remain caller declarations.
+
+## Dependencies and change impact
+
+Each immutable decision revision can declare `depends_on` entries containing
+the stable target `decision_id`, exact target `revision`, and nonblank `rationale`.
+These are explicit causal dependencies within the project, including across
+domains. Generic related links keep their informational meaning; imported
+associations are never silently promoted to dependencies. Changing a dependency
+creates a revision and retains its prior target pin.
+
+`supersession_details` adds exact target revision, `extent` (`full` or `partial`),
+and a reason explaining the overridden portion. Supersession remains restricted
+to the same domain and does not infer or overwrite the target's explicit state.
+Legacy supersedes links without details retain unknown extent.
+
+`decision_impact` traces reverse dependencies from an exact decision revision.
+The default origin is current; retain the returned `origin_reference` for a
+repeatable investigation. Candidates include historical and current revisions,
+one deterministic shortest explanatory path, registered commit scope, and linked
+work/artifacts. `related-only` candidates expose uncertain associations without
+asserting causal reliance. Follow `next_offset`; inspect coverage and every
+`evidence_truncated` flag. Traversal is bounded to 500 candidates and defaults
+to depth 8 (maximum 16). Candidate evidence is bounded to 10 scopes, 20 work links,
+and 20 artifact links. Retrieve the exact decision and paginated scope to inspect
+omitted evidence. `provenance_complete` remains false because unregistered
+influences cannot be discovered from an explicit graph.
+
+## Reassessment after changes
+
+Actual revision changes and supersession create durable assessment episodes.
+Revising a replacement also creates a fresh supersession assessment for each
+retained supersedes link; identical content and metadata create no episode.
+Each captures before/after references, a bounded text/metadata diff, candidate
+evidence, and coverage at the change. A candidate is a reason to investigate;
+the change does not automatically invalidate its implementation. Later graph
+or scope registrations do not rewrite the captured snapshot; use a fresh impact
+query to inspect newer evidence.
+
+`decision_assessments` lists episodes, optionally for a decision.
+The decision filter matches origin, replacement, or captured candidates. Summary
+counts distinguish unassessed candidates from those requiring changes, with a
+derived `pending`, `change-required`, or `resolved` status. Resolved describes
+the recorded review, not proof that unregistered downstream impacts are absent.
+`decision_assessment_get` pages captured candidates and their latest dispositions.
+`decision_assessment_history` pages every immutable disposition. The diff is
+bounded to 16 KiB with explicit truncation; read both exact decision revisions
+when the full text matters. Candidate pages retain the current assessment version
+so concurrent review can be detected.
+
+`decision_assessment_append` records an exact candidate reference, current
+`expected_version`, truthful actor provenance, a concrete reason, and one of
+`still-valid`, `change-required`, `not-affected`, or `resolved`. Remediation work
+may be linked. Linked remediation belongs to the same project; its immutable
+knowledge reference prevents moving that work to another project. Only record
+resolved after inspecting completed remediation.
+The append is receipt-protected and retains earlier judgments. It neither
+changes document lifecycle nor completes work, resolves human questions, or
+grants execution authority. A definitive version conflict requires a fresh read
+before a new operation; uncertain retries preserve the original full intent.
 
 ## MCP workflow
 
@@ -67,8 +166,10 @@ verify an external Git repository.
    use a revision-qualified reference, to pin history. Optional `line_start` and
    `line_end` are inclusive, one-based bounds. `decision_history` lists revisions.
 4. Author using `decision_put`, or implement code using the consulted decisions.
-5. After committing implementation, call `decision_scope_append` against each
-   consulted revision. Preserve the returned operation ID for an exact retry.
+5. After committing implementation, include the explicit decision provenance
+   declaration in the work closeout report so scope is registered atomically.
+   Outside a closeout, call `decision_scope_append` against each consulted
+   revision. Preserve the exact mutation intent and operation ID for retries.
 
 Unified search includes decisions by default. Multi-term queries continue to omit
 transcripts unless explicitly selected. Decision hits expose a revision UUID,
@@ -81,9 +182,17 @@ pagination. Follow `next_offset`, including when a page is shortened by the shar
 
 Resources > Knowledge graph provides a document list, domain tabs, domain creation
 and rename, and a shared document preview drawer with Markdown rendering, revision
-history, relationships, and commit scope. Uploading or editing documents and
-removing domains in the dashboard are deferred.
+history, pinned dependencies, supersession details, and commit scope. The impact
+panel shows candidate paths, evidence, immutable assessment snapshots, and
+reassessment history. Users can append a reasoned disposition and optional
+remediation work link. Reverse lookup finds the decisions cited by a repository
+and commit. The Done form collects the required provenance declaration.
+Uploading or editing documents and removing domains in the dashboard are deferred.
 
-Apply the additive migration through the normal authorized deployment process.
+Apply migrations `0054_knowledge_impact` and `0055_decision_provenance` through the
+normal authorized deployment process. Existing revisions and scopes are preserved;
+historical dependencies and provenance are not inferred. Downgrade refuses to
+discard populated impact or provenance history; recovery requires a pre-upgrade
+backup.
 Production API, MCP, web, and worker rollout still requires explicit operator
 approval to interrupt services. No filesystem content migration is needed.

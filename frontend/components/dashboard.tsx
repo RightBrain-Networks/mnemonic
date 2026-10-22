@@ -18,7 +18,7 @@ import { transcriptLibraryPath } from "@/lib/transcripts";
 import ArtifactLibrary from "@/components/artifact-library";
 import KnowledgeLibrary from "@/components/knowledge-library";
 import { knowledgeLibraryPath } from "@/lib/knowledge";
-import { knowledgeKeys } from "@/lib/knowledge-queries";
+import { completionDomainsOptions, knowledgeKeys } from "@/lib/knowledge-queries";
 import { ARTIFACT_DEFAULT_MAX_BYTES, artifactLibraryPath, artifactLocation } from "@/lib/artifacts";
 import CodeReviewHandoffEditor, { emptyReviewHandoff } from "@/components/code-review-handoff-editor";
 import JobReportEditor from "@/components/job-report-editor";
@@ -325,7 +325,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
   const [backupPending, setBackupPending] = useState(false);
   const [promptPending, setPromptPending] = useState(false);
   const backupPendingRef = useRef(false);
-  const blockedNavigation = knowledgePending ? "Resolve the pending domain action before leaving this page." : promptPending ? "Save or discard your prompt changes before leaving this page." : transcriptPending ? "Resolve the pending transcript action before leaving this page." : artifactPending ? "Resolve the pending artifact action before leaving this page."
+  const blockedNavigation = knowledgePending ? "Resolve the pending knowledge graph action before leaving this page." : promptPending ? "Save or discard your prompt changes before leaving this page." : transcriptPending ? "Resolve the pending transcript action before leaving this page." : artifactPending ? "Resolve the pending artifact action before leaving this page."
     : backupPending ? "Wait for the backup action to finish before leaving this page."
       : mutationRegistry.hasDispatched() ? "Resolve pending mutations before leaving this dashboard document." : null;
   const route = useDashboardRoute(blockedNavigation);
@@ -852,7 +852,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
   }
 
   function chooseProject(id: string) {
-    if (knowledgePending) { setNotice({ message: "Resolve the pending domain action before switching projects.", error: true }); return; }
+    if (knowledgePending) { setNotice({ message: "Resolve the pending knowledge graph action before switching projects.", error: true }); return; }
     if (promptPending) { setNotice({ message: "Save or discard your prompt changes before switching projects.", error: true }); return; }
     if (transcriptPending) { setNotice({ message: "Resolve the pending transcript action before switching projects.", error: true }); return; }
     if (artifactPending) { setNotice({ message: "Resolve the pending artifact action before switching projects.", error: true }); return; }
@@ -1870,7 +1870,8 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
       );
       const base = workItemPath(context.work_item.project_id, context.work_item.id);
       if (complete) {
-        const report = jobReportFromDraft(jobReportDraft);
+        const domains = await queryClient.fetchQuery(completionDomainsOptions(context.work_item.project_id));
+        const report = jobReportFromDraft({ ...jobReportDraft, provenanceRequirement: domains.total > 0 ? "required" : "optional" }, true);
         const completed = await mutationRegistry.execute({
           kind: "complete_work",
           slot: `complete-work:${context.work_item.project_id}:${context.work_item.id}`,
@@ -3117,7 +3118,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
       recovery={modalRecovery(selectMutationScope(mutationIntents, { conflictKeys: [mutationWorkKey(reviewCloseout.summary.work_item.project_id, reviewCloseout.summary.work_item.id)] }).intents)}>
       <p className="dialog-intro">“{reviewCloseout.summary.work_item.title}” requires a review under project policy. Complete the implementation and attach its immutable Git scope and originating-session handoff in one operation.</p>
       <CodeReviewHandoffEditor value={reviewHandoff} onChange={setReviewHandoff} disabled={checkpointSaving || Boolean(statusChangingId) || detailMutationBlocked} />
-      {reviewCloseout.mode === "checkpoint" && <JobReportEditor projectId={reviewCloseout.summary.work_item.project_id} workItemId={reviewCloseout.summary.work_item.id} draft={jobReportDraft} onChange={setJobReportDraft} disabled={checkpointSaving || detailMutationBlocked} />}
+      {reviewCloseout.mode === "checkpoint" && <JobReportEditor completion projectId={reviewCloseout.summary.work_item.project_id} workItemId={reviewCloseout.summary.work_item.id} draft={jobReportDraft} onChange={setJobReportDraft} disabled={checkpointSaving || detailMutationBlocked} />}
       {reviewCloseoutError && <p className="error-notice" role="alert">{reviewCloseoutError}</p>}
       <div className="dialog-actions"><button className="button button-secondary" disabled={checkpointSaving || Boolean(statusChangingId) || detailMutationBlocked} onClick={() => setReviewCloseout(null)}>Keep draft</button><button className="button button-primary" disabled={checkpointSaving || Boolean(statusChangingId) || detailMutationBlocked || !validReviewHandoff(reviewHandoff)} onClick={() => { void (reviewCloseout.mode === "checkpoint" ? saveCheckpoint(true, reviewHandoff) : changeManualStatus("done", reviewCloseout.summary, reviewHandoff)); }}>Complete and request review</button></div>
     </Dialog>}

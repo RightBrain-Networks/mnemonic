@@ -18,6 +18,11 @@ _ADMITTED = object()
 # The names are a deliberately closed inventory: adding a machine endpoint never
 # automatically exposes it to the dashboard. Policy also validates concrete IDs.
 BROWSER_HANDLERS = {
+    "knowledge_provenance": ("decision_commit_lookup",),
+    "knowledge_impact": (
+        "get_decision_impact", "list_decision_assessments", "get_decision_assessment",
+        "get_decision_assessment_history", "assess_decision_impact",
+    ),
     "knowledge": (
         "list_knowledge_domains", "create_knowledge_domain", "rename_knowledge_domain",
         "list_knowledge_decisions", "get_knowledge_decision", "get_knowledge_decision_history",

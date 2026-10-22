@@ -18,6 +18,7 @@ from mnemonic_api.application.browser_policy.values import (
 from mnemonic_api.external_duplicate_schemas import ExternalCandidates
 from mnemonic_api.external_references import ExternalReferences
 from mnemonic_api.phase12_schemas import BIDI_CONTROLS
+from mnemonic_api.provenance_schemas import DecisionProvenance
 from mnemonic_api.schemas import CompletionEvidenceInput
 
 _REFERENCES = TypeAdapter(ExternalReferences)
@@ -66,11 +67,14 @@ def report_prompt(value: Any) -> bool:
 
 
 def job_report(value: Any) -> bool:
-    if not isinstance(value, dict) or not exact_keys(
-        value, ["summary", "fyi_items", "prompt_revision"]
+    if not isinstance(value, dict) or not allowed_keys(
+        value, ["summary", "fyi_items", "prompt_revision", "decision_provenance"]
     ):
         return False
     items = value.get("fyi_items")
+    provenance = value.get("decision_provenance")
+    if provenance is not None and not valid_model(DecisionProvenance, provenance):
+        return False
     return (
         report_text(value.get("summary"), 2_000, 8_000)
         and isinstance(items, list)

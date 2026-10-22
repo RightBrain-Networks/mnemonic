@@ -19,6 +19,8 @@ import { COMPLETION_EVIDENCE_DECODER_FIELDS } from "../lib/completion-evidence.t
 
 const SNAPSHOT_URL = new URL("../../docs/openapi.json", import.meta.url);
 const DEFAULTED_RESPONSE_FIELDS = {
+  "frontend/lib/job-completion-reports.ts:decodeJobReport": ["decision_provenance"],
+  "frontend/lib/job-completion-reports.ts:decodeReportDetail": ["decision_provenance"],
   "frontend/lib/duplicate-handling.ts:decodeWorkSearchPage:item": ["rank", "score", "score_type"],
   "frontend/lib/hierarchy-presentation.ts:decodeHierarchyPage:item": ["rank", "score", "score_type"],
   "frontend/lib/duplicate-handling.ts:decodeWorkSearchPage": ["diagnostics", "term_diagnostics", "semantic", "next_offset", "page_truncated"],

@@ -20,6 +20,7 @@ SCOPE_UUID = "de9b9890-bb69-4752-bfb7-673eea40885f"
 CONTENT = "# Decision\nUse café queues.\n"
 WRITES = {
     "create_knowledge_domain", "rename_knowledge_domain", "decision_put", "decision_scope_append",
+        "decision_assessment_append", "decision_scope_reconcile",
 }
 
 
@@ -227,13 +228,14 @@ async def test_knowledge_help_and_catalog_explain_revision_scope_obligation(sett
         lambda request: pytest.fail("Help must be local"),
     )))
     catalog = {tool.name: tool for tool in await server.list_tools()}
-    assert len(catalog) == 67
+    assert len(catalog) == 74
     for name in WRITES:
         tool = catalog[name]
         assert tool.annotations.readOnlyHint is False
         assert tool.annotations.idempotentHint is False
         assert "client_operation_id" not in tool.inputSchema["required"]
         assert "Omit the retry ID" in render_help(name + " usage", catalog)
-    assert "must call decision_scope_append" in render_help("decision_get usage", catalog)
+    assert "job_completion_report.decision_provenance" in render_help("decision_get usage", catalog)
+    assert "Reading alone does not imply use" in render_help("decision_get usage", catalog)
     assert "exact revision" in render_help("decision_scope_append usage", catalog)
     assert "domain_ids" in render_help("search filters decisions", catalog)

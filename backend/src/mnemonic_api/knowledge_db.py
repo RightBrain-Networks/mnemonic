@@ -164,12 +164,18 @@ def resource_link_elements(kind: str) -> list:
     ]
 
 
-def scope_elements() -> list:
+def scope_elements(*, enriched: bool = False) -> list:
     return [
         *_identity(),
         sa.Column("document_id", UUID, nullable=False),
         sa.Column("revision", sa.Integer, nullable=False),
         sa.Column("commit_hash", sa.String(64), nullable=False),
+        *([sa.Column("repository", sa.String(500)),
+           sa.Column("completion_report_id", UUID),
+           sa.ForeignKeyConstraint(["project_id", "completion_report_id"],
+               ["job_completion_reports.project_id", "job_completion_reports.id"],
+               name="fk_decision_scopes_completion_report", ondelete="RESTRICT")]
+          if enriched else []),
         sa.Column("work_item_id", UUID),
         sa.Column("agent_session_id", sa.String(200)),
         _timestamp(),
@@ -193,6 +199,7 @@ def scope_elements() -> list:
             "commit_hash",
             "work_item_id",
             "agent_session_id",
+            *(["repository", "completion_report_id"] if enriched else []),
             name="uq_decision_scopes_provenance",
             postgresql_nulls_not_distinct=True,
         ),

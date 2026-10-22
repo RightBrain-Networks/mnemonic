@@ -1,3 +1,4 @@
+import { validDecisionProvenance, provenanceFromDraft, type ProvenanceDraft } from "./decision-provenance.ts";
 import type {
   JobCompletionReport, JobCompletionReportInput, JobReportCount, JobReportDetail,
   JobReportDismissal, JobReportEnvelope, JobReportFollowUp, JobReportPage,
@@ -26,7 +27,7 @@ export const REPORT_FIELDS = [
   "id", "project_id", "work_item_id", "closeout_event_id", "closeout_work_version",
   "closeout_status", "completion_checkpoint_id", "work_title_at_closeout", "summary",
   "fyi_items", "actor_client", "actor_session_id", "actor_model", "prompt_revision",
-  "prompt_sha256", "created_at"
+  "prompt_sha256", "created_at", "decision_provenance"
 ] as const;
 const PROJECT_SETTINGS_FIELDS = ["lease_default_minutes", "lease_minimum_minutes", "lease_maximum_minutes", "project_id", "recall_pointer_template", "job_completion_report_prompt", "revision", "code_review_required_min_priority", "code_review_optional_min_priority", "allow_remediation_code_reviews"] as const;
 const REPORT_ENVELOPE_FIELDS = ["report", "created_sequence", "human_dismissed", "human_dismissal", "source_work_state", "follow_up_count"] as const;
@@ -65,7 +66,8 @@ export function validRenderedReportPrompt(value: unknown): value is string {
 }
 export function validJobReportInput(value: unknown): value is JobCompletionReportInput {
   const report = objectValue(value);
-  return Boolean(report && exactKeys(report, ["summary", "fyi_items", "prompt_revision"])
+  return Boolean(report && exactKeys(report, ["summary", "fyi_items", "prompt_revision", ...(Object.hasOwn(report, "decision_provenance") ? ["decision_provenance"] : [])])
+    && (report.decision_provenance == null || validDecisionProvenance(report.decision_provenance))
     && validReportText(report.summary, 2_000, 8_000)
     && Array.isArray(report.fyi_items) && report.fyi_items.length <= 10
     && report.fyi_items.every((item) => validReportText(item, 600, 2_400))
@@ -88,7 +90,8 @@ export function decodeProjectSettings(value: unknown, projectId: string): Projec
 }
 export function decodeJobReport(value: unknown, projectId: string, reportId?: string, detail = false): JobCompletionReport {
   const report = objectValue(value);
-  if (!report || !exactKeys(report, [...REPORT_FIELDS, ...(detail ? ["authoring_prompt"] : [])])
+  if (!report || !exactKeys(report, [...REPORT_FIELDS.filter((field) => field !== "decision_provenance" || Object.hasOwn(report, field)), ...(detail ? ["authoring_prompt"] : [])])
+    || !(report.decision_provenance == null || validDecisionProvenance(report.decision_provenance))
     || !validUuid(report.id) || reportId !== undefined && !sameUuid(report.id, reportId)
     || !sameUuid(report.project_id, projectId) || !validUuid(report.work_item_id)
     || !decimalString(report.closeout_event_id, true) || !finiteInteger(report.closeout_work_version, 2)
@@ -110,6 +113,7 @@ export function matchCloseoutReport(value: unknown, projectId: string, work: Wor
   if (!sameUuid(report.work_item_id, work.id) || report.closeout_status !== work.status
     || report.closeout_work_version !== work.version || report.work_title_at_closeout !== work.title
     || report.completion_checkpoint_id !== checkpointId || report.summary !== input.summary
+    || !jsonEqual(report.decision_provenance ?? null, input.decision_provenance ?? null)
     || !jsonEqual(report.fyi_items, input.fyi_items) || report.prompt_revision !== input.prompt_revision
     || report.actor_client !== (expectedActor?.actor_client ?? expectedActor?.source_client)
     || report.actor_session_id !== (expectedActor?.actor_session_id ?? expectedActor?.source_session_id)
@@ -269,13 +273,16 @@ export function decodeReportProvenancePage(value: unknown, projectId: string, fo
   }
   return { ...page, items } as unknown as JobReportProvenancePage;
 }
-export interface JobReportDraft { summary: string; fyiItems: string[]; promptRevision: string | null; }
+export interface JobReportDraft { summary: string; fyiItems: string[]; promptRevision: string | null; decisionProvenance?: ProvenanceDraft; provenanceRequirement?: "loading" | "required" | "optional" | "error"; }
 export const emptyJobReportDraft = (): JobReportDraft => ({ summary: "", fyiItems: [], promptRevision: null });
 export function jobReportDraftHasEdits(draft: JobReportDraft): boolean {
-  return Boolean(draft.summary.trim()) || draft.fyiItems.some((item) => Boolean(item.trim()));
+  return Boolean(draft.summary.trim()) || draft.fyiItems.some((item) => Boolean(item.trim())) || Boolean(draft.decisionProvenance?.disposition || draft.decisionProvenance?.reason.trim() || draft.decisionProvenance?.citations.length || draft.decisionProvenance?.commits.length);
 }
-export function jobReportFromDraft(draft: JobReportDraft): JobCompletionReportInput {
-  const value = { summary: draft.summary, fyi_items: draft.fyiItems, prompt_revision: draft.promptRevision };
+export function jobReportFromDraft(draft: JobReportDraft, completion = false): JobCompletionReportInput {
+  if (completion && (draft.provenanceRequirement === undefined || draft.provenanceRequirement === "loading" || draft.provenanceRequirement === "error")) throw new Error("Load the project's decision domains before completing this work.");
+  if (completion && draft.provenanceRequirement === "required" && !draft.decisionProvenance?.disposition) throw new Error("Declare whether this work cites decisions, has no applicable decisions, or is not code.");
+  const value = { summary: draft.summary, fyi_items: draft.fyiItems, prompt_revision: draft.promptRevision,
+    ...(draft.decisionProvenance?.disposition ? { decision_provenance: provenanceFromDraft(draft.decisionProvenance) } : {}) };
   if (!validJobReportInput(value)) throw new Error("Write one nonblank summary paragraph and up to ten short FYI bullets. Review the project prompt before submitting; each field must fit its displayed limits.");
   return value;
 }

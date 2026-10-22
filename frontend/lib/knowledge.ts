@@ -16,11 +16,15 @@ export type Decision = {
   agent_session_id: string | null; model_id: string | null; related_decision_ids: string[];
   related_work_item_ids: string[]; related_artifact_ids: string[]; supersedes: string[];
   superseded_by: string[]; referenced_by: string[]; scope_count: number;
+  depends_on?: DecisionDependency[]; supersession_details?: SupersessionDetail[];
 };
+export type DecisionDependency = { decision_id: string; revision: number; rationale: string };
+export type SupersessionDetail = { decision_id: string; revision: number; extent: "full" | "partial"; reason: string };
 export type DecisionContent = Decision & { content: string; total_lines: number; line_start: number; line_end: number };
 export type DecisionScope = {
   id: string; project_id: string; decision_id: string; revision: number; commit_hash: string;
   agent_session_id: string | null; work_item_id: string | null; created_at: string;
+  repository?: string | null; completion_report_id?: string | null; merged_commit_hashes?: string[];
 };
 export type KnowledgePage<T> = { items: T[]; total: number; limit: number; offset: number; next_offset?: number | null };
 
@@ -43,8 +47,8 @@ export function normalizeDomainPrefix(value: string) {
 
 function invalid(): never { throw new Error("Mnemonic returned invalid knowledge graph data. Refresh to try again."); }
 function strings(value: unknown): value is string[] { return Array.isArray(value) && value.every((item) => typeof item === "string"); }
-const decisionIdPattern = /^[A-Z]{1,5}-\d{5,}$/;
-const referencePattern = /^[A-Z]{1,5}-\d{5,}-\d+$/;
+export const decisionIdPattern = /^[A-Z]{1,5}-\d{5,}$/;
+export const referencePattern = /^[A-Z]{1,5}-\d{5,}-\d+$/;
 
 export function decodeDomain(value: unknown, projectId: string): KnowledgeDomain {
   const item = objectValue(value);
@@ -79,6 +83,8 @@ export function decodeDecision(value: unknown, projectId: string, decisionId?: s
     || !strings(item.supersedes) || !item.supersedes.every((id) => decisionIdPattern.test(id))
     || !strings(item.superseded_by) || !item.superseded_by.every((id) => referencePattern.test(id))
     || !strings(item.referenced_by) || !item.referenced_by.every((id) => referencePattern.test(id))) invalid();
+  if (item.depends_on !== undefined && (!Array.isArray(item.depends_on) || !item.depends_on.every((value) => validDecisionEdge(value, "rationale")))
+    || item.supersession_details !== undefined && (!Array.isArray(item.supersession_details) || !item.supersession_details.every((value) => validDecisionEdge(value, "reason") && ["full", "partial"].includes(String(objectValue(value)?.extent))))) invalid();
   return item as Decision;
 }
 
@@ -101,13 +107,15 @@ export async function verifyDecisionContent(decision: DecisionContent): Promise<
   return decision;
 }
 
-export function decodeScope(value: unknown, projectId: string, decisionId: string): DecisionScope {
+export function decodeScope(value: unknown, projectId: string, decisionId?: string): DecisionScope {
   const item = objectValue(value);
   if (!item || !validUuid(item.id) || !sameUuid(item.project_id, projectId)
-    || item.decision_id !== decisionId || !finiteInteger(item.revision)
+    || typeof item.decision_id !== "string" || !decisionIdPattern.test(item.decision_id)
+    || decisionId !== undefined && item.decision_id !== decisionId || !finiteInteger(item.revision)
     || typeof item.commit_hash !== "string" || !/^(?:[a-fA-F0-9]{40}|[a-fA-F0-9]{64})$/.test(item.commit_hash)
     || !(item.agent_session_id === null || typeof item.agent_session_id === "string")
     || !(item.work_item_id === null || validUuid(item.work_item_id)) || typeof item.created_at !== "string") invalid();
+  if (!validScopeProvenance(item)) invalid();
   return item as DecisionScope;
 }
 
@@ -150,4 +158,19 @@ export async function knowledgeJson(path: string, init: RequestInit = {}): Promi
     throw new ApiError(detail.message || "Unable to load the knowledge graph.", response.status, detail.code);
   }
   return value;
+}
+
+export function validDecisionEdge(value: unknown, reason: "reason" | "rationale") {
+  const edge = objectValue(value);
+  return Boolean(edge && typeof edge.decision_id === "string" && decisionIdPattern.test(edge.decision_id)
+    && finiteInteger(edge.revision, 0, 2_147_483_647) && typeof edge[reason] === "string"
+    && (edge[reason] as string).trim() && !(edge[reason] as string).includes("\0"));
+}
+export function validCommitHash(value: unknown): value is string {
+  return typeof value === "string" && /^(?:[a-fA-F0-9]{40}|[a-fA-F0-9]{64})$/.test(value);
+}
+export function validScopeProvenance(item: Record<string, unknown>) {
+  return (item.repository === undefined || item.repository === null || typeof item.repository === "string" && Boolean(item.repository.trim()))
+    && (item.completion_report_id === undefined || item.completion_report_id === null || validUuid(item.completion_report_id))
+    && (item.merged_commit_hashes === undefined || Array.isArray(item.merged_commit_hashes) && item.merged_commit_hashes.every(validCommitHash));
 }

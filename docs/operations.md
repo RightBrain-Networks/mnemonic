@@ -163,8 +163,8 @@ Migration `0041_artifact_passages` adds rebuildable artifact passage caches; fol
 [semantic artifact upgrade and backfill](artifact-semantic-search.md#coordinated-upgrade).
 Explicit [multi-project search](multi-project-search.md) shares one bounded corpus
 and reports coverage for every selected project.
-Inventory exactly 67 MCP tools,
-21 protected MCP writes, 28 REST receipt kinds, 23 protected browser mutations,
+Inventory exactly 74 MCP tools,
+23 protected MCP writes, 30 REST receipt kinds, 24 protected browser mutations,
 and 24 work-event types. Keep older writers stopped: fresh closeouts still
 require a report and operation UUID, fresh work starts Pending, settings use
 revision checks, and relationship endpoint identity, adjacency, graph guards,

@@ -7,6 +7,8 @@ from uuid import UUID
 
 from pydantic import Field, StrictInt, StringConstraints, field_validator, model_validator
 
+from mnemonic_api.impact_schemas import DecisionDependency, SupersessionDetail
+from mnemonic_api.provenance_schemas import RepositoryIdentity
 from mnemonic_api.schemas import APIModel
 
 DecisionState = Literal["proposed", "rejected", "accepted", "superseded", "partially-superseded"]
@@ -100,6 +102,12 @@ class DecisionPutRequest(APIModel):
     related_work_item_ids: Annotated[list[UUID], Field(max_length=100)] = []
     related_artifact_ids: Annotated[list[UUID], Field(max_length=100)] = []
     supersedes: Annotated[list[DecisionIdentifier], Field(max_length=100)] = []
+    depends_on: Annotated[list[DecisionDependency], Field(max_length=100)] = Field(
+        default=[], exclude_if=lambda value: not value
+    )
+    supersession_details: Annotated[list[SupersessionDetail], Field(max_length=100)] = Field(
+        default=[], exclude_if=lambda value: not value
+    )
     author_kind: Literal["agent", "human"]
     agent_session_id: Annotated[str | None, Field(min_length=1, max_length=200)] = None
     model_id: Annotated[str | None, Field(min_length=1, max_length=120)] = None
@@ -160,6 +168,10 @@ class DecisionRead(APIModel):
     supersedes: list[str]
     superseded_by: list[str]
     scope_count: int
+    depends_on: list[DecisionDependency] = Field(default=[], exclude_if=lambda value: not value)
+    supersession_details: list[SupersessionDetail] = Field(
+        default=[], exclude_if=lambda value: not value
+    )
 
 
 class DecisionTextRead(DecisionRead):
@@ -194,6 +206,9 @@ class DecisionTextQuery(APIModel):
 
 
 class DecisionScopeRequest(APIModel):
+    repository: RepositoryIdentity | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
     revision: RevisionNumber
     commit_hash: Annotated[str, StringConstraints(pattern=r"^(?:[a-fA-F0-9]{40}|[a-fA-F0-9]{64})$")]
     work_item_id: UUID | None = None
@@ -217,6 +232,9 @@ class DecisionScopeAppend(DecisionScopeRequest):
 
 
 class DecisionScopeRead(APIModel):
+    repository: RepositoryIdentity | None = Field(default=None, exclude_if=lambda v: v is None)
+    completion_report_id: UUID | None = Field(default=None, exclude_if=lambda v: v is None)
+    merged_commit_hashes: list[str] = Field(default=[], exclude_if=lambda v: not v)
     id: UUID
     project_id: UUID
     document_id: UUID

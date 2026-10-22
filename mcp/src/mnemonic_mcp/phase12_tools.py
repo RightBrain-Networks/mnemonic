@@ -45,7 +45,9 @@ def report_matches_request(
         return actual is None
     if actual is None:
         return False
-    if actual.model_dump(mode="json", include={"summary", "fyi_items", "prompt_revision"}) != (
+    if actual.model_dump(mode="json", include={
+        "summary", "fyi_items", "prompt_revision", "decision_provenance",
+    }) != (
         requested.model_dump(mode="json")
     ):
         return False

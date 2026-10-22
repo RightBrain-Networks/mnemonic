@@ -2081,7 +2081,7 @@ class PluginStaticTests(unittest.TestCase):
 
     def test_inventory_manifest_and_links(self) -> None:
         manifest = json.loads((PLUGIN_ROOT / ".claude-plugin" / "plugin.json").read_text())
-        self.assertEqual(manifest["version"], "0.50.0")
+        self.assertEqual(manifest["version"], "0.51.0")
         self.assertTrue(HELPER.is_file())
         self.assertTrue(HELPER.stat().st_mode & stat.S_IXUSR)
         self.assertEqual(
@@ -2099,6 +2099,7 @@ class PluginStaticTests(unittest.TestCase):
                 "completion-evidence.md",
                 "external-records.md",
                 "job-completion-reports.md",
+                "knowledge-graph.md",
                 "priority.md",
                 "prompts.md",
                 "repository-freshness.md",
@@ -2111,6 +2112,7 @@ class PluginStaticTests(unittest.TestCase):
                 "authority-and-provenance.md",
                 "completion-evidence.md",
                 "job-completion-reports.md",
+                "knowledge-graph.md",
                 'get_prompt(project_id, prompt_id="priority-rubric")',
                 "repository-freshness.md",
             ):

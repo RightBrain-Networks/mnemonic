@@ -2,12 +2,15 @@
 
 import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
+import { DecisionImpactView, DecisionAssessments } from "@/components/knowledge-impact";
+import CommitLookup, { ScopeEvidence } from "@/components/knowledge-scope";
 import Link from "@/components/dashboard-link";
 import DocumentPreviewDrawer, { DocumentPreviewText } from "@/components/document-preview-drawer";
+import { DecisionStateBadge, KnowledgePagination, KnowledgeReadError as ReadError, stateLabel } from "@/components/knowledge-shared";
 import { ApiError, errorMessage } from "@/lib/api";
 import { formatArtifactSize, artifactLibraryPath } from "@/lib/artifacts";
 import { formatDateTime } from "@/lib/display-time";
-import { decodeDomain, decisionStates, knowledgeJson, knowledgeLibraryPath, knowledgeNextOffset, knowledgePath, normalizeDomainPrefix, selectedDecision, type Decision, type DecisionState, type KnowledgeDomain, type KnowledgePage } from "@/lib/knowledge";
+import { decodeDomain, decisionStates, knowledgeJson, knowledgeLibraryPath, knowledgeNextOffset, knowledgePath, normalizeDomainPrefix, selectedDecision, type Decision, type DecisionState, type KnowledgeDomain } from "@/lib/knowledge";
 import { decisionContentOptions, decisionHistoryOptions, decisionsOptions, decisionScopeOptions, knowledgeKeys, readDomainPage } from "@/lib/knowledge-queries";
 
 type Selection = { id: string; revision?: number };
@@ -53,6 +56,7 @@ export default function KnowledgeLibrary({ projectId, query = "", onPendingChang
         </div>
       </form>
     </div>
+    <CommitLookup projectId={projectId} onDecision={(id, revision) => setSelected({ id, revision })} />
     <div className="filter-row knowledge-domain-bar">
       <div className="status-filters knowledge-domain-tabs" role="group" aria-label="Filter by domain">
         <button type="button" className={`filter-button ${!domainId ? "selected" : ""}`} aria-pressed={!domainId} onClick={() => chooseDomain("")}>All domains</button>
@@ -91,20 +95,8 @@ export default function KnowledgeLibrary({ projectId, query = "", onPendingChang
         setEditingDomain(null); chooseDomain(saved.id); setNotice(`Domain “${saved.name}” saved.`);
         void client.invalidateQueries({ queryKey: knowledgeKeys.root(projectId) });
       }} />}
-    {selected && <DecisionDrawer projectId={projectId} selected={selected} onSelect={setSelected} onClose={() => setSelected(null)} />}
+    {selected && <DecisionDrawer projectId={projectId} onPendingChange={onPendingChange} selected={selected} onSelect={setSelected} onClose={() => setSelected(null)} />}
   </section>;
-}
-
-function stateLabel(state: DecisionState) { return state.charAt(0).toUpperCase() + state.slice(1).replace("-", " "); }
-function DecisionStateBadge({ state }: { state: DecisionState }) { return <span className={`decision-state decision-state-${state}`}>{stateLabel(state)}</span>; }
-function ReadError({ error, retry }: { error: unknown; retry: () => void }) { return <div className="error-notice" role="alert"><p>{errorMessage(error)}</p><button className="button button-secondary" onClick={retry}>Retry loading</button></div>; }
-
-function KnowledgePagination<T>({ page, noun, busy = false, onOffset }: { page: KnowledgePage<T>; noun: string; busy?: boolean; onOffset: (offset: number) => void }) {
-  const next = knowledgeNextOffset(page);
-  return <div className="artifact-pagination"><span>{page.items.length ? `${page.offset + 1}–${page.offset + page.items.length} of ${page.total} ${noun}` : page.total ? `No ${noun} on this page · ${page.total} total` : `0 ${noun}`}</span><div>
-    <button className="button button-secondary" disabled={busy || page.offset === 0} onClick={() => onOffset(Math.max(0, page.offset - page.limit))}>Previous</button>
-    <button className="button button-secondary" disabled={busy || next === null} onClick={() => { if (next !== null) onOffset(next); }}>Next</button>
-  </div></div>;
 }
 
 function DomainDialog({ projectId, domain, onClose, onSaved, onPendingChange }: {
@@ -159,30 +151,35 @@ function DomainDialog({ projectId, domain, onClose, onSaved, onPendingChange }: 
   </dialog>;
 }
 
-function DecisionDrawer({ projectId, selected, onSelect, onClose }: { projectId: string; selected: Selection; onSelect: (selection: Selection) => void; onClose: () => void }) {
-  const [tab, setTab] = useState<"document" | "details" | "history" | "scope">("document");
+function DecisionDrawer({ projectId, selected, onSelect, onClose, onPendingChange }: { projectId: string; selected: Selection; onSelect: (selection: Selection) => void; onClose: () => void; onPendingChange: (pending: boolean) => void }) {
+  const [pending, setPending] = useState(false);
+  const changePending = (value: boolean) => { setPending(value); onPendingChange(value); };
+  const openDecision = (id: string) => { const target = selectedDecision(new URLSearchParams({ decision: id }).toString()); if (target && !pending) onSelect(target); };
+  const [tab, setTab] = useState<"document" | "details" | "history" | "scope" | "impact" | "assessments">("document");
   const [historyOffset, setHistoryOffset] = useState(0);
   const [scopeOffset, setScopeOffset] = useState(0);
-  const content = useQuery(decisionContentOptions(projectId, selected.id, selected.revision));
-  const decision = content.isError ? undefined : content.data;
+  const content = useQuery({ ...decisionContentOptions(projectId, selected.id, selected.revision), enabled: !pending });
+  const decision = content.isError && !pending ? undefined : content.data;
   const history = useQuery(decisionHistoryOptions(projectId, selected.id, historyOffset, tab === "history"));
   const scope = useQuery(decisionScopeOptions(projectId, selected.id, scopeOffset, tab === "scope"));
   useEffect(() => { setTab("document"); setHistoryOffset(0); setScopeOffset(0); }, [selected.id]);
   function openRevision(revision?: number) { onSelect({ id: selected.id, revision }); setTab("document"); }
 
-  return <DocumentPreviewDrawer title={decision?.title ?? selected.id} label="Decision document" text={decision?.content ?? null} className="decision-preview-drawer" onClose={onClose}>
+  return <DocumentPreviewDrawer title={decision?.title ?? selected.id} label="Decision document" text={decision?.content ?? null} className="decision-preview-drawer" closeDisabled={pending} onClose={onClose}>
     <div className="decision-preview-summary">
       <code>{decision?.reference ?? `${selected.id}${selected.revision === undefined ? "" : `-${selected.revision}`}`}</code>
       {decision && <DecisionStateBadge state={decision.state} />}
-      {selected.revision !== undefined && <button className="text-button" onClick={() => openRevision()}>View current revision</button>}
+      {selected.revision !== undefined && <button className="text-button" disabled={pending} onClick={() => openRevision()}>View current revision</button>}
     </div>
     <div className="status-filters decision-preview-tabs" role="group" aria-label="Decision views">
-      {(["document", "details", "history", "scope"] as const).map((value) => <button type="button" key={value} className={`filter-button ${tab === value ? "selected" : ""}`} aria-pressed={tab === value} onClick={() => setTab(value)}>{({ document: "Document", details: "Details & links", history: "Revisions", scope: "Code scope" })[value]}</button>)}
+      {(["document", "details", "history", "scope", "impact", "assessments"] as const).map((value) => <button type="button" key={value} disabled={pending} className={`filter-button ${tab === value ? "selected" : ""}`} aria-pressed={tab === value} onClick={() => setTab(value)}>{({ document: "Document", details: "Details & links", history: "Revisions", scope: "Code scope", impact: "Impact", assessments: "Assessments" })[value]}</button>)}
     </div>
     <div className={`artifact-preview-body ${tab === "document" ? "" : "decision-metadata-body"}`}>
-      {content.isError ? <ReadError error={content.error} retry={() => void content.refetch()} /> : !decision ? <p role="status">Loading decision…</p>
+      {content.isError && !pending ? <ReadError error={content.error} retry={() => void content.refetch()} /> : !decision ? <p role="status">Loading decision…</p>
         : tab === "document" ? <DocumentPreviewText text={decision.content} markdown={decision.media_type === "text/markdown"} />
-          : tab === "details" ? <DecisionDetails decision={decision} onDecision={(id) => { const target = selectedDecision(new URLSearchParams({ decision: id }).toString()); if (target) onSelect(target); }} />
+          : tab === "details" ? <DecisionDetails decision={decision} onDecision={openDecision} />
+            : tab === "impact" ? <DecisionImpactView key={decision.reference} projectId={projectId} decisionId={decision.decision_id} revision={decision.revision} onDecision={openDecision} />
+            : tab === "assessments" ? <DecisionAssessments key={decision.decision_id} projectId={projectId} decisionId={decision.decision_id} onDecision={openDecision} onPendingChange={changePending} />
             : tab === "history" ? <>
               <p className="artifact-history-note">Every revision is retained. Select one to read the exact document that was cited.</p>
               {history.isError ? <ReadError error={history.error} retry={() => void history.refetch()} /> : history.isPending ? <p role="status">Loading revisions…</p> : <>
@@ -190,10 +187,10 @@ function DecisionDrawer({ projectId, selected, onSelect, onClose }: { projectId:
                 <KnowledgePagination page={history.data} noun="revisions" busy={history.isFetching} onOffset={setHistoryOffset} />
               </>}
             </> : <>
-              <p className="artifact-history-note">Commits recorded as implementing this decision. Each reference cites the exact revision considered.</p>
+              <p className="artifact-history-note">Registered citations for every retained revision. Each reference pins the revision considered. Repository identities and merged commits are author assertions; Mnemonic does not verify Git history.</p>
               {scope.isError ? <ReadError error={scope.error} retry={() => void scope.refetch()} /> : scope.isPending ? <p role="status">Loading code scope…</p> : <>
                 {!scope.data.items.length && <p>No code references recorded.</p>}
-                <ol className="decision-history">{scope.data.items.map((entry) => <li key={entry.id}><code className="break-all">{entry.commit_hash}</code><button className="text-button" onClick={() => openRevision(entry.revision)}>{entry.decision_id}-{entry.revision}</button>{entry.work_item_id && <Link href={`/work-items?project=${projectId}&work=${entry.work_item_id}`}>Work item {entry.work_item_id}</Link>}{entry.agent_session_id && <span className="break-all">Session: {entry.agent_session_id}</span>}<span>{formatDateTime(entry.created_at)}</span></li>)}</ol>
+                <ol className="decision-history">{scope.data.items.map((entry) => <li key={entry.id}><ScopeEvidence projectId={projectId} entry={entry} /><button className="text-button" onClick={() => openRevision(entry.revision)}>{entry.decision_id}-{entry.revision}</button><span>{formatDateTime(entry.created_at)}</span></li>)}</ol>
                 <KnowledgePagination page={scope.data} noun="code references" busy={scope.isFetching} onOffset={setScopeOffset} />
               </>}
             </>}
@@ -215,6 +212,12 @@ function DecisionDetails({ decision, onDecision }: { decision: Decision; onDecis
       <div className="span-two"><dt>Related work items</dt><dd>{decision.related_work_item_ids.length ? decision.related_work_item_ids.map((id) => <Link key={id} className="artifact-work-link" href={`/work-items?project=${decision.project_id}&work=${id}`}>{id}</Link>) : "None"}</dd></div>
       <div className="span-two"><dt>Related artifacts</dt><dd>{decision.related_artifact_ids.length ? decision.related_artifact_ids.map((id) => <Link key={id} className="artifact-work-link" href={`${artifactLibraryPath(decision.project_id)}&artifact=${id}`}>{id}</Link>) : "None"}</dd></div>
     </dl>
+    <section className="decision-dependencies"><h3>Depends on</h3>
+      {decision.depends_on?.length ? <ul className="decision-history">{decision.depends_on.map((edge) => <li key={`${edge.decision_id}-${edge.revision}`}><button className="text-button" onClick={() => onDecision(`${edge.decision_id}-${edge.revision}`)}>{edge.decision_id}-{edge.revision}</button><p>{edge.rationale}</p></li>)}</ul> : <p>No dependencies recorded. Related links do not establish dependencies.</p>}
+      <h3>Supersession details</h3>
+      {decision.supersession_details?.length ? <ul className="decision-history">{decision.supersession_details.map((edge) => <li key={`${edge.decision_id}-${edge.revision}`}><button className="text-button" onClick={() => onDecision(`${edge.decision_id}-${edge.revision}`)}>{edge.decision_id}-{edge.revision}</button><strong>{edge.extent === "full" ? "Full supersession" : "Partial supersession"}</strong><p>{edge.reason}</p></li>)}</ul> : <p>No extent or reason recorded.</p>}
+      {decision.supersedes.filter((id) => !decision.supersession_details?.some((edge) => edge.decision_id === id)).map((id) => <p key={id}>{id}: supersession extent and rationale unknown.</p>)}
+    </section>
     <Link href={knowledgeLibraryPath(decision.project_id, decision.decision_id, decision.revision)}>Link to this revision</Link>
   </>;
 }

@@ -66,3 +66,12 @@ test("knowledge pagination validates bounds and follows explicit next offsets", 
   assert.equal(knowledgeNextOffset(shrunk), null);
   assert.equal(shrunk.offset, 25);
 });
+
+test("decision edges retain exact target revisions, rationale and supersession extent without guessing legacy semantics", () => {
+  const expanded = { ...decision,
+    depends_on: [{ decision_id: "ODR-00002", revision: 0, rationale: "The owner approved retaining all revisions." }],
+    supersession_details: [{ decision_id: "ADR-00193", revision: 2, extent: "partial", reason: "Only the retention period changed." }] };
+  assert.deepEqual(decodeDecision(expanded, project), expanded);
+  assert.equal(decodeDecision(decision, project).supersession_details, undefined);
+  for (const change of [{ depends_on: [{ ...expanded.depends_on[0], revision: -1 }] }, { depends_on: [{ ...expanded.depends_on[0], rationale: " " }] }, { supersession_details: [{ ...expanded.supersession_details[0], extent: "unknown" }] }]) assert.throws(() => decodeDecision({ ...expanded, ...change }, project));
+});

@@ -1,5 +1,6 @@
 "use client";
 
+import DecisionProvenanceEditor from "@/components/decision-provenance-editor";
 import { useEffect, useId, type Dispatch, type SetStateAction } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useFailedReadRetry } from "@/components/use-failed-read-retry";
@@ -7,12 +8,13 @@ import { errorMessage } from "@/lib/api";
 import type { JobReportDraft } from "@/lib/job-completion-reports";
 import { workSettingsOptions } from "@/lib/work-detail-queries";
 
-export default function JobReportEditor({ projectId, workItemId, draft, onChange, disabled = false }: {
+export default function JobReportEditor({ projectId, workItemId, draft, onChange, disabled = false, completion = false }: {
   projectId: string;
   workItemId: string;
   draft: JobReportDraft;
   onChange: Dispatch<SetStateAction<JobReportDraft>>;
   disabled?: boolean;
+  completion?: boolean;
 }) {
   const id = useId();
   const settingsRead = useQuery({ ...workSettingsOptions(projectId, workItemId), refetchOnMount: "always" });
@@ -61,5 +63,6 @@ export default function JobReportEditor({ projectId, workItemId, draft, onChange
       <button type="button" className="button button-secondary" aria-label={`Remove FYI ${index + 1}`} onClick={() => onChange((current) => ({ ...current, fyiItems: current.fyiItems.filter((_, position) => position !== index) }))}>Remove</button>
     </div>)}
     <button type="button" className="button button-secondary" disabled={disabled || draft.fyiItems.length >= 10} onClick={() => onChange((current) => ({ ...current, fyiItems: [...current.fyiItems, ""] }))}>Add FYI</button>
+    {completion && <DecisionProvenanceEditor projectId={projectId} draft={draft} onChange={onChange} />}
   </fieldset>;
 }

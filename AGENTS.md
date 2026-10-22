@@ -105,9 +105,9 @@ one-off ID needed before dispatch. Explicit IDs and REST receipts retain their
 contracts; prepared upload intents keep their helper-generated IDs. See
 `docs/automatic-uuids.md`. The tool idempotence hint is false for these calls.
 
-The current application/API/MCP/dashboard release is `0.85.1`, Claude plugin
-`0.50.0`, and Alembic head `0053_knowledge_graph`. The catalog is exactly
-67 MCP tools, 21 receipt-protected MCP writes, 28 REST receipt kinds, 23 protected
+The current application/API/MCP/dashboard release is `0.86.0`, Claude plugin
+`0.51.0`, and Alembic head `0055_decision_provenance`. The catalog is exactly
+74 MCP tools, 23 receipt-protected MCP writes, 30 REST receipt kinds, 24 protected
 browser mutations, 24 work-event types, and three plugin skills. Project priority
 guidance is editable in Settings > Workspace; agents explicitly call
 `get_prompt(project_id, prompt_id="priority-rubric")` when needed. MCP
@@ -341,3 +341,16 @@ include work item ID and native agent session ID when available. Domain prefixes
 are fixed and unique within a project. Search includes `decisions`; narrow with
 `filters.decisions.domain_ids` and opt into history using `all_revisions=true`.
 See `docs/knowledge-graph.md`.
+
+Knowledge revisions may declare `depends_on` with exact target revisions and reasons;
+related links do not establish causality. Use `decision_impact` before amending a
+decision and inspect coverage, then page the immutable assessment episodes and
+record version-checked dispositions with truthful actor identity. Assessments do
+not change decision state or grant execution authority. Fresh Done in projects
+with knowledge domains requires `job_completion_report.decision_provenance`: exact
+citations and repository/commit identities, or an explicit reason for
+`no-applicable-decisions`/`not-code`. Closeout appends scope atomically; do not
+repeat it manually. Preserve original commit records and use
+`decision_scope_reconcile` only for an inspected integration mapping. Historical
+missing provenance remains unknown. The bundled decision_provenance.py helper
+verifies local commit existence and prepares declarations without network or writes.

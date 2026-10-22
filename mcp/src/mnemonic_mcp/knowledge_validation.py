@@ -71,9 +71,22 @@ def _put_metadata_matches(result: DecisionPutResult, intent: DecisionPut) -> boo
     fields = {"title", "media_type", "state"}
     if result.created:
         fields |= {"author_kind", "agent_session_id", "model_id"}
-    links = {"related_decision_ids", "related_work_item_ids", "related_artifact_ids", "supersedes"}
+    links = {"related_decision_ids", "related_work_item_ids", "related_artifact_ids"}
+    supersedes = set(intent.supersedes) | {
+        detail.decision_id for detail in intent.supersession_details
+    }
     return (all(getattr(item, key) == getattr(intent, key) for key in fields)
-            and all(set(getattr(item, key)) == set(getattr(intent, key)) for key in links))
+            and all(set(getattr(item, key)) == set(getattr(intent, key)) for key in links)
+            and set(item.supersedes) == supersedes
+            and _pinned_links(item) == _pinned_links(intent))
+
+
+def _pinned_links(item: DecisionRead | DecisionPut) -> tuple[set[tuple], set[tuple]]:
+    return (
+        {(edge.decision_id, edge.revision, edge.rationale) for edge in item.depends_on},
+        {(edge.decision_id, edge.revision, edge.extent, edge.reason)
+         for edge in item.supersession_details},
+    )
 
 
 def scope_matches(
@@ -82,6 +95,7 @@ def scope_matches(
     item = result.scope
     return (
         item.project_id == project_id and item.decision_id == decision_id
+        and item.repository == intent.repository
         and all(getattr(item, key) == value for key, value in intent.model_dump(
             exclude={"client_operation_id"},
         ).items())

@@ -44,7 +44,8 @@ def _index(tools: dict[str, Tool]) -> str:
         'field names to drill down, or schema for full JSON Schema. Example:',
         'help({"topic":"complete_work completion_evidence artifact_references"})',
         ("When decisions inform code, retain the exact revision and record resulting commits "
-         "with decision_scope_append."),
+         "with decision_scope_append or Done decision_provenance; inspect changes with "
+         "decision_impact."),
     ]
     lines += [group + ": " + ", ".join(names) for group, names in groups.items()]
     return "\n".join(lines)

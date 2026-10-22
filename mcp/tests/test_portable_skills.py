@@ -32,7 +32,7 @@ def _assert_standalone_skill(skill: Path) -> None:
     assert {path.name for path in (skill / "reference").iterdir()} == references
     assert {path.relative_to(skill).as_posix() for path in skill.rglob("*") if path.is_file()} == {
         "SKILL.md", "bin/mnemonic-repository-freshness", "scripts/upload_artifact.py",
-        "scripts/download_artifact.py",
+        "scripts/download_artifact.py", "scripts/decision_provenance.py",
         *(f"reference/{name}" for name in references),
     }
     for document in (skill / "SKILL.md", *(skill / "reference").glob("*.md")):
@@ -55,6 +55,9 @@ def _assert_standalone_skill(skill: Path) -> None:
         assert transfer.read_bytes() == (PLUGIN_ROOT / "scripts" / name).read_bytes()
         assert transfer.stat().st_mode & stat.S_IXUSR
         ast.parse(transfer.read_text(), feature_version=(3, 10))
+    provenance = skill / "scripts" / "decision_provenance.py"
+    assert provenance.read_bytes() == (PLUGIN_ROOT / "scripts" / provenance.name).read_bytes()
+    ast.parse(provenance.read_text(), feature_version=(3, 10))
 
 
 def test_cli_exports_three_complete_skills_without_mutating_source(tmp_path):
@@ -103,6 +106,11 @@ def test_each_skill_can_relocate_alone_and_run_helper_outside_bundle(exporter, t
         assert (result.returncode, result.stdout, result.stderr) == (
             baseline.returncode, baseline.stdout, baseline.stderr,
         )
+        provenance = subprocess.run(
+            [sys.executable, str(skill / "scripts" / "decision_provenance.py"), "--help"],
+            cwd=repository, capture_output=True, text=True, check=False, timeout=5,
+        )
+        assert provenance.returncode == 0 and "--decision" in provenance.stdout
     assert not list(original.iterdir())
     assert not list(repository.iterdir())
 

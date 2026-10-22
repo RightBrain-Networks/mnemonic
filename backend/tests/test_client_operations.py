@@ -1089,7 +1089,7 @@ def test_gate_response_replay_regenerates_computed_fields_and_refuses_tampering(
 
 def test_registry_is_closed_and_non_capability_bearing():
     assert tuple(OPERATION_REGISTRY) == REGISTERED_OPERATION_KINDS
-    assert len(OPERATION_REGISTRY) == 22
+    assert len(OPERATION_REGISTRY) == 24
     assert {
         spec.request_model.__name__ for spec in OPERATION_REGISTRY.values()
     } == {
@@ -1111,6 +1111,8 @@ def test_registry_is_closed_and_non_capability_bearing():
         "JobCompletionReportFollowUpCreate",
         "WorkFollowUpResponseCreate",
         "CodeReviewCompletionCreate",
+        "ImpactDispositionCreate",
+        "CommitReconcileCreate",
         "DomainCreate",
         "DomainRename",
         "DecisionPut",

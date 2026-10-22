@@ -2741,3 +2741,38 @@ html[data-theme="dark"] :is(.status-deadlocked, .operational-badge.deadlocked, .
 html[data-theme="dark"] :is(.operational-badge.planning-cycle, .dependency-cycle-notice.planning-cycle) {
   color: var(--dark-warning-text); background: var(--dark-warning-bg); border-color: var(--dark-warning-line);
 }
+
+/* Decision dependencies, impact evidence, and immutable assessments. */
+.knowledge-commit-lookup { border:1px solid var(--line); border-radius:12px; padding:16px 20px; margin:12px 0 20px; }
+.knowledge-commit-lookup > summary { cursor:pointer; font-weight:600; }
+.knowledge-commit-lookup .form-stack { max-width:720px; margin:14px 0; }
+.decision-preview-tabs { overflow-x:auto; flex-shrink:0; }
+.decision-preview-tabs .filter-button { white-space:nowrap; }
+.decision-scope-evidence { display:flex; flex-direction:column; gap:7px; min-width:0; }
+.decision-dependencies { margin:24px 0; }
+.impact-coverage { padding:16px; background:var(--paper); border:1px solid var(--line); border-radius:10px; margin:16px 0; font-size:13px; }
+.impact-coverage p { margin:8px 0 0; line-height:1.6; }
+.impact-candidates { list-style:none; margin:16px 0; padding:0; display:flex; flex-direction:column; gap:16px; }
+.impact-candidates > li { border:1px solid var(--line); border-radius:12px; padding:18px; min-width:0; }
+.impact-candidates p { line-height:1.6; overflow-wrap:anywhere; }
+.impact-candidate-heading { display:flex; flex-wrap:wrap; gap:12px; align-items:center; margin-bottom:10px; }
+.impact-candidate-heading > span:last-child { font-size:12px; color:var(--muted); }
+.impact-path { display:flex; flex-wrap:wrap; gap:8px; padding:0; list-style:none; margin:12px 0; }
+.impact-path li + li::before { content:"→"; margin-right:8px; }
+.impact-rationale { border-left:3px solid var(--line); padding-left:12px; }
+.impact-scope-list { padding-left:18px; display:flex; flex-direction:column; gap:14px; }
+.impact-candidates details { margin:14px 0; }
+.impact-candidates summary, .impact-assessment summary { cursor:pointer; }
+.impact-assessment > h3 { overflow-wrap:anywhere; }
+.impact-diff { margin:18px 0; }
+.impact-diff pre { overflow:auto; max-height:340px; background:var(--paper); border:1px solid var(--line); border-radius:8px; padding:14px; font-size:12px; line-height:1.6; }
+.impact-diff dl { font-size:12px; }
+.impact-diff dd { margin:4px 0 12px; }
+.impact-disposition { border-left:3px solid var(--accent); padding:12px 14px; margin:16px 0; background:var(--paper); }
+.impact-disposition > span { display:block; font-size:12px; color:var(--muted); margin-top:8px; }
+.impact-disposition-form fieldset { border:1px solid var(--line); border-radius:8px; padding:14px; display:flex; flex-direction:column; gap:12px; }
+.provenance-citation-row { display:grid; grid-template-columns:minmax(0,1fr) 100px auto; gap:8px; align-items:end; }
+.provenance-commit-row { display:flex; flex-direction:column; gap:8px; border:1px solid var(--line); padding:12px; border-radius:8px; }
+.decision-provenance-editor { display:flex; flex-direction:column; gap:12px; border-top:1px solid var(--line); margin-top:14px; padding-top:14px; }
+.job-decision-provenance { border:1px solid var(--line); border-radius:8px; padding:14px; margin:16px 0; }
+@media (max-width:640px) { .impact-candidates > li { padding:12px; } .provenance-citation-row { grid-template-columns:minmax(0,1fr) 75px; } .provenance-citation-row > button { grid-column:1/-1; justify-self:start; } }

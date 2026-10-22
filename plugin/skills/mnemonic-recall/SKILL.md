@@ -1,9 +1,16 @@
 ---
 name: mnemonic-recall
-description: Retrieve or safely continue saved Mnemonic work through MCP - recall bounded context, claim before authorized execution, recover a lost lease token, renew and release the expiring lease, read unresolved and answered human questions with their drift flags, ask a person mid-execution, record progress, and complete. Use when the user selects or resumes saved work, or when a claim or recall reports the item is waiting on human input; recall, a claim, or an answered question never grants execution authority.
+description: Retrieve or safely continue saved Mnemonic work, inspect governing decision revisions and impact reviews, claim authorized execution, recover or renew a lease, read human questions, record progress and decision provenance, and complete. Use when the user selects or resumes saved work or a decision impact review. Recall, a claim, or an answered question never grants execution authority.
 ---
 
 # Recall Mnemonic work
+
+When authorized work uses knowledge decisions or resumes an impact assessment,
+read [knowledge-graph.md](${CLAUDE_PLUGIN_ROOT}/reference/knowledge-graph.md).
+Retain the exact revisions that actually informed the implementation, inspect
+declared dependencies, and record resulting commits at closeout. Reading a
+decision is not itself evidence that the code depends on it. During cold review,
+defer contextual decision reads until independent findings are frozen.
 
 For a local artifact upload, replacement, or download, read the short
 [transfer procedure](${CLAUDE_PLUGIN_ROOT}/reference/artifact-transfers.md) first.

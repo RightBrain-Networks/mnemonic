@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from uuid import UUID
 
 from sqlalchemy import func, or_, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, object_session
 
 from mnemonic_api.errors import ApplicationError, conflict, not_found
 from mnemonic_api.knowledge_schemas import (
@@ -28,13 +28,21 @@ from mnemonic_api.knowledge_schemas import (
 from mnemonic_api.models import (
     Artifact,
     DecisionArtifactLink,
+    DecisionCommitMapping,
     DecisionDocument,
+    DecisionImpactDisposition,
     DecisionRelationship,
     DecisionRevision,
     DecisionScope,
     DecisionWorkLink,
     KnowledgeDomain,
     WorkItem,
+)
+from mnemonic_api.services.decision_dependencies import (
+    add_pinned_links,
+    pinned_links,
+    same_annotations,
+    superseded_ids,
 )
 from mnemonic_api.services.work_items import require_project, require_work_item
 
@@ -297,6 +305,7 @@ def decision_read(
             "related_work_item_ids": work_ids,
             "related_artifact_ids": artifact_ids,
             "scope_count": scope_count,
+            **pinned_links(database, revision),
         }
     )
 
@@ -409,7 +418,8 @@ def _metadata_matches(
         and set(current.related_decision_ids) == set(payload.related_decision_ids)
         and set(current.related_work_item_ids) == set(payload.related_work_item_ids)
         and set(current.related_artifact_ids) == set(payload.related_artifact_ids)
-        and set(current.supersedes) == set(payload.supersedes)
+        and set(current.supersedes) == set(superseded_ids(payload))
+        and same_annotations(current, payload)
     )
 
 
@@ -505,7 +515,7 @@ def _add_decision_links(
 ) -> None:
     for kind, references in (
         ("related", payload.related_decision_ids),
-        ("supersedes", payload.supersedes),
+        ("supersedes", superseded_ids(payload)),
     ):
         targets = [
             require_document(database, document.project_id, reference)[0]
@@ -592,6 +602,10 @@ def put_decision(
     _add_decision_links(database, document, revision, payload)
     _add_resource_links(database, document, revision, payload)
     database.flush()
+    add_pinned_links(database, document, revision, payload)
+    database.flush()
+    from mnemonic_api.services.decision_impact import create_assessments
+    create_assessments(database, document, revision, payload)
     return DecisionPutResult(
         decision=decision_read(database, document, revision, domain), created=True
     )
@@ -602,6 +616,12 @@ def scope_read(
     document: DecisionDocument,
     domain: KnowledgeDomain,
 ) -> DecisionScopeRead:
+    database = object_session(scope)
+    merged = [] if database is None else list(database.scalars(
+        select(DecisionCommitMapping.merged_commit_hash)
+        .where(DecisionCommitMapping.scope_id == scope.id)
+        .order_by(DecisionCommitMapping.merged_commit_hash)
+    ))
     return DecisionScopeRead(
         id=scope.id,
         project_id=scope.project_id,
@@ -609,6 +629,9 @@ def scope_read(
         decision_id=decision_identifier(domain, document),
         revision=scope.revision,
         commit_hash=scope.commit_hash,
+        repository=scope.repository,
+        completion_report_id=scope.completion_report_id,
+        merged_commit_hashes=merged,
         work_item_id=scope.work_item_id,
         agent_session_id=scope.agent_session_id,
         created_at=scope.created_at,
@@ -621,6 +644,7 @@ def append_scope(
     document: DecisionDocument,
     domain: KnowledgeDomain,
     payload: DecisionScopeRequest,
+    *, completion_report_id: UUID | None = None,
 ) -> DecisionScopeResult:
     require_revision(database, document, payload.revision)
     if payload.work_item_id is not None:
@@ -632,6 +656,8 @@ def append_scope(
             DecisionScope.commit_hash == payload.commit_hash,
             DecisionScope.work_item_id == payload.work_item_id,
             DecisionScope.agent_session_id == payload.agent_session_id,
+            DecisionScope.repository == payload.repository,
+            DecisionScope.completion_report_id == completion_report_id,
         )
     )
     if existing is not None:
@@ -641,6 +667,8 @@ def append_scope(
         document_id=document.id,
         revision=payload.revision,
         commit_hash=payload.commit_hash,
+        repository=payload.repository,
+        completion_report_id=completion_report_id,
         work_item_id=payload.work_item_id,
         agent_session_id=payload.agent_session_id,
     )
@@ -690,6 +718,12 @@ def require_no_knowledge_links(database: Session, work_item: WorkItem) -> None:
         select(DecisionScope.work_item_id)
         .where(
             DecisionScope.work_item_id == work_item.id,
+        )
+        .limit(1)
+    ) or database.scalar(
+        select(DecisionImpactDisposition.remediation_work_item_id)
+        .where(
+            DecisionImpactDisposition.remediation_work_item_id == work_item.id,
         )
         .limit(1)
     )

@@ -68,6 +68,8 @@ _AUDIT_VISIBLE_DAMAGE = (
 _GUARDED_TABLES = (
     "knowledge_domains", "decision_documents", "decision_revisions", "decision_relationships",
     "decision_work_item_links", "decision_artifact_links", "decision_scopes",
+    "decision_dependencies", "decision_supersession_details", "decision_impact_assessments",
+    "decision_impact_dispositions", "decision_commit_mappings",
     "artifacts", "artifact_revisions", "artifact_audit",
     "artifact_access_approvals", "artifact_links",
     "artifact_work_links", "artifact_operations", "artifact_extractions",
@@ -302,6 +304,10 @@ def _seed_knowledge(api: TestClient, engine: Engine, project_id: UUID) -> None:
     replacement = api.put(collection + "/decisions", json={
         **body, "title": "Updated storage policy", "content": "Retain all revision history.",
         "related_decision_ids": [original_id], "supersedes": [original_id],
+        "depends_on": [{"decision_id": original_id, "revision": 0,
+                        "rationale": "Keep the original retention guarantee"}],
+        "supersession_details": [{"decision_id": original_id, "revision": 0,
+                                  "extent": "partial", "reason": "Replace storage location only"}],
         "related_work_item_ids": [str(work_id)], "related_artifact_ids": [str(artifact_id)],
         "client_operation_id": str(uuid4()),
     })
@@ -309,9 +315,30 @@ def _seed_knowledge(api: TestClient, engine: Engine, project_id: UUID) -> None:
     replacement_id = replacement.json()["decision"]["decision_id"]
     scope = api.post(collection + f"/decisions/{replacement_id}/scope", json={
         "revision": 0, "commit_hash": "a" * 40, "work_item_id": str(work_id),
+        "repository": "github.com/example/schema-reset",
         "agent_session_id": "schema-reset", "client_operation_id": str(uuid4()),
     })
     assert scope.status_code == 200, scope.text
+    _seed_knowledge_follow_up(api, collection, original_id)
+
+
+def _seed_knowledge_follow_up(api: TestClient, collection: str, original_id: str) -> None:
+    """Exercise append-only assessment history and original-to-merged commit mappings."""
+    assessments = api.get(collection + "/assessments")
+    assert assessments.status_code == 200, assessments.text
+    episode = assessments.json()["items"][0]
+    disposition = api.post(collection + f"/assessments/{episode['id']}/dispositions", json={
+        "candidate_reference": original_id + "-0", "expected_version": 0,
+        "disposition": "still-valid", "reason": "The retention guarantee remains unchanged",
+        "actor": {"actor_client": "dashboard", "actor_session_id": "schema-reset"},
+        "client_operation_id": str(uuid4()),
+    })
+    assert disposition.status_code == 201, disposition.text
+    mapping = api.post(collection + "/commits/reconcile", json={
+        "repository": "github.com/example/schema-reset", "original_commit_hash": "a" * 40,
+        "merged_commit_hash": "b" * 40, "client_operation_id": str(uuid4()),
+    })
+    assert mapping.status_code == 200, mapping.text
 
 
 def test_reset_of_an_intact_schema_never_replays_the_migration_chain(

@@ -26,6 +26,7 @@ from mnemonic_api.application.browser_policy.transport import (
     trusted_request,
 )
 from mnemonic_api.application.browser_policy.values import JsonObject, checkpoint, uuid
+from mnemonic_api.impact_schemas import ImpactDispositionCreate
 from mnemonic_api.knowledge_schemas import DomainCreate, DomainRename
 
 __all__ = [
@@ -105,6 +106,13 @@ def _control_error(name: str | None, method: str, body: JsonObject) -> str | Non
 
 
 def _special_error(name: str | None, path: str, method: str, body: JsonObject) -> str | None:
+    if name == "knowledge_dispositions":
+        try:
+            parsed = ImpactDispositionCreate.model_validate(body)
+            if parsed.actor.actor_client != "dashboard" or parsed.actor.actor_model is not None:
+                return "Dashboard reassessment must use the current human session."
+        except ValueError:
+            return "Provide a candidate, current assessment version, disposition, reason and actor."
     if name in {"knowledge_domains", "knowledge_domain"}:
         model = DomainCreate if name == "knowledge_domains" else DomainRename
         try:
