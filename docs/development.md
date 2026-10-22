@@ -951,7 +951,7 @@ uv run --project mcp python scripts/check-stack.py
 ```
 
 Read-only mode verifies REST/MCP health, authentication, the exact 67-tool
-catalog, the exact seventeen protected schemas and annotations, the absence of an MCP
+catalog, the exact twenty-one protected schemas and annotations, the absence of an MCP
 resolution tool, REST-backed project listing, the dashboard proxy's host/origin
 boundary, server-side key isolation, settings/activity/report read contracts, and the
 shipped WOFF2 font assets. It does

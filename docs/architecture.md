@@ -368,7 +368,7 @@ routes. `routes/` has one module per concept: `projects`, `work_search`,
 `human_gates`, `completion_evidence`, `leases`, `duplicates`,
 `dashboard_sync`, and `health`.
 
-The MCP service is a typed HTTP adapter. Its seventeen protected mutation tools
+The MCP service is a typed HTTP adapter. Its twenty-one protected mutation tools
 require the caller to prepare and retain one operation UUID plus the complete
 arguments; the adapter sends only one HTTP attempt. Its other tools use work,
 checkpoint, lease, relationship, human-gate, evidence, and duplicate terminology. Its exact

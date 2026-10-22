@@ -137,6 +137,19 @@ def _contribution(value, intent: QueryIntent):
     return or_(condition, *(_phrase(value, phrase) for phrase in intent.phrases))
 
 
+def _boundary_contribution(metadata, intent: QueryIntent):
+    query = intent.unquoted if intent.phrases else intent.text
+    if intent.mode == "literal" or not query.strip():
+        return false()
+    # Plain terms also match a substring of metadata + " " + content. Keep
+    # less than one query's width from each side so this evidence can only
+    # describe a match spanning the boundary, never an unrelated whole field.
+    width = len(query) - 1
+    boundary = func.concat_ws(" ", func.right(metadata, width),
+                              func.left(DecisionRevision.content, width))
+    return boundary.icontains(query, autoescape=True)
+
+
 def _snippet(content: str, request: SearchRequest) -> str | None:
     intent = parse_query(request.q, request.query_mode)
     analyze = analyzer().analyze
@@ -170,12 +183,16 @@ def decision_source(
     intent = parse_query(request.q, request.query_mode)
     metadata = _metadata()
     columns = [metadata, DecisionRevision.content] if request.fulltext else [metadata]
-    content_match = _contribution(DecisionRevision.content, intent) if request.fulltext else false()
+    boundary_match = _boundary_contribution(metadata, intent) if request.fulltext else false()
+    metadata_match = or_(_contribution(metadata, intent), boundary_match)
+    content_match = (or_(_contribution(DecisionRevision.content, intent), boundary_match)
+                     if request.fulltext else false())
     query = _columns(database).filter(*clauses, _condition(columns, intent))
     rows = query.with_entities(
         DecisionRevision.id, DecisionRevision.project_id,
         DecisionDocument.created_at, DecisionRevision.created_at,
-        _scores(columns, intent), _contribution(metadata, intent), content_match,
+        _scores(columns, intent), metadata_match.label("metadata_match"),
+        content_match.label("content_match"),
     ).all()
     matches = {row[0]: (float(row[4]), row[5], row[6]) for row in rows}
     candidates = [SearchCandidate(facet="decisions", id=row[0], project_id=row[1],

@@ -1,5 +1,24 @@
 # Mnemonic validation record
 
+## Decision search response validation (0.85.1)
+
+Production smoke checks exposed a mismatch between PostgreSQL decision matching
+and the MCP adapter's expected response disclosure. Nonblank default and
+decision-only searches could fail response validation even with no results.
+The adapter now validates the backend's decision matching modes. Decision search
+also attributes substring matches that span metadata and content to both fields.
+Migration remains `0053_knowledge_graph`; plugin and tool catalogs are unchanged.
+
+Regression coverage replays 24 actual FastAPI/PostgreSQL response envelopes,
+including default and decision-only facets, metadata/fulltext, and blank, term,
+quoted, phrase, and literal queries. Wrong matching modes are still rejected.
+The captured response that failed against 0.85.0 passes against the corrected
+adapter. An independent 96-case backend/MCP disclosure comparison also passed.
+All 22 targeted PostgreSQL decision-search cases passed, including boundary
+evidence, unrelated fields, case folding, blank queries, and literal/phrase scope.
+OpenAPI release validation, the four Node 24 release/freshness checks, and Python
+lint/type checks passed.
+
 ## Knowledge graph (0.85.0)
 
 The [knowledge graph](knowledge-graph.md) adds named domains, permanent UTF-8

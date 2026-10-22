@@ -1,0 +1,3990 @@
+{
+  "provenance": {
+    "source": "Actual FastAPI TestClient response.json() via backend api fixture",
+    "database": "Isolated PostgreSQL test service at 127.0.0.1:55432; disposable schema",
+    "route": "POST /api/v1/projects/{project_id}/search",
+    "project": "Empty Example project created through POST /api/v1/projects",
+    "normalization": "Only random project UUID replaced with MCP conftest PROJECT_ID",
+    "source_sha256": {
+      "src/mnemonic_api/search_schemas.py": "fcc991650c947bacd0aaa49879de1353c9f38265a180296e41ddb417f65224e4",
+      "src/mnemonic_api/search_query.py": "628aa8e1fc14df2c3f361a312fb864a88bf85c170a2742e2e51a179cf2209461",
+      "src/mnemonic_api/search_disclosure.py": "313d9a26f98764089a40ec8b1fe2b6e53cca97b98abe8d8a7a7556954bf350b6",
+      "src/mnemonic_api/services/search_decisions.py": "118eb6bae574a87e908d80846b610d2558ec917cbd8a32cff7073160dbd7589d",
+      "src/mnemonic_api/decision_search_schemas.py": "957b07f81ca6cad269c3f04221233798dafc0e2d43abedbb63df4d72d85b677a"
+    }
+  },
+  "cases": [
+    {
+      "name": "default_metadata_blank_terms",
+      "request": {
+        "project_id": "ca501b3f-860b-4f88-bca8-2f22a06359ab",
+        "q": "",
+        "query_mode": "terms",
+        "fulltext": false
+      },
+      "response": {
+        "next_offset": null,
+        "page_truncated": false,
+        "diagnostics": "on_empty",
+        "applied_filters": {
+          "decisions": {
+            "domain_ids": null,
+            "all_revisions": false,
+            "state": null
+          },
+          "project_id": "ca501b3f-860b-4f88-bca8-2f22a06359ab",
+          "project_ids": null,
+          "work_items": {
+            "work_fields": [
+              "title",
+              "summary",
+              "tags",
+              "checkpoint",
+              "identifiers",
+              "provenance"
+            ],
+            "status": "all",
+            "tag": null,
+            "source_client": null,
+            "source_session_id": null,
+            "external_url": null,
+            "duplicate_scope": "canonical",
+            "canonical_work_item_id": null,
+            "view": "full"
+          },
+          "artifacts": {
+            "artifact_id": null,
+            "work_item_id": null,
+            "include_deleted": false,
+            "sensitive": null,
+            "mime_type": null,
+            "created_by_agent_session_id": null
+          },
+          "transcripts": {
+            "content_kinds": null,
+            "work_item_id": null,
+            "agent_session_id": null,
+            "client": null,
+            "kind": null,
+            "status": null
+          }
+        },
+        "query_interpretation": {
+          "decisions": {
+            "match_mode": "browse",
+            "fields": [
+              "metadata"
+            ],
+            "fulltext": false
+          },
+          "query_mode": "terms",
+          "q": "",
+          "work_items": {
+            "match_mode": "browse",
+            "fields": [
+              "title",
+              "summary",
+              "tags",
+              "checkpoint",
+              "identifiers",
+              "provenance"
+            ],
+            "fulltext": null
+          },
+          "artifacts": {
+            "match_mode": "browse",
+            "fields": [
+              "metadata"
+            ],
+            "fulltext": false
+          },
+          "transcripts": {
+            "match_mode": "browse",
+            "fields": [
+              "metadata"
+            ],
+            "fulltext": false
+          }
+        },
+        "warnings": [],
+        "project_coverage": [
+          {
+            "project_id": "ca501b3f-860b-4f88-bca8-2f22a06359ab",
+            "project_name": "Example",
+            "project_slug": "example",
+            "facet_totals": {
+              "decisions": 0,
+              "work_items": 0,
+              "artifacts": 0,
+              "transcripts": 0
+            },
+            "coverage": {
+              "artifacts": {
+                "embedding": null,
+                "enabled": true,
+                "indexing": {
+                  "pending": 0,
+                  "failed": 0,
+                  "ready": 0,
+                  "truncated": 0
+                },
+                "sensitive_content_withheld": 0
+              },
+              "transcripts": {
+                "indexing_incomplete": false,
+                "unsegmented_content_omitted": 0
+              }
+            },
+            "indexing_incomplete": false
+          }
+        ],
+        "score_type": "none",
+        "total_kind": "browsed_records",
+        "facet_total_kinds": {
+          "decisions": "browsed_records",
+          "work_items": "browsed_records",
+          "artifacts": "browsed_records",
+          "transcripts": "browsed_records"
+        },
+        "facet_score_types": {
+          "decisions": "none",
+          "work_items": "none",
+          "artifacts": "none",
+          "transcripts": "none"
+        },
+        "detail": "compact",
+        "work_rank_scope": "work_items",
+        "tag_counts": null,
+        "search_scope": {
+          "searched_facets": [
+            "work_items",
+            "artifacts",
+            "transcripts",
+            "decisions"
+          ],
+          "transcripts": "searched",
+          "transcript_search_hint": "Agent sessions can be searched by explicitly including \"transcripts\" in facets or calling search_transcript_contents."
+        },
+        "term_diagnostics": [],
+        "items": [],
+        "total": 0,
+        "limit": 20,
+        "offset": 0,
+        "facet_totals": {
+          "decisions": 0,
+          "work_items": 0,
+          "artifacts": 0,
+          "transcripts": 0
+        },
+        "coverage": {
+          "artifacts": {
+            "embedding": null,
+            "enabled": true,
+            "indexing": {
+              "pending": 0,
+              "failed": 0,
+              "ready": 0,
+              "truncated": 0
+            },
+            "sensitive_content_withheld": 0
+          },
+          "transcripts": {
+            "indexing_incomplete": false,
+            "unsegmented_content_omitted": 0
+          }
+        },
+        "indexing_incomplete": false
+      }
+    },
+    {
+      "name": "default_metadata_single_terms",
+      "request": {
+        "project_id": "ca501b3f-860b-4f88-bca8-2f22a06359ab",
+        "q": "queues",
+        "query_mode": "terms",
+        "fulltext": false
+      },
+      "response": {
+        "next_offset": null,
+        "page_truncated": false,
+        "diagnostics": "on_empty",
+        "applied_filters": {
+          "decisions": {
+            "domain_ids": null,
+            "all_revisions": false,
+            "state": null
+          },
+          "project_id": "ca501b3f-860b-4f88-bca8-2f22a06359ab",
+          "project_ids": null,
+          "work_items": {
+            "work_fields": [
+              "title",
+              "summary",
+              "tags",
+              "checkpoint",
+              "identifiers",
+              "provenance"
+            ],
+            "status": "all",
+            "tag": null,
+            "source_client": null,
+            "source_session_id": null,
+            "external_url": null,
+            "duplicate_scope": "canonical",
+            "canonical_work_item_id": null,
+            "view": "full"
+          },
+          "artifacts": {
+            "artifact_id": null,
+            "work_item_id": null,
+            "include_deleted": false,
+            "sensitive": null,
+            "mime_type": null,
+            "created_by_agent_session_id": null
+          },
+          "transcripts": {
+            "content_kinds": null,
+            "work_item_id": null,
+            "agent_session_id": null,
+            "client": null,
+            "kind": null,
+            "status": null
+          }
+        },
+        "query_interpretation": {
+          "decisions": {
+            "match_mode": "postgresql_plain_terms_or_substring",
+            "fields": [
+              "metadata"
+            ],
+            "fulltext": false
+          },
+          "query_mode": "terms",
+          "q": "queues",
+          "work_items": {
+            "match_mode": "postgresql_plain_terms_or_substring",
+            "fields": [
+              "title",
+              "summary",
+              "tags",
+              "checkpoint",
+              "identifiers",
+              "provenance"
+            ],
+            "fulltext": null
+          },
+          "artifacts": {
+            "match_mode": "all_terms",
+            "fields": [
+              "metadata"
+            ],
+            "fulltext": false
+          },
+          "transcripts": {
+            "match_mode": "all_terms",
+            "fields": [
+              "metadata"
+            ],
+            "fulltext": false
+          }
+        },
+        "warnings": [],
+        "project_coverage": [
+          {
+            "project_id": "ca501b3f-860b-4f88-bca8-2f22a06359ab",
+            "project_name": "Example",
+            "project_slug": "example",
+            "facet_totals": {
+              "decisions": 0,
+              "work_items": 0,
+              "artifacts": 0,
+              "transcripts": 0
+            },
+            "coverage": {
+              "artifacts": {
+                "embedding": null,
+                "enabled": true,
+                "indexing": {
+                  "pending": 0,
+                  "failed": 0,
+                  "ready": 0,
+                  "truncated": 0
+                },
+                "sensitive_content_withheld": 0
+              },
+              "transcripts": {
+                "indexing_incomplete": false,
+                "unsegmented_content_omitted": 0
+              }
+            },
+            "indexing_incomplete": false
+          }
+        ],
+        "score_type": "unified_reciprocal_rank",
+        "total_kind": "lexical_matches",
+        "facet_total_kinds": {
+          "decisions": "lexical_matches",
+          "work_items": "lexical_matches",
+          "artifacts": "lexical_matches",
+          "transcripts": "lexical_matches"
+        },
+        "facet_score_types": {
+          "decisions": "postgresql_lexical",
+          "work_items": "postgresql_lexical",
+          "artifacts": "tantivy_relevance",
+          "transcripts": "tantivy_relevance"
+        },
+        "detail": "compact",
+        "work_rank_scope": "work_items",
+        "tag_counts": null,
+        "search_scope": {
+          "searched_facets": [
+            "work_items",
+            "artifacts",
+            "transcripts",
+            "decisions"
+          ],
+          "transcripts": "searched",
+          "transcript_search_hint": "Agent sessions can be searched by explicitly including \"transcripts\" in facets or calling search_transcript_contents."
+        },
+        "term_diagnostics": [
+          {
+            "term": "queues",
+            "matches": {
+              "decisions": 0,
+              "work_items": 0,
+              "artifacts": 0,
+              "transcripts": 0
+            }
+          }
+        ],
+        "items": [],
+        "total": 0,
+        "limit": 20,
+        "offset": 0,
+        "facet_totals": {
+          "decisions": 0,
+          "work_items": 0,
+          "artifacts": 0,
+          "transcripts": 0
+        },
+        "coverage": {
+          "artifacts": {
+            "embedding": null,
+            "enabled": true,
+            "indexing": {
+              "pending": 0,
+              "failed": 0,
+              "ready": 0,
+              "truncated": 0
+            },
+            "sensitive_content_withheld": 0
+          },
+          "transcripts": {
+            "indexing_incomplete": false,
+            "unsegmented_content_omitted": 0
+          }
+        },
+        "indexing_incomplete": false
+      }
+    },
+    {
+      "name": "default_metadata_multi_terms",
+      "request": {
+        "project_id": "ca501b3f-860b-4f88-bca8-2f22a06359ab",
+        "q": "durable queues",
+        "query_mode": "terms",
+        "fulltext": false
+      },
+      "response": {
+        "next_offset": null,
+        "page_truncated": false,
+        "diagnostics": "on_empty",
+        "applied_filters": {
+          "decisions": {
+            "domain_ids": null,
+            "all_revisions": false,
+            "state": null
+          },
+          "project_id": "ca501b3f-860b-4f88-bca8-2f22a06359ab",
+          "project_ids": null,
+          "work_items": {
+            "work_fields": [
+              "title",
+              "summary",
+              "tags",
+              "checkpoint",
+              "identifiers",
+              "provenance"
+            ],
+            "status": "all",
+            "tag": null,
+            "source_client": null,
+            "source_session_id": null,
+            "external_url": null,
+            "duplicate_scope": "canonical",
+            "canonical_work_item_id": null,
+            "view": "full"
+          },
+          "artifacts": {
+            "artifact_id": null,
+            "work_item_id": null,
+            "include_deleted": false,
+            "sensitive": null,
+            "mime_type": null,
+            "created_by_agent_session_id": null
+          },
+          "transcripts": null
+        },
+        "query_interpretation": {
+          "decisions": {
+            "match_mode": "postgresql_plain_terms_or_substring",
+            "fields": [
+              "metadata"
+            ],
+            "fulltext": false
+          },
+          "query_mode": "terms",
+          "q": "durable queues",
+          "work_items": {
+            "match_mode": "postgresql_plain_terms_or_substring",
+            "fields": [
+              "title",
+              "summary",
+              "tags",
+              "checkpoint",
+              "identifiers",
+              "provenance"
+            ],
+            "fulltext": null
+          },
+          "artifacts": {
+            "match_mode": "all_terms",
+            "fields": [
+              "metadata"
+            ],
+            "fulltext": false
+          },
+          "transcripts": null
+        },
+        "warnings": [],
+        "project_coverage": [
+          {
+            "project_id": "ca501b3f-860b-4f88-bca8-2f22a06359ab",
+            "project_name": "Example",
+            "project_slug": "example",
+            "facet_totals": {
+              "decisions": 0,
+              "work_items": 0,
+              "artifacts": 0,
+              "transcripts": 0
+            },
+            "coverage": {
+              "artifacts": {
+                "embedding": null,
+                "enabled": true,
+                "indexing": {
+                  "pending": 0,
+                  "failed": 0,
+                  "ready": 0,
+                  "truncated": 0
+                },
+                "sensitive_content_withheld": 0
+              },
+              "transcripts": {
+                "indexing_incomplete": false,
+                "unsegmented_content_omitted": 0
+              }
+            },
+            "indexing_incomplete": false
+          }
+        ],
+        "score_type": "unified_reciprocal_rank",
+        "total_kind": "lexical_matches",
+        "facet_total_kinds": {
+          "decisions": "lexical_matches",
+          "work_items": "lexical_matches",
+          "artifacts": "lexical_matches",
+          "transcripts": null
+        },
+        "facet_score_types": {
+          "decisions": "postgresql_lexical",
+          "work_items": "postgresql_lexical",
+          "artifacts": "tantivy_relevance",
+          "transcripts": null
+        },
+        "detail": "compact",
+        "work_rank_scope": "work_items",
+        "tag_counts": null,
+        "search_scope": {
+          "searched_facets": [
+            "work_items",
+            "artifacts",
+            "decisions"
+          ],
+          "transcripts": "omitted_by_default",
+          "transcript_search_hint": "Agent sessions can be searched by explicitly including \"transcripts\" in facets or calling search_transcript_contents."
+        },
+        "term_diagnostics": [
+          {
+            "term": "durable",
+            "matches": {
+              "decisions": 0,
+              "work_items": 0,
+              "artifacts": 0,
+              "transcripts": null
+            }
+          },
+          {
+            "term": "queues",
+            "matches": {
+              "decisions": 0,
+              "work_items": 0,
+              "artifacts": 0,
+              "transcripts": null
+            }
+          }
+        ],
+        "items": [],
+        "total": 0,
+        "limit": 20,
+        "offset": 0,
+        "facet_totals": {
+          "decisions": 0,
+          "work_items": 0,
+          "artifacts": 0,
+          "transcripts": 0
+        },
+        "coverage": {
+          "artifacts": {
+            "embedding": null,
+            "enabled": true,
+            "indexing": {
+              "pending": 0,
+              "failed": 0,
+              "ready": 0,
+              "truncated": 0
+            },
+            "sensitive_content_withheld": 0
+          },
+          "transcripts": {
+            "indexing_incomplete": false,
+            "unsegmented_content_omitted": 0
+          }
+        },
+        "indexing_incomplete": false
+      }
+    },
+    {
+      "name": "default_metadata_phrase",
+      "request": {
+        "project_id": "ca501b3f-860b-4f88-bca8-2f22a06359ab",
+        "q": "durable queues",
+        "query_mode": "phrase",
+        "fulltext": false
+      },
+      "response": {
+        "next_offset": null,
+        "page_truncated": false,
+        "diagnostics": "on_empty",
+        "applied_filters": {
+          "decisions": {
+            "domain_ids": null,
+            "all_revisions": false,
+            "state": null
+          },
+          "project_id": "ca501b3f-860b-4f88-bca8-2f22a06359ab",
+          "project_ids": null,
+          "work_items": {
+            "work_fields": [
+              "title",
+              "summary",
+              "tags",
+              "checkpoint",
+              "identifiers",
+              "provenance"
+            ],
+            "status": "all",
+            "tag": null,
+            "source_client": null,
+            "source_session_id": null,
+            "external_url": null,
+            "duplicate_scope": "canonical",
+            "canonical_work_item_id": null,
+            "view": "full"
+          },
+          "artifacts": {
+            "artifact_id": null,
+            "work_item_id": null,
+            "include_deleted": false,
+            "sensitive": null,
+            "mime_type": null,
+            "created_by_agent_session_id": null
+          },
+          "transcripts": null
+        },
+        "query_interpretation": {
+          "decisions": {
+            "match_mode": "postgresql_phrase_terms",
+            "fields": [
+              "metadata"
+            ],
+            "fulltext": false
+          },
+          "query_mode": "phrase",
+          "q": "durable queues",
+          "work_items": {
+            "match_mode": "postgresql_phrase_terms",
+            "fields": [
+              "title",
+              "summary",
+              "tags",
+              "checkpoint",
+              "identifiers",
+              "provenance"
+            ],
+            "fulltext": null
+          },
+          "artifacts": {
+            "match_mode": "phrase",
+            "fields": [
+              "metadata"
+            ],
+            "fulltext": false
+          },
+          "transcripts": null
+        },
+        "warnings": [],
+        "project_coverage": [
+          {
+            "project_id": "ca501b3f-860b-4f88-bca8-2f22a06359ab",
+            "project_name": "Example",
+            "project_slug": "example",
+            "facet_totals": {
+              "decisions": 0,
+              "work_items": 0,
+              "artifacts": 0,
+              "transcripts": 0
+            },
+            "coverage": {
+              "artifacts": {
+                "embedding": null,
+                "enabled": true,
+                "indexing": {
+                  "pending": 0,
+                  "failed": 0,
+                  "ready": 0,
+                  "truncated": 0
+                },
+                "sensitive_content_withheld": 0
+              },
+              "transcripts": {
+                "indexing_incomplete": false,
+                "unsegmented_content_omitted": 0
+              }
+            },
+            "indexing_incomplete": false
+          }
+        ],
+        "score_type": "unified_reciprocal_rank",
+        "total_kind": "lexical_matches",
+        "facet_total_kinds": {
+          "decisions": "lexical_matches",
+          "work_items": "lexical_matches",
+          "artifacts": "lexical_matches",
+          "transcripts": null
+        },
+        "facet_score_types": {
+          "decisions": "postgresql_lexical",
+          "work_items": "postgresql_lexical",
+          "artifacts": "tantivy_relevance",
+          "transcripts": null
+        },
+        "detail": "compact",
+        "work_rank_scope": "work_items",
+        "tag_counts": null,
+        "search_scope": {
+          "searched_facets": [
+            "work_items",
+            "artifacts",
+            "decisions"
+          ],
+          "transcripts": "omitted_by_default",
+          "transcript_search_hint": "Agent sessions can be searched by explicitly including \"transcripts\" in facets or calling search_transcript_contents."
+        },
+        "term_diagnostics": [
+          {
+            "term": "durable",
+            "matches": {
+              "decisions": 0,
+              "work_items": 0,
+              "artifacts": 0,
+              "transcripts": null
+            }
+          },
+          {
+            "term": "queues",
+            "matches": {
+              "decisions": 0,
+              "work_items": 0,
+              "artifacts": 0,
+              "transcripts": null
+            }
+          }
+        ],
+        "items": [],
+        "total": 0,
+        "limit": 20,
+        "offset": 0,
+        "facet_totals": {
+          "decisions": 0,
+          "work_items": 0,
+          "artifacts": 0,
+          "transcripts": 0
+        },
+        "coverage": {
+          "artifacts": {
+            "embedding": null,
+            "enabled": true,
+            "indexing": {
+              "pending": 0,
+              "failed": 0,
+              "ready": 0,
+              "truncated": 0
+            },
+            "sensitive_content_withheld": 0
+          },
+          "transcripts": {
+            "indexing_incomplete": false,
+            "unsegmented_content_omitted": 0
+          }
+        },
+        "indexing_incomplete": false
+      }
+    },
+    {
+      "name": "default_metadata_quoted_terms",
+      "request": {
+        "project_id": "ca501b3f-860b-4f88-bca8-2f22a06359ab",
+        "q": "\"durable queues\"",
+        "query_mode": "terms",
+        "fulltext": false
+      },
+      "response": {
+        "next_offset": null,
+        "page_truncated": false,
+        "diagnostics": "on_empty",
+        "applied_filters": {
+          "decisions": {
+            "domain_ids": null,
+            "all_revisions": false,
+            "state": null
+          },
+          "project_id": "ca501b3f-860b-4f88-bca8-2f22a06359ab",
+          "project_ids": null,
+          "work_items": {
+            "work_fields": [
+              "title",
+              "summary",
+              "tags",
+              "checkpoint",
+              "identifiers",
+              "provenance"
+            ],
+            "status": "all",
+            "tag": null,
+            "source_client": null,
+            "source_session_id": null,
+            "external_url": null,
+            "duplicate_scope": "canonical",
+            "canonical_work_item_id": null,
+            "view": "full"
+          },
+          "artifacts": {
+            "artifact_id": null,
+            "work_item_id": null,
+            "include_deleted": false,
+            "sensitive": null,
+            "mime_type": null,
+            "created_by_agent_session_id": null
+          },
+          "transcripts": null
+        },
+        "query_interpretation": {
+          "decisions": {
+            "match_mode": "postgresql_phrase_terms",
+            "fields": [
+              "metadata"
+            ],
+            "fulltext": false
+          },
+          "query_mode": "terms",
+          "q": "\"durable queues\"",
+          "work_items": {
+            "match_mode": "postgresql_phrase_terms",
+            "fields": [
+              "title",
+              "summary",
+              "tags",
+              "checkpoint",
+              "identifiers",
+              "provenance"
+            ],
+            "fulltext": null
+          },
+          "artifacts": {
+            "match_mode": "phrase",
+            "fields": [
+              "metadata"
+            ],
+            "fulltext": false
+          },
+          "transcripts": null
+        },
+        "warnings": [],
+        "project_coverage": [
+          {
+            "project_id": "ca501b3f-860b-4f88-bca8-2f22a06359ab",
+            "project_name": "Example",
+            "project_slug": "example",
+            "facet_totals": {
+              "decisions": 0,
+              "work_items": 0,
+              "artifacts": 0,
+              "transcripts": 0
+            },
+            "coverage": {
+              "artifacts": {
+                "embedding": null,
+                "enabled": true,
+                "indexing": {
+                  "pending": 0,
+                  "failed": 0,
+                  "ready": 0,
+                  "truncated": 0
+                },
+                "sensitive_content_withheld": 0
+              },
+              "transcripts": {
+                "indexing_incomplete": false,
+                "unsegmented_content_omitted": 0
+              }
+            },
+            "indexing_incomplete": false
+          }
+        ],
+        "score_type": "unified_reciprocal_rank",
+        "total_kind": "lexical_matches",
+        "facet_total_kinds": {
+          "decisions": "lexical_matches",
+          "work_items": "lexical_matches",
+          "artifacts": "lexical_matches",
+          "transcripts": null
+        },
+        "facet_score_types": {
+          "decisions": "postgresql_lexical",
+          "work_items": "postgresql_lexical",
+          "artifacts": "tantivy_relevance",
+          "transcripts": null
+        },
+        "detail": "compact",
+        "work_rank_scope": "work_items",
+        "tag_counts": null,
+        "search_scope": {
+          "searched_facets": [
+            "work_items",
+            "artifacts",
+            "decisions"
+          ],
+          "transcripts": "omitted_by_default",
+          "transcript_search_hint": "Agent sessions can be searched by explicitly including \"transcripts\" in facets or calling search_transcript_contents."
+        },
+        "term_diagnostics": [
+          {
+            "term": "durable",
+            "matches": {
+              "decisions": 0,
+              "work_items": 0,
+              "artifacts": 0,
+              "transcripts": null
+            }
+          },
+          {
+            "term": "queues",
+            "matches": {
+              "decisions": 0,
+              "work_items": 0,
+              "artifacts": 0,
+              "transcripts": null
+            }
+          }
+        ],
+        "items": [],
+        "total": 0,
+        "limit": 20,
+        "offset": 0,
+        "facet_totals": {
+          "decisions": 0,
+          "work_items": 0,
+          "artifacts": 0,
+          "transcripts": 0
+        },
+        "coverage": {
+          "artifacts": {
+            "embedding": null,
+            "enabled": true,
+            "indexing": {
+              "pending": 0,
+              "failed": 0,
+              "ready": 0,
+              "truncated": 0
+            },
+            "sensitive_content_withheld": 0
+          },
+          "transcripts": {
+            "indexing_incomplete": false,
+            "unsegmented_content_omitted": 0
+          }
+        },
+        "indexing_incomplete": false
+      }
+    },
+    {
+      "name": "default_metadata_literal",
+      "request": {
+        "project_id": "ca501b3f-860b-4f88-bca8-2f22a06359ab",
+        "q": "durable queues",
+        "query_mode": "literal",
+        "fulltext": false
+      },
+      "response": {
+        "next_offset": null,
+        "page_truncated": false,
+        "diagnostics": "on_empty",
+        "applied_filters": {
+          "decisions": {
+            "domain_ids": null,
+            "all_revisions": false,
+            "state": null
+          },
+          "project_id": "ca501b3f-860b-4f88-bca8-2f22a06359ab",
+          "project_ids": null,
+          "work_items": {
+            "work_fields": [
+              "title",
+              "summary",
+              "tags",
+              "checkpoint",
+              "identifiers",
+              "provenance"
+            ],
+            "status": "all",
+            "tag": null,
+            "source_client": null,
+            "source_session_id": null,
+            "external_url": null,
+            "duplicate_scope": "canonical",
+            "canonical_work_item_id": null,
+            "view": "full"
+          },
+          "artifacts": {
+            "artifact_id": null,
+            "work_item_id": null,
+            "include_deleted": false,
+            "sensitive": null,
+            "mime_type": null,
+            "created_by_agent_session_id": null
+          },
+          "transcripts": null
+        },
+        "query_interpretation": {
+          "decisions": {
+            "match_mode": "literal",
+            "fields": [
+              "metadata"
+            ],
+            "fulltext": false
+          },
+          "query_mode": "literal",
+          "q": "durable queues",
+          "work_items": {
+            "match_mode": "literal",
+            "fields": [
+              "title",
+              "summary",
+              "tags",
+              "checkpoint",
+              "identifiers",
+              "provenance"
+            ],
+            "fulltext": null
+          },
+          "artifacts": {
+            "match_mode": "literal",
+            "fields": [
+              "metadata"
+            ],
+            "fulltext": false
+          },
+          "transcripts": null
+        },
+        "warnings": [],
+        "project_coverage": [
+          {
+            "project_id": "ca501b3f-860b-4f88-bca8-2f22a06359ab",
+            "project_name": "Example",
+            "project_slug": "example",
+            "facet_totals": {
+              "decisions": 0,
+              "work_items": 0,
+              "artifacts": 0,
+              "transcripts": 0
+            },
+            "coverage": {
+              "artifacts": {
+                "embedding": null,
+                "enabled": true,
+                "indexing": {
+                  "pending": 0,
+                  "failed": 0,
+                  "ready": 0,
+                  "truncated": 0
+                },
+                "sensitive_content_withheld": 0
+              },
+              "transcripts": {
+                "indexing_incomplete": false,
+                "unsegmented_content_omitted": 0
+              }
+            },
+            "indexing_incomplete": false
+          }
+        ],
+        "score_type": "unified_reciprocal_rank",
+        "total_kind": "lexical_matches",
+        "facet_total_kinds": {
+          "decisions": "lexical_matches",
+          "work_items": "lexical_matches",
+          "artifacts": "lexical_matches",
+          "transcripts": null
+        },
+        "facet_score_types": {
+          "decisions": "postgresql_lexical",
+          "work_items": "postgresql_lexical",
+          "artifacts": "literal_presence",
+          "transcripts": null
+        },
+        "detail": "compact",
+        "work_rank_scope": "work_items",
+        "tag_counts": null,
+        "search_scope": {
+          "searched_facets": [
+            "work_items",
+            "artifacts",
+            "decisions"
+          ],
+          "transcripts": "omitted_by_default",
+          "transcript_search_hint": "Agent sessions can be searched by explicitly including \"transcripts\" in facets or calling search_transcript_contents."
+        },
+        "term_diagnostics": [
+          {
+            "term": "durable",
+            "matches": {
+              "decisions": 0,
+              "work_items": 0,
+              "artifacts": 0,
+              "transcripts": null
+            }
+          },
+          {
+            "term": "queues",
+            "matches": {
+              "decisions": 0,
+              "work_items": 0,
+              "artifacts": 0,
+              "transcripts": null
+            }
+          }
+        ],
+        "items": [],
+        "total": 0,
+        "limit": 20,
+        "offset": 0,
+        "facet_totals": {
+          "decisions": 0,
+          "work_items": 0,
+          "artifacts": 0,
+          "transcripts": 0
+        },
+        "coverage": {
+          "artifacts": {
+            "embedding": null,
+            "enabled": true,
+            "indexing": {
+              "pending": 0,
+              "failed": 0,
+              "ready": 0,
+              "truncated": 0
+            },
+            "sensitive_content_withheld": 0
+          },
+          "transcripts": {
+            "indexing_incomplete": false,
+            "unsegmented_content_omitted": 0
+          }
+        },
+        "indexing_incomplete": false
+      }
+    },
+    {
+      "name": "default_content_blank_terms",
+      "request": {
+        "project_id": "ca501b3f-860b-4f88-bca8-2f22a06359ab",
+        "q": "",
+        "query_mode": "terms",
+        "fulltext": true
+      },
+      "response": {
+        "next_offset": null,
+        "page_truncated": false,
+        "diagnostics": "on_empty",
+        "applied_filters": {
+          "decisions": {
+            "domain_ids": null,
+            "all_revisions": false,
+            "state": null
+          },
+          "project_id": "ca501b3f-860b-4f88-bca8-2f22a06359ab",
+          "project_ids": null,
+          "work_items": {
+            "work_fields": [
+              "title",
+              "summary",
+              "tags",
+              "checkpoint",
+              "identifiers",
+              "provenance"
+            ],
+            "status": "all",
+            "tag": null,
+            "source_client": null,
+            "source_session_id": null,
+            "external_url": null,
+            "duplicate_scope": "canonical",
+            "canonical_work_item_id": null,
+            "view": "full"
+          },
+          "artifacts": {
+            "artifact_id": null,
+            "work_item_id": null,
+            "include_deleted": false,
+            "sensitive": null,
+            "mime_type": null,
+            "created_by_agent_session_id": null
+          },
+          "transcripts": {
+            "content_kinds": null,
+            "work_item_id": null,
+            "agent_session_id": null,
+            "client": null,
+            "kind": null,
+            "status": null
+          }
+        },
+        "query_interpretation": {
+          "decisions": {
+            "match_mode": "browse",
+            "fields": [
+              "metadata",
+              "content"
+            ],
+            "fulltext": true
+          },
+          "query_mode": "terms",
+          "q": "",
+          "work_items": {
+            "match_mode": "browse",
+            "fields": [
+              "title",
+              "summary",
+              "tags",
+              "checkpoint",
+              "identifiers",
+              "provenance"
+            ],
+            "fulltext": null
+          },
+          "artifacts": {
+            "match_mode": "browse",
+            "fields": [
+              "metadata",
+              "content"
+            ],
+            "fulltext": true
+          },
+          "transcripts": {
+            "match_mode": "browse",
+            "fields": [
+              "metadata",
+              "content"
+            ],
+            "fulltext": true
+          }
+        },
+        "warnings": [],
+        "project_coverage": [
+          {
+            "project_id": "ca501b3f-860b-4f88-bca8-2f22a06359ab",
+            "project_name": "Example",
+            "project_slug": "example",
+            "facet_totals": {
+              "decisions": 0,
+              "work_items": 0,
+              "artifacts": 0,
+              "transcripts": 0
+            },
+            "coverage": {
+              "artifacts": {
+                "embedding": null,
+                "enabled": true,
+                "indexing": {
+                  "pending": 0,
+                  "failed": 0,
+                  "ready": 0,
+                  "truncated": 0
+                },
+                "sensitive_content_withheld": 0
+              },
+              "transcripts": {
+                "indexing_incomplete": false,
+                "unsegmented_content_omitted": 0
+              }
+            },
+            "indexing_incomplete": false
+          }
+        ],
+        "score_type": "none",
+        "total_kind": "browsed_records",
+        "facet_total_kinds": {
+          "decisions": "browsed_records",
+          "work_items": "browsed_records",
+          "artifacts": "browsed_records",
+          "transcripts": "browsed_records"
+        },
+        "facet_score_types": {
+          "decisions": "none",
+          "work_items": "none",
+          "artifacts": "none",
+          "transcripts": "none"
+        },
+        "detail": "compact",
+        "work_rank_scope": "work_items",
+        "tag_counts": null,
+        "search_scope": {
+          "searched_facets": [
+            "work_items",
+            "artifacts",
+            "transcripts",
+            "decisions"
+          ],
+          "transcripts": "searched",
+          "transcript_search_hint": "Agent sessions can be searched by explicitly including \"transcripts\" in facets or calling search_transcript_contents."
+        },
+        "term_diagnostics": [],
+        "items": [],
+        "total": 0,
+        "limit": 20,
+        "offset": 0,
+        "facet_totals": {
+          "decisions": 0,
+          "work_items": 0,
+          "artifacts": 0,
+          "transcripts": 0
+        },
+        "coverage": {
+          "artifacts": {
+            "embedding": null,
+            "enabled": true,
+            "indexing": {
+              "pending": 0,
+              "failed": 0,
+              "ready": 0,
+              "truncated": 0
+            },
+            "sensitive_content_withheld": 0
+          },
+          "transcripts": {
+            "indexing_incomplete": false,
+            "unsegmented_content_omitted": 0
+          }
+        },
+        "indexing_incomplete": false
+      }
+    },
+    {
+      "name": "default_content_single_terms",
+      "request": {
+        "project_id": "ca501b3f-860b-4f88-bca8-2f22a06359ab",
+        "q": "queues",
+        "query_mode": "terms",
+        "fulltext": true
+      },
+      "response": {
+        "next_offset": null,
+        "page_truncated": false,
+        "diagnostics": "on_empty",
+        "applied_filters": {
+          "decisions": {
+            "domain_ids": null,
+            "all_revisions": false,
+            "state": null
+          },
+          "project_id": "ca501b3f-860b-4f88-bca8-2f22a06359ab",
+          "project_ids": null,
+          "work_items": {
+            "work_fields": [
+              "title",
+              "summary",
+              "tags",
+              "checkpoint",
+              "identifiers",
+              "provenance"
+            ],
+            "status": "all",
+            "tag": null,
+            "source_client": null,
+            "source_session_id": null,
+            "external_url": null,
+            "duplicate_scope": "canonical",
+            "canonical_work_item_id": null,
+            "view": "full"
+          },
+          "artifacts": {
+            "artifact_id": null,
+            "work_item_id": null,
+            "include_deleted": false,
+            "sensitive": null,
+            "mime_type": null,
+            "created_by_agent_session_id": null
+          },
+          "transcripts": {
+            "content_kinds": null,
+            "work_item_id": null,
+            "agent_session_id": null,
+            "client": null,
+            "kind": null,
+            "status": null
+          }
+        },
+        "query_interpretation": {
+          "decisions": {
+            "match_mode": "postgresql_plain_terms_or_substring",
+            "fields": [
+              "metadata",
+              "content"
+            ],
+            "fulltext": true
+          },
+          "query_mode": "terms",
+          "q": "queues",
+          "work_items": {
+            "match_mode": "postgresql_plain_terms_or_substring",
+            "fields": [
+              "title",
+              "summary",
+              "tags",
+              "checkpoint",
+              "identifiers",
+              "provenance"
+            ],
+            "fulltext": null
+          },
+          "artifacts": {
+            "match_mode": "all_terms",
+            "fields": [
+              "metadata",
+              "content"
+            ],
+            "fulltext": true
+          },
+          "transcripts": {
+            "match_mode": "all_terms",
+            "fields": [
+              "metadata",
+              "content"
+            ],
+            "fulltext": true
+          }
+        },
+        "warnings": [],
+        "project_coverage": [
+          {
+            "project_id": "ca501b3f-860b-4f88-bca8-2f22a06359ab",
+            "project_name": "Example",
+            "project_slug": "example",
+            "facet_totals": {
+              "decisions": 0,
+              "work_items": 0,
+              "artifacts": 0,
+              "transcripts": 0
+            },
+            "coverage": {
+              "artifacts": {
+                "embedding": null,
+                "enabled": true,
+                "indexing": {
+                  "pending": 0,
+                  "failed": 0,
+                  "ready": 0,
+                  "truncated": 0
+                },
+                "sensitive_content_withheld": 0
+              },
+              "transcripts": {
+                "indexing_incomplete": false,
+                "unsegmented_content_omitted": 0
+              }
+            },
+            "indexing_incomplete": false
+          }
+        ],
+        "score_type": "unified_reciprocal_rank",
+        "total_kind": "lexical_matches",
+        "facet_total_kinds": {
+          "decisions": "lexical_matches",
+          "work_items": "lexical_matches",
+          "artifacts": "lexical_matches",
+          "transcripts": "lexical_matches"
+        },
+        "facet_score_types": {
+          "decisions": "postgresql_lexical",
+          "work_items": "postgresql_lexical",
+          "artifacts": "tantivy_relevance",
+          "transcripts": "tantivy_relevance"
+        },
+        "detail": "compact",
+        "work_rank_scope": "work_items",
+        "tag_counts": null,
+        "search_scope": {
+          "searched_facets": [
+            "work_items",
+            "artifacts",
+            "transcripts",
+            "decisions"
+          ],
+          "transcripts": "searched",
+          "transcript_search_hint": "Agent sessions can be searched by explicitly including \"transcripts\" in facets or calling search_transcript_contents."
+        },
+        "term_diagnostics": [
+          {
+            "term": "queues",
+            "matches": {
+              "decisions": 0,
+              "work_items": 0,
+              "artifacts": 0,
+              "transcripts": 0
+            }
+          }
+        ],
+        "items": [],
+        "total": 0,
+        "limit": 20,
+        "offset": 0,
+        "facet_totals": {
+          "decisions": 0,
+          "work_items": 0,
+          "artifacts": 0,
+          "transcripts": 0
+        },
+        "coverage": {
+          "artifacts": {
+            "embedding": null,
+            "enabled": true,
+            "indexing": {
+              "pending": 0,
+              "failed": 0,
+              "ready": 0,
+              "truncated": 0
+            },
+            "sensitive_content_withheld": 0
+          },
+          "transcripts": {
+            "indexing_incomplete": false,
+            "unsegmented_content_omitted": 0
+          }
+        },
+        "indexing_incomplete": false
+      }
+    },
+    {
+      "name": "default_content_multi_terms",
+      "request": {
+        "project_id": "ca501b3f-860b-4f88-bca8-2f22a06359ab",
+        "q": "durable queues",
+        "query_mode": "terms",
+        "fulltext": true
+      },
+      "response": {
+        "next_offset": null,
+        "page_truncated": false,
+        "diagnostics": "on_empty",
+        "applied_filters": {
+          "decisions": {
+            "domain_ids": null,
+            "all_revisions": false,
+            "state": null
+          },
+          "project_id": "ca501b3f-860b-4f88-bca8-2f22a06359ab",
+          "project_ids": null,
+          "work_items": {
+            "work_fields": [
+              "title",
+              "summary",
+              "tags",
+              "checkpoint",
+              "identifiers",
+              "provenance"
+            ],
+            "status": "all",
+            "tag": null,
+            "source_client": null,
+            "source_session_id": null,
+            "external_url": null,
+            "duplicate_scope": "canonical",
+            "canonical_work_item_id": null,
+            "view": "full"
+          },
+          "artifacts": {
+            "artifact_id": null,
+            "work_item_id": null,
+            "include_deleted": false,
+            "sensitive": null,
+            "mime_type": null,
+            "created_by_agent_session_id": null
+          },
+          "transcripts": null
+        },
+        "query_interpretation": {
+          "decisions": {
+            "match_mode": "postgresql_plain_terms_or_substring",
+            "fields": [
+              "metadata",
+              "content"
+            ],
+            "fulltext": true
+          },
+          "query_mode": "terms",
+          "q": "durable queues",
+          "work_items": {
+            "match_mode": "postgresql_plain_terms_or_substring",
+            "fields": [
+              "title",
+              "summary",
+              "tags",
+              "checkpoint",
+              "identifiers",
+              "provenance"
+            ],
+            "fulltext": null
+          },
+          "artifacts": {
+            "match_mode": "all_terms",
+            "fields": [
+              "metadata",
+              "content"
+            ],
+            "fulltext": true
+          },
+          "transcripts": null
+        },
+        "warnings": [],
+        "project_coverage": [
+          {
+            "project_id": "ca501b3f-860b-4f88-bca8-2f22a06359ab",
+            "project_name": "Example",
+            "project_slug": "example",
+            "facet_totals": {
+              "decisions": 0,
+              "work_items": 0,
+              "artifacts": 0,
+              "transcripts": 0
+            },
+            "coverage": {
+              "artifacts": {
+                "embedding": null,
+                "enabled": true,
+                "indexing": {
+                  "pending": 0,
+                  "failed": 0,
+                  "ready": 0,
+                  "truncated": 0
+                },
+                "sensitive_content_withheld": 0
+              },
+              "transcripts": {
+                "indexing_incomplete": false,
+                "unsegmented_content_omitted": 0
+              }
+            },
+            "indexing_incomplete": false
+          }
+        ],
+        "score_type": "unified_reciprocal_rank",
+        "total_kind": "lexical_matches",
+        "facet_total_kinds": {
+          "decisions": "lexical_matches",
+          "work_items": "lexical_matches",
+          "artifacts": "lexical_matches",
+          "transcripts": null
+        },
+        "facet_score_types": {
+          "decisions": "postgresql_lexical",
+          "work_items": "postgresql_lexical",
+          "artifacts": "tantivy_relevance",
+          "transcripts": null
+        },
+        "detail": "compact",
+        "work_rank_scope": "work_items",
+        "tag_counts": null,
+        "search_scope": {
+          "searched_facets": [
+            "work_items",
+            "artifacts",
+            "decisions"
+          ],
+          "transcripts": "omitted_by_default",
+          "transcript_search_hint": "Agent sessions can be searched by explicitly including \"transcripts\" in facets or calling search_transcript_contents."
+        },
+        "term_diagnostics": [
+          {
+            "term": "durable",
+            "matches": {
+              "decisions": 0,
+              "work_items": 0,
+              "artifacts": 0,
+              "transcripts": null
+            }
+          },
+          {
+            "term": "queues",
+            "matches": {
+              "decisions": 0,
+              "work_items": 0,
+              "artifacts": 0,
+              "transcripts": null
+            }
+          }
+        ],
+        "items": [],
+        "total": 0,
+        "limit": 20,
+        "offset": 0,
+        "facet_totals": {
+          "decisions": 0,
+          "work_items": 0,
+          "artifacts": 0,
+          "transcripts": 0
+        },
+        "coverage": {
+          "artifacts": {
+            "embedding": null,
+            "enabled": true,
+            "indexing": {
+              "pending": 0,
+              "failed": 0,
+              "ready": 0,
+              "truncated": 0
+            },
+            "sensitive_content_withheld": 0
+          },
+          "transcripts": {
+            "indexing_incomplete": false,
+            "unsegmented_content_omitted": 0
+          }
+        },
+        "indexing_incomplete": false
+      }
+    },
+    {
+      "name": "default_content_phrase",
+      "request": {
+        "project_id": "ca501b3f-860b-4f88-bca8-2f22a06359ab",
+        "q": "durable queues",
+        "query_mode": "phrase",
+        "fulltext": true
+      },
+      "response": {
+        "next_offset": null,
+        "page_truncated": false,
+        "diagnostics": "on_empty",
+        "applied_filters": {
+          "decisions": {
+            "domain_ids": null,
+            "all_revisions": false,
+            "state": null
+          },
+          "project_id": "ca501b3f-860b-4f88-bca8-2f22a06359ab",
+          "project_ids": null,
+          "work_items": {
+            "work_fields": [
+              "title",
+              "summary",
+              "tags",
+              "checkpoint",
+              "identifiers",
+              "provenance"
+            ],
+            "status": "all",
+            "tag": null,
+            "source_client": null,
+            "source_session_id": null,
+            "external_url": null,
+            "duplicate_scope": "canonical",
+            "canonical_work_item_id": null,
+            "view": "full"
+          },
+          "artifacts": {
+            "artifact_id": null,
+            "work_item_id": null,
+            "include_deleted": false,
+            "sensitive": null,
+            "mime_type": null,
+            "created_by_agent_session_id": null
+          },
+          "transcripts": null
+        },
+        "query_interpretation": {
+          "decisions": {
+            "match_mode": "postgresql_phrase_terms",
+            "fields": [
+              "metadata",
+              "content"
+            ],
+            "fulltext": true
+          },
+          "query_mode": "phrase",
+          "q": "durable queues",
+          "work_items": {
+            "match_mode": "postgresql_phrase_terms",
+            "fields": [
+              "title",
+              "summary",
+              "tags",
+              "checkpoint",
+              "identifiers",
+              "provenance"
+            ],
+            "fulltext": null
+          },
+          "artifacts": {
+            "match_mode": "phrase",
+            "fields": [
+              "metadata",
+              "content"
+            ],
+            "fulltext": true
+          },
+          "transcripts": null
+        },
+        "warnings": [],
+        "project_coverage": [
+          {
+            "project_id": "ca501b3f-860b-4f88-bca8-2f22a06359ab",
+            "project_name": "Example",
+            "project_slug": "example",
+            "facet_totals": {
+              "decisions": 0,
+              "work_items": 0,
+              "artifacts": 0,
+              "transcripts": 0
+            },
+            "coverage": {
+              "artifacts": {
+                "embedding": null,
+                "enabled": true,
+                "indexing": {
+                  "pending": 0,
+                  "failed": 0,
+                  "ready": 0,
+                  "truncated": 0
+                },
+                "sensitive_content_withheld": 0
+              },
+              "transcripts": {
+                "indexing_incomplete": false,
+                "unsegmented_content_omitted": 0
+              }
+            },
+            "indexing_incomplete": false
+          }
+        ],
+        "score_type": "unified_reciprocal_rank",
+        "total_kind": "lexical_matches",
+        "facet_total_kinds": {
+          "decisions": "lexical_matches",
+          "work_items": "lexical_matches",
+          "artifacts": "lexical_matches",
+          "transcripts": null
+        },
+        "facet_score_types": {
+          "decisions": "postgresql_lexical",
+          "work_items": "postgresql_lexical",
+          "artifacts": "tantivy_relevance",
+          "transcripts": null
+        },
+        "detail": "compact",
+        "work_rank_scope": "work_items",
+        "tag_counts": null,
+        "search_scope": {
+          "searched_facets": [
+            "work_items",
+            "artifacts",
+            "decisions"
+          ],
+          "transcripts": "omitted_by_default",
+          "transcript_search_hint": "Agent sessions can be searched by explicitly including \"transcripts\" in facets or calling search_transcript_contents."
+        },
+        "term_diagnostics": [
+          {
+            "term": "durable",
+            "matches": {
+              "decisions": 0,
+              "work_items": 0,
+              "artifacts": 0,
+              "transcripts": null
+            }
+          },
+          {
+            "term": "queues",
+            "matches": {
+              "decisions": 0,
+              "work_items": 0,
+              "artifacts": 0,
+              "transcripts": null
+            }
+          }
+        ],
+        "items": [],
+        "total": 0,
+        "limit": 20,
+        "offset": 0,
+        "facet_totals": {
+          "decisions": 0,
+          "work_items": 0,
+          "artifacts": 0,
+          "transcripts": 0
+        },
+        "coverage": {
+          "artifacts": {
+            "embedding": null,
+            "enabled": true,
+            "indexing": {
+              "pending": 0,
+              "failed": 0,
+              "ready": 0,
+              "truncated": 0
+            },
+            "sensitive_content_withheld": 0
+          },
+          "transcripts": {
+            "indexing_incomplete": false,
+            "unsegmented_content_omitted": 0
+          }
+        },
+        "indexing_incomplete": false
+      }
+    },
+    {
+      "name": "default_content_quoted_terms",
+      "request": {
+        "project_id": "ca501b3f-860b-4f88-bca8-2f22a06359ab",
+        "q": "\"durable queues\"",
+        "query_mode": "terms",
+        "fulltext": true
+      },
+      "response": {
+        "next_offset": null,
+        "page_truncated": false,
+        "diagnostics": "on_empty",
+        "applied_filters": {
+          "decisions": {
+            "domain_ids": null,
+            "all_revisions": false,
+            "state": null
+          },
+          "project_id": "ca501b3f-860b-4f88-bca8-2f22a06359ab",
+          "project_ids": null,
+          "work_items": {
+            "work_fields": [
+              "title",
+              "summary",
+              "tags",
+              "checkpoint",
+              "identifiers",
+              "provenance"
+            ],
+            "status": "all",
+            "tag": null,
+            "source_client": null,
+            "source_session_id": null,
+            "external_url": null,
+            "duplicate_scope": "canonical",
+            "canonical_work_item_id": null,
+            "view": "full"
+          },
+          "artifacts": {
+            "artifact_id": null,
+            "work_item_id": null,
+            "include_deleted": false,
+            "sensitive": null,
+            "mime_type": null,
+            "created_by_agent_session_id": null
+          },
+          "transcripts": null
+        },
+        "query_interpretation": {
+          "decisions": {
+            "match_mode": "postgresql_phrase_terms",
+            "fields": [
+              "metadata",
+              "content"
+            ],
+            "fulltext": true
+          },
+          "query_mode": "terms",
+          "q": "\"durable queues\"",
+          "work_items": {
+            "match_mode": "postgresql_phrase_terms",
+            "fields": [
+              "title",
+              "summary",
+              "tags",
+              "checkpoint",
+              "identifiers",
+              "provenance"
+            ],
+            "fulltext": null
+          },
+          "artifacts": {
+            "match_mode": "phrase",
+            "fields": [
+              "metadata",
+              "content"
+            ],
+            "fulltext": true
+          },
+          "transcripts": null
+        },
+        "warnings": [],
+        "project_coverage": [
+          {
+            "project_id": "ca501b3f-860b-4f88-bca8-2f22a06359ab",
+            "project_name": "Example",
+            "project_slug": "example",
+            "facet_totals": {
+              "decisions": 0,
+              "work_items": 0,
+              "artifacts": 0,
+              "transcripts": 0
+            },
+            "coverage": {
+              "artifacts": {
+                "embedding": null,
+                "enabled": true,
+                "indexing": {
+                  "pending": 0,
+                  "failed": 0,
+                  "ready": 0,
+                  "truncated": 0
+                },
+                "sensitive_content_withheld": 0
+              },
+              "transcripts": {
+                "indexing_incomplete": false,
+                "unsegmented_content_omitted": 0
+              }
+            },
+            "indexing_incomplete": false
+          }
+        ],
+        "score_type": "unified_reciprocal_rank",
+        "total_kind": "lexical_matches",
+        "facet_total_kinds": {
+          "decisions": "lexical_matches",
+          "work_items": "lexical_matches",
+          "artifacts": "lexical_matches",
+          "transcripts": null
+        },
+        "facet_score_types": {
+          "decisions": "postgresql_lexical",
+          "work_items": "postgresql_lexical",
+          "artifacts": "tantivy_relevance",
+          "transcripts": null
+        },
+        "detail": "compact",
+        "work_rank_scope": "work_items",
+        "tag_counts": null,
+        "search_scope": {
+          "searched_facets": [
+            "work_items",
+            "artifacts",
+            "decisions"
+          ],
+          "transcripts": "omitted_by_default",
+          "transcript_search_hint": "Agent sessions can be searched by explicitly including \"transcripts\" in facets or calling search_transcript_contents."
+        },
+        "term_diagnostics": [
+          {
+            "term": "durable",
+            "matches": {
+              "decisions": 0,
+              "work_items": 0,
+              "artifacts": 0,
+              "transcripts": null
+            }
+          },
+          {
+            "term": "queues",
+            "matches": {
+              "decisions": 0,
+              "work_items": 0,
+              "artifacts": 0,
+              "transcripts": null
+            }
+          }
+        ],
+        "items": [],
+        "total": 0,
+        "limit": 20,
+        "offset": 0,
+        "facet_totals": {
+          "decisions": 0,
+          "work_items": 0,
+          "artifacts": 0,
+          "transcripts": 0
+        },
+        "coverage": {
+          "artifacts": {
+            "embedding": null,
+            "enabled": true,
+            "indexing": {
+              "pending": 0,
+              "failed": 0,
+              "ready": 0,
+              "truncated": 0
+            },
+            "sensitive_content_withheld": 0
+          },
+          "transcripts": {
+            "indexing_incomplete": false,
+            "unsegmented_content_omitted": 0
+          }
+        },
+        "indexing_incomplete": false
+      }
+    },
+    {
+      "name": "default_content_literal",
+      "request": {
+        "project_id": "ca501b3f-860b-4f88-bca8-2f22a06359ab",
+        "q": "durable queues",
+        "query_mode": "literal",
+        "fulltext": true
+      },
+      "response": {
+        "next_offset": null,
+        "page_truncated": false,
+        "diagnostics": "on_empty",
+        "applied_filters": {
+          "decisions": {
+            "domain_ids": null,
+            "all_revisions": false,
+            "state": null
+          },
+          "project_id": "ca501b3f-860b-4f88-bca8-2f22a06359ab",
+          "project_ids": null,
+          "work_items": {
+            "work_fields": [
+              "title",
+              "summary",
+              "tags",
+              "checkpoint",
+              "identifiers",
+              "provenance"
+            ],
+            "status": "all",
+            "tag": null,
+            "source_client": null,
+            "source_session_id": null,
+            "external_url": null,
+            "duplicate_scope": "canonical",
+            "canonical_work_item_id": null,
+            "view": "full"
+          },
+          "artifacts": {
+            "artifact_id": null,
+            "work_item_id": null,
+            "include_deleted": false,
+            "sensitive": null,
+            "mime_type": null,
+            "created_by_agent_session_id": null
+          },
+          "transcripts": null
+        },
+        "query_interpretation": {
+          "decisions": {
+            "match_mode": "literal",
+            "fields": [
+              "metadata",
+              "content"
+            ],
+            "fulltext": true
+          },
+          "query_mode": "literal",
+          "q": "durable queues",
+          "work_items": {
+            "match_mode": "literal",
+            "fields": [
+              "title",
+              "summary",
+              "tags",
+              "checkpoint",
+              "identifiers",
+              "provenance"
+            ],
+            "fulltext": null
+          },
+          "artifacts": {
+            "match_mode": "literal",
+            "fields": [
+              "metadata",
+              "content"
+            ],
+            "fulltext": true
+          },
+          "transcripts": null
+        },
+        "warnings": [],
+        "project_coverage": [
+          {
+            "project_id": "ca501b3f-860b-4f88-bca8-2f22a06359ab",
+            "project_name": "Example",
+            "project_slug": "example",
+            "facet_totals": {
+              "decisions": 0,
+              "work_items": 0,
+              "artifacts": 0,
+              "transcripts": 0
+            },
+            "coverage": {
+              "artifacts": {
+                "embedding": null,
+                "enabled": true,
+                "indexing": {
+                  "pending": 0,
+                  "failed": 0,
+                  "ready": 0,
+                  "truncated": 0
+                },
+                "sensitive_content_withheld": 0
+              },
+              "transcripts": {
+                "indexing_incomplete": false,
+                "unsegmented_content_omitted": 0
+              }
+            },
+            "indexing_incomplete": false
+          }
+        ],
+        "score_type": "unified_reciprocal_rank",
+        "total_kind": "lexical_matches",
+        "facet_total_kinds": {
+          "decisions": "lexical_matches",
+          "work_items": "lexical_matches",
+          "artifacts": "lexical_matches",
+          "transcripts": null
+        },
+        "facet_score_types": {
+          "decisions": "postgresql_lexical",
+          "work_items": "postgresql_lexical",
+          "artifacts": "literal_presence",
+          "transcripts": null
+        },
+        "detail": "compact",
+        "work_rank_scope": "work_items",
+        "tag_counts": null,
+        "search_scope": {
+          "searched_facets": [
+            "work_items",
+            "artifacts",
+            "decisions"
+          ],
+          "transcripts": "omitted_by_default",
+          "transcript_search_hint": "Agent sessions can be searched by explicitly including \"transcripts\" in facets or calling search_transcript_contents."
+        },
+        "term_diagnostics": [
+          {
+            "term": "durable",
+            "matches": {
+              "decisions": 0,
+              "work_items": 0,
+              "artifacts": 0,
+              "transcripts": null
+            }
+          },
+          {
+            "term": "queues",
+            "matches": {
+              "decisions": 0,
+              "work_items": 0,
+              "artifacts": 0,
+              "transcripts": null
+            }
+          }
+        ],
+        "items": [],
+        "total": 0,
+        "limit": 20,
+        "offset": 0,
+        "facet_totals": {
+          "decisions": 0,
+          "work_items": 0,
+          "artifacts": 0,
+          "transcripts": 0
+        },
+        "coverage": {
+          "artifacts": {
+            "embedding": null,
+            "enabled": true,
+            "indexing": {
+              "pending": 0,
+              "failed": 0,
+              "ready": 0,
+              "truncated": 0
+            },
+            "sensitive_content_withheld": 0
+          },
+          "transcripts": {
+            "indexing_incomplete": false,
+            "unsegmented_content_omitted": 0
+          }
+        },
+        "indexing_incomplete": false
+      }
+    },
+    {
+      "name": "decisions_metadata_blank_terms",
+      "request": {
+        "project_id": "ca501b3f-860b-4f88-bca8-2f22a06359ab",
+        "q": "",
+        "query_mode": "terms",
+        "fulltext": false,
+        "facets": [
+          "decisions"
+        ]
+      },
+      "response": {
+        "next_offset": null,
+        "page_truncated": false,
+        "diagnostics": "on_empty",
+        "applied_filters": {
+          "decisions": {
+            "domain_ids": null,
+            "all_revisions": false,
+            "state": null
+          },
+          "project_id": "ca501b3f-860b-4f88-bca8-2f22a06359ab",
+          "project_ids": null,
+          "work_items": null,
+          "artifacts": null,
+          "transcripts": null
+        },
+        "query_interpretation": {
+          "decisions": {
+            "match_mode": "browse",
+            "fields": [
+              "metadata"
+            ],
+            "fulltext": false
+          },
+          "query_mode": "terms",
+          "q": "",
+          "work_items": null,
+          "artifacts": null,
+          "transcripts": null
+        },
+        "warnings": [],
+        "project_coverage": [
+          {
+            "project_id": "ca501b3f-860b-4f88-bca8-2f22a06359ab",
+            "project_name": "Example",
+            "project_slug": "example",
+            "facet_totals": {
+              "decisions": 0,
+              "work_items": 0,
+              "artifacts": 0,
+              "transcripts": 0
+            },
+            "coverage": {
+              "artifacts": {
+                "embedding": null,
+                "enabled": true,
+                "indexing": {
+                  "pending": 0,
+                  "failed": 0,
+                  "ready": 0,
+                  "truncated": 0
+                },
+                "sensitive_content_withheld": 0
+              },
+              "transcripts": {
+                "indexing_incomplete": false,
+                "unsegmented_content_omitted": 0
+              }
+            },
+            "indexing_incomplete": false
+          }
+        ],
+        "score_type": "none",
+        "total_kind": "browsed_records",
+        "facet_total_kinds": {
+          "decisions": "browsed_records",
+          "work_items": null,
+          "artifacts": null,
+          "transcripts": null
+        },
+        "facet_score_types": {
+          "decisions": "none",
+          "work_items": null,
+          "artifacts": null,
+          "transcripts": null
+        },
+        "detail": "compact",
+        "work_rank_scope": "work_items",
+        "tag_counts": null,
+        "search_scope": {
+          "searched_facets": [
+            "decisions"
+          ],
+          "transcripts": "not_selected",
+          "transcript_search_hint": "Agent sessions can be searched by explicitly including \"transcripts\" in facets or calling search_transcript_contents."
+        },
+        "term_diagnostics": [],
+        "items": [],
+        "total": 0,
+        "limit": 20,
+        "offset": 0,
+        "facet_totals": {
+          "decisions": 0,
+          "work_items": 0,
+          "artifacts": 0,
+          "transcripts": 0
+        },
+        "coverage": {
+          "artifacts": {
+            "embedding": null,
+            "enabled": true,
+            "indexing": {
+              "pending": 0,
+              "failed": 0,
+              "ready": 0,
+              "truncated": 0
+            },
+            "sensitive_content_withheld": 0
+          },
+          "transcripts": {
+            "indexing_incomplete": false,
+            "unsegmented_content_omitted": 0
+          }
+        },
+        "indexing_incomplete": false
+      }
+    },
+    {
+      "name": "decisions_metadata_single_terms",
+      "request": {
+        "project_id": "ca501b3f-860b-4f88-bca8-2f22a06359ab",
+        "q": "queues",
+        "query_mode": "terms",
+        "fulltext": false,
+        "facets": [
+          "decisions"
+        ]
+      },
+      "response": {
+        "next_offset": null,
+        "page_truncated": false,
+        "diagnostics": "on_empty",
+        "applied_filters": {
+          "decisions": {
+            "domain_ids": null,
+            "all_revisions": false,
+            "state": null
+          },
+          "project_id": "ca501b3f-860b-4f88-bca8-2f22a06359ab",
+          "project_ids": null,
+          "work_items": null,
+          "artifacts": null,
+          "transcripts": null
+        },
+        "query_interpretation": {
+          "decisions": {
+            "match_mode": "postgresql_plain_terms_or_substring",
+            "fields": [
+              "metadata"
+            ],
+            "fulltext": false
+          },
+          "query_mode": "terms",
+          "q": "queues",
+          "work_items": null,
+          "artifacts": null,
+          "transcripts": null
+        },
+        "warnings": [],
+        "project_coverage": [
+          {
+            "project_id": "ca501b3f-860b-4f88-bca8-2f22a06359ab",
+            "project_name": "Example",
+            "project_slug": "example",
+            "facet_totals": {
+              "decisions": 0,
+              "work_items": 0,
+              "artifacts": 0,
+              "transcripts": 0
+            },
+            "coverage": {
+              "artifacts": {
+                "embedding": null,
+                "enabled": true,
+                "indexing": {
+                  "pending": 0,
+                  "failed": 0,
+                  "ready": 0,
+                  "truncated": 0
+                },
+                "sensitive_content_withheld": 0
+              },
+              "transcripts": {
+                "indexing_incomplete": false,
+                "unsegmented_content_omitted": 0
+              }
+            },
+            "indexing_incomplete": false
+          }
+        ],
+        "score_type": "unified_reciprocal_rank",
+        "total_kind": "lexical_matches",
+        "facet_total_kinds": {
+          "decisions": "lexical_matches",
+          "work_items": null,
+          "artifacts": null,
+          "transcripts": null
+        },
+        "facet_score_types": {
+          "decisions": "postgresql_lexical",
+          "work_items": null,
+          "artifacts": null,
+          "transcripts": null
+        },
+        "detail": "compact",
+        "work_rank_scope": "work_items",
+        "tag_counts": null,
+        "search_scope": {
+          "searched_facets": [
+            "decisions"
+          ],
+          "transcripts": "not_selected",
+          "transcript_search_hint": "Agent sessions can be searched by explicitly including \"transcripts\" in facets or calling search_transcript_contents."
+        },
+        "term_diagnostics": [
+          {
+            "term": "queues",
+            "matches": {
+              "decisions": 0,
+              "work_items": null,
+              "artifacts": null,
+              "transcripts": null
+            }
+          }
+        ],
+        "items": [],
+        "total": 0,
+        "limit": 20,
+        "offset": 0,
+        "facet_totals": {
+          "decisions": 0,
+          "work_items": 0,
+          "artifacts": 0,
+          "transcripts": 0
+        },
+        "coverage": {
+          "artifacts": {
+            "embedding": null,
+            "enabled": true,
+            "indexing": {
+              "pending": 0,
+              "failed": 0,
+              "ready": 0,
+              "truncated": 0
+            },
+            "sensitive_content_withheld": 0
+          },
+          "transcripts": {
+            "indexing_incomplete": false,
+            "unsegmented_content_omitted": 0
+          }
+        },
+        "indexing_incomplete": false
+      }
+    },
+    {
+      "name": "decisions_metadata_multi_terms",
+      "request": {
+        "project_id": "ca501b3f-860b-4f88-bca8-2f22a06359ab",
+        "q": "durable queues",
+        "query_mode": "terms",
+        "fulltext": false,
+        "facets": [
+          "decisions"
+        ]
+      },
+      "response": {
+        "next_offset": null,
+        "page_truncated": false,
+        "diagnostics": "on_empty",
+        "applied_filters": {
+          "decisions": {
+            "domain_ids": null,
+            "all_revisions": false,
+            "state": null
+          },
+          "project_id": "ca501b3f-860b-4f88-bca8-2f22a06359ab",
+          "project_ids": null,
+          "work_items": null,
+          "artifacts": null,
+          "transcripts": null
+        },
+        "query_interpretation": {
+          "decisions": {
+            "match_mode": "postgresql_plain_terms_or_substring",
+            "fields": [
+              "metadata"
+            ],
+            "fulltext": false
+          },
+          "query_mode": "terms",
+          "q": "durable queues",
+          "work_items": null,
+          "artifacts": null,
+          "transcripts": null
+        },
+        "warnings": [],
+        "project_coverage": [
+          {
+            "project_id": "ca501b3f-860b-4f88-bca8-2f22a06359ab",
+            "project_name": "Example",
+            "project_slug": "example",
+            "facet_totals": {
+              "decisions": 0,
+              "work_items": 0,
+              "artifacts": 0,
+              "transcripts": 0
+            },
+            "coverage": {
+              "artifacts": {
+                "embedding": null,
+                "enabled": true,
+                "indexing": {
+                  "pending": 0,
+                  "failed": 0,
+                  "ready": 0,
+                  "truncated": 0
+                },
+                "sensitive_content_withheld": 0
+              },
+              "transcripts": {
+                "indexing_incomplete": false,
+                "unsegmented_content_omitted": 0
+              }
+            },
+            "indexing_incomplete": false
+          }
+        ],
+        "score_type": "unified_reciprocal_rank",
+        "total_kind": "lexical_matches",
+        "facet_total_kinds": {
+          "decisions": "lexical_matches",
+          "work_items": null,
+          "artifacts": null,
+          "transcripts": null
+        },
+        "facet_score_types": {
+          "decisions": "postgresql_lexical",
+          "work_items": null,
+          "artifacts": null,
+          "transcripts": null
+        },
+        "detail": "compact",
+        "work_rank_scope": "work_items",
+        "tag_counts": null,
+        "search_scope": {
+          "searched_facets": [
+            "decisions"
+          ],
+          "transcripts": "not_selected",
+          "transcript_search_hint": "Agent sessions can be searched by explicitly including \"transcripts\" in facets or calling search_transcript_contents."
+        },
+        "term_diagnostics": [
+          {
+            "term": "durable",
+            "matches": {
+              "decisions": 0,
+              "work_items": null,
+              "artifacts": null,
+              "transcripts": null
+            }
+          },
+          {
+            "term": "queues",
+            "matches": {
+              "decisions": 0,
+              "work_items": null,
+              "artifacts": null,
+              "transcripts": null
+            }
+          }
+        ],
+        "items": [],
+        "total": 0,
+        "limit": 20,
+        "offset": 0,
+        "facet_totals": {
+          "decisions": 0,
+          "work_items": 0,
+          "artifacts": 0,
+          "transcripts": 0
+        },
+        "coverage": {
+          "artifacts": {
+            "embedding": null,
+            "enabled": true,
+            "indexing": {
+              "pending": 0,
+              "failed": 0,
+              "ready": 0,
+              "truncated": 0
+            },
+            "sensitive_content_withheld": 0
+          },
+          "transcripts": {
+            "indexing_incomplete": false,
+            "unsegmented_content_omitted": 0
+          }
+        },
+        "indexing_incomplete": false
+      }
+    },
+    {
+      "name": "decisions_metadata_phrase",
+      "request": {
+        "project_id": "ca501b3f-860b-4f88-bca8-2f22a06359ab",
+        "q": "durable queues",
+        "query_mode": "phrase",
+        "fulltext": false,
+        "facets": [
+          "decisions"
+        ]
+      },
+      "response": {
+        "next_offset": null,
+        "page_truncated": false,
+        "diagnostics": "on_empty",
+        "applied_filters": {
+          "decisions": {
+            "domain_ids": null,
+            "all_revisions": false,
+            "state": null
+          },
+          "project_id": "ca501b3f-860b-4f88-bca8-2f22a06359ab",
+          "project_ids": null,
+          "work_items": null,
+          "artifacts": null,
+          "transcripts": null
+        },
+        "query_interpretation": {
+          "decisions": {
+            "match_mode": "postgresql_phrase_terms",
+            "fields": [
+              "metadata"
+            ],
+            "fulltext": false
+          },
+          "query_mode": "phrase",
+          "q": "durable queues",
+          "work_items": null,
+          "artifacts": null,
+          "transcripts": null
+        },
+        "warnings": [],
+        "project_coverage": [
+          {
+            "project_id": "ca501b3f-860b-4f88-bca8-2f22a06359ab",
+            "project_name": "Example",
+            "project_slug": "example",
+            "facet_totals": {
+              "decisions": 0,
+              "work_items": 0,
+              "artifacts": 0,
+              "transcripts": 0
+            },
+            "coverage": {
+              "artifacts": {
+                "embedding": null,
+                "enabled": true,
+                "indexing": {
+                  "pending": 0,
+                  "failed": 0,
+                  "ready": 0,
+                  "truncated": 0
+                },
+                "sensitive_content_withheld": 0
+              },
+              "transcripts": {
+                "indexing_incomplete": false,
+                "unsegmented_content_omitted": 0
+              }
+            },
+            "indexing_incomplete": false
+          }
+        ],
+        "score_type": "unified_reciprocal_rank",
+        "total_kind": "lexical_matches",
+        "facet_total_kinds": {
+          "decisions": "lexical_matches",
+          "work_items": null,
+          "artifacts": null,
+          "transcripts": null
+        },
+        "facet_score_types": {
+          "decisions": "postgresql_lexical",
+          "work_items": null,
+          "artifacts": null,
+          "transcripts": null
+        },
+        "detail": "compact",
+        "work_rank_scope": "work_items",
+        "tag_counts": null,
+        "search_scope": {
+          "searched_facets": [
+            "decisions"
+          ],
+          "transcripts": "not_selected",
+          "transcript_search_hint": "Agent sessions can be searched by explicitly including \"transcripts\" in facets or calling search_transcript_contents."
+        },
+        "term_diagnostics": [
+          {
+            "term": "durable",
+            "matches": {
+              "decisions": 0,
+              "work_items": null,
+              "artifacts": null,
+              "transcripts": null
+            }
+          },
+          {
+            "term": "queues",
+            "matches": {
+              "decisions": 0,
+              "work_items": null,
+              "artifacts": null,
+              "transcripts": null
+            }
+          }
+        ],
+        "items": [],
+        "total": 0,
+        "limit": 20,
+        "offset": 0,
+        "facet_totals": {
+          "decisions": 0,
+          "work_items": 0,
+          "artifacts": 0,
+          "transcripts": 0
+        },
+        "coverage": {
+          "artifacts": {
+            "embedding": null,
+            "enabled": true,
+            "indexing": {
+              "pending": 0,
+              "failed": 0,
+              "ready": 0,
+              "truncated": 0
+            },
+            "sensitive_content_withheld": 0
+          },
+          "transcripts": {
+            "indexing_incomplete": false,
+            "unsegmented_content_omitted": 0
+          }
+        },
+        "indexing_incomplete": false
+      }
+    },
+    {
+      "name": "decisions_metadata_quoted_terms",
+      "request": {
+        "project_id": "ca501b3f-860b-4f88-bca8-2f22a06359ab",
+        "q": "\"durable queues\"",
+        "query_mode": "terms",
+        "fulltext": false,
+        "facets": [
+          "decisions"
+        ]
+      },
+      "response": {
+        "next_offset": null,
+        "page_truncated": false,
+        "diagnostics": "on_empty",
+        "applied_filters": {
+          "decisions": {
+            "domain_ids": null,
+            "all_revisions": false,
+            "state": null
+          },
+          "project_id": "ca501b3f-860b-4f88-bca8-2f22a06359ab",
+          "project_ids": null,
+          "work_items": null,
+          "artifacts": null,
+          "transcripts": null
+        },
+        "query_interpretation": {
+          "decisions": {
+            "match_mode": "postgresql_phrase_terms",
+            "fields": [
+              "metadata"
+            ],
+            "fulltext": false
+          },
+          "query_mode": "terms",
+          "q": "\"durable queues\"",
+          "work_items": null,
+          "artifacts": null,
+          "transcripts": null
+        },
+        "warnings": [],
+        "project_coverage": [
+          {
+            "project_id": "ca501b3f-860b-4f88-bca8-2f22a06359ab",
+            "project_name": "Example",
+            "project_slug": "example",
+            "facet_totals": {
+              "decisions": 0,
+              "work_items": 0,
+              "artifacts": 0,
+              "transcripts": 0
+            },
+            "coverage": {
+              "artifacts": {
+                "embedding": null,
+                "enabled": true,
+                "indexing": {
+                  "pending": 0,
+                  "failed": 0,
+                  "ready": 0,
+                  "truncated": 0
+                },
+                "sensitive_content_withheld": 0
+              },
+              "transcripts": {
+                "indexing_incomplete": false,
+                "unsegmented_content_omitted": 0
+              }
+            },
+            "indexing_incomplete": false
+          }
+        ],
+        "score_type": "unified_reciprocal_rank",
+        "total_kind": "lexical_matches",
+        "facet_total_kinds": {
+          "decisions": "lexical_matches",
+          "work_items": null,
+          "artifacts": null,
+          "transcripts": null
+        },
+        "facet_score_types": {
+          "decisions": "postgresql_lexical",
+          "work_items": null,
+          "artifacts": null,
+          "transcripts": null
+        },
+        "detail": "compact",
+        "work_rank_scope": "work_items",
+        "tag_counts": null,
+        "search_scope": {
+          "searched_facets": [
+            "decisions"
+          ],
+          "transcripts": "not_selected",
+          "transcript_search_hint": "Agent sessions can be searched by explicitly including \"transcripts\" in facets or calling search_transcript_contents."
+        },
+        "term_diagnostics": [
+          {
+            "term": "durable",
+            "matches": {
+              "decisions": 0,
+              "work_items": null,
+              "artifacts": null,
+              "transcripts": null
+            }
+          },
+          {
+            "term": "queues",
+            "matches": {
+              "decisions": 0,
+              "work_items": null,
+              "artifacts": null,
+              "transcripts": null
+            }
+          }
+        ],
+        "items": [],
+        "total": 0,
+        "limit": 20,
+        "offset": 0,
+        "facet_totals": {
+          "decisions": 0,
+          "work_items": 0,
+          "artifacts": 0,
+          "transcripts": 0
+        },
+        "coverage": {
+          "artifacts": {
+            "embedding": null,
+            "enabled": true,
+            "indexing": {
+              "pending": 0,
+              "failed": 0,
+              "ready": 0,
+              "truncated": 0
+            },
+            "sensitive_content_withheld": 0
+          },
+          "transcripts": {
+            "indexing_incomplete": false,
+            "unsegmented_content_omitted": 0
+          }
+        },
+        "indexing_incomplete": false
+      }
+    },
+    {
+      "name": "decisions_metadata_literal",
+      "request": {
+        "project_id": "ca501b3f-860b-4f88-bca8-2f22a06359ab",
+        "q": "durable queues",
+        "query_mode": "literal",
+        "fulltext": false,
+        "facets": [
+          "decisions"
+        ]
+      },
+      "response": {
+        "next_offset": null,
+        "page_truncated": false,
+        "diagnostics": "on_empty",
+        "applied_filters": {
+          "decisions": {
+            "domain_ids": null,
+            "all_revisions": false,
+            "state": null
+          },
+          "project_id": "ca501b3f-860b-4f88-bca8-2f22a06359ab",
+          "project_ids": null,
+          "work_items": null,
+          "artifacts": null,
+          "transcripts": null
+        },
+        "query_interpretation": {
+          "decisions": {
+            "match_mode": "literal",
+            "fields": [
+              "metadata"
+            ],
+            "fulltext": false
+          },
+          "query_mode": "literal",
+          "q": "durable queues",
+          "work_items": null,
+          "artifacts": null,
+          "transcripts": null
+        },
+        "warnings": [],
+        "project_coverage": [
+          {
+            "project_id": "ca501b3f-860b-4f88-bca8-2f22a06359ab",
+            "project_name": "Example",
+            "project_slug": "example",
+            "facet_totals": {
+              "decisions": 0,
+              "work_items": 0,
+              "artifacts": 0,
+              "transcripts": 0
+            },
+            "coverage": {
+              "artifacts": {
+                "embedding": null,
+                "enabled": true,
+                "indexing": {
+                  "pending": 0,
+                  "failed": 0,
+                  "ready": 0,
+                  "truncated": 0
+                },
+                "sensitive_content_withheld": 0
+              },
+              "transcripts": {
+                "indexing_incomplete": false,
+                "unsegmented_content_omitted": 0
+              }
+            },
+            "indexing_incomplete": false
+          }
+        ],
+        "score_type": "unified_reciprocal_rank",
+        "total_kind": "lexical_matches",
+        "facet_total_kinds": {
+          "decisions": "lexical_matches",
+          "work_items": null,
+          "artifacts": null,
+          "transcripts": null
+        },
+        "facet_score_types": {
+          "decisions": "postgresql_lexical",
+          "work_items": null,
+          "artifacts": null,
+          "transcripts": null
+        },
+        "detail": "compact",
+        "work_rank_scope": "work_items",
+        "tag_counts": null,
+        "search_scope": {
+          "searched_facets": [
+            "decisions"
+          ],
+          "transcripts": "not_selected",
+          "transcript_search_hint": "Agent sessions can be searched by explicitly including \"transcripts\" in facets or calling search_transcript_contents."
+        },
+        "term_diagnostics": [
+          {
+            "term": "durable",
+            "matches": {
+              "decisions": 0,
+              "work_items": null,
+              "artifacts": null,
+              "transcripts": null
+            }
+          },
+          {
+            "term": "queues",
+            "matches": {
+              "decisions": 0,
+              "work_items": null,
+              "artifacts": null,
+              "transcripts": null
+            }
+          }
+        ],
+        "items": [],
+        "total": 0,
+        "limit": 20,
+        "offset": 0,
+        "facet_totals": {
+          "decisions": 0,
+          "work_items": 0,
+          "artifacts": 0,
+          "transcripts": 0
+        },
+        "coverage": {
+          "artifacts": {
+            "embedding": null,
+            "enabled": true,
+            "indexing": {
+              "pending": 0,
+              "failed": 0,
+              "ready": 0,
+              "truncated": 0
+            },
+            "sensitive_content_withheld": 0
+          },
+          "transcripts": {
+            "indexing_incomplete": false,
+            "unsegmented_content_omitted": 0
+          }
+        },
+        "indexing_incomplete": false
+      }
+    },
+    {
+      "name": "decisions_content_blank_terms",
+      "request": {
+        "project_id": "ca501b3f-860b-4f88-bca8-2f22a06359ab",
+        "q": "",
+        "query_mode": "terms",
+        "fulltext": true,
+        "facets": [
+          "decisions"
+        ]
+      },
+      "response": {
+        "next_offset": null,
+        "page_truncated": false,
+        "diagnostics": "on_empty",
+        "applied_filters": {
+          "decisions": {
+            "domain_ids": null,
+            "all_revisions": false,
+            "state": null
+          },
+          "project_id": "ca501b3f-860b-4f88-bca8-2f22a06359ab",
+          "project_ids": null,
+          "work_items": null,
+          "artifacts": null,
+          "transcripts": null
+        },
+        "query_interpretation": {
+          "decisions": {
+            "match_mode": "browse",
+            "fields": [
+              "metadata",
+              "content"
+            ],
+            "fulltext": true
+          },
+          "query_mode": "terms",
+          "q": "",
+          "work_items": null,
+          "artifacts": null,
+          "transcripts": null
+        },
+        "warnings": [],
+        "project_coverage": [
+          {
+            "project_id": "ca501b3f-860b-4f88-bca8-2f22a06359ab",
+            "project_name": "Example",
+            "project_slug": "example",
+            "facet_totals": {
+              "decisions": 0,
+              "work_items": 0,
+              "artifacts": 0,
+              "transcripts": 0
+            },
+            "coverage": {
+              "artifacts": {
+                "embedding": null,
+                "enabled": true,
+                "indexing": {
+                  "pending": 0,
+                  "failed": 0,
+                  "ready": 0,
+                  "truncated": 0
+                },
+                "sensitive_content_withheld": 0
+              },
+              "transcripts": {
+                "indexing_incomplete": false,
+                "unsegmented_content_omitted": 0
+              }
+            },
+            "indexing_incomplete": false
+          }
+        ],
+        "score_type": "none",
+        "total_kind": "browsed_records",
+        "facet_total_kinds": {
+          "decisions": "browsed_records",
+          "work_items": null,
+          "artifacts": null,
+          "transcripts": null
+        },
+        "facet_score_types": {
+          "decisions": "none",
+          "work_items": null,
+          "artifacts": null,
+          "transcripts": null
+        },
+        "detail": "compact",
+        "work_rank_scope": "work_items",
+        "tag_counts": null,
+        "search_scope": {
+          "searched_facets": [
+            "decisions"
+          ],
+          "transcripts": "not_selected",
+          "transcript_search_hint": "Agent sessions can be searched by explicitly including \"transcripts\" in facets or calling search_transcript_contents."
+        },
+        "term_diagnostics": [],
+        "items": [],
+        "total": 0,
+        "limit": 20,
+        "offset": 0,
+        "facet_totals": {
+          "decisions": 0,
+          "work_items": 0,
+          "artifacts": 0,
+          "transcripts": 0
+        },
+        "coverage": {
+          "artifacts": {
+            "embedding": null,
+            "enabled": true,
+            "indexing": {
+              "pending": 0,
+              "failed": 0,
+              "ready": 0,
+              "truncated": 0
+            },
+            "sensitive_content_withheld": 0
+          },
+          "transcripts": {
+            "indexing_incomplete": false,
+            "unsegmented_content_omitted": 0
+          }
+        },
+        "indexing_incomplete": false
+      }
+    },
+    {
+      "name": "decisions_content_single_terms",
+      "request": {
+        "project_id": "ca501b3f-860b-4f88-bca8-2f22a06359ab",
+        "q": "queues",
+        "query_mode": "terms",
+        "fulltext": true,
+        "facets": [
+          "decisions"
+        ]
+      },
+      "response": {
+        "next_offset": null,
+        "page_truncated": false,
+        "diagnostics": "on_empty",
+        "applied_filters": {
+          "decisions": {
+            "domain_ids": null,
+            "all_revisions": false,
+            "state": null
+          },
+          "project_id": "ca501b3f-860b-4f88-bca8-2f22a06359ab",
+          "project_ids": null,
+          "work_items": null,
+          "artifacts": null,
+          "transcripts": null
+        },
+        "query_interpretation": {
+          "decisions": {
+            "match_mode": "postgresql_plain_terms_or_substring",
+            "fields": [
+              "metadata",
+              "content"
+            ],
+            "fulltext": true
+          },
+          "query_mode": "terms",
+          "q": "queues",
+          "work_items": null,
+          "artifacts": null,
+          "transcripts": null
+        },
+        "warnings": [],
+        "project_coverage": [
+          {
+            "project_id": "ca501b3f-860b-4f88-bca8-2f22a06359ab",
+            "project_name": "Example",
+            "project_slug": "example",
+            "facet_totals": {
+              "decisions": 0,
+              "work_items": 0,
+              "artifacts": 0,
+              "transcripts": 0
+            },
+            "coverage": {
+              "artifacts": {
+                "embedding": null,
+                "enabled": true,
+                "indexing": {
+                  "pending": 0,
+                  "failed": 0,
+                  "ready": 0,
+                  "truncated": 0
+                },
+                "sensitive_content_withheld": 0
+              },
+              "transcripts": {
+                "indexing_incomplete": false,
+                "unsegmented_content_omitted": 0
+              }
+            },
+            "indexing_incomplete": false
+          }
+        ],
+        "score_type": "unified_reciprocal_rank",
+        "total_kind": "lexical_matches",
+        "facet_total_kinds": {
+          "decisions": "lexical_matches",
+          "work_items": null,
+          "artifacts": null,
+          "transcripts": null
+        },
+        "facet_score_types": {
+          "decisions": "postgresql_lexical",
+          "work_items": null,
+          "artifacts": null,
+          "transcripts": null
+        },
+        "detail": "compact",
+        "work_rank_scope": "work_items",
+        "tag_counts": null,
+        "search_scope": {
+          "searched_facets": [
+            "decisions"
+          ],
+          "transcripts": "not_selected",
+          "transcript_search_hint": "Agent sessions can be searched by explicitly including \"transcripts\" in facets or calling search_transcript_contents."
+        },
+        "term_diagnostics": [
+          {
+            "term": "queues",
+            "matches": {
+              "decisions": 0,
+              "work_items": null,
+              "artifacts": null,
+              "transcripts": null
+            }
+          }
+        ],
+        "items": [],
+        "total": 0,
+        "limit": 20,
+        "offset": 0,
+        "facet_totals": {
+          "decisions": 0,
+          "work_items": 0,
+          "artifacts": 0,
+          "transcripts": 0
+        },
+        "coverage": {
+          "artifacts": {
+            "embedding": null,
+            "enabled": true,
+            "indexing": {
+              "pending": 0,
+              "failed": 0,
+              "ready": 0,
+              "truncated": 0
+            },
+            "sensitive_content_withheld": 0
+          },
+          "transcripts": {
+            "indexing_incomplete": false,
+            "unsegmented_content_omitted": 0
+          }
+        },
+        "indexing_incomplete": false
+      }
+    },
+    {
+      "name": "decisions_content_multi_terms",
+      "request": {
+        "project_id": "ca501b3f-860b-4f88-bca8-2f22a06359ab",
+        "q": "durable queues",
+        "query_mode": "terms",
+        "fulltext": true,
+        "facets": [
+          "decisions"
+        ]
+      },
+      "response": {
+        "next_offset": null,
+        "page_truncated": false,
+        "diagnostics": "on_empty",
+        "applied_filters": {
+          "decisions": {
+            "domain_ids": null,
+            "all_revisions": false,
+            "state": null
+          },
+          "project_id": "ca501b3f-860b-4f88-bca8-2f22a06359ab",
+          "project_ids": null,
+          "work_items": null,
+          "artifacts": null,
+          "transcripts": null
+        },
+        "query_interpretation": {
+          "decisions": {
+            "match_mode": "postgresql_plain_terms_or_substring",
+            "fields": [
+              "metadata",
+              "content"
+            ],
+            "fulltext": true
+          },
+          "query_mode": "terms",
+          "q": "durable queues",
+          "work_items": null,
+          "artifacts": null,
+          "transcripts": null
+        },
+        "warnings": [],
+        "project_coverage": [
+          {
+            "project_id": "ca501b3f-860b-4f88-bca8-2f22a06359ab",
+            "project_name": "Example",
+            "project_slug": "example",
+            "facet_totals": {
+              "decisions": 0,
+              "work_items": 0,
+              "artifacts": 0,
+              "transcripts": 0
+            },
+            "coverage": {
+              "artifacts": {
+                "embedding": null,
+                "enabled": true,
+                "indexing": {
+                  "pending": 0,
+                  "failed": 0,
+                  "ready": 0,
+                  "truncated": 0
+                },
+                "sensitive_content_withheld": 0
+              },
+              "transcripts": {
+                "indexing_incomplete": false,
+                "unsegmented_content_omitted": 0
+              }
+            },
+            "indexing_incomplete": false
+          }
+        ],
+        "score_type": "unified_reciprocal_rank",
+        "total_kind": "lexical_matches",
+        "facet_total_kinds": {
+          "decisions": "lexical_matches",
+          "work_items": null,
+          "artifacts": null,
+          "transcripts": null
+        },
+        "facet_score_types": {
+          "decisions": "postgresql_lexical",
+          "work_items": null,
+          "artifacts": null,
+          "transcripts": null
+        },
+        "detail": "compact",
+        "work_rank_scope": "work_items",
+        "tag_counts": null,
+        "search_scope": {
+          "searched_facets": [
+            "decisions"
+          ],
+          "transcripts": "not_selected",
+          "transcript_search_hint": "Agent sessions can be searched by explicitly including \"transcripts\" in facets or calling search_transcript_contents."
+        },
+        "term_diagnostics": [
+          {
+            "term": "durable",
+            "matches": {
+              "decisions": 0,
+              "work_items": null,
+              "artifacts": null,
+              "transcripts": null
+            }
+          },
+          {
+            "term": "queues",
+            "matches": {
+              "decisions": 0,
+              "work_items": null,
+              "artifacts": null,
+              "transcripts": null
+            }
+          }
+        ],
+        "items": [],
+        "total": 0,
+        "limit": 20,
+        "offset": 0,
+        "facet_totals": {
+          "decisions": 0,
+          "work_items": 0,
+          "artifacts": 0,
+          "transcripts": 0
+        },
+        "coverage": {
+          "artifacts": {
+            "embedding": null,
+            "enabled": true,
+            "indexing": {
+              "pending": 0,
+              "failed": 0,
+              "ready": 0,
+              "truncated": 0
+            },
+            "sensitive_content_withheld": 0
+          },
+          "transcripts": {
+            "indexing_incomplete": false,
+            "unsegmented_content_omitted": 0
+          }
+        },
+        "indexing_incomplete": false
+      }
+    },
+    {
+      "name": "decisions_content_phrase",
+      "request": {
+        "project_id": "ca501b3f-860b-4f88-bca8-2f22a06359ab",
+        "q": "durable queues",
+        "query_mode": "phrase",
+        "fulltext": true,
+        "facets": [
+          "decisions"
+        ]
+      },
+      "response": {
+        "next_offset": null,
+        "page_truncated": false,
+        "diagnostics": "on_empty",
+        "applied_filters": {
+          "decisions": {
+            "domain_ids": null,
+            "all_revisions": false,
+            "state": null
+          },
+          "project_id": "ca501b3f-860b-4f88-bca8-2f22a06359ab",
+          "project_ids": null,
+          "work_items": null,
+          "artifacts": null,
+          "transcripts": null
+        },
+        "query_interpretation": {
+          "decisions": {
+            "match_mode": "postgresql_phrase_terms",
+            "fields": [
+              "metadata",
+              "content"
+            ],
+            "fulltext": true
+          },
+          "query_mode": "phrase",
+          "q": "durable queues",
+          "work_items": null,
+          "artifacts": null,
+          "transcripts": null
+        },
+        "warnings": [],
+        "project_coverage": [
+          {
+            "project_id": "ca501b3f-860b-4f88-bca8-2f22a06359ab",
+            "project_name": "Example",
+            "project_slug": "example",
+            "facet_totals": {
+              "decisions": 0,
+              "work_items": 0,
+              "artifacts": 0,
+              "transcripts": 0
+            },
+            "coverage": {
+              "artifacts": {
+                "embedding": null,
+                "enabled": true,
+                "indexing": {
+                  "pending": 0,
+                  "failed": 0,
+                  "ready": 0,
+                  "truncated": 0
+                },
+                "sensitive_content_withheld": 0
+              },
+              "transcripts": {
+                "indexing_incomplete": false,
+                "unsegmented_content_omitted": 0
+              }
+            },
+            "indexing_incomplete": false
+          }
+        ],
+        "score_type": "unified_reciprocal_rank",
+        "total_kind": "lexical_matches",
+        "facet_total_kinds": {
+          "decisions": "lexical_matches",
+          "work_items": null,
+          "artifacts": null,
+          "transcripts": null
+        },
+        "facet_score_types": {
+          "decisions": "postgresql_lexical",
+          "work_items": null,
+          "artifacts": null,
+          "transcripts": null
+        },
+        "detail": "compact",
+        "work_rank_scope": "work_items",
+        "tag_counts": null,
+        "search_scope": {
+          "searched_facets": [
+            "decisions"
+          ],
+          "transcripts": "not_selected",
+          "transcript_search_hint": "Agent sessions can be searched by explicitly including \"transcripts\" in facets or calling search_transcript_contents."
+        },
+        "term_diagnostics": [
+          {
+            "term": "durable",
+            "matches": {
+              "decisions": 0,
+              "work_items": null,
+              "artifacts": null,
+              "transcripts": null
+            }
+          },
+          {
+            "term": "queues",
+            "matches": {
+              "decisions": 0,
+              "work_items": null,
+              "artifacts": null,
+              "transcripts": null
+            }
+          }
+        ],
+        "items": [],
+        "total": 0,
+        "limit": 20,
+        "offset": 0,
+        "facet_totals": {
+          "decisions": 0,
+          "work_items": 0,
+          "artifacts": 0,
+          "transcripts": 0
+        },
+        "coverage": {
+          "artifacts": {
+            "embedding": null,
+            "enabled": true,
+            "indexing": {
+              "pending": 0,
+              "failed": 0,
+              "ready": 0,
+              "truncated": 0
+            },
+            "sensitive_content_withheld": 0
+          },
+          "transcripts": {
+            "indexing_incomplete": false,
+            "unsegmented_content_omitted": 0
+          }
+        },
+        "indexing_incomplete": false
+      }
+    },
+    {
+      "name": "decisions_content_quoted_terms",
+      "request": {
+        "project_id": "ca501b3f-860b-4f88-bca8-2f22a06359ab",
+        "q": "\"durable queues\"",
+        "query_mode": "terms",
+        "fulltext": true,
+        "facets": [
+          "decisions"
+        ]
+      },
+      "response": {
+        "next_offset": null,
+        "page_truncated": false,
+        "diagnostics": "on_empty",
+        "applied_filters": {
+          "decisions": {
+            "domain_ids": null,
+            "all_revisions": false,
+            "state": null
+          },
+          "project_id": "ca501b3f-860b-4f88-bca8-2f22a06359ab",
+          "project_ids": null,
+          "work_items": null,
+          "artifacts": null,
+          "transcripts": null
+        },
+        "query_interpretation": {
+          "decisions": {
+            "match_mode": "postgresql_phrase_terms",
+            "fields": [
+              "metadata",
+              "content"
+            ],
+            "fulltext": true
+          },
+          "query_mode": "terms",
+          "q": "\"durable queues\"",
+          "work_items": null,
+          "artifacts": null,
+          "transcripts": null
+        },
+        "warnings": [],
+        "project_coverage": [
+          {
+            "project_id": "ca501b3f-860b-4f88-bca8-2f22a06359ab",
+            "project_name": "Example",
+            "project_slug": "example",
+            "facet_totals": {
+              "decisions": 0,
+              "work_items": 0,
+              "artifacts": 0,
+              "transcripts": 0
+            },
+            "coverage": {
+              "artifacts": {
+                "embedding": null,
+                "enabled": true,
+                "indexing": {
+                  "pending": 0,
+                  "failed": 0,
+                  "ready": 0,
+                  "truncated": 0
+                },
+                "sensitive_content_withheld": 0
+              },
+              "transcripts": {
+                "indexing_incomplete": false,
+                "unsegmented_content_omitted": 0
+              }
+            },
+            "indexing_incomplete": false
+          }
+        ],
+        "score_type": "unified_reciprocal_rank",
+        "total_kind": "lexical_matches",
+        "facet_total_kinds": {
+          "decisions": "lexical_matches",
+          "work_items": null,
+          "artifacts": null,
+          "transcripts": null
+        },
+        "facet_score_types": {
+          "decisions": "postgresql_lexical",
+          "work_items": null,
+          "artifacts": null,
+          "transcripts": null
+        },
+        "detail": "compact",
+        "work_rank_scope": "work_items",
+        "tag_counts": null,
+        "search_scope": {
+          "searched_facets": [
+            "decisions"
+          ],
+          "transcripts": "not_selected",
+          "transcript_search_hint": "Agent sessions can be searched by explicitly including \"transcripts\" in facets or calling search_transcript_contents."
+        },
+        "term_diagnostics": [
+          {
+            "term": "durable",
+            "matches": {
+              "decisions": 0,
+              "work_items": null,
+              "artifacts": null,
+              "transcripts": null
+            }
+          },
+          {
+            "term": "queues",
+            "matches": {
+              "decisions": 0,
+              "work_items": null,
+              "artifacts": null,
+              "transcripts": null
+            }
+          }
+        ],
+        "items": [],
+        "total": 0,
+        "limit": 20,
+        "offset": 0,
+        "facet_totals": {
+          "decisions": 0,
+          "work_items": 0,
+          "artifacts": 0,
+          "transcripts": 0
+        },
+        "coverage": {
+          "artifacts": {
+            "embedding": null,
+            "enabled": true,
+            "indexing": {
+              "pending": 0,
+              "failed": 0,
+              "ready": 0,
+              "truncated": 0
+            },
+            "sensitive_content_withheld": 0
+          },
+          "transcripts": {
+            "indexing_incomplete": false,
+            "unsegmented_content_omitted": 0
+          }
+        },
+        "indexing_incomplete": false
+      }
+    },
+    {
+      "name": "decisions_content_literal",
+      "request": {
+        "project_id": "ca501b3f-860b-4f88-bca8-2f22a06359ab",
+        "q": "durable queues",
+        "query_mode": "literal",
+        "fulltext": true,
+        "facets": [
+          "decisions"
+        ]
+      },
+      "response": {
+        "next_offset": null,
+        "page_truncated": false,
+        "diagnostics": "on_empty",
+        "applied_filters": {
+          "decisions": {
+            "domain_ids": null,
+            "all_revisions": false,
+            "state": null
+          },
+          "project_id": "ca501b3f-860b-4f88-bca8-2f22a06359ab",
+          "project_ids": null,
+          "work_items": null,
+          "artifacts": null,
+          "transcripts": null
+        },
+        "query_interpretation": {
+          "decisions": {
+            "match_mode": "literal",
+            "fields": [
+              "metadata",
+              "content"
+            ],
+            "fulltext": true
+          },
+          "query_mode": "literal",
+          "q": "durable queues",
+          "work_items": null,
+          "artifacts": null,
+          "transcripts": null
+        },
+        "warnings": [],
+        "project_coverage": [
+          {
+            "project_id": "ca501b3f-860b-4f88-bca8-2f22a06359ab",
+            "project_name": "Example",
+            "project_slug": "example",
+            "facet_totals": {
+              "decisions": 0,
+              "work_items": 0,
+              "artifacts": 0,
+              "transcripts": 0
+            },
+            "coverage": {
+              "artifacts": {
+                "embedding": null,
+                "enabled": true,
+                "indexing": {
+                  "pending": 0,
+                  "failed": 0,
+                  "ready": 0,
+                  "truncated": 0
+                },
+                "sensitive_content_withheld": 0
+              },
+              "transcripts": {
+                "indexing_incomplete": false,
+                "unsegmented_content_omitted": 0
+              }
+            },
+            "indexing_incomplete": false
+          }
+        ],
+        "score_type": "unified_reciprocal_rank",
+        "total_kind": "lexical_matches",
+        "facet_total_kinds": {
+          "decisions": "lexical_matches",
+          "work_items": null,
+          "artifacts": null,
+          "transcripts": null
+        },
+        "facet_score_types": {
+          "decisions": "postgresql_lexical",
+          "work_items": null,
+          "artifacts": null,
+          "transcripts": null
+        },
+        "detail": "compact",
+        "work_rank_scope": "work_items",
+        "tag_counts": null,
+        "search_scope": {
+          "searched_facets": [
+            "decisions"
+          ],
+          "transcripts": "not_selected",
+          "transcript_search_hint": "Agent sessions can be searched by explicitly including \"transcripts\" in facets or calling search_transcript_contents."
+        },
+        "term_diagnostics": [
+          {
+            "term": "durable",
+            "matches": {
+              "decisions": 0,
+              "work_items": null,
+              "artifacts": null,
+              "transcripts": null
+            }
+          },
+          {
+            "term": "queues",
+            "matches": {
+              "decisions": 0,
+              "work_items": null,
+              "artifacts": null,
+              "transcripts": null
+            }
+          }
+        ],
+        "items": [],
+        "total": 0,
+        "limit": 20,
+        "offset": 0,
+        "facet_totals": {
+          "decisions": 0,
+          "work_items": 0,
+          "artifacts": 0,
+          "transcripts": 0
+        },
+        "coverage": {
+          "artifacts": {
+            "embedding": null,
+            "enabled": true,
+            "indexing": {
+              "pending": 0,
+              "failed": 0,
+              "ready": 0,
+              "truncated": 0
+            },
+            "sensitive_content_withheld": 0
+          },
+          "transcripts": {
+            "indexing_incomplete": false,
+            "unsegmented_content_omitted": 0
+          }
+        },
+        "indexing_incomplete": false
+      }
+    }
+  ]
+}
