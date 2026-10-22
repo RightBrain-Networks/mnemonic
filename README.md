@@ -85,18 +85,35 @@ Install and configure mnemonic for me from https://github.com/RightBrain-Network
 
 ### Or, if you prefer, old school human instructions...
 
-Requirements: Docker with Linux containers and Docker Compose. The optional settings helper uses Python 3.10 or newer; no host Node or Python is needed to run the containers after `.env` is configured.
+Requirements: Git, Docker with Linux containers, and Docker Compose v2 (`docker compose`). The optional settings helper uses Python 3.10 or newer; no host Node or Python is needed to run the containers after `.env` is configured.
+
+For transcript capture, add `--transcript-source /absolute/claude/projects`, `--codex-source /absolute/codex/sessions`, or `--codex-archived-source /absolute/codex/archived_sessions` to the setup command below before creating `.env`. Use only existing, operator-approved directories; the helper selects their owner's UID/GID. Without configured sources, transcript filesystem access stays disabled. See [transcript setup](docs/transcripts.md#filesystem-deployment).
 
 ```sh
+git clone https://github.com/RightBrain-Networks/mnemonic.git
+cd mnemonic
 python scripts/setup.py
+```
+
+Before starting Compose, create the five private bind directories shown by the helper. Substitute the configured paths and `MNEMONIC_API_UID`/`MNEMONIC_API_GID` if customized. For the default paths and service UID/GID `10001:10001` on Linux:
+
+```sh
+sudo install -d -m 0700 -o 10001 -g 10001 ./artifacts
+sudo install -d -m 0700 -o 10001 -g 10001 ./prompts/runtime
+sudo install -d -m 0700 -o 10001 -g 10001 ./backups
+sudo install -d -m 0700 -o 10001 -g 10001 /var/lib/mnemonic/transcript-index
+sudo install -d -m 0700 -o 10001 -g 10001 /var/lib/mnemonic/transcripts
+docker compose config --quiet
 docker compose up --build -d --wait
 ```
 
-`sh ./up_mnemonic.sh` starts the stack with the TLS allowlists from
-`compose.tls.yaml`.
+Docker Desktop must be able to share those host directories. After startup, `python scripts/check_transcript_access.py` checks both services' transcript access. The helper leaves an existing `.env` unchanged; use the [upgrade procedure](docs/operations.md#current-coordinated-cutover) for an existing installation.
 
-On macOS/Linux the Python command may be `python3`. Alternatively, copy `.env.example` to `.env` and supply two different random secrets yourself: a URL-safe PostgreSQL password and an API key of at least 32 characters. The
-example deliberately contains no usable credentials. Never commit `.env`.
+`sh ./up_mnemonic.sh` starts the stack with the TLS allowlists from
+`compose.tls.yaml`; use it only after configuring `MNEMONIC_TLS_HOST` and the nginx TLS proxy below.
+
+On macOS/Linux the Python command may be `python3`. Alternatively, copy `.env.example` to `.env` and supply four independent random secrets yourself: URL-safe `POSTGRES_PASSWORD` and `MNEMONIC_RABBITMQ_PASSWORD` values, plus `MNEMONIC_API_KEY` and `MNEMONIC_BACKUP_TOKEN` values of at least 32 characters each. The
+example deliberately contains no usable credentials. Keep `.env` private (`chmod 600 .env` on POSIX systems). Never commit `.env`.
 
 Open `mnemonic`. Create your first project using the project selector, then connect your agent to create or continue durable work. The application starts empty; there are no fabricated objectives, checkpoints, or session IDs.
 
@@ -106,9 +123,9 @@ Open `mnemonic`. Create your first project using the project selector, then conn
 | REST API documentation | `MNEMONIC_API_PORT` | [localhost:8000/docs](http://localhost:8000/docs) |
 | MCP Streamable HTTP    | `MNEMONIC_MCP_PORT` | `http://127.0.0.1:8001/mcp`                       |
 
-Those addresses are defaults, not fixed values. Each port is set in `.env`, so change one there if it collides with something already running on the host, and substitute your own value wherever this README shows a port. With `uv` installed, `uv run --project mcp python scripts/check-stack.py` resolves all three from `.env` and performs the read-only live-stack checks. See [`docs/development.md`](docs/development.md) before opting into its write path.
+Those addresses are defaults, not fixed values. Each port is set in `.env`, so change one there if it collides with something already running on the host, and substitute your own value wherever this README shows a port. If the web port changes, update `MNEMONIC_DASHBOARD_ORIGINS` to match both `http://localhost:<port>` and `http://127.0.0.1:<port>`. With `uv` and Python 3.14 available, `uv run --project mcp python scripts/check-stack.py` resolves all three from `.env` and performs the read-only live-stack checks. See [`docs/development.md`](docs/development.md) before opting into its write path.
 
-The four application services run alongside a small backup container. PostgreSQL has no published port. Dashboard, REST, and MCP ports bind to loopback only. For LAN access through your existing nginx TLS proxy, use the
+The seven services are `postgres`, `rabbitmq`, `api`, `tika`, `mcp`, `web`, and `worker`; the shared worker handles background jobs and project backups. PostgreSQL, RabbitMQ, Tika, and the worker have no published ports. Dashboard, REST, and MCP ports bind to loopback only. For LAN access through your existing nginx TLS proxy, use the
 [nginx configuration and setup guide](deploy/nginx/README.md).
 
 ## Connect Claude Code
@@ -145,26 +162,22 @@ To make it automatic for everyone who clones a consuming repository, commit this
 ```json
 {
   "extraKnownMarketplaces": {
-    "mnemonic": { "source": { "source": "directory", "path": "/path/to/mnemonic" } }
+    "mnemonic": { "source": { "source": "github", "repo": "RightBrain-Networks/mnemonic" } }
   },
   "enabledPlugins": { "mnemonic@mnemonic": true }
 }
 ```
 
-Replace the directory source with `{ "source": "github", "repo": "<owner>/mnemonic" }` once the repository is
-reachable remotely.
+For a local marketplace instead, use `{ "source": "directory", "path": "/absolute/path/to/mnemonic" }`.
 
 Installing copies the plugin into `~/.claude/plugins/cache/` at its manifest version, so editing a skill in place does not change an installed copy. `claude plugin marketplace update mnemonic` refreshes the marketplace listing,
 not the installed files. After a published plugin version changes, run `claude plugin marketplace update mnemonic`, then `claude plugin update mnemonic@mnemonic`, and restart Claude Code.
 
-The current application/API/MCP release is `0.16.0`, with plugin version
-`0.16.0` and database head `0025_cross_project_relationships`. Deploy those
-surfaces together after backup and writer quiescence. Downgrade to 0024 only
-when every retained relationship has both current
-endpoints in its immutable authority project and no immutable
-relationship/dependency event history for an edge spans projects. Removing a
-cross-project edge does not erase that history or restore eligibility. Otherwise,
-fix forward or restore the full pre-0025 backup.
+The current application/API/MCP/dashboard release is `0.87.0`, with plugin version
+`0.52.0` and database head `0056_product_decisions`. Deploy those
+surfaces and the worker together after backup and authorized writer quiescence.
+See [the coordinated upgrade procedure](docs/operations.md#current-coordinated-cutover)
+before upgrading an existing database; older processes must not run against the new schema.
 Its repository-freshness helper requires Bash 3.2 or newer and Git 2.45 or newer in the explicitly selected local workspace. It provides:
 
 - **`mnemonic-save`** searches for existing work, explicitly compares a stable
@@ -201,19 +214,25 @@ Its repository-freshness helper requires Bash 3.2 or newer and Git 2.45 or newer
   `unchanged`, `changed`, or `indeterminate` evidence without treating any result
   as semantic proof or execution authority.
 
-Invoke `/mnemonic-save`, `/mnemonic-search`, or `/mnemonic-recall`, or ask Claude in natural language. The skills require the connected `mnemonic` MCP server. You can copy the selected project's ID from the dashboard, or use
+Invoke `/mnemonic:mnemonic-save`, `/mnemonic:mnemonic-search`, or `/mnemonic:mnemonic-recall`, or ask Claude in natural language. The skills require the connected `mnemonic` MCP server. You can copy the selected project's ID from the dashboard, or use
 `list_projects`. Session IDs are opaque text (often UUIDs), not integers, and refer to the originating LLM conversation, not the MCP transport session. 
 
 See [`docs/agents.md`](docs/agents.md) for the workflow and client boundaries.
+
+## Connect Codex or OpenCode
+
+Merge [`examples/codex.config.toml`](examples/codex.config.toml) or [`examples/opencode.json`](examples/opencode.json) into the client's configuration, substitute your MCP port, and export `MNEMONIC_API_KEY` in the environment that launches the client. Codex uses `bearer_token_env_var`; OpenCode uses `{env:MNEMONIC_API_KEY}` with `oauth: false`.
+
+Install the three complete portable skill folders using [`scripts/export_agent_skills.py`](scripts/export_agent_skills.py) and the [multi-client setup instructions](docs/mcp-clients.md#install-the-complete-workflow). Connecting MCP does not install the skills. For Codex, also merge the [AGENTS guidance](examples/codex-AGENTS.md) into existing instructions. Restart the client and verify tool discovery and `list_projects`; an empty list is valid.
 
 ## Operate and develop
 
 ```sh
 docker compose ps
-docker compose logs --tail=100 api mcp web backup
+docker compose logs --tail=100 api mcp web worker rabbitmq
 docker compose stop
 docker compose up -d --wait
 ```
 
-Normal stop/restart preserves the database. **Do not use `docker compose down -v` on your working stack:** it removes the data volume. Backups are written to `./backups` by default and are not committed. Copy them off the machine and
-monitor available disk space; a local dump alone does not protect against disk loss. Restore commands and security limits are in [`docs/operations.md`](docs/operations.md).
+Normal stop/restart preserves the database. Production stop/restart or recreation requires explicit operator authorization. **Do not use `docker compose down -v` on your working stack:** it removes the database and RabbitMQ volumes. Backups are written to `./backups/<project UUID>/` by default as `.json.bz2` archives and are not committed. The worker schedules them every 24 hours by default and retains seven successful archives per project. No archive is expected before a real project exists. Verify a backup in **Settings → Project backups** after creating your first project. Copy them off the machine and
+monitor available disk space; a local archive alone does not protect against disk loss. Artifact files, editable prompt files, and retained native transcripts require separate filesystem backups. Restore commands and security limits are in [`docs/operations.md`](docs/operations.md).
