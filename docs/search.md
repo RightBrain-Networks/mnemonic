@@ -16,7 +16,7 @@ the same live task overview used by the dashboard; zero counts have no pip.
 
 Application/API/MCP/dashboard `0.43.0` and plugin `0.26.0` add one project search
 surface across work items, artifacts, and transcripts. No migration or new
-configuration was required for that release. Current release 0.85.0 uses migration
+configuration was required for that release. Current release 0.85.1 uses migration
 `0053_knowledge_graph` and also searches decision documents and
 [imported transcripts](transcripts.md#import-existing-transcripts).
 The dashboard retains its separate work, artifact, and transcript interfaces.
@@ -391,3 +391,8 @@ to restrict decision state. Date bounds apply as on other sources.
 human-readable references, hashes and bounded excerpts. Retrieve text with
 `decision_get`. Decision search uses PostgreSQL lexical matching and participates
 in global ranking, diagnostics and pagination. See [Knowledge graph](knowledge-graph.md).
+
+Release 0.85.1 aligns MCP validation with the PostgreSQL matching modes disclosed
+by decision searches. It also reports both contributing fields when a plain-text
+match spans decision metadata and document content. Metadata-only searches and
+literal matching retain their existing field boundaries.

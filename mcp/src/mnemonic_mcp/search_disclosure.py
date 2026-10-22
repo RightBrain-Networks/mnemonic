@@ -129,6 +129,25 @@ def withholding_warnings(page) -> list[SearchWarning]:
     )] if count else []
 
 
+def _content_interpretation(
+    query: str, query_mode: QueryMode, fulltext: bool,
+    filters: ArtifactAppliedFilters | TranscriptAppliedFilters | DecisionAppliedFilters,
+) -> SourceQueryInterpretation:
+    if isinstance(filters, DecisionAppliedFilters):
+        mode = ("postgresql_phrase_terms" if constrained_query(query, query_mode)
+                else "postgresql_plain_terms_or_substring")
+    else:
+        mode = "phrase" if constrained_query(query, query_mode) else "all_terms"
+    source = SourceQueryInterpretation(
+        match_mode=("literal" if query_mode == "literal" else mode) if query else "browse",
+        fulltext=fulltext, fields=["metadata", "content"] if fulltext else ["metadata"],
+    )
+    if isinstance(filters, ArtifactAppliedFilters) and filters.semantic:
+        source.match_mode = "semantic_passages"
+        source.fields = ["content"]
+    return source
+
+
 def search_disclosure(
     project_id: UUID | tuple[UUID, ...], q: str | None, *, query_mode: QueryMode = "terms",
     work_items: WorkAppliedFilters | None = None,
@@ -160,16 +179,7 @@ def search_disclosure(
         if filters is None:
             continue
         sources.append(facet)
-        source = SourceQueryInterpretation(
-            match_mode=("literal" if query_mode == "literal" else "phrase"
-                        if constrained_query(query, query_mode) else "all_terms")
-                       if query else "browse", fulltext=fulltext,
-            fields=["metadata", "content"] if fulltext else ["metadata"],
-        )
-        if isinstance(filters, ArtifactAppliedFilters) and filters.semantic:
-            source.match_mode = "semantic_passages"
-            source.fields = ["content"]
-        setattr(interpretation, facet, source)
+        setattr(interpretation, facet, _content_interpretation(query, query_mode, fulltext, filters))
     return SearchDisclosure(
         diagnostics=diagnostics, applied_filters=applied, query_interpretation=interpretation,
         warnings=[],

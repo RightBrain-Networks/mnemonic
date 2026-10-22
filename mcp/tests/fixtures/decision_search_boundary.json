@@ -1,0 +1,173 @@
+{
+  "provenance": {
+    "source": "Actual FastAPI TestClient response.json() via isolated PostgreSQL",
+    "route": "POST /api/v1/projects/{project_id}/search",
+    "normalization": "Only random project UUID replaced with MCP conftest PROJECT_ID",
+    "scenario": "Stopword substring spans metadata model ID and decision content"
+  },
+  "request": {
+    "project_id": "ca501b3f-860b-4f88-bca8-2f22a06359ab",
+    "q": "and the",
+    "facets": [
+      "decisions"
+    ],
+    "fulltext": true
+  },
+  "response": {
+    "next_offset": null,
+    "page_truncated": false,
+    "diagnostics": "on_empty",
+    "applied_filters": {
+      "decisions": {
+        "domain_ids": null,
+        "all_revisions": false,
+        "state": null
+      },
+      "project_id": "ca501b3f-860b-4f88-bca8-2f22a06359ab",
+      "project_ids": null,
+      "work_items": null,
+      "artifacts": null,
+      "transcripts": null
+    },
+    "query_interpretation": {
+      "decisions": {
+        "match_mode": "postgresql_plain_terms_or_substring",
+        "fields": [
+          "metadata",
+          "content"
+        ],
+        "fulltext": true
+      },
+      "query_mode": "terms",
+      "q": "and the",
+      "work_items": null,
+      "artifacts": null,
+      "transcripts": null
+    },
+    "warnings": [],
+    "project_coverage": [
+      {
+        "project_id": "ca501b3f-860b-4f88-bca8-2f22a06359ab",
+        "project_name": "First project",
+        "project_slug": "first-project",
+        "facet_totals": {
+          "decisions": 1,
+          "work_items": 0,
+          "artifacts": 0,
+          "transcripts": 0
+        },
+        "coverage": {
+          "artifacts": {
+            "embedding": null,
+            "enabled": true,
+            "indexing": {
+              "pending": 0,
+              "failed": 0,
+              "ready": 0,
+              "truncated": 0
+            },
+            "sensitive_content_withheld": 0
+          },
+          "transcripts": {
+            "indexing_incomplete": false,
+            "unsegmented_content_omitted": 0
+          }
+        },
+        "indexing_incomplete": false
+      }
+    ],
+    "score_type": "unified_reciprocal_rank",
+    "total_kind": "lexical_matches",
+    "facet_total_kinds": {
+      "decisions": "lexical_matches",
+      "work_items": null,
+      "artifacts": null,
+      "transcripts": null
+    },
+    "facet_score_types": {
+      "decisions": "postgresql_lexical",
+      "work_items": null,
+      "artifacts": null,
+      "transcripts": null
+    },
+    "detail": "compact",
+    "work_rank_scope": "work_items",
+    "tag_counts": null,
+    "search_scope": {
+      "searched_facets": [
+        "decisions"
+      ],
+      "transcripts": "not_selected",
+      "transcript_search_hint": "Agent sessions can be searched by explicitly including \"transcripts\" in facets or calling search_transcript_contents."
+    },
+    "term_diagnostics": [],
+    "items": [
+      {
+        "project_id": "ca501b3f-860b-4f88-bca8-2f22a06359ab",
+        "rank": 1,
+        "score_type": "unified_reciprocal_rank",
+        "id": "a5d40e42-c876-441e-a50e-33c24432dd4f",
+        "created_at": "2026-10-22T05:33:45.111333Z",
+        "updated_at": "2026-10-22T05:33:45.114153Z",
+        "score": 0.01639344262295082,
+        "facet": "decisions",
+        "decision": {
+          "rank": 1,
+          "score": 0.0,
+          "score_type": "postgresql_lexical",
+          "id": "a5d40e42-c876-441e-a50e-33c24432dd4f",
+          "project_id": "ca501b3f-860b-4f88-bca8-2f22a06359ab",
+          "decision_id": "ADR-00001",
+          "reference": "ADR-00001-0",
+          "domain_id": "b095c3a5-dba6-41f6-8dac-88289dc1aeda",
+          "domain_name": "Architecture",
+          "prefix": "ADR",
+          "ordinal": 1,
+          "revision": 0,
+          "title": "Queue design",
+          "state": "accepted",
+          "media_type": "text/plain",
+          "size_bytes": 21,
+          "sha256": "e69aa9a7379fdd03f84dc59c68c3ae691d39ed89250ea986211acde0005efce3",
+          "created_at": "2026-10-22T05:33:45.111333Z",
+          "updated_at": "2026-10-22T05:33:45.114153Z",
+          "author_kind": "agent",
+          "agent_session_id": "review-session",
+          "model_id": "and",
+          "snippet": "the rest of this body",
+          "matched_fields": [
+            "metadata",
+            "content"
+          ]
+        }
+      }
+    ],
+    "total": 1,
+    "limit": 20,
+    "offset": 0,
+    "facet_totals": {
+      "decisions": 1,
+      "work_items": 0,
+      "artifacts": 0,
+      "transcripts": 0
+    },
+    "coverage": {
+      "artifacts": {
+        "embedding": null,
+        "enabled": true,
+        "indexing": {
+          "pending": 0,
+          "failed": 0,
+          "ready": 0,
+          "truncated": 0
+        },
+        "sensitive_content_withheld": 0
+      },
+      "transcripts": {
+        "indexing_incomplete": false,
+        "unsegmented_content_omitted": 0
+      }
+    },
+    "indexing_incomplete": false
+  }
+}

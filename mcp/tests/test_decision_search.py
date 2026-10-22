@@ -36,6 +36,11 @@ def decision_page(*, fulltext=False, all_revisions=False):
         decisions=DecisionAppliedFilters(domain_ids=[UUID(DOMAIN_ID)],
                                          all_revisions=all_revisions, state="accepted"),
     ).model_dump(mode="json"))
+    # The API uses PostgreSQL for decisions; do not derive this wire value from
+    # the MCP helper whose contract the round-trip test is checking.
+    result["query_interpretation"]["decisions"]["match_mode"] = (
+        "postgresql_plain_terms_or_substring"
+    )
     return add_ranking(result, "search", "queues")
 
 
