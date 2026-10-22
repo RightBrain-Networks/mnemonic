@@ -63,6 +63,11 @@ from mnemonic_api.phase12_schemas import (
     RenderedAuthoringPrompt,
 )
 from mnemonic_api.precedence_schemas import DependencyIssue
+from mnemonic_api.product_decision_schemas import (
+    HumanGateDecisionMetadata,
+    HumanGateDecisionRead,
+    validate_gate_decision,
+)
 from mnemonic_api.search_diagnostics import TermDiagnostics
 from mnemonic_api.search_disclosure import SearchDisclosure
 from mnemonic_api.search_exploration_schemas import SearchOptions
@@ -1902,6 +1907,7 @@ class RelationshipRemovalCreate(APIModel):
 
 
 class HumanGateRequestCreate(APIModel):
+    decision_metadata: HumanGateDecisionMetadata | MISSING = MISSING
     gate_id: UUID | None = None
     expected_question_version: Annotated[StrictInt, Field(ge=1)] | None = None
     gate_type: Literal["human"] = "human"
@@ -1985,6 +1991,9 @@ class HumanGateQuestionVersion(APIModel):
 
 
 class HumanGateRead(APIModel):
+    decision: HumanGateDecisionRead | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
     id: UUID
     project_id: UUID
     work_item_id: UUID
@@ -2068,6 +2077,15 @@ class HumanGateRead(APIModel):
                     or version.created_at < previous_time):
                 raise ValueError("Question versions must be ordered")
             previous_time = version.created_at
+        return self
+
+    @model_validator(mode="after")
+    def product_decision_matches_question(self) -> Self:
+        validate_gate_decision(
+            self.decision, question=self.question, question_version=self.question_version,
+            resolution=self.resolution, status=self.status, work_item_id=self.work_item_id,
+            project_id=self.project_id,
+        )
         return self
 
     @model_validator(mode="after")

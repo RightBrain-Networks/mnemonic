@@ -76,6 +76,7 @@ export default function KnowledgeLibrary({ projectId, query = "", onPendingChang
       </select></label>
     </div>
     <p className="artifact-history-note knowledge-current-note">Current revisions. Open a decision to view its retained history and the code that cites it.</p>
+    {domain?.is_product_decision_domain && <p className="artifact-history-note">Needs Attention questions and recorded answers live in this domain. <Link href={`/attention?project=${projectId}`}>Review waiting product decisions</Link>.</p>}
     {decisions.isError ? <ReadError error={decisions.error} retry={() => void decisions.refetch()} /> : <>
       <div className="artifact-table-scroll" role="region" aria-label="Decision directory" tabIndex={0} aria-busy={decisions.isFetching}>
         <table className="artifact-table knowledge-table"><thead><tr><th scope="col">Decision</th><th scope="col">State</th><th scope="col">Revision commits</th><th scope="col">Modified</th><th scope="col"><span className="sr-only">Actions</span></th></tr></thead>
@@ -171,6 +172,12 @@ function DecisionDrawer({ projectId, selected, onSelect, onClose, onPendingChang
       {decision && <DecisionStateBadge state={decision.state} />}
       {selected.revision !== undefined && <button className="text-button" disabled={pending} onClick={() => openRevision()}>View current revision</button>}
     </div>
+    {decision?.human_gate && <div className="decision-attention-origin">
+      <p>{decision.human_gate.status === "unresolved" ? "This Product Decision Record is waiting for a human answer." : "This Product Decision Record retains the human answer and its question history."}</p>
+      {decision.human_gate.work_project_id !== projectId && <p>The originating work was moved to another project before Product Decision Records were introduced. This historical record remains in its original project.</p>}
+      {decision.human_gate.status === "unresolved" && <Link className="text-link" href={`/attention?project=${decision.human_gate.work_project_id}&work_item_id=${decision.human_gate.work_item_id}`}>Answer in Needs Attention</Link>}
+      <Link className="text-link" href={`/work-items?project=${decision.human_gate.work_project_id}&work=${decision.human_gate.work_item_id}`}>View originating work</Link>
+    </div>}
     <div className="status-filters decision-preview-tabs" role="group" aria-label="Decision views">
       {(["document", "details", "history", "scope", "impact", "assessments"] as const).map((value) => <button type="button" key={value} disabled={pending} className={`filter-button ${tab === value ? "selected" : ""}`} aria-pressed={tab === value} onClick={() => setTab(value)}>{({ document: "Document", details: "Details & links", history: "Revisions", scope: "Code scope", impact: "Impact", assessments: "Assessments" })[value]}</button>)}
     </div>
@@ -198,7 +205,7 @@ function DecisionDrawer({ projectId, selected, onSelect, onClose, onPendingChang
   </DocumentPreviewDrawer>;
 }
 
-function authorLabel(decision: Decision) { return decision.author_kind === "human" ? "Human created" : `${decision.model_id} · ${decision.agent_session_id}`; }
+function authorLabel(decision: Decision) { return decision.author_kind === "human" ? "Human created" : `${decision.model_id ?? "Model not recorded"} · ${decision.agent_session_id ?? "Session not recorded"}`; }
 function DecisionDetails({ decision, onDecision }: { decision: Decision; onDecision: (id: string) => void }) {
   const decisionLinks = (values: string[]): ReactNode => values.length ? values.map((id) => <button key={id} className="text-button artifact-work-link" onClick={() => onDecision(id)}>{id}</button>) : "None";
   return <>

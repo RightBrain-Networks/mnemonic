@@ -1,12 +1,13 @@
 import { ApiError, detailMessage } from "./api.ts";
 import { readBoundedJson } from "./bounded-json.ts";
-import { finiteInteger, objectValue, sameUuid, validUuid } from "./wire-guards.ts";
+import { exactKeys, finiteInteger, objectValue, sameUuid, validUuid } from "./wire-guards.ts";
 
 export const decisionStates = ["proposed", "rejected", "accepted", "superseded", "partially-superseded"] as const;
 export type DecisionState = typeof decisionStates[number];
 export type KnowledgeDomain = {
   id: string; project_id: string; name: string; prefix: string; version: number;
   created_at: string; updated_at: string; decision_count: number;
+  is_product_decision_domain?: boolean;
 };
 export type Decision = {
   id: string; project_id: string; domain_id: string; domain_name: string; prefix: string;
@@ -17,6 +18,7 @@ export type Decision = {
   related_work_item_ids: string[]; related_artifact_ids: string[]; supersedes: string[];
   superseded_by: string[]; referenced_by: string[]; scope_count: number;
   depends_on?: DecisionDependency[]; supersession_details?: SupersessionDetail[];
+  human_gate?: { gate_id: string; work_item_id: string; work_project_id: string; status: "unresolved" | "resolved"; question_version: number };
 };
 export type DecisionDependency = { decision_id: string; revision: number; rationale: string };
 export type SupersessionDetail = { decision_id: string; revision: number; extent: "full" | "partial"; reason: string };
@@ -56,7 +58,9 @@ export function decodeDomain(value: unknown, projectId: string): KnowledgeDomain
     || typeof item.name !== "string" || !item.name.trim() || typeof item.prefix !== "string"
     || !/^[A-Z]{1,5}$/.test(item.prefix) || !finiteInteger(item.version, 1)
     || !finiteInteger(item.decision_count) || typeof item.created_at !== "string"
-    || typeof item.updated_at !== "string") invalid();
+    || typeof item.updated_at !== "string"
+    || item.is_product_decision_domain !== undefined && typeof item.is_product_decision_domain !== "boolean"
+    || item.is_product_decision_domain === true && item.prefix !== "PDR") invalid();
   return item as KnowledgeDomain;
 }
 
@@ -85,6 +89,14 @@ export function decodeDecision(value: unknown, projectId: string, decisionId?: s
     || !strings(item.referenced_by) || !item.referenced_by.every((id) => referencePattern.test(id))) invalid();
   if (item.depends_on !== undefined && (!Array.isArray(item.depends_on) || !item.depends_on.every((value) => validDecisionEdge(value, "rationale")))
     || item.supersession_details !== undefined && (!Array.isArray(item.supersession_details) || !item.supersession_details.every((value) => validDecisionEdge(value, "reason") && ["full", "partial"].includes(String(objectValue(value)?.extent))))) invalid();
+  if (item.human_gate !== undefined) {
+    const gate = objectValue(item.human_gate);
+    if (!gate || !exactKeys(gate, ["gate_id", "work_item_id", "work_project_id", "status", "question_version"])
+      || !validUuid(gate.gate_id) || !validUuid(gate.work_item_id) || !validUuid(gate.work_project_id)
+      || !["unresolved", "resolved"].includes(String(gate.status)) || !finiteInteger(gate.question_version, 1)
+      || item.prefix !== "PDR"
+      || (!sameUuid(gate.work_project_id, projectId) ? gate.status !== "resolved" : !item.related_work_item_ids.includes(gate.work_item_id))) invalid();
+  }
   return item as Decision;
 }
 

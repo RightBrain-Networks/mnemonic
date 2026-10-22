@@ -1,6 +1,7 @@
 import { expect, request, test, type APIRequestContext, type Page } from "@playwright/test";
 import type { PromptDetail, PromptLibraryPage } from "../../lib/prompts";
 import { closeDetail, selectWork, workCard } from "./surface";
+import { fillFixtureDecisionProvenance } from "./job-report-fixture";
 
 async function client() {
   return request.newContext({ baseURL: process.env.MNEMONIC_E2E_API_URL, extraHTTPHeaders: {
@@ -239,6 +240,7 @@ test("report instructions initialize during typing and changed instructions stil
     await pane.getByLabel(/^Checkpoint text/).fill("The report prompt initialization has been checked.");
     const summary = pane.getByRole("textbox", { name: /^Human summary/ });
     await summary.fill("The prompt settings are ready.");
+    await fillFixtureDecisionProvenance(pane);
     await expect(pane.getByText("Loading project report instructions…", { exact: true })).toBeVisible();
     releasePrompt();
     await summary.pressSequentially(" The author can keep typing while they load.", { delay: 5 });

@@ -1,7 +1,7 @@
 """Phase 8 hierarchy presentation correctness matrix on real PostgreSQL."""
 
 from datetime import datetime
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 from sqlalchemy import event, text
@@ -140,6 +140,8 @@ def request_gate(api, project: dict, created: dict, question: str) -> dict:
             "question": question,
             "requested_by_client": "hierarchy-matrix",
             "requested_by_session_id": "hierarchy-matrix",
+            "requested_by_model": "test-model",
+            "client_operation_id": str(uuid4()),
         },
     )
     assert response.status_code == 201, response.text
@@ -153,6 +155,7 @@ def resolve_gate(api, project: dict, created: dict, gate: dict) -> None:
             "resolution": "Use the reviewed hierarchy boundary.",
             "resolved_by_client": "dashboard",
             "resolved_by_session_id": "hierarchy-human",
+            "client_operation_id": str(uuid4()),
             "reviewed_context_revision": gate["current_context_revision"],
         },
     )

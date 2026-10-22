@@ -229,6 +229,11 @@ of low impact. Keep discovery read-only.
    allocated-sequence order, each with its question, requester provenance, the item's
    current readiness, and its `parent-child` ancestor path; priority is display
    context, not queue order. Pass an exact `work_item_id` to focus one item.
+   Each gate includes a `decision.reference` for its canonical Product Decision
+   Record (PDR). Use `decision_get` and decision history for document evidence;
+   unified decision search also finds answered PDRs. Read
+   [knowledge-graph.md](${CLAUDE_PLUGIN_ROOT}/reference/knowledge-graph.md) for
+   domain/full-text/history filters and the question-to-decision revision mapping.
    `limit=0` without a cursor returns only the exact count. Pass `next_cursor`
    back unchanged to continue; restart without a cursor to refresh the head,
    because a question committed later can carry an earlier sequence. Omission

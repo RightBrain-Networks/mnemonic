@@ -6,38 +6,14 @@ from uuid import UUID
 
 from pydantic import Field, StrictInt, StringConstraints, field_validator
 
+from mnemonic_api.decision_link_schemas import DecisionDependency as DecisionDependency
+from mnemonic_api.decision_link_schemas import SupersessionDetail as SupersessionDetail
 from mnemonic_api.schemas import APIModel, MutationActor
 
 Identifier = Annotated[str, StringConstraints(pattern=r"^[A-Z]{1,5}-[0-9]{5,19}$")]
 Reference = Annotated[str, StringConstraints(pattern=r"^[A-Z]{1,5}-[0-9]{5,19}-[0-9]{1,10}$")]
 Revision = Annotated[StrictInt, Field(ge=0, le=2_147_483_647)]
 Reason = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=4000)]
-
-
-class DecisionDependency(APIModel):
-    decision_id: Identifier
-    revision: Revision
-    rationale: Reason
-
-    @field_validator("rationale")
-    @classmethod
-    def valid_reason(cls, value: str) -> str:
-        if "\x00" in value:
-            raise ValueError("Reasons cannot contain NUL characters")
-        value.encode("utf-8")
-        return value
-
-
-class SupersessionDetail(APIModel):
-    decision_id: Identifier
-    revision: Revision
-    extent: Literal["full", "partial"]
-    reason: Reason
-
-    @field_validator("reason")
-    @classmethod
-    def valid_reason(cls, value: str) -> str:
-        return DecisionDependency.valid_reason(value)
 
 
 class ImpactQuery(APIModel):

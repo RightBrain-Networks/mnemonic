@@ -34,6 +34,8 @@ def close_work(api, project: dict, work: dict, checkpoint: dict, *, review: bool
             "summary": "Fixed the cache regression.",
             "fyi_items": [],
             "prompt_revision": settings["revision"],
+            "decision_provenance": {"disposition": "not-code",
+                                    "reason": "Synthetic fixture; no implementation code."},
         }
     }
     if review:

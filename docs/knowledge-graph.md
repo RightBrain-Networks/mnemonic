@@ -1,6 +1,9 @@
 # Knowledge graph
 
-Release 0.86.0 adds pinned dependencies, impact reassessment, and completion
+Release 0.87.0, plugin 0.52.0 and migration `0056_product_decisions` make Needs
+Attention questions Product Decision Records (PDRs) and create a default Product
+Decision Records domain for every project.
+Release 0.86.0 added pinned dependencies, impact reassessment, and completion
 provenance through migrations 0054 and 0055. Project-owned decision domains and permanently retained
 revisions began with `0053_knowledge_graph` in 0.85.0. Existing work graphs and
 artifact storage remain separate. Database backups include decision text and history.
@@ -12,6 +15,55 @@ Each domain allocates increasing ordinals starting at 1. Ordinals are padded to 
 minimum of five digits, never recycled, and can grow beyond five digits. Revision
 numbers start at 0: `ADR-00194-0` identifies one immutable revision, while
 `ADR-00194` identifies the document and defaults to its current revision.
+
+## Product decisions and Needs Attention
+
+New projects automatically receive a `PDR` domain named Product Decision Records.
+Existing projects also receive a designated product decision domain during the
+upgrade. `list_knowledge_domains` identifies it with `is_product_decision_domain`;
+its display name can be changed while its prefix and role remain fixed.
+An existing `PDR` domain is reused without renaming or renumbering documents. If
+the default name belongs to another prefix, the new domain uses Product Decision
+Records (PDR), with a numeric suffix when needed.
+
+Every Needs Attention item is a canonical decision document linked to its human
+gate and primary work item. A new question creates proposed revision 0. Rewriting
+the open question appends an immutable decision revision and keeps its gate,
+document ID, queue position and history. Question version N corresponds to
+decision revision N-1. A human answer appends revision N containing the question
+and answer, with human authorship and accepted state. **Accepted means the owner's
+decision was recorded**, even when the answer declines the proposed action or says
+"No longer needed". It does not mean approval to perform the proposed action.
+
+Agents use `request_human_input`, with truthful native session and model identity,
+after retrieving the current `request-human-review` prompt. Optional
+`decision_metadata` provides a title, related decision/work/artifact links, exact
+dependencies and supersession details. On revision, omitted metadata or individual
+fields preserve their current values; an empty list clears optional links. The
+primary work link remains for new questions. New questions default to the work title and no
+optional links. All ordinary decision relationship rules apply.
+
+The gate's `decision` includes document/domain identity, exact reference and revision,
+state, content hash and complete metadata. `decision_get` exposes its `human_gate`
+with gate/work identity, `work_project_id`, current question version and
+unresolved/resolved status. Follow that project ID when opening the work: a
+historical resolved question may retain its PDR in the original project after
+its work moved before this migration. Such a gate reports
+`decision.originating_work_project_id` and omits the cross-project ordinary work
+link. Work with managed PDRs cannot move again.
+PDRs use normal decision search, text retrieval, immutable history, scope, impact
+assessments and commit lookup. Search full text to find both questions and answers;
+include all revisions when auditing earlier wording. Their dedicated dashboard
+surface remains Needs Attention. Ordinary documents created directly in the PDR
+domain do not create human gates.
+
+Only the human-question workflow revises managed PDRs. Generic `decision_put`
+cannot revise one or resolve its gate. Agents cannot answer or withdraw questions.
+Resolved answers remain immutable; a later product choice needs a new question
+with explicit references to the earlier PDR. An answered PDR that informs code
+must be cited at the exact answered revision in implementation provenance, just
+like any other decision. A work link alone does not establish use or authorize
+execution. See [Needs Attention](attention.md) for workflow and retry details.
 
 ## Documents and history
 
@@ -70,6 +122,13 @@ integration relationship: inspect actual merge evidence first.
 
 Fresh Done closeouts in projects with knowledge domains require a nested
 `job_completion_report.decision_provenance` declaration:
+
+Because every project now has a default PDR domain, this applies even when a
+project has no decision documents. An agent that used none can supply the
+explicit uncited disposition described below; no document has to be invented.
+The dashboard's manual Done action opens a completion decision form requiring
+the same deliberate citation or explained uncited declaration. It does not infer
+that no decisions were used or that no code was produced.
 
 ```json
 {
@@ -187,12 +246,16 @@ panel shows candidate paths, evidence, immutable assessment snapshots, and
 reassessment history. Users can append a reasoned disposition and optional
 remediation work link. Reverse lookup finds the decisions cited by a repository
 and commit. The Done form collects the required provenance declaration.
-Uploading or editing documents and removing domains in the dashboard are deferred.
+General document uploads/edits and domain removal in the dashboard are deferred;
+human answers are authored through the existing Needs Attention surface.
 
-Apply migrations `0054_knowledge_impact` and `0055_decision_provenance` through the
-normal authorized deployment process. Existing revisions and scopes are preserved;
-historical dependencies and provenance are not inferred. Downgrade refuses to
-discard populated impact or provenance history; recovery requires a pre-upgrade
-backup.
+Apply `0056_product_decisions` after `0055_decision_provenance` through the normal
+authorized deployment process. Existing revisions, scopes and mutation receipts
+are preserved. Existing human questions and answers become PDR revisions using
+their retained authors and timestamps; missing historical model identity stays
+unknown. Historical dependencies and implementation provenance are not inferred.
+Stop old writers before migration, and retain a pre-upgrade database backup for
+recovery. Earlier migrations also refuse downgrades that discard populated
+impact or provenance history.
 Production API, MCP, web, and worker rollout still requires explicit operator
 approval to interrupt services. No filesystem content migration is needed.

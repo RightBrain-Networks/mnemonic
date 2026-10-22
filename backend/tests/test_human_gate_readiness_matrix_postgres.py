@@ -274,6 +274,7 @@ def gate_request(question: str) -> dict:
         "requested_by_client": "pytest-agent",
         "requested_by_session_id": "readiness-matrix",
         "requested_by_model": "test-model",
+        "client_operation_id": str(uuid4()),
     }
 
 
@@ -283,6 +284,7 @@ def gate_resolution(answer: str, revision: dict) -> dict:
         "resolved_by_client": "dashboard",
         "resolved_by_session_id": "readiness-matrix-human",
         "resolved_by_model": None,
+        "client_operation_id": str(uuid4()),
         "reviewed_context_revision": revision,
     }
 

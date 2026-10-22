@@ -65,7 +65,7 @@ async function addSidebarItems(api: APIRequestContext, projectId: string, suffix
   const question = await createWork(api, projectId, `Question ${suffix}`);
   const gate = await api.post(`/api/v1/projects/${projectId}/work-items/${question.id}/gates`, { data: {
     gate_type: "human", question: `Proceed with ${suffix}?`,
-    requested_by_client: "playwright-api", requested_by_session_id: "core-query",
+    requested_by_client: "playwright-api", requested_by_session_id: "core-query", requested_by_model: "playwright-fixture",
     client_operation_id: crypto.randomUUID()
   } });
   expect(gate.ok(), await gate.text()).toBe(true);

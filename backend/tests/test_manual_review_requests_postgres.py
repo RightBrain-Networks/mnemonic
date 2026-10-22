@@ -39,6 +39,9 @@ def test_summary_review_mode_scope_and_receipt(
 ):
     from alembic import command
     from alembic.config import Config
+    from alembic.migration import MigrationContext
+    from alembic.operations import Operations
+    from alembic.script import ScriptDirectory
 
     from tests.conftest import BACKEND_DIR
     from tests.test_project_activity_audit_postgres import _audit
@@ -73,10 +76,17 @@ def test_summary_review_mode_scope_and_receipt(
     assert claimed.json()["mode"] == mode
     assert _audit(postgres_engine)["result"] == "pass"
     config = Config(str(BACKEND_DIR / "alembic.ini"))
-    with pytest.raises(RuntimeError, match="Review mode history exists"):
+    with pytest.raises(RuntimeError, match="Decision provenance exists"):
         with postgres_engine.begin() as connection:
             config.attributes["connection"] = connection
             command.downgrade(config, "0049_duplicate_embeddings")
+    # Newer provenance now blocks the full downgrade first. The original mode
+    # guard must still reject removing immutable review mode history itself.
+    revision = ScriptDirectory.from_config(config).get_revision("0050_manual_review_modes")
+    with pytest.raises(RuntimeError, match="Review mode history exists"):
+        with postgres_engine.begin() as connection:
+            with Operations.context(MigrationContext.configure(connection)):
+                revision.module.downgrade()
     assert api.patch(base, json=intent).json() == response.json()
 
 
@@ -242,6 +252,10 @@ def test_earmark_preserves_existing_lifecycle_and_lease(
                     "summary": "Explicit human closeout decision.",
                     "fyi_items": [],
                     "prompt_revision": settings["revision"],
+                    "decision_provenance": {
+                        "disposition": "not-code",
+                        "reason": "Synthetic review fixture completes no implementation code.",
+                    },
                 },
             },
         )

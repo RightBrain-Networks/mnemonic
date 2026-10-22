@@ -49,6 +49,9 @@ _APPLICATION_ERRORS = {
     "decision_revision_conflict": "Decision revision changed; use decision_get before preparing a new update intent.",
     "decision_revision_mismatch": "Reference suffix and explicit revision must identify the same decision revision.",
     "decision_domain_mismatch": "An existing decision cannot change domains; use its original domain_id.",
+    "decision_managed_by_human_gate": "This PDR is managed by Needs Attention. Use request_human_input to revise an unresolved question; only the human dashboard can answer it. decision_put cannot bypass this workflow.",
+    "decision_author_model_required": "Fresh agent questions and revisions require the actual requested_by_model alongside the native requested_by_session_id. Never invent author identity; historical exact receipts retain their original arguments.",
+    "product_decision_work_links_limit": "A PDR may link at most 100 work items including its originating work. Keep that required link and narrow the optional related_work_item_ids before a new intent.",
     "decision_supersession_domain": "Supersedes requires the same domain; use related_decision_ids across domains.",
     "decision_supersession_cycle": "Supersession cannot create a cycle; inspect the decisions before a new intent.",
     "decision_self_reference": "A decision cannot link to or supersede itself.",
@@ -57,7 +60,7 @@ _APPLICATION_ERRORS = {
     "decision_assessment_not_found": "Impact assessment not found in this project; list decision_assessments.",
     "decision_assessment_version_conflict": "Assessment version changed; use decision_assessment_get before preparing a new disposition intent.",
     "decision_assessment_candidate_invalid": "Use an exact candidate_reference from this assessment's captured candidate pages.",
-    "decision_provenance_required": "Fresh Done in a project with knowledge domains requires job_completion_report.decision_provenance: cited with exact revisions and commits, or a reasoned no-applicable-decisions/not-code declaration.",
+    "decision_provenance_required": "Every project includes a PDR domain, so fresh Done requires job_completion_report.decision_provenance: cited with exact revisions and commits, or a reasoned no-applicable-decisions/not-code declaration.",
     "decision_scope_not_found": "No registered scope matches this repository and commit; use decision_commit_lookup before a new reconciliation intent.",
     "decision_scope_reconciliation_too_large": "This commit matches more than 500 registered citations; request operator help for reconciliation without changing repository identity or inventing mappings.",
     "transcript_path_not_allowed": (

@@ -45,7 +45,9 @@ def test_backup_refuses_invalid_ordinal_allocation_without_mutating_database(
     archive = _export(postgres_engine, project)
 
     def forge(_header, rows):
-        rows["knowledge_domains"][0]["next_ordinal"] = 1
+        next(row for row in rows["knowledge_domains"] if row["prefix"] == "ADR")[
+            "next_ordinal"
+        ] = 1
 
     with pytest.raises(BackupError, match="integrity"):
         restore_project(postgres_engine, UUID(project["id"]), io.BytesIO(_rewrite(archive, forge)))

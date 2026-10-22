@@ -1,5 +1,6 @@
 import { decodeHumanGateRevision } from "./revision-codecs.ts";
 import { decodeWorkSummary } from "./work-codecs.ts";
+import { decisionIdPattern, knowledgeLibraryPath, validDecisionEdge } from "./knowledge.ts";
 import type {
   HumanAttentionItem,
   HumanAttentionPage,
@@ -26,7 +27,7 @@ const GATE_FIELDS = [
   "context_checkpoint_changed_since_request", "relationships_changed_since_request",
   "context_changed_since_request", "resolved_at", "resolution", "resolved_by_client",
   "resolved_by_session_id", "resolved_by_model", "resolved_context_revision",
-  "context_changed_at_resolution"
+  "context_changed_at_resolution", "decision"
 ] as const;
 const CURSOR_PAGE_FIELDS = ["items", "total", "limit", "next_cursor"] as const;
 const HUMAN_ATTENTION_ITEM_FIELDS = ["gate", "summary"] as const;
@@ -56,12 +57,12 @@ export function humanGateProjectionKey(gate: HumanGateRead): string {
 
 export function decodeHumanGate(
   value: unknown,
-  expected?: { projectId?: string; workItemId?: string; gateId?: string; status?: HumanGateStatus }
+  expected?: { projectId?: string; workItemId?: string; gateId?: string; status?: HumanGateStatus; allowHistoricalReceipt?: boolean }
 ): HumanGateRead {
   const gate = objectValue(value);
   if (
     !gate
-    || !exactKeys(gate, GATE_FIELDS)
+    || !exactKeys(gate, GATE_FIELDS.filter((field) => field !== "decision" || !expected?.allowHistoricalReceipt || Object.hasOwn(gate, field)))
     || !validUuid(gate.id)
     || !validUuid(gate.project_id)
     || !validUuid(gate.work_item_id)
@@ -84,6 +85,23 @@ export function decodeHumanGate(
     || expected?.gateId !== undefined && !sameUuid(gate.id, expected.gateId)
     || expected?.status !== undefined && gate.status !== expected.status
   ) throw new Error("Mnemonic returned an invalid human gate.");
+
+  if (Object.hasOwn(gate, "decision")) {
+    const decision = objectValue(gate.decision);
+    const resolved = gate.status === "resolved";
+    const movedOrigin = Boolean(decision && Object.hasOwn(decision, "originating_work_project_id"));
+    if (!decision || !exactKeys(decision, ["document_id", "domain_id", "decision_id", "reference", "revision", "state", "sha256", "metadata", ...(movedOrigin ? ["originating_work_project_id"] : [])])
+      || !validUuid(decision.document_id) || !validUuid(decision.domain_id)
+      || typeof decision.decision_id !== "string" || !/^PDR-\d{5,}$/.test(decision.decision_id)
+      || !finiteInteger(decision.revision) || decision.revision !== Number(gate.question_version) - (resolved ? 0 : 1)
+      || decision.reference !== `${decision.decision_id}-${decision.revision}`
+      || decision.state !== (resolved ? "accepted" : "proposed")
+      || typeof decision.sha256 !== "string" || !/^[a-f0-9]{64}$/.test(decision.sha256)
+      || movedOrigin && (!resolved || !validUuid(decision.originating_work_project_id) || sameUuid(decision.originating_work_project_id, String(gate.project_id)))
+      || !validProductDecisionMetadata(decision.metadata, String(gate.work_item_id), movedOrigin)) {
+      throw new Error("Mnemonic returned an invalid product decision record.");
+    }
+  }
 
   let previousTime = Date.parse(String(gate.created_at));
   for (const [index, value] of (gate.previous_questions as unknown[]).entries()) {
@@ -128,6 +146,26 @@ export function decodeHumanGate(
     }
   }
   return gate as unknown as HumanGateRead;
+}
+
+function validProductDecisionMetadata(value: unknown, workItemId: string, movedOrigin: boolean): boolean {
+  const metadata = objectValue(value);
+  const boundedArray = (items: unknown, check: (item: unknown) => boolean): items is unknown[] =>
+    Array.isArray(items) && items.length <= 100 && items.every(check);
+  const decisionId = (item: unknown) => typeof item === "string" && decisionIdPattern.test(item);
+  return Boolean(metadata && exactKeys(metadata, ["title", "related_decision_ids", "related_work_item_ids", "related_artifact_ids", "depends_on", "supersedes", "supersession_details"])
+    && boundedText(metadata.title, 500)
+    && boundedArray(metadata.related_decision_ids, decisionId)
+    && boundedArray(metadata.related_work_item_ids, validUuid) && (movedOrigin || metadata.related_work_item_ids.some((id) => sameUuid(id, workItemId)))
+    && boundedArray(metadata.related_artifact_ids, validUuid)
+    && boundedArray(metadata.depends_on, (edge) => validDecisionEdge(edge, "rationale"))
+    && boundedArray(metadata.supersedes, decisionId)
+    && boundedArray(metadata.supersession_details, (edge) => validDecisionEdge(edge, "reason") && ["full", "partial"].includes(String(objectValue(edge)?.extent))));
+}
+
+export function humanGateDecisionPath(gate: HumanGateRead, questionVersion?: number): string | null {
+  return gate.decision ? knowledgeLibraryPath(gate.project_id, gate.decision.decision_id,
+    questionVersion === undefined ? gate.decision.revision : questionVersion - 1) : null;
 }
 
 

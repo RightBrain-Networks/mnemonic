@@ -105,13 +105,15 @@ GUIDES: dict[str, tuple[str, str, str]] = {
     "release_claim": ("Leases", "Release a lease without completing work.",
                       ("Supply the matching lease_token, actor identity, client_operation_id, and "
                       "explicit subagent_transcripts. Record resumable context before release.")),
-    "request_human_input": ("Attention", "Ask or revise a durable human question.",
+    "request_human_input": ("Attention", "Create or revise a proposed PDR for a human decision.",
                             ("First retrieve get_prompt with request-human-review and the work ID. "
-                            "Submit the authored question here. To revise an open question, "
+                            "Submit question, actual session and model here. decision_metadata adds "
+                            "title, references and pinned dependencies; omitted fields retain values. "
+                            "The returned decision is the canonical knowledge document. To revise, "
                             "supply its gate_id and expected_question_version with a new operation ID. "
-                            "Agents cannot resolve or withdraw questions.")),
-    "list_human_attention": ("Attention", "Find work awaiting a person.",
-                             "Select a project and page the attention queue; reading does not resolve it."),
+                            "Agents cannot resolve or withdraw questions, including via decision_put.")),
+    "list_human_attention": ("Attention", "Find proposed PDRs awaiting a person.",
+                             "Page the attention queue. Each gate includes a canonical decision reference; reading does not resolve it."),
     "list_work_gates": ("Attention", "Read a work item's human questions and answers.",
                         "Check drift flags and current facts; an answer alone grants no execution authority."),
     "add_relationship": ("Relationships", "Add a typed relationship between work items.",
@@ -231,6 +233,13 @@ FIELD_NOTES: dict[str, str] = {
     "prompt_revision": "Copy prompt_revision from get_prompt for job-completion-report; do not invent it.",
     "prompt_id": "Select project instructions by their registered ID. Add work_item_id for work "
                  "macros and code_review_id for an exact review. Fetch only the prompt needed now.",
+    "decision_metadata": "Optional PDR title and links. Omitted fields retain existing values on "
+                         "question revision; [] clears optional links. The primary work link stays. "
+                         "Use exact target revisions for depends_on; association alone is not reliance. "
+                         "Read current decision metadata before changing it. Null is invalid.",
+    "requested_by_model": "Actual authoring model for a fresh agent question or revision. Required "
+                          "by the API for agent authors; optional transport shape retains historical "
+                          "receipt replay. Never invent a missing historical model.",
     "exit_code": "For command verification: passed requires 0; failed requires nonzero; "
                  "inconclusive must omit exit_code. Null is invalid.",
     "approval_token": "Sensitive reads require fresh explicit human approval and a five-minute, "

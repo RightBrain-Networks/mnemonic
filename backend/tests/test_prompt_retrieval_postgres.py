@@ -74,6 +74,9 @@ def test_report_read_revision_closes_work_and_preserves_receipt_after_template_e
     response, payload = close(api, project, work, checkpoint_fields, job_completion_report={
         "summary": "Completed the requested work.", "fyi_items": [],
         "prompt_revision": prompt["prompt_revision"],
+        "decision_provenance": {
+            "disposition": "not-code", "reason": "Synthetic prompt fixture; no code produced.",
+        },
     })
     assert response.status_code == 200, response.text
     report = response.json()["job_completion_report"]
@@ -100,6 +103,9 @@ def test_report_read_synchronizes_external_edits_and_stale_revision_is_rejected(
     response, _ = close(api, project, work, checkpoint_fields, job_completion_report={
         "summary": "Completed the work.", "fyi_items": [],
         "prompt_revision": before["prompt_revision"],
+        "decision_provenance": {
+            "disposition": "not-code", "reason": "Synthetic prompt fixture; no code produced.",
+        },
     })
     assert response.status_code == 409
     assert response.json()["detail"]["code"] == "job_report_prompt_changed"

@@ -35,6 +35,7 @@ from mnemonic_api import impact_db as impact
 from mnemonic_api import knowledge_db as knowledge
 from mnemonic_api import manual_review_db as manual_reviews
 from mnemonic_api import phase12_db_tables as phase12
+from mnemonic_api import product_decision_db as product_decisions
 from mnemonic_api import provenance_db as provenance
 from mnemonic_api import transcript_db_tables as transcripts
 from mnemonic_api.artifact_passage_db import (
@@ -2382,7 +2383,9 @@ class DecisionDocument(Base):
 
 
 class DecisionRevision(Base):
-    __table__ = Table("decision_revisions", Base.metadata, *knowledge.revision_elements())
+    __table__ = Table(
+        "decision_revisions", Base.metadata, *knowledge.revision_elements(product_requests=True)
+    )
 
     id: Mapped[UUID]
     project_id: Mapped[UUID]
@@ -2504,3 +2507,25 @@ class DecisionCommitMapping(Base):
     original_commit_hash: Mapped[str]
     merged_commit_hash: Mapped[str]
     created_at: Mapped[datetime]
+
+
+class ProjectProductDecisionDomain(Base):
+    __table__ = Table(
+        "project_product_decision_domains", Base.metadata,
+        *product_decisions.domain_binding_elements(),
+    )
+
+    project_id: Mapped[UUID]
+    domain_id: Mapped[UUID]
+    created_automatically: Mapped[bool]
+
+
+class ProductDecisionRequest(Base):
+    __table__ = Table(
+        "product_decision_requests", Base.metadata, *product_decisions.request_binding_elements(),
+    )
+
+    gate_id: Mapped[UUID]
+    project_id: Mapped[UUID]
+    document_id: Mapped[UUID]
+    backfilled_revision_count: Mapped[int]

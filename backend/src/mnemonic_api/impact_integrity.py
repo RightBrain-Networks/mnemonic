@@ -67,9 +67,11 @@ IMPACT_FINDINGS = {
            OR assessment.diff->>'after_sha256' IS DISTINCT FROM after.sha256
            OR NOT EXISTS (SELECT 1 FROM client_operations receipt
                 WHERE receipt.project_id=assessment.project_id
-                AND receipt.operation_kind='put_decision'
                 AND receipt.state='completed' AND receipt.mutation_applied
-                AND receipt.response_body#>>'{decision,id}'=after.document_id::text
+                AND ((receipt.operation_kind='put_decision'
+                    AND receipt.response_body#>>'{decision,id}'=after.document_id::text)
+                  OR (receipt.operation_kind IN ('request_human_input','resolve_human_input')
+                    AND receipt.response_body#>>'{decision,document_id}'=after.document_id::text))
                 AND receipt.response_body#>'{decision,revision}'=to_jsonb(after.revision))
     """,
     "invalid_decision_impact_candidate_snapshots": f"""

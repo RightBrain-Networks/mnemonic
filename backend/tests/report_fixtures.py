@@ -12,6 +12,10 @@ def reported(payload: dict, *, retirement: bool = False) -> dict:
             "summary": "This test work reached its closeout. Its outcome is ready to review.",
             "fyi_items": [],
             "prompt_revision": "1",
+            "decision_provenance": {
+                "disposition": "not-code",
+                "reason": "Synthetic workflow fixture; no implementation code was produced.",
+            },
         },
     }
     if retirement:

@@ -1333,9 +1333,12 @@ def _request_human_input_matches(
 ) -> bool:
     result = cast(HumanGateRead, typed)
     request = cast(HumanGateRequestCreate, payload)
+    from mnemonic_api.services.product_decision_receipts import requested_metadata_matches
+
     revision = result.current_context_revision
     return (
-        result.project_id == project_id
+        requested_metadata_matches(request, result)
+        and result.project_id == project_id
         and str(result.work_item_id) == target_envelope.get("work_item_id")
         and (request.gate_id is None or result.id == request.gate_id)
         and result.question_version == (request.expected_question_version or 0) + 1

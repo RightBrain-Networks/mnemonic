@@ -448,6 +448,25 @@ export interface HumanGateRead {
   project_id: string;
   work_item_id: string;
   gate_type: "human";
+  decision?: {
+    document_id: string;
+    domain_id: string;
+    decision_id: string;
+    reference: string;
+    revision: number;
+    state: import("./knowledge.ts").DecisionState;
+    sha256: string;
+    originating_work_project_id?: string;
+    metadata: {
+      title: string;
+      related_decision_ids: string[];
+      related_work_item_ids: string[];
+      related_artifact_ids: string[];
+      depends_on: import("./knowledge.ts").DecisionDependency[];
+      supersedes: string[];
+      supersession_details: import("./knowledge.ts").SupersessionDetail[];
+    };
+  };
   question: string;
   question_version: number;
   previous_questions: HumanGateQuestionVersion[];

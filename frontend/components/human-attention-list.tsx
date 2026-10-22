@@ -104,20 +104,20 @@ function AttentionScope({ project, onOpen, onResolved, workItemId }: AttentionLi
   }
 
   if (!project) {
-    return <section className="empty-state"><h2>Choose a project.</h2><p>Human questions are scoped to one project.</p></section>;
+    return <section className="empty-state"><h2>Choose a project.</h2><p>Product Decision Records are scoped to one project.</p></section>;
   }
 
   return <section className="attention-list" aria-labelledby="attention-list-title">
     <div className="attention-list-heading">
-      <div><span className="section-label">EXPLICIT HUMAN QUESTIONS</span><h2 ref={titleRef} id="attention-list-title" tabIndex={-1}>{page ? `${page.total} waiting` : "Needs attention"}</h2></div>
+      <div><span className="section-label">PRODUCT DECISION RECORDS</span><h2 ref={titleRef} id="attention-list-title" tabIndex={-1}>{page ? `${page.total} waiting` : "Needs attention"}</h2></div>
       <button type="button" className="button button-secondary" disabled={loading} onClick={refreshHead}>Refresh queue</button>
     </div>
     {resolutionStatus && <p className="attention-resolution-status" role="status" aria-live="polite">{resolutionStatus}</p>}
     {workItemId && <div className="attention-filter" role="status">
       <span>Filtered to work item <span className="mono">{workItemId}</span></span>
-      <Link href="/attention" className="text-link">Show every question</Link>
+      <Link href={`/attention?project=${project.id}`} className="text-link">Show every question</Link>
     </div>}
-    <p className="attention-authority-note">Read the current question and record your answer. Earlier versions are available in the tabs.</p>
+    <p className="attention-authority-note">Each question is a Product Decision Record. Read the current question and record your answer; both remain in its immutable history. Open the PDR to view related decisions, work, and code references.</p>
     {loadError && <div className="error-notice" role="alert"><p>{loadError}</p><button type="button" className="button button-secondary" onClick={() => reload()}>Try again</button></div>}
     {loading && !page && <div className="loading-state" role="status"><span className="spinner" />Loading explicit questions…</div>}
     {page && !page.items.length && !loadError && <section className="empty-state attention-empty"><h2>No explicit human questions are waiting.</h2><p>This does not mean that every work item is ready; lifecycle holds, blockers, and active leases are separate facts.</p></section>}
@@ -127,10 +127,11 @@ function AttentionScope({ project, onOpen, onResolved, workItemId }: AttentionLi
         <div><StatusBadge status={item.summary.work_item.status} readiness={item.summary.readiness} /><OperationalBadge readiness={item.summary.readiness} /></div>
         <span>Priority {item.summary.work_item.priority}</span>
       </div>
-      <h3>{item.summary.work_item.title}</h3>
+      <h3>{item.gate.decision?.metadata.title ?? item.summary.work_item.title}</h3>
       <ExternalReferences references={item.summary.work_item.external_references} />
       <HumanGateQuestion gate={item.gate} onResolved={() => resolved(item.gate.id)} onRefresh={() => reload()} />
       <dl className="attention-provenance">
+        <div><dt>Work item</dt><dd>{item.summary.work_item.title}</dd></div>
         <div><dt>Current question by</dt><dd>{requestedThrough(item)}</dd></div>
         <div><dt>First requested</dt><dd><time dateTime={item.gate.created_at}>{formatDateTime(item.gate.created_at)}</time></dd></div>
       </dl>

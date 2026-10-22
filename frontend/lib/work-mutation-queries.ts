@@ -2,7 +2,7 @@ import type { QueryClient } from "@tanstack/react-query";
 import type { ConfirmedMutation, MutationIntentRegistry } from "./mutation-intent.ts";
 import type { MutationKind } from "./mutation-responses.ts";
 
-type ReadRoot = "work" | "tasks" | "work-detail" | "attention-count" | "attention" | "report-count" | "reports";
+type ReadRoot = "work" | "tasks" | "work-detail" | "attention-count" | "attention" | "report-count" | "reports" | "knowledge";
 const workReads = ["work", "tasks", "work-detail", "attention-count", "attention"] as const;
 const closeoutReads = [...workReads, "report-count", "reports"] as const;
 
@@ -19,7 +19,7 @@ const mutationReadRoots = {
   delete_work: closeoutReads,
   move_work: closeoutReads,
   remove_relationship: workReads,
-  resolve_human_input: workReads,
+  resolve_human_input: [...workReads, "knowledge"],
   merge_work: closeoutReads,
   dismiss_job_completion_report: ["work-detail", "report-count", "reports"],
   create_job_completion_report_follow_up: closeoutReads

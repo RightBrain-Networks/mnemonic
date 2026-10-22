@@ -173,6 +173,7 @@ def gate_case(seed):
     gate = seed.api.post(path, json={
         "question": "Which browser disposition should be retained?",
         "requested_by_client": "test-agent", "requested_by_session_id": "browser-gate-origin",
+        "requested_by_model": "test-model", "client_operation_id": str(uuid4()),
     })
     assert gate.status_code == 201, gate.text
     return Case("resolve_human_input", path + f"/{gate.json()['id']}/resolve", {

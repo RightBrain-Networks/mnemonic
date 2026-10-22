@@ -71,7 +71,7 @@ def document_elements() -> list:
     ]
 
 
-def revision_elements() -> list:
+def revision_elements(*, product_requests: bool = False) -> list:
     return [
         *_identity(),
         sa.Column("document_id", UUID, nullable=False),
@@ -116,8 +116,10 @@ def revision_elements() -> list:
         ),
         sa.CheckConstraint(
             "(author_kind='human' AND agent_session_id IS NULL AND model_id IS NULL) OR "
-            "(author_kind='agent' AND agent_session_id IS NOT NULL AND model_id IS NOT NULL "
-            "AND length(btrim(agent_session_id)) > 0 AND length(btrim(model_id)) > 0)",
+            "(author_kind='agent' AND agent_session_id IS NOT NULL "
+            "AND length(btrim(agent_session_id)) > 0 AND "
+            + ("(model_id IS NULL OR length(btrim(model_id)) > 0))" if product_requests else
+               "model_id IS NOT NULL AND length(btrim(model_id)) > 0)"),
             name="author_identity",
         ),
         sa.Index("ix_decision_revisions_project_hash", "project_id", "sha256"),

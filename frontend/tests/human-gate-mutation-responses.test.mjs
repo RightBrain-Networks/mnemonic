@@ -23,6 +23,9 @@ function response(overrides = {}) {
     project_id: project,
     work_item_id: work,
     gate_type: "human",
+    decision: { document_id: "2dfa9455-4a17-4cd4-938b-010ea17ccaf0", domain_id: "3dfa9455-4a17-4cd4-938b-010ea17ccaf0",
+      decision_id: "PDR-00001", reference: "PDR-00001-1", revision: 1, state: "accepted", sha256: "a".repeat(64),
+      metadata: { title: "Which option should continue?", related_decision_ids: [], related_work_item_ids: [work], related_artifact_ids: [], depends_on: [], supersedes: [], supersession_details: [] } },
     question: "Which option should continue?",
     requested_by_client: "claude-code",
     requested_by_session_id: "agent-session",
@@ -124,4 +127,15 @@ test("changed-context rejection is definite while malformed success remains retr
   assert.equal(rejected.error.code, "gate_context_changed");
   assert.equal((await classify(request(), 200, { malformed: true })).type, "unresolved");
   assert.equal((await classify(request(), 502, { detail: "lost" })).type, "unresolved");
+});
+
+test("PDR resolution validates its recorded revision without rejecting historical receipts", async () => {
+  const current = response();
+  assert.equal((await classify(request(), 200, current)).type, "success");
+  for (const decision of [null, { ...current.decision, state: "proposed" },
+    { ...current.decision, revision: 0, reference: "PDR-00001-0" }]) {
+    assert.equal((await classify(request(), 200, response({ decision }))).type, "unresolved");
+  }
+  delete current.decision;
+  assert.equal((await classify(request(), 200, current)).type, "success");
 });

@@ -71,6 +71,16 @@ and follow its current content. Do not
 use a gate as progress reporting, a substitute for an explicit `blocks` edge,
 ordinary work decomposition, or a way to defer work.
 
+Each gate is a Product Decision Record (PDR) in the knowledge graph. Supply the
+actual authoring model and native session with a fresh request or rewrite. The
+returned `decision.reference` pins the canonical document; use normal decision
+reads, search and implementation provenance. Optional `decision_metadata` adds
+title, cross-references and exact dependencies. Omitted fields retain metadata
+when rewriting; empty lists clear optional links while the primary work stays.
+See [knowledge-graph.md](${CLAUDE_PLUGIN_ROOT}/reference/knowledge-graph.md) for
+question-to-revision mapping and human answer semantics. `decision_put` cannot
+revise a managed PDR or bypass human resolution.
+
 Before requesting, read the item's existing `unresolved_gates` (page
 `list_human_attention` with the work ID when some are omitted). If an open
 question already covers the decision, keep that question. When updates to its

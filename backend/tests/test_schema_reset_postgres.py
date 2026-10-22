@@ -66,6 +66,7 @@ _AUDIT_VISIBLE_DAMAGE = (
 )
 
 _GUARDED_TABLES = (
+    "project_product_decision_domains", "product_decision_requests",
     "knowledge_domains", "decision_documents", "decision_revisions", "decision_relationships",
     "decision_work_item_links", "decision_artifact_links", "decision_scopes",
     "decision_dependencies", "decision_supersession_details", "decision_impact_assessments",
@@ -99,6 +100,7 @@ _GUARDED_TABLES = (
 )
 _POPULATED_TABLES = (
     *(table for table in _GUARDED_TABLES if table not in {
+        "product_decision_requests",
         "artifact_access_approvals", "artifact_links",
         "work_agent_follow_ups",
         "work_agent_follow_up_answers",

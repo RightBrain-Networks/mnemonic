@@ -75,3 +75,20 @@ test("decision edges retain exact target revisions, rationale and supersession e
   assert.equal(decodeDecision(decision, project).supersession_details, undefined);
   for (const change of [{ depends_on: [{ ...expanded.depends_on[0], revision: -1 }] }, { depends_on: [{ ...expanded.depends_on[0], rationale: " " }] }, { supersession_details: [{ ...expanded.supersession_details[0], extent: "unknown" }] }]) assert.throws(() => decodeDecision({ ...expanded, ...change }, project));
 });
+
+test("product domains and gate-backed decisions retain validated dashboard backlinks", () => {
+  const productDomain = { ...domain, prefix: "PDR", is_product_decision_domain: true };
+  assert.equal(decodeDomain(productDomain, project).is_product_decision_domain, true);
+  assert.throws(() => decodeDomain({ ...productDomain, prefix: "ADR" }, project));
+  assert.throws(() => decodeDomain({ ...productDomain, is_product_decision_domain: "yes" }, project));
+  const product = { ...decision, prefix: "PDR", decision_id: "PDR-00194", reference: "PDR-00194-0",
+    related_work_item_ids: [id], human_gate: { gate_id: domainId, work_item_id: id, work_project_id: project, status: "unresolved", question_version: 1 } };
+  assert.equal(decodeDecision(product, project).human_gate.work_item_id, id);
+  for (const human_gate of [null, { ...product.human_gate, extra: true }, { ...product.human_gate, gate_id: "bad" },
+    { ...product.human_gate, question_version: 0 }, { ...product.human_gate, status: "accepted" },
+    { ...product.human_gate, work_item_id: domainId }, { ...product.human_gate, work_project_id: undefined },
+    { ...product.human_gate, work_project_id: "bad" }, { ...product.human_gate, work_project_id: domainId }]) assert.throws(() => decodeDecision({ ...product, human_gate }, project));
+  const moved = { ...product, related_work_item_ids: [], human_gate: { ...product.human_gate, status: "resolved", work_project_id: domainId } };
+  assert.equal(decodeDecision(moved, project).human_gate.work_project_id, domainId);
+  assert.throws(() => decodeDecision({ ...moved, human_gate: { ...moved.human_gate, work_project_id: project } }, project));
+});

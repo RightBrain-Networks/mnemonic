@@ -26,6 +26,8 @@ Pass an optional `topic` string. Each successive word selects a child page:
 | `help({"topic":"complete_work job_completion_report decision_provenance"})` | Explicit decision use or explained uncited completion |
 | `help({"topic":"decision_scope_reconcile usage"})` | Original-to-merged commit lineage and local verification |
 | `help({"topic":"decision_assessment_append usage"})` | Immutable candidate reassessment, actor and version requirements |
+| `help({"topic":"request_human_input decision_metadata"})` | PDR title, cross-references, exact dependencies and sparse metadata updates |
+| `help({"topic":"request_human_input details"})` | Needs Attention PDR history, human answer semantics and implementation provenance |
 
 Priority guidance is fetched only through `get_priority_rubric(project_id)`;
 humans edit its Markdown in Settings > Workspace. Help and

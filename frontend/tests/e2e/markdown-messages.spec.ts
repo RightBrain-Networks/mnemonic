@@ -115,7 +115,7 @@ test("Needs Attention renders block Markdown in the queue and the original work 
     const response = await api.post(`/api/v1/projects/${project.id}/work-items/${work.id}/gates`, {
       data: {
         gate_type: "human", question, requested_by_client: "playwright-api",
-        requested_by_session_id: "markdown-messages", client_operation_id: crypto.randomUUID()
+        requested_by_session_id: "markdown-messages", requested_by_model: "playwright-fixture", client_operation_id: crypto.randomUUID()
       }
     });
     expect(response.status(), await response.text()).toBe(201);

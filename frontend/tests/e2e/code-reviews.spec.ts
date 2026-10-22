@@ -12,7 +12,7 @@ import type {
   ProjectSettings,
   WorkCreation as WorkCreationResult,
 } from "../../lib/types";
-import { reportForFixture, fillFixtureReport } from "./job-report-fixture";
+import { reportForFixture, fillFixtureReport, fillFixtureDecisionProvenance } from "./job-report-fixture";
 import { openTab, selectWork, workPane, workCard, closeDetail } from "./surface";
 
 async function captureReviewScreen(page: Page, path: string, focus?: Locator) {
@@ -150,13 +150,16 @@ async function fillHandoff(form: Locator) {
     .getByLabel("Decisions and reasons · 1")
     .fill(handoff.handoff.decisions[0]);
 }
-async function manualDone(pane: Locator, title: string) {
+async function manualDone(pane: Locator, title: string, mandatory = false) {
   await pane
     .getByRole("button", { name: `Choose an action for ${title}` })
     .click();
   await pane
     .getByRole("menuitem", { name: `Done ${title}`, exact: true })
     .click();
+  const dialog = pane.page().getByRole("dialog", { name: mandatory ? "Complete work with mandatory review" : "Record completion decision", exact: true });
+  await fillFixtureDecisionProvenance(dialog);
+  if (!mandatory) await dialog.getByRole("button", { name: "Record completion", exact: true }).click();
 }
 async function completeApi(
   api: APIRequestContext,
@@ -410,7 +413,7 @@ test("both Done paths collect mandatory scope and preserve cold isolation, warm 
       pane.locator(".review-findings"),
     );
     pane = await selectWork(page, second.title);
-    await manualDone(pane, second.title);
+    await manualDone(pane, second.title, true);
     dialog = page.getByRole("dialog", {
       name: "Complete work with mandatory review",
     });

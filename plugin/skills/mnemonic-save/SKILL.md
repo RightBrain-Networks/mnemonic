@@ -290,6 +290,11 @@ conflicting requirement, an external fact), record a human gate. Do not use a
 gate for ordinary progress, a known dependency (that is a `blocks` edge), vague
 uncertainty, work decomposition, deferral, or a transcript dump.
 
+The question is a proposed Product Decision Record (PDR) in the knowledge graph.
+Read [knowledge-graph.md](${CLAUDE_PLUGIN_ROOT}/reference/knowledge-graph.md) for
+`decision_metadata`, pinned dependencies, and answered-revision provenance.
+Use `request_human_input` for managed PDRs; `decision_put` cannot revise them.
+
 Do these in order:
 
 1. **Check for an existing open question.** `recall_work` the item and read
@@ -309,8 +314,9 @@ Do these in order:
    [prompts.md](${CLAUDE_PLUGIN_ROOT}/reference/prompts.md) for retrieval and macros.
    Freeze the question (at most
    4,000 characters), the exact project and work IDs, truthful
-   `requested_by_client` and `requested_by_session_id` (optional
-   `requested_by_model`), and a fresh `client_operation_id`. Never include a
+   `requested_by_client`, actual native `requested_by_session_id`, and
+   `requested_by_model`, optional `decision_metadata`, and a fresh
+   `client_operation_id`. Never include a
    password, API key, token, cookie, lease capability, operation UUID, private
    chain-of-thought, or transcript dump; store a safe reference or remediation
    instruction instead. Submit through `request_human_input`; fetching a prompt
@@ -320,7 +326,8 @@ Do these in order:
    deletion are refused until every gate on it is resolved. An existing lease is
    not revoked: keep it only for work that does not depend on the answer;
    otherwise `release_claim`. Tell the user the question
-   is in the dashboard's Needs Attention queue and report the work-item ID.
+   is in the dashboard's Needs Attention queue and report its returned
+   `decision.reference` and work-item ID.
 5. **Revise when the situation changes.** Keep the original question ID and
    queue position. If the decision is no longer needed, rewrite the question
    to explain why and ask the human to close it. A revision does not resolve

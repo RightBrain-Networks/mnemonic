@@ -40,8 +40,7 @@ def gate_request(*, operation_id=None, question="Which boundary should this use?
         "requested_by_session_id": "phase-7-agent",
         "requested_by_model": "test-model",
     }
-    if operation_id is not None:
-        payload["client_operation_id"] = str(operation_id)
+    payload["client_operation_id"] = str(operation_id or uuid4())
     return payload
 
 
@@ -53,8 +52,7 @@ def resolution_payload(*, revision, operation_id=None) -> dict:
         "resolved_by_model": "human-ui",
         "reviewed_context_revision": revision,
     }
-    if operation_id is not None:
-        payload["client_operation_id"] = str(operation_id)
+    payload["client_operation_id"] = str(operation_id or uuid4())
     return payload
 
 
@@ -1065,7 +1063,7 @@ def test_gate_text_rejects_nul_before_any_durable_side_effect(
         assert connection.execute(text("SELECT count(*) FROM work_gates")).scalar_one() == 1
         assert connection.execute(
             text("SELECT count(*) FROM client_operations")
-        ).scalar_one() == 0
+        ).scalar_one() == 1
         assert connection.execute(
             text(
                 "SELECT count(*) FROM work_events "

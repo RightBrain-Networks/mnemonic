@@ -242,6 +242,7 @@ def _current_context_revisions(
 
 
 def human_gate_read(
+    database: Session,
     gate: WorkGate | Mapping[str, Any],
     current_revision: HumanGateContextRevision,
 ) -> HumanGateRead:
@@ -275,7 +276,10 @@ def human_gate_read(
         if resolved_at is not None
         else None
     )
+    from mnemonic_api.services.product_decisions import gate_decision_read
+
     return HumanGateRead(
+        decision=gate_decision_read(database, UUID(str(value("id")))),
         id=value("id"),
         project_id=value("project_id"),
         work_item_id=value("work_item_id"),
@@ -305,8 +309,10 @@ def request_human_gate(
     work_item_id: UUID,
     payload: HumanGateRequestCreate,
 ) -> HumanGateRead:
+    from mnemonic_api.services.product_decisions import require_question_author
     from mnemonic_api.services.work_items import require_work_item
 
+    require_question_author(payload)
     work_item = require_work_item(database, project_id, work_item_id, lock=True)
     from mnemonic_api.services.duplicates import require_canonical_work_item
 
@@ -339,9 +345,11 @@ def request_human_gate(
         .values(updated_at=func.greatest(WorkItem.updated_at, created_at))
         .execution_options(synchronize_session=False)
     )
+    from mnemonic_api.services.product_decisions import write_question_decision
+    write_question_decision(database, work_item, gate, payload, created_at, creating=True)
     stage_human_attention_requested(database, gate)
     database.flush()
-    return human_gate_read(gate, revision)
+    return human_gate_read(database, gate, revision)
 
 
 def _revise_human_gate(
@@ -365,13 +373,16 @@ def _revise_human_gate(
         requested_by_model=payload.requested_by_model,
     )
     gate.question_revisions = [*gate.question_revisions, version.model_dump(mode="json")]
+    database.flush()
+    from mnemonic_api.services.product_decisions import write_question_decision
+    write_question_decision(database, work_item, gate, payload, authored_at, creating=False)
     database.execute(
         update(WorkItem).where(WorkItem.id == work_item.id)
         .values(updated_at=func.greatest(WorkItem.updated_at, authored_at))
         .execution_options(synchronize_session=False)
     )
     database.flush()
-    return human_gate_read(gate, revision)
+    return human_gate_read(database, gate, revision)
 
 
 def _locked_gate(
@@ -432,9 +443,11 @@ def resolve_human_gate(
         .values(updated_at=func.greatest(WorkItem.updated_at, resolved_at))
         .execution_options(synchronize_session=False)
     )
+    from mnemonic_api.services.product_decisions import write_answer_decision
+    write_answer_decision(database, work_item, gate)
     stage_human_attention_resolved(database, gate)
     database.flush()
-    return human_gate_read(gate, revision)
+    return human_gate_read(database, gate, revision)
 
 
 def list_human_attention(
@@ -516,7 +529,7 @@ def list_human_attention(
     revisions = _current_context_revisions(database, work_ids)
     items = [
         HumanAttentionItem(
-            gate=human_gate_read(gate, revisions[gate.work_item_id]),
+            gate=human_gate_read(database, gate, revisions[gate.work_item_id]),
             summary=summaries[gate.work_item_id],
         )
         for gate in gates
@@ -605,7 +618,7 @@ def list_work_gates(
         else None
     )
     return HumanGatePage(
-        items=[human_gate_read(gate, revision) for gate in gates],
+        items=[human_gate_read(database, gate, revision) for gate in gates],
         total=total,
         limit=filters.limit,
         next_cursor=next_cursor,

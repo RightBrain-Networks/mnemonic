@@ -29,6 +29,8 @@ def close(api, project, work, checkpoint_fields, status="done", **overrides):
         "summary": "The cache refreshes after switching branches and preserves existing entries.",
         "fyi_items": ["The cache keeps the existing retention period; it can be changed later."],
         "prompt_revision": "1",
+        "decision_provenance": {"disposition": "not-code",
+                                "reason": "Synthetic report fixture; no code was implemented."},
     }
     base = f"/api/v1/projects/{project['id']}/work-items/{work['id']}"
     payload = {
@@ -109,7 +111,12 @@ def test_fresh_closeout_requires_report_key_and_current_prompt(
         project,
         work,
         checkpoint_fields,
-        job_completion_report={"summary": "Done.", "fyi_items": [], "prompt_revision": "2"},
+        job_completion_report={
+            "summary": "Done.", "fyi_items": [], "prompt_revision": "2",
+            "decision_provenance": {
+                "disposition": "not-code", "reason": "Synthetic report fixture; no code produced.",
+            },
+        },
     )
     bad = api.post(base + f"/work-items/{work['id']}/complete", json=payload)
     assert bad.status_code == 409 and bad.json()["detail"]["code"] == "job_report_prompt_changed"

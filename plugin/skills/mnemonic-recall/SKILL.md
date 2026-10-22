@@ -248,6 +248,15 @@ with `question_version` and retained `previous_questions`.
 
 ## Interpret human questions and decisions
 
+Each human question is a Product Decision Record (PDR). Its `decision.reference`
+opens the canonical document through `decision_get`; earlier questions and the
+human answer are immutable revisions. Read
+[knowledge-graph.md](${CLAUDE_PLUGIN_ROOT}/reference/knowledge-graph.md) before
+changing PDR metadata or recording implementation based on an answer. Cite the
+exact answered revision when it influences code. Accepted records the owner's
+answer, including a refusal, and never grants execution authority by itself.
+Only `request_human_input` revises an open managed PDR; `decision_put` cannot.
+
 `Waiting` is derived for Pending work with one or more unresolved human gates.
 For each unresolved gate read the question, requester provenance, the nested
 `requested_context_revision`, `current_context_revision`, and the
