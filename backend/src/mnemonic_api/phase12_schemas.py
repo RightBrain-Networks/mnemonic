@@ -17,6 +17,8 @@ from pydantic import (
     model_validator,
 )
 
+from mnemonic_api.provenance_schemas import DecisionProvenance
+
 MAX_SEQUENCE = 2**63 - 1
 BIDI_CONTROLS = frozenset(
     "\u061c\u200e\u200f\u202a\u202b\u202c\u202d\u202e"
@@ -157,6 +159,10 @@ class Phase12Model(BaseModel):
 
 
 class JobCompletionReportInput(Phase12Model):
+    decision_provenance: DecisionProvenance | None = Field(
+        default=None, exclude_if=lambda value: value is None,
+        description="Required for fresh Done closeouts in projects with knowledge domains.",
+    )
     summary: ReportSummary
     fyi_items: list[FYIItem] = Field(max_length=10)
     prompt_revision: PositiveRevision

@@ -40,7 +40,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
-HEAD = "0053_knowledge_graph"
+HEAD = "0055_decision_provenance"
 MAX_MANIFEST_BYTES = 8 * 1024 * 1024
 
 

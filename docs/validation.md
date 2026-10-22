@@ -1,5 +1,41 @@
 # Mnemonic validation record
 
+## Decision impact and implementation provenance (0.86.0)
+
+Revision-pinned dependencies and full/partial supersession details now connect
+retained decisions to change-impact reports and immutable reassessment episodes.
+Done closeouts in projects with knowledge domains capture an explicit provenance
+declaration atomically, and repository/commit lookup follows append-only merge
+mappings. The dashboard, seven new MCP tools, agent help, three skills, portable
+exports, and offline Git helper share these contracts. Application 0.86.0 and
+plugin 0.51.0 use additive migrations 0054 and 0055; existing history is preserved.
+
+Validation used Python 3.14, Node 24, PostgreSQL 17, and isolated RabbitMQ/browser
+stacks. The full backend run executed 5,124 tests: 5,120 passed, and four fixture or
+catalog expectations were corrected and verified in 67 audit/provenance and 19
+schema-reset tests. The impact suite separately passed 22 cases, and ten knowledge
+backup tests passed. These cover exact revision paths, unknown related links,
+partial supersession, retained snapshots, optimistic assessment versions, atomic
+closeout rollback, immutable scopes/mappings, exact receipt replay, and rejection
+of forged backup evidence. Database/ORM schema parity, lint, and type checks passed.
+
+The complete MCP suite passed 2,279 tests. Follow-up adapter regressions cover
+supersession detail links and malformed repository text. All 114 captured PostgreSQL/API
+responses passed strict MCP adapter replay, including definitive conflicts. The dashboard passed 563 unit
+tests, type checking, and a production build; 34 focused desktop/narrow browser
+cases covered existing knowledge and completion flows plus impact, reassessment,
+retry preservation, merge lookup, and completion provenance. Four further
+desktop/narrow cases verified concurrent assessment drafts and the updated
+Resources menu. The full browser suite remains part of required pull-request CI. Plugin/reference exports, skill
+validation, operational-script lint, OpenAPI generation, and secret scanning passed.
+
+Screenshots show [impact paths](images/knowledge-impact-paths.png),
+[narrow layout](images/knowledge-impact-narrow.png),
+[assessment diff](images/knowledge-impact-assessment-diff.png), and
+[completion provenance](images/knowledge-completion-provenance.png).
+Reports explicitly disclose unknown historical influences and bounded evidence;
+Git integration mappings remain authored declarations. Production was not deployed.
+
 ## Decision search response validation (0.85.1)
 
 Production smoke checks exposed a mismatch between PostgreSQL decision matching

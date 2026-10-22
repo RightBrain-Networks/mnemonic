@@ -19,6 +19,8 @@ in examples are resource locators to resolve first. This bundle requires no
 client-specific path or session-variable expansion. Artifact transfer helpers are
 bundled at `scripts/upload_artifact.py` and `scripts/download_artifact.py`;
 resolve them the same way when needed.
+The decision provenance helper is `scripts/decision_provenance.py`; resolve its
+absolute resource path before inspecting the user-selected local repository.
 
 """
 
@@ -42,9 +44,10 @@ def _payload(plugin_root: Path) -> dict[Path, tuple[bytes, int]]:
     payload: dict[Path, tuple[bytes, int]] = {}
     resources = sorted((plugin_root / "reference").glob("*.md"))
     helper = plugin_root / "bin" / "mnemonic-repository-freshness"
-    transfers = [plugin_root / "scripts" / f"{verb}_artifact.py" for verb in ("upload", "download")]
+    helpers = [plugin_root / "scripts" / f"{verb}_artifact.py" for verb in ("upload", "download")]
+    helpers.append(plugin_root / "scripts" / "decision_provenance.py")
     for skill in sorted((plugin_root / "skills").glob("*/SKILL.md")):
-        for source in (skill, *resources, helper, *transfers):
+        for source in (skill, *resources, helper, *helpers):
             relative = Path("SKILL.md") if source == skill else source.relative_to(plugin_root)
             content = (
                 _render_markdown(source, relative)

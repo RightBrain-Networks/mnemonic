@@ -103,6 +103,8 @@ jobs:
             scripts/setup.py \
             scripts/export_agent_skills.py \
             scripts/download_artifact.py \
+            scripts/decision_provenance.py \
+            plugin/scripts/decision_provenance.py \
             scripts/upload_artifact.py \
             plugin/scripts/upload_artifact.py \
             plugin/scripts/download_artifact.py \

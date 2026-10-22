@@ -3851,6 +3851,88 @@
         "title": "CommandVerificationRead",
         "type": "object"
       },
+      "CommitReconcileCreate": {
+        "additionalProperties": false,
+        "properties": {
+          "client_operation_id": {
+            "format": "uuid",
+            "title": "Client Operation Id",
+            "type": "string"
+          },
+          "merged_commit_hash": {
+            "pattern": "^(?:[a-fA-F0-9]{40}|[a-fA-F0-9]{64})$",
+            "title": "Merged Commit Hash",
+            "type": "string"
+          },
+          "original_commit_hash": {
+            "pattern": "^(?:[a-fA-F0-9]{40}|[a-fA-F0-9]{64})$",
+            "title": "Original Commit Hash",
+            "type": "string"
+          },
+          "repository": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Repository",
+            "type": "string"
+          }
+        },
+        "required": [
+          "repository",
+          "original_commit_hash",
+          "merged_commit_hash",
+          "client_operation_id"
+        ],
+        "title": "CommitReconcileCreate",
+        "type": "object"
+      },
+      "CommitReconcileResult": {
+        "additionalProperties": false,
+        "properties": {
+          "created": {
+            "title": "Created",
+            "type": "boolean"
+          },
+          "merged_commit_hash": {
+            "pattern": "^(?:[a-fA-F0-9]{40}|[a-fA-F0-9]{64})$",
+            "title": "Merged Commit Hash",
+            "type": "string"
+          },
+          "original_commit_hash": {
+            "pattern": "^(?:[a-fA-F0-9]{40}|[a-fA-F0-9]{64})$",
+            "title": "Original Commit Hash",
+            "type": "string"
+          },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "repository": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Repository",
+            "type": "string"
+          },
+          "scope_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Scope Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "repository",
+          "original_commit_hash",
+          "merged_commit_hash",
+          "project_id",
+          "scope_ids",
+          "created"
+        ],
+        "title": "CommitReconcileResult",
+        "type": "object"
+      },
       "CompactArtifactMatch": {
         "additionalProperties": false,
         "properties": {
@@ -6246,6 +6328,57 @@
         "title": "DecisionAppliedFilters",
         "type": "object"
       },
+      "DecisionCitation": {
+        "additionalProperties": false,
+        "properties": {
+          "decision_id": {
+            "pattern": "^[A-Z]{1,5}-[0-9]{5,19}$",
+            "title": "Decision Id",
+            "type": "string"
+          },
+          "revision": {
+            "maximum": 2147483647.0,
+            "minimum": 0.0,
+            "title": "Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "decision_id",
+          "revision"
+        ],
+        "title": "DecisionCitation",
+        "type": "object"
+      },
+      "DecisionDependency": {
+        "additionalProperties": false,
+        "properties": {
+          "decision_id": {
+            "pattern": "^[A-Z]{1,5}-[0-9]{5,19}$",
+            "title": "Decision Id",
+            "type": "string"
+          },
+          "rationale": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Rationale",
+            "type": "string"
+          },
+          "revision": {
+            "maximum": 2147483647.0,
+            "minimum": 0.0,
+            "title": "Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "decision_id",
+          "revision",
+          "rationale"
+        ],
+        "title": "DecisionDependency",
+        "type": "object"
+      },
       "DecisionFacetHit": {
         "additionalProperties": false,
         "properties": {
@@ -6316,6 +6449,55 @@
         "title": "DecisionFacetHit",
         "type": "object"
       },
+      "DecisionProvenance": {
+        "additionalProperties": false,
+        "properties": {
+          "citations": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/DecisionCitation"
+            },
+            "maxItems": 100,
+            "title": "Citations",
+            "type": "array"
+          },
+          "commits": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/ImplementationCommit"
+            },
+            "maxItems": 100,
+            "title": "Commits",
+            "type": "array"
+          },
+          "disposition": {
+            "enum": [
+              "cited",
+              "no-applicable-decisions",
+              "not-code"
+            ],
+            "title": "Disposition",
+            "type": "string"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "required": [
+          "disposition"
+        ],
+        "title": "DecisionProvenance",
+        "type": "object"
+      },
       "DecisionPut": {
         "additionalProperties": false,
         "properties": {
@@ -6361,6 +6543,15 @@
               }
             ],
             "title": "Decision Id"
+          },
+          "depends_on": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/DecisionDependency"
+            },
+            "maxItems": 100,
+            "title": "Depends On",
+            "type": "array"
           },
           "domain_id": {
             "format": "uuid",
@@ -6452,6 +6643,15 @@
             "title": "Supersedes",
             "type": "array"
           },
+          "supersession_details": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/SupersessionDetail"
+            },
+            "maxItems": 100,
+            "title": "Supersession Details",
+            "type": "array"
+          },
           "title": {
             "maxLength": 500,
             "minLength": 1,
@@ -6519,6 +6719,14 @@
           "decision_id": {
             "title": "Decision Id",
             "type": "string"
+          },
+          "depends_on": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/DecisionDependency"
+            },
+            "title": "Depends On",
+            "type": "array"
           },
           "domain_id": {
             "format": "uuid",
@@ -6641,6 +6849,14 @@
             "title": "Supersedes",
             "type": "array"
           },
+          "supersession_details": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/SupersessionDetail"
+            },
+            "title": "Supersession Details",
+            "type": "array"
+          },
           "title": {
             "title": "Title",
             "type": "string"
@@ -6708,6 +6924,19 @@
             "title": "Commit Hash",
             "type": "string"
           },
+          "repository": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Repository"
+          },
           "revision": {
             "maximum": 2147483647.0,
             "minimum": 0.0,
@@ -6753,6 +6982,18 @@
             "title": "Commit Hash",
             "type": "string"
           },
+          "completion_report_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completion Report Id"
+          },
           "created_at": {
             "format": "date-time",
             "title": "Created At",
@@ -6772,10 +7013,31 @@
             "title": "Id",
             "type": "string"
           },
+          "merged_commit_hashes": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Merged Commit Hashes",
+            "type": "array"
+          },
           "project_id": {
             "format": "uuid",
             "title": "Project Id",
             "type": "string"
+          },
+          "repository": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Repository"
           },
           "revision": {
             "title": "Revision",
@@ -7052,6 +7314,14 @@
             "title": "Decision Id",
             "type": "string"
           },
+          "depends_on": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/DecisionDependency"
+            },
+            "title": "Depends On",
+            "type": "array"
+          },
           "domain_id": {
             "format": "uuid",
             "title": "Domain Id",
@@ -7179,6 +7449,14 @@
               "type": "string"
             },
             "title": "Supersedes",
+            "type": "array"
+          },
+          "supersession_details": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/SupersessionDetail"
+            },
+            "title": "Supersession Details",
             "type": "array"
           },
           "title": {
@@ -9027,6 +9305,787 @@
         "title": "HumanReviewDecisionRead",
         "type": "object"
       },
+      "ImpactAssessmentDetail": {
+        "additionalProperties": false,
+        "properties": {
+          "after_reference": {
+            "title": "After Reference",
+            "type": "string"
+          },
+          "before_reference": {
+            "title": "Before Reference",
+            "type": "string"
+          },
+          "candidate_count": {
+            "title": "Candidate Count",
+            "type": "integer"
+          },
+          "candidates": {
+            "items": {
+              "$ref": "#/components/schemas/ImpactCandidate"
+            },
+            "title": "Candidates",
+            "type": "array"
+          },
+          "change_required_count": {
+            "title": "Change Required Count",
+            "type": "integer"
+          },
+          "coverage": {
+            "$ref": "#/components/schemas/ImpactCoverage"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "diff": {
+            "$ref": "#/components/schemas/ImpactDiff"
+          },
+          "disposition_history_total": {
+            "title": "Disposition History Total",
+            "type": "integer"
+          },
+          "dispositions": {
+            "items": {
+              "$ref": "#/components/schemas/ImpactDispositionRead"
+            },
+            "title": "Dispositions",
+            "type": "array"
+          },
+          "extent": {
+            "anyOf": [
+              {
+                "enum": [
+                  "full",
+                  "partial"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Extent"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "next_offset": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Offset"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "change-required",
+              "resolved"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "trigger": {
+            "enum": [
+              "revision",
+              "supersession"
+            ],
+            "title": "Trigger",
+            "type": "string"
+          },
+          "unassessed_count": {
+            "title": "Unassessed Count",
+            "type": "integer"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "project_id",
+          "trigger",
+          "before_reference",
+          "after_reference",
+          "extent",
+          "reason",
+          "diff",
+          "candidate_count",
+          "coverage",
+          "created_at",
+          "version",
+          "unassessed_count",
+          "change_required_count",
+          "status",
+          "candidates",
+          "dispositions",
+          "disposition_history_total",
+          "limit",
+          "offset",
+          "next_offset"
+        ],
+        "title": "ImpactAssessmentDetail",
+        "type": "object"
+      },
+      "ImpactAssessmentRead": {
+        "additionalProperties": false,
+        "properties": {
+          "after_reference": {
+            "title": "After Reference",
+            "type": "string"
+          },
+          "before_reference": {
+            "title": "Before Reference",
+            "type": "string"
+          },
+          "candidate_count": {
+            "title": "Candidate Count",
+            "type": "integer"
+          },
+          "change_required_count": {
+            "title": "Change Required Count",
+            "type": "integer"
+          },
+          "coverage": {
+            "$ref": "#/components/schemas/ImpactCoverage"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "diff": {
+            "$ref": "#/components/schemas/ImpactDiff"
+          },
+          "extent": {
+            "anyOf": [
+              {
+                "enum": [
+                  "full",
+                  "partial"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Extent"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "change-required",
+              "resolved"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "trigger": {
+            "enum": [
+              "revision",
+              "supersession"
+            ],
+            "title": "Trigger",
+            "type": "string"
+          },
+          "unassessed_count": {
+            "title": "Unassessed Count",
+            "type": "integer"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "project_id",
+          "trigger",
+          "before_reference",
+          "after_reference",
+          "extent",
+          "reason",
+          "diff",
+          "candidate_count",
+          "coverage",
+          "created_at",
+          "version",
+          "unassessed_count",
+          "change_required_count",
+          "status"
+        ],
+        "title": "ImpactAssessmentRead",
+        "type": "object"
+      },
+      "ImpactCandidate": {
+        "additionalProperties": false,
+        "properties": {
+          "decision_id": {
+            "title": "Decision Id",
+            "type": "string"
+          },
+          "evidence_truncated": {
+            "title": "Evidence Truncated",
+            "type": "boolean"
+          },
+          "is_current": {
+            "title": "Is Current",
+            "type": "boolean"
+          },
+          "path": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Path",
+            "type": "array"
+          },
+          "rationale": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rationale"
+          },
+          "reference": {
+            "title": "Reference",
+            "type": "string"
+          },
+          "related_artifact_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Related Artifact Ids",
+            "type": "array"
+          },
+          "related_work_item_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Related Work Item Ids",
+            "type": "array"
+          },
+          "relationship": {
+            "enum": [
+              "origin",
+              "depends-on",
+              "related-only"
+            ],
+            "title": "Relationship",
+            "type": "string"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          },
+          "scopes": {
+            "items": {
+              "$ref": "#/components/schemas/ImpactScopeEvidence"
+            },
+            "title": "Scopes",
+            "type": "array"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "decision_id",
+          "reference",
+          "revision",
+          "title",
+          "state",
+          "is_current",
+          "relationship",
+          "path",
+          "rationale",
+          "scopes",
+          "related_work_item_ids",
+          "related_artifact_ids",
+          "evidence_truncated"
+        ],
+        "title": "ImpactCandidate",
+        "type": "object"
+      },
+      "ImpactCoverage": {
+        "additionalProperties": false,
+        "properties": {
+          "candidate_limit": {
+            "title": "Candidate Limit",
+            "type": "integer"
+          },
+          "max_depth": {
+            "title": "Max Depth",
+            "type": "integer"
+          },
+          "notes": {
+            "default": [
+              "Only recorded dependencies and implementation citations are discoverable.",
+              "Related-only records have unknown causal relevance."
+            ],
+            "items": {
+              "type": "string"
+            },
+            "title": "Notes",
+            "type": "array"
+          },
+          "path_policy": {
+            "const": "one deterministic shortest path per revision",
+            "default": "one deterministic shortest path per revision",
+            "title": "Path Policy",
+            "type": "string"
+          },
+          "provenance_complete": {
+            "const": false,
+            "default": false,
+            "title": "Provenance Complete",
+            "type": "boolean"
+          },
+          "reasons": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Reasons",
+            "type": "array"
+          },
+          "related_semantics": {
+            "const": "unknown",
+            "default": "unknown",
+            "title": "Related Semantics",
+            "type": "string"
+          },
+          "snapshot_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Snapshot At"
+          },
+          "traversal_complete": {
+            "title": "Traversal Complete",
+            "type": "boolean"
+          },
+          "visited_revisions": {
+            "title": "Visited Revisions",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "traversal_complete",
+          "max_depth",
+          "candidate_limit",
+          "visited_revisions",
+          "reasons"
+        ],
+        "title": "ImpactCoverage",
+        "type": "object"
+      },
+      "ImpactDiff": {
+        "additionalProperties": false,
+        "properties": {
+          "after_sha256": {
+            "title": "After Sha256",
+            "type": "string"
+          },
+          "before_sha256": {
+            "title": "Before Sha256",
+            "type": "string"
+          },
+          "changed_fields": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Changed Fields",
+            "type": "array"
+          },
+          "truncated": {
+            "title": "Truncated",
+            "type": "boolean"
+          },
+          "unified_diff": {
+            "title": "Unified Diff",
+            "type": "string"
+          }
+        },
+        "required": [
+          "changed_fields",
+          "before_sha256",
+          "after_sha256",
+          "unified_diff",
+          "truncated"
+        ],
+        "title": "ImpactDiff",
+        "type": "object"
+      },
+      "ImpactDispositionCreate": {
+        "additionalProperties": false,
+        "properties": {
+          "actor": {
+            "$ref": "#/components/schemas/MutationActor"
+          },
+          "candidate_reference": {
+            "pattern": "^[A-Z]{1,5}-[0-9]{5,19}-[0-9]{1,10}$",
+            "title": "Candidate Reference",
+            "type": "string"
+          },
+          "client_operation_id": {
+            "format": "uuid",
+            "title": "Client Operation Id",
+            "type": "string"
+          },
+          "disposition": {
+            "enum": [
+              "still-valid",
+              "change-required",
+              "not-affected",
+              "resolved"
+            ],
+            "title": "Disposition",
+            "type": "string"
+          },
+          "expected_version": {
+            "minimum": 0.0,
+            "title": "Expected Version",
+            "type": "integer"
+          },
+          "reason": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          },
+          "remediation_work_item_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Remediation Work Item Id"
+          }
+        },
+        "required": [
+          "candidate_reference",
+          "expected_version",
+          "disposition",
+          "reason",
+          "actor",
+          "client_operation_id"
+        ],
+        "title": "ImpactDispositionCreate",
+        "type": "object"
+      },
+      "ImpactDispositionRead": {
+        "additionalProperties": false,
+        "properties": {
+          "actor": {
+            "$ref": "#/components/schemas/MutationActor"
+          },
+          "assessment_id": {
+            "format": "uuid",
+            "title": "Assessment Id",
+            "type": "string"
+          },
+          "candidate_reference": {
+            "title": "Candidate Reference",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "disposition": {
+            "enum": [
+              "still-valid",
+              "change-required",
+              "not-affected",
+              "resolved"
+            ],
+            "title": "Disposition",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "remediation_work_item_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Remediation Work Item Id"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "project_id",
+          "assessment_id",
+          "version",
+          "candidate_reference",
+          "disposition",
+          "reason",
+          "remediation_work_item_id",
+          "actor",
+          "created_at"
+        ],
+        "title": "ImpactDispositionRead",
+        "type": "object"
+      },
+      "ImpactRead": {
+        "additionalProperties": false,
+        "properties": {
+          "coverage": {
+            "$ref": "#/components/schemas/ImpactCoverage"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ImpactCandidate"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "next_offset": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Offset"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "origin_reference": {
+            "title": "Origin Reference",
+            "type": "string"
+          },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "project_id",
+          "origin_reference",
+          "items",
+          "total",
+          "limit",
+          "offset",
+          "next_offset",
+          "coverage"
+        ],
+        "title": "ImpactRead",
+        "type": "object"
+      },
+      "ImpactScopeEvidence": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Session Id"
+          },
+          "commit_hash": {
+            "title": "Commit Hash",
+            "type": "string"
+          },
+          "completion_report_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completion Report Id"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "merged_commit_hashes": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Merged Commit Hashes",
+            "type": "array"
+          },
+          "repository": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Repository"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          },
+          "work_item_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Work Item Id"
+          }
+        },
+        "required": [
+          "id",
+          "commit_hash",
+          "revision",
+          "work_item_id",
+          "agent_session_id"
+        ],
+        "title": "ImpactScopeEvidence",
+        "type": "object"
+      },
+      "ImplementationCommit": {
+        "additionalProperties": false,
+        "properties": {
+          "commit_hash": {
+            "pattern": "^(?:[a-fA-F0-9]{40}|[a-fA-F0-9]{64})$",
+            "title": "Commit Hash",
+            "type": "string"
+          },
+          "repository": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Repository",
+            "type": "string"
+          }
+        },
+        "required": [
+          "repository",
+          "commit_hash"
+        ],
+        "title": "ImplementationCommit",
+        "type": "object"
+      },
       "InitialCheckpointCreate": {
         "additionalProperties": false,
         "properties": {
@@ -9343,6 +10402,17 @@
             "title": "Created At",
             "type": "string"
           },
+          "decision_provenance": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DecisionProvenance"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Required for fresh Done closeouts in projects with knowledge domains."
+          },
           "fyi_items": {
             "items": {
               "maxLength": 600,
@@ -9658,6 +10728,17 @@
       "JobCompletionReportInput": {
         "additionalProperties": false,
         "properties": {
+          "decision_provenance": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DecisionProvenance"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Required for fresh Done closeouts in projects with knowledge domains."
+          },
           "fyi_items": {
             "items": {
               "maxLength": 600,
@@ -9833,6 +10914,17 @@
           "created_at": {
             "title": "Created At",
             "type": "string"
+          },
+          "decision_provenance": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DecisionProvenance"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Required for fresh Done closeouts in projects with knowledge domains."
           },
           "fyi_items": {
             "items": {
@@ -10020,6 +11112,70 @@
           "offset"
         ],
         "title": "KnowledgePage[DecisionScopeRead]",
+        "type": "object"
+      },
+      "KnowledgePage_ImpactAssessmentRead_": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ImpactAssessmentRead"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "KnowledgePage[ImpactAssessmentRead]",
+        "type": "object"
+      },
+      "KnowledgePage_ImpactDispositionRead_": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ImpactDispositionRead"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "KnowledgePage[ImpactDispositionRead]",
         "type": "object"
       },
       "KnowledgePage_KnowledgeDomainRead_": {
@@ -13576,6 +14732,44 @@
           "after"
         ],
         "title": "SummaryChange",
+        "type": "object"
+      },
+      "SupersessionDetail": {
+        "additionalProperties": false,
+        "properties": {
+          "decision_id": {
+            "pattern": "^[A-Z]{1,5}-[0-9]{5,19}$",
+            "title": "Decision Id",
+            "type": "string"
+          },
+          "extent": {
+            "enum": [
+              "full",
+              "partial"
+            ],
+            "title": "Extent",
+            "type": "string"
+          },
+          "reason": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          },
+          "revision": {
+            "maximum": 2147483647.0,
+            "minimum": 0.0,
+            "title": "Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "decision_id",
+          "revision",
+          "extent",
+          "reason"
+        ],
+        "title": "SupersessionDetail",
         "type": "object"
       },
       "TagCount": {
@@ -19314,7 +20508,7 @@
   "info": {
     "description": "Durable project-scoped work with immutable agent checkpoints.",
     "title": "Mnemonic API",
-    "version": "0.85.1"
+    "version": "0.86.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -21459,6 +22653,454 @@
         "summary": "Follow Up"
       }
     },
+    "/api/v1/projects/{project_id}/knowledge/assessments": {
+      "get": {
+        "operationId": "list_decision_assessments_api_v1_projects__project_id__knowledge_assessments_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "decision_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "pattern": "^[A-Z]{1,5}-[0-9]{5,19}$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Decision Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgePage_ImpactAssessmentRead_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Decision Assessments"
+      }
+    },
+    "/api/v1/projects/{project_id}/knowledge/assessments/{assessment_id}": {
+      "get": {
+        "operationId": "get_decision_assessment_api_v1_projects__project_id__knowledge_assessments__assessment_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "assessment_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Assessment Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImpactAssessmentDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Decision Assessment"
+      }
+    },
+    "/api/v1/projects/{project_id}/knowledge/assessments/{assessment_id}/dispositions": {
+      "get": {
+        "operationId": "get_decision_assessment_history_api_v1_projects__project_id__knowledge_assessments__assessment_id__dispositions_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "assessment_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Assessment Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgePage_ImpactDispositionRead_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Decision Assessment History"
+      },
+      "post": {
+        "operationId": "assess_decision_impact_api_v1_projects__project_id__knowledge_assessments__assessment_id__dispositions_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "assessment_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Assessment Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImpactDispositionCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImpactDispositionRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Assess Decision Impact"
+      }
+    },
+    "/api/v1/projects/{project_id}/knowledge/commits": {
+      "get": {
+        "operationId": "decision_commit_lookup_api_v1_projects__project_id__knowledge_commits_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "repository",
+            "required": true,
+            "schema": {
+              "maxLength": 500,
+              "minLength": 1,
+              "title": "Repository",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "commit_hash",
+            "required": true,
+            "schema": {
+              "pattern": "^(?:[a-fA-F0-9]{40}|[a-fA-F0-9]{64})$",
+              "title": "Commit Hash",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgePage_DecisionScopeRead_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Decision Commit Lookup"
+      }
+    },
+    "/api/v1/projects/{project_id}/knowledge/commits/reconcile": {
+      "post": {
+        "operationId": "decision_scope_reconcile_api_v1_projects__project_id__knowledge_commits_reconcile_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CommitReconcileCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommitReconcileResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Decision Scope Reconcile"
+      }
+    },
     "/api/v1/projects/{project_id}/knowledge/decisions": {
       "get": {
         "operationId": "list_knowledge_decisions_api_v1_projects__project_id__knowledge_decisions_get",
@@ -21814,6 +23456,113 @@
           }
         ],
         "summary": "Get Knowledge Decision History"
+      }
+    },
+    "/api/v1/projects/{project_id}/knowledge/decisions/{decision_id}/impact": {
+      "get": {
+        "operationId": "get_decision_impact_api_v1_projects__project_id__knowledge_decisions__decision_id__impact_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "decision_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Z]{1,5}-[0-9]{5,19}(?:-[0-9]{1,10})?$",
+              "title": "Decision Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "revision",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Revision"
+            }
+          },
+          {
+            "in": "query",
+            "name": "max_depth",
+            "required": false,
+            "schema": {
+              "default": 8,
+              "maximum": 16,
+              "minimum": 1,
+              "title": "Max Depth",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImpactRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Decision Impact"
       }
     },
     "/api/v1/projects/{project_id}/knowledge/decisions/{decision_id}/scope": {

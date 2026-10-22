@@ -825,6 +825,7 @@ export interface WorkPatch extends ClientOperationInput {
 
 export type CloseoutStatus = "done" | "wont-do" | "promoted";
 export interface JobCompletionReportInput {
+  decision_provenance?: import("./decision-provenance").DecisionProvenance | null;
   summary: string;
   fyi_items: string[];
   prompt_revision: string;

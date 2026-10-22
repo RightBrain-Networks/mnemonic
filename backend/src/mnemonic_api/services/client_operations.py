@@ -27,6 +27,11 @@ from mnemonic_api.errors import (
     client_operation_secret_echo,
     client_operation_unavailable,
 )
+from mnemonic_api.impact_schemas import (
+    ImpactDispositionCreate,
+    ImpactDispositionRead,
+    ImpactDispositionRequest,
+)
 from mnemonic_api.knowledge_schemas import (
     DecisionPut,
     DecisionPutRequest,
@@ -41,6 +46,11 @@ from mnemonic_api.knowledge_schemas import (
     KnowledgeDomainRead,
 )
 from mnemonic_api.models import ClientOperation, WorkItemMove
+from mnemonic_api.provenance_api import (
+    CommitReconcileCreate,
+    CommitReconcileRequest,
+    CommitReconcileResult,
+)
 from mnemonic_api.schemas import (
     APIModel,
     CheckpointCreate,
@@ -88,6 +98,8 @@ from mnemonic_api.schemas import (
     WorkMoveRead,
     WorkUpdateRead,
 )
+from mnemonic_api.services.decision_provenance import reconciled_scope_matches
+from mnemonic_api.services.impact_receipts import disposition_matches
 from mnemonic_api.services.knowledge_receipts import (
     appended_scope_matches,
     created_domain_matches,
@@ -96,6 +108,7 @@ from mnemonic_api.services.knowledge_receipts import (
 )
 
 type OperationKind = Literal[
+    "assess_decision_impact", "reconcile_decision_scope",
     "create_knowledge_domain", "rename_knowledge_domain", "put_decision", "append_decision_scope",
     "create_work",
     "add_checkpoint",
@@ -116,6 +129,7 @@ type OperationKind = Literal[
     "respond_to_work_follow_up", "complete_code_review",
 ]
 REGISTERED_OPERATION_KINDS: tuple[OperationKind, ...] = (
+    "assess_decision_impact", "reconcile_decision_scope",
     "create_knowledge_domain", "rename_knowledge_domain", "put_decision", "append_decision_scope",
     "respond_to_work_follow_up", "complete_code_review",
     "create_work",
@@ -217,6 +231,14 @@ def _spec(
 
 
 _REGISTRY: dict[OperationKind, OperationSpec] = {
+    "assess_decision_impact": _spec(
+        "assess_decision_impact", ImpactDispositionCreate, ImpactDispositionRead, 201,
+        "assessment_id", domain_model=ImpactDispositionRequest,
+    ),
+    "reconcile_decision_scope": _spec(
+        "reconcile_decision_scope", CommitReconcileCreate, CommitReconcileResult, 200,
+        domain_model=CommitReconcileRequest, mutation_applied_field="created",
+    ),
     "create_knowledge_domain": _spec(
         "create_knowledge_domain", DomainCreate, KnowledgeDomainRead, 201,
         domain_model=DomainCreateRequest,
@@ -1389,6 +1411,7 @@ def _report_matches(actual, expected, actor: MutationActor | None) -> bool:
         return actual is None and expected is None
     return (
         actual.summary == expected.summary and actual.fyi_items == expected.fyi_items
+        and actual.decision_provenance == expected.decision_provenance
         and actual.prompt_revision == expected.prompt_revision and actor is not None
         and all(getattr(actual, field) == getattr(actor, field)
                 for field in ("actor_client", "actor_session_id", "actor_model"))
@@ -1419,6 +1442,8 @@ def _follow_up_matches(project_id: UUID, target: Mapping[str, str],
 
 _RESPONSE_MATCHERS: Mapping[OperationKind, ResponseMatcher] = MappingProxyType(
     {
+        "assess_decision_impact": disposition_matches,
+        "reconcile_decision_scope": reconciled_scope_matches,
         "create_knowledge_domain": created_domain_matches,
         "rename_knowledge_domain": renamed_domain_matches,
         "put_decision": put_decision_matches,

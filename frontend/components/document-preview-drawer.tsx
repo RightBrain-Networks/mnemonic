@@ -4,8 +4,9 @@ import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import MarkdownContent from "@/components/markdown-content";
 
 /** Shared accessible drawer for retained decisions and artifact previews. */
-export default function DocumentPreviewDrawer({ title, label, text, copyable = true, className = "", children, onClose }: {
+export default function DocumentPreviewDrawer({ title, label, text, copyable = true, closeDisabled = false, className = "", children, onClose }: {
   title: string; label: string; text: string | null; copyable?: boolean; className?: string;
+  closeDisabled?: boolean;
   children: ReactNode; onClose: () => void;
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -32,12 +33,12 @@ export default function DocumentPreviewDrawer({ title, label, text, copyable = t
   }
 
   return <dialog ref={dialogRef} className={`artifact-preview-drawer ${className}`.trim()} aria-labelledby={titleId}
-    onCancel={(event) => { event.preventDefault(); onClose(); }}
+    onCancel={(event) => { event.preventDefault(); if (!closeDisabled) onClose(); }}
     onDragEnter={(event) => { event.preventDefault(); event.stopPropagation(); }}
     onDragOver={(event) => { event.preventDefault(); event.stopPropagation(); event.dataTransfer.dropEffect = "none"; }}
     onDrop={(event) => { event.preventDefault(); event.stopPropagation(); }}
     onClick={(event) => {
-      if (event.target !== event.currentTarget) return;
+      if (event.target !== event.currentTarget || closeDisabled) return;
       const bounds = event.currentTarget.getBoundingClientRect();
       if (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom) onClose();
     }}>
@@ -47,7 +48,7 @@ export default function DocumentPreviewDrawer({ title, label, text, copyable = t
         {copyable && <button type="button" className="icon-button" aria-label="Copy contents" title="Copy contents" disabled={text === null} onClick={() => void copyContents()}>
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><rect x="8" y="8" width="12" height="13" rx="2" /><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3" /></svg>
         </button>}
-        <button type="button" className="icon-button" aria-label="Close preview" title="Close preview (Esc)" autoFocus onClick={onClose}>
+        <button type="button" className="icon-button" aria-label="Close preview" title="Close preview (Esc)" autoFocus disabled={closeDisabled} onClick={onClose}>
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg>
         </button>
       </div>

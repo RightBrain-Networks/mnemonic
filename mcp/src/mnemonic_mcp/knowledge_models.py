@@ -16,6 +16,8 @@ from pydantic import (
     model_validator,
 )
 
+from .impact_models import DecisionDependency, SupersessionDetail
+from .provenance_models import CommitHash, RepositoryIdentity
 from .response_validation import validate_page_items
 
 
@@ -103,6 +105,12 @@ class DecisionPutRequest(KnowledgeModel):
     related_work_item_ids: Annotated[list[UUID], Field(max_length=100)] = []
     related_artifact_ids: Annotated[list[UUID], Field(max_length=100)] = []
     supersedes: Annotated[list[DecisionIdentifier], Field(max_length=100)] = []
+    depends_on: Annotated[list[DecisionDependency], Field(max_length=100)] = Field(
+        default=[], exclude_if=lambda value: not value,
+    )
+    supersession_details: Annotated[list[SupersessionDetail], Field(max_length=100)] = Field(
+        default=[], exclude_if=lambda value: not value,
+    )
     author_kind: Literal["agent", "human"]
     agent_session_id: Annotated[str | None, Field(min_length=1, max_length=200)] = None
     model_id: Annotated[str | None, Field(min_length=1, max_length=120)] = None
@@ -163,6 +171,8 @@ class DecisionRead(KnowledgeModel):
     supersedes: list[str]
     superseded_by: list[str]
     scope_count: Annotated[StrictInt, Field(ge=0)]
+    depends_on: list[DecisionDependency] = Field(default=[], exclude_if=lambda value: not value)
+    supersession_details: list[SupersessionDetail] = Field(default=[], exclude_if=lambda v: not v)
 
 
 class DecisionTextRead(DecisionRead):
@@ -206,6 +216,7 @@ class DecisionScopeRequest(KnowledgeModel):
     commit_hash: Annotated[str, StringConstraints(pattern=r"^(?:[a-fA-F0-9]{40}|[a-fA-F0-9]{64})$")]
     work_item_id: UUID | None = None
     agent_session_id: Annotated[str | None, Field(min_length=1, max_length=200)] = None
+    repository: RepositoryIdentity | None = Field(default=None, exclude_if=lambda v: v is None)
 
     @field_validator("commit_hash")
     @classmethod
@@ -227,6 +238,9 @@ class DecisionScopeRead(KnowledgeModel):
     work_item_id: UUID | None
     agent_session_id: str | None
     created_at: datetime
+    repository: RepositoryIdentity | None = Field(default=None, exclude_if=lambda v: v is None)
+    completion_report_id: UUID | None = Field(default=None, exclude_if=lambda v: v is None)
+    merged_commit_hashes: list[CommitHash] = Field(default=[], exclude_if=lambda v: not v)
 
 
 class DecisionScopeResult(KnowledgeModel):

@@ -1,9 +1,16 @@
 ---
 name: mnemonic-save
-description: Save Mnemonic work, hand-offs, follow-ups, project artifact files outside Git, corrective context, progress, or a question for a person in the dashboard. Use when the user wants work remembered, files uploaded or replaced in the artifact library, or an owner decision recorded for later; saving or asking never authorizes executing it.
+description: Save Mnemonic work, hand-offs, follow-ups, artifacts, decision documents and their dependencies, implementation provenance, impact assessments, progress, or a question for a person. Use when the user wants durable records or a decision documented; saving or asking never authorizes executing it.
 ---
 
 # Save Mnemonic work
+
+For decision domains, immutable decision documents, dependencies, implementation
+provenance, or change assessments, read
+[knowledge-graph.md](${CLAUDE_PLUGIN_ROOT}/reference/knowledge-graph.md).
+Use the knowledge tools for decision records rather than saving a second artifact
+copy. Preserve the user's unstructured text and explicit decision state. A saved
+decision, dependency, or assessment never grants implementation authority.
 
 For a local artifact upload, replacement, or download, read the short
 [transfer procedure](${CLAUDE_PLUGIN_ROOT}/reference/artifact-transfers.md) first.

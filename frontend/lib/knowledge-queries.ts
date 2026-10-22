@@ -1,3 +1,4 @@
+import { decodeAssessment, decodeAssessmentDetail, decodeDisposition, decodeImpact } from "./knowledge-impact.ts";
 import { queryOptions } from "@tanstack/react-query";
 import { queryKeys } from "./query-keys.ts";
 import { decodeDecision, decodeDecisionContent, decodeDomain, decodeKnowledgePage, decodeScope, knowledgeJson, knowledgePath, verifyDecisionContent, type DecisionState } from "./knowledge.ts";
@@ -54,4 +55,45 @@ export function decisionScopeOptions(projectId: string, id: string, offset: numb
       `/decisions/${encodeURIComponent(id)}/scope?offset=${offset}&limit=25`), { signal }), (value) => decodeScope(value, projectId, id)),
     retry: false
   });
+}
+
+export function decisionImpactOptions(projectId: string, id: string, revision: number, offset: number) {
+  return queryOptions({
+    queryKey: [...knowledgeKeys.root(projectId), "impact", id, revision, offset],
+    queryFn: async ({ signal }) => decodeImpact(await knowledgeJson(knowledgePath(projectId,
+      `/decisions/${encodeURIComponent(id)}/impact?revision=${revision}&offset=${offset}&limit=25`), { signal }), projectId, `${id}-${revision}`), retry: false
+  });
+}
+export function assessmentsOptions(projectId: string, decisionId: string, offset: number) {
+  return queryOptions({
+    queryKey: [...knowledgeKeys.root(projectId), "assessments", decisionId, offset],
+    queryFn: async ({ signal }) => decodeKnowledgePage(await knowledgeJson(knowledgePath(projectId,
+      `/assessments?decision_id=${encodeURIComponent(decisionId)}&offset=${offset}&limit=25`), { signal }), (value) => decodeAssessment(value, projectId)), retry: false
+  });
+}
+export function assessmentOptions(projectId: string, id: string, offset: number) {
+  return queryOptions({
+    queryKey: [...knowledgeKeys.root(projectId), "assessment", id, offset],
+    queryFn: async ({ signal }) => decodeAssessmentDetail(await knowledgeJson(knowledgePath(projectId,
+      `/assessments/${id}?offset=${offset}&limit=25`), { signal }), projectId, id), retry: false
+  });
+}
+export function dispositionHistoryOptions(projectId: string, id: string, offset: number, enabled: boolean) {
+  return queryOptions({
+    queryKey: [...knowledgeKeys.root(projectId), "dispositions", id, offset], enabled,
+    queryFn: async ({ signal }) => decodeKnowledgePage(await knowledgeJson(knowledgePath(projectId,
+      `/assessments/${id}/dispositions?offset=${offset}&limit=25`), { signal }), (value) => decodeDisposition(value, projectId, id)), retry: false
+  });
+}
+export function commitLookupOptions(projectId: string, repository: string, commitHash: string, offset: number, enabled: boolean) {
+  return queryOptions({
+    queryKey: [...knowledgeKeys.root(projectId), "commit", repository, commitHash, offset], enabled,
+    queryFn: async ({ signal }) => decodeKnowledgePage(await knowledgeJson(knowledgePath(projectId,
+      `/commits?${new URLSearchParams({ repository, commit_hash: commitHash, offset: String(offset), limit: "25" })}`), { signal }), (value) => decodeScope(value, projectId)), retry: false
+  });
+}
+
+export function completionDomainsOptions(projectId: string) {
+  return queryOptions({ queryKey: [...knowledgeKeys.root(projectId), "completion-domains"],
+    queryFn: ({ signal }) => readDomainPage(projectId, 0, signal), staleTime: 0, retry: false });
 }

@@ -26,6 +26,7 @@ from pydantic import (
 from pydantic.json_schema import SkipJsonSchema
 
 from .lease_models import LeaseMinutes
+from .provenance_models import DecisionProvenance
 
 MAX_SIGNED_64 = 9223372036854775807
 MAX_WORK_VERSION = 2147483647
@@ -132,6 +133,10 @@ UTCDateTime = Annotated[
 
 
 class JobCompletionReportInput(Phase12Wire):
+    decision_provenance: DecisionProvenance | None = Field(
+        default=None, exclude_if=lambda value: value is None,
+        description="Required for fresh Done closeouts in projects with knowledge domains.",
+    )
     summary: ReportSummary
     fyi_items: Annotated[list[ReportFyi], Field(max_length=10)]
     prompt_revision: PositiveDecimalString

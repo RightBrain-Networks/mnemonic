@@ -15,6 +15,7 @@ from mnemonic_api.knowledge_schemas import (
     KnowledgeDomainRead,
 )
 from mnemonic_api.schemas import APIModel
+from mnemonic_api.services.decision_dependencies import same_annotations, superseded_ids
 
 
 def created_domain_matches(
@@ -73,7 +74,8 @@ def put_decision_matches(
         and set(row.related_decision_ids) == set(request.related_decision_ids)
         and set(row.related_work_item_ids) == set(request.related_work_item_ids)
         and set(row.related_artifact_ids) == set(request.related_artifact_ids)
-        and set(row.supersedes) == set(request.supersedes)
+        and set(row.supersedes) == set(superseded_ids(request))
+        and same_annotations(row, request)
     )
 
 
@@ -88,6 +90,8 @@ def appended_scope_matches(
     return (
         row.project_id == project_id
         and str(row.document_id) == target.get("document_id")
+        and row.repository == request.repository
+        and row.completion_report_id is None
         and (row.revision, row.commit_hash, row.work_item_id, row.agent_session_id)
         == (request.revision, request.commit_hash, request.work_item_id, request.agent_session_id)
     )

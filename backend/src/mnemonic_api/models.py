@@ -31,9 +31,11 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, deferred, mapped_column
 from sqlalchemy.schema import conv
 
 from mnemonic_api import code_review_db_tables as reviews
+from mnemonic_api import impact_db as impact
 from mnemonic_api import knowledge_db as knowledge
 from mnemonic_api import manual_review_db as manual_reviews
 from mnemonic_api import phase12_db_tables as phase12
+from mnemonic_api import provenance_db as provenance
 from mnemonic_api import transcript_db_tables as transcripts
 from mnemonic_api.artifact_passage_db import (
     TEXT_HASH_EXPRESSION,
@@ -168,7 +170,8 @@ class ClientOperation(Base):
             "'request_human_input', 'resolve_human_input', 'merge_work', "
             "'dismiss_job_completion_report', 'create_job_completion_report_follow_up', "
             "'respond_to_work_follow_up', 'complete_code_review', 'create_knowledge_domain', "
-            "'rename_knowledge_domain', 'put_decision', 'append_decision_scope')",
+            "'rename_knowledge_domain', 'put_decision', 'append_decision_scope', "
+            "'assess_decision_impact', 'reconcile_decision_scope')",
             name="operation_kind_valid",
         ),
         CheckConstraint(
@@ -1624,6 +1627,7 @@ class JobCompletionReport(Base):
         "job_completion_reports",
         Base.metadata,
         *phase12.report_elements(movable_work=True, prompt_library=True),
+        Column("decision_provenance", JSONB(none_as_null=True)),
     )
 
     id: Mapped[UUID]
@@ -1636,6 +1640,7 @@ class JobCompletionReport(Base):
     work_title_at_closeout: Mapped[str]
     summary: Mapped[str]
     fyi_items: Mapped[list[str]]
+    decision_provenance: Mapped[dict | None]
     prompt_revision: Mapped[int]
     prompt_sha256: Mapped[str]
     prompt_template_sha256: Mapped[str]
@@ -2405,6 +2410,57 @@ class DecisionRelationship(Base):
     project_id: Mapped[UUID]
 
 
+class DecisionDependency(Base):
+    __table__ = Table("decision_dependencies", Base.metadata, *impact.edge_elements())
+
+    project_id: Mapped[UUID]
+    revision_id: Mapped[UUID]
+    target_revision_id: Mapped[UUID]
+    rationale: Mapped[str]
+
+
+class DecisionSupersessionDetail(Base):
+    __table__ = Table("decision_supersession_details", Base.metadata,
+                      *impact.edge_elements(supersession=True))
+
+    project_id: Mapped[UUID]
+    revision_id: Mapped[UUID]
+    target_revision_id: Mapped[UUID]
+    extent: Mapped[str]
+    reason: Mapped[str]
+
+
+class DecisionImpactAssessment(Base):
+    __table__ = Table("decision_impact_assessments", Base.metadata, *impact.assessment_elements())
+
+    id: Mapped[UUID]
+    project_id: Mapped[UUID]
+    origin_revision_id: Mapped[UUID]
+    replacement_revision_id: Mapped[UUID]
+    trigger: Mapped[str]
+    extent: Mapped[str | None]
+    reason: Mapped[str | None]
+    diff: Mapped[dict]
+    candidates: Mapped[list]
+    coverage: Mapped[dict]
+    created_at: Mapped[datetime]
+
+
+class DecisionImpactDisposition(Base):
+    __table__ = Table("decision_impact_dispositions", Base.metadata, *impact.disposition_elements())
+
+    id: Mapped[UUID]
+    project_id: Mapped[UUID]
+    assessment_id: Mapped[UUID]
+    version: Mapped[int]
+    candidate_reference: Mapped[str]
+    disposition: Mapped[str]
+    reason: Mapped[str]
+    remediation_work_item_id: Mapped[UUID | None]
+    actor: Mapped[dict]
+    created_at: Mapped[datetime]
+
+
 class DecisionWorkLink(Base):
     __table__ = Table("decision_work_item_links", Base.metadata,
                       *knowledge.resource_link_elements("work_item"))
@@ -2424,13 +2480,27 @@ class DecisionArtifactLink(Base):
 
 
 class DecisionScope(Base):
-    __table__ = Table("decision_scopes", Base.metadata, *knowledge.scope_elements())
+    __table__ = Table("decision_scopes", Base.metadata, *knowledge.scope_elements(enriched=True))
 
     id: Mapped[UUID]
     project_id: Mapped[UUID]
     document_id: Mapped[UUID]
     revision: Mapped[int]
     commit_hash: Mapped[str]
+    repository: Mapped[str | None]
+    completion_report_id: Mapped[UUID | None]
     work_item_id: Mapped[UUID | None]
     agent_session_id: Mapped[str | None]
+    created_at: Mapped[datetime]
+
+
+class DecisionCommitMapping(Base):
+    __table__ = Table("decision_commit_mappings", Base.metadata, *provenance.mapping_elements())
+
+    id: Mapped[UUID]
+    project_id: Mapped[UUID]
+    scope_id: Mapped[UUID]
+    repository: Mapped[str]
+    original_commit_hash: Mapped[str]
+    merged_commit_hash: Mapped[str]
     created_at: Mapped[datetime]

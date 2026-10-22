@@ -24,7 +24,7 @@ for macro context, project isolation, and exact retries. Mnemonic does not
 generate the report for you. Blocking questions still belong in Needs Attention;
 a report cannot waive a gate or justify calling unfinished work Done.
 
-The required nested object has exactly `summary`, `fyi_items`, and
+The nested object requires `summary`, `fyi_items`, and
 `prompt_revision` (from `get_prompt`, a positive decimal
 string). Summary is nonblank, one paragraph, at most 2,000 Unicode scalar
 values/8,000 UTF-8 bytes. Supply zero to ten FYIs, or explicit `[]` when none.
@@ -37,13 +37,22 @@ concise prose or reliably count natural-language sentences; review these before
 submitting. Markdown characters count toward the limits; report fields cannot
 contain line breaks. Writing style and sentence guidance come from the prompt.
 
+Fresh Done closeouts in projects with knowledge domains also require
+`decision_provenance`: explicitly cite the exact decision revisions and resulting
+repository commits, or explain `no-applicable-decisions` or `not-code`. Scope is
+registered in the same transaction as the closeout, with its work and authoring
+session identity. Read [knowledge-graph.md](${CLAUDE_PLUGIN_ROOT}/reference/knowledge-graph.md)
+for the declaration shape, local Git verification, merge reconciliation, and
+coverage limits. A decision read does not imply causal use; omitted historical
+declarations mean unknown provenance, not a proven absence of decisions.
+
 ## Freeze the closeout, then confirm it
 
 Recall sufficient current context and establish what actually happened. Keep
 the existing lease, version, human-gate, repository-freshness and evidence
 rules. Immediately before authoring, obtain the current report with `get_prompt`. Freeze one exact
 intent containing report text, ordered FYIs, prompt revision, expected work
-version, truthful actor or checkpoint provenance, checkpoint/evidence for Done,
+version, truthful actor or checkpoint provenance, decision provenance and checkpoint/evidence for Done,
 lease token when applicable, and any explicit `client_operation_id`. Fresh MCP
 calls may omit the ID for automatic minting; retain the returned
 `_meta.mnemonic_generated_ids` with this intent and supply it explicitly for an

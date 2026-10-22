@@ -1353,5 +1353,5 @@ def test_title_key_function_and_partial_expression_index_are_frozen(postgres_eng
                 """
             )
         ).one()
-        assert head == "0053_knowledge_graph"
+        assert head == "0055_decision_provenance"
         assert capacity == 64

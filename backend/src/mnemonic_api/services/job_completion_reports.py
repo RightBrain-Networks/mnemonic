@@ -149,14 +149,19 @@ def seal_closeout_report(
         work_title_at_closeout=work_item.title,
         summary=payload.summary,
         fyi_items=payload.fyi_items,
+        decision_provenance=(payload.decision_provenance.model_dump(mode="json")
+                             if payload.decision_provenance is not None else None),
         prompt_revision=settings.revision,
         prompt_template_sha256=template.revision,
         prompt_text=rendered,
         prompt_sha256=digest,
         **actor.model_dump(),
     )
+    from mnemonic_api.services.decision_provenance import seal_provenance
+
     database.add(report)
     database.flush()
+    seal_provenance(database, report)
     return report
 
 
