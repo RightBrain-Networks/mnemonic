@@ -48,8 +48,10 @@ export function decodeSearchDisclosure(value: unknown, projectId: string, search
   const page = objectValue(value);
   const applied = objectValue(page?.applied_filters);
   const interpreted = objectValue(page?.query_interpretation);
-  if (!validDiagnosticsMode(page?.diagnostics) || !applied || !exactKeys(applied, ["project_id", "project_ids", ...sources]) || !sameUuid(applied.project_id, projectId) || applied.project_ids !== null
-    || !interpreted || !exactKeys(interpreted, ["q", "query_mode", ...sources]) || !validQueryMode(interpreted.query_mode) || typeof interpreted.q !== "string" || Array.from(interpreted.q).length > 1000 || interpreted.q !== interpreted.q.trim()
+  if (!validDiagnosticsMode(page?.diagnostics) || !applied || !exactKeys(applied, ["project_id", "project_ids", ...sources, ...("decisions" in applied ? ["decisions"] : [])]) || !sameUuid(applied.project_id, projectId) || applied.project_ids !== null
+    || "decisions" in applied && applied.decisions !== null
+    || !interpreted || !exactKeys(interpreted, ["q", "query_mode", ...sources, ...("decisions" in interpreted ? ["decisions"] : [])]) || !validQueryMode(interpreted.query_mode) || typeof interpreted.q !== "string" || Array.from(interpreted.q).length > 1000 || interpreted.q !== interpreted.q.trim()
+    || "decisions" in interpreted && interpreted.decisions !== null
     || !Array.isArray(page?.warnings)) throw new Error("Mnemonic returned invalid search disclosure.");
   for (const source of sources) {
     if (!searched.includes(source)) {

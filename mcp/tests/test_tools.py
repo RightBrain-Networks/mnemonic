@@ -682,6 +682,8 @@ async def test_tool_catalog_schemas_and_annotations(settings):
     server = build_server(settings)
     tools = {tool.name: tool for tool in await server.list_tools()}
     assert set(tools) == {
+        "list_knowledge_domains", "create_knowledge_domain", "rename_knowledge_domain",
+        "decision_get", "decision_put", "decision_scope_append", "decision_history", "decision_scope",
         "help", "generate_uuid", "search",
         "list_transcripts", "search_transcript_contents", "get_transcript",
         "get_transcript_text", "download_transcript",
@@ -785,6 +787,9 @@ async def test_tool_catalog_schemas_and_annotations(settings):
     }
     protected |= {"respond_to_work_follow_up", "complete_code_review"}
     protected |= {"upload_artifact", "replace_artifact", "delete_artifact", "update_artifact"}
+    protected |= {
+        "create_knowledge_domain", "rename_knowledge_domain", "decision_put", "decision_scope_append",
+    }
     mutating = protected | {
         "create_project",
         "claim_work",
@@ -799,7 +804,7 @@ async def test_tool_catalog_schemas_and_annotations(settings):
         "remove_relationship",
         "merge_work",
     }
-    assert len(tools) == 59
+    assert len(tools) == 67
     for name in mutating:
         assert tools[name].annotations.idempotentHint is False
     for name in tools.keys() - mutating - {"authorize_artifact_download", "generate_uuid"}:
@@ -824,6 +829,7 @@ async def test_tool_catalog_operation_and_claim_schemas(settings):
     server = build_server(settings)
     tools = {tool.name: tool for tool in await server.list_tools()}
     protected = {
+        "create_knowledge_domain", "rename_knowledge_domain", "decision_put", "decision_scope_append",
         "upload_artifact", "replace_artifact", "delete_artifact", "update_artifact",
         "respond_to_work_follow_up", "complete_code_review",
         "create_work",

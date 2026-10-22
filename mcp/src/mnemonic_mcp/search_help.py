@@ -20,7 +20,7 @@ SEARCH_FIELD_NOTES = {
          "browse; artifact/transcript content searches require a query. The limit is 1000 characters.",
     "query": "Alias of q; supply at most one spelling. Artifact/transcript content searches require "
              "one spelling; work/unified search can omit both to browse. Limit: 1000 characters.",
-    "fulltext": "Include current extracted artifact text or retained transcript text. Metadata-only "
+    "fulltext": "Include decision text, current extracted artifact text or retained transcript text. Metadata-only "
                 "is the default. This does not grant access to sensitive artifact content. "
                 "Inspect source coverage; broad transcript content searches can be expensive.",
     "query_mode": "terms requires every analyzed term in one record and supports quoted phrases. "
@@ -35,8 +35,8 @@ SEARCH_FIELD_NOTES = {
                    "zero means measured zero. Counts describe lexical coverage, not confidence.",
     "content_kinds": "Requires fulltext=true. Select normalized transcript body kinds; native role "
                      "is independent. Narrowing reduces scanned content while coverage remains explicit.",
-    "facets": "Choose work_items, artifacts and/or transcripts. Multi-term defaults omit transcripts; "
-              "blank/single-term defaults include all three. Explicit facets controls this selection.",
+    "facets": "Choose work_items, artifacts, decisions and/or transcripts. Multi-term defaults omit transcripts; "
+              "blank/single-term defaults include all four. Explicit facets controls this selection.",
     "sort": "Order the combined result page. Scores are within-source ordering signals, not "
             "probabilities. Semantic relevance is retained only with relevance sorting.",
     "facet_order": "Place the named facet groups first; other selected sources share the global sort. "

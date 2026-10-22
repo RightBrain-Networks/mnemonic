@@ -13,13 +13,13 @@ from sqlalchemy.dialects.postgresql import ARRAY, aggregate_order_by
 from mnemonic_api.models import Checkpoint, WorkItem
 
 
-def phrase_windows(column, phrase: str):
+def phrase_windows(column, phrase: str, *, correlate=(WorkItem, Checkpoint)):
     native = func.ts_parse("default", column).table_valued(
         "kind", "fragment", with_ordinality="ordinal").render_derived()
     tokens = select(native.c.fragment, native.c.ordinal, func.sum(case(
         (native.c.kind.in_([12, 13, 14]), 0), else_=1,
     )).over(order_by=native.c.ordinal).label("word")).where(
-        native.c.kind.not_in([5, 15, 16, 17])).correlate(WorkItem, Checkpoint).subquery()
+        native.c.kind.not_in([5, 15, 16, 17])).correlate(*correlate).subquery()
     pieces = select(tokens.c.word, func.string_agg(tokens.c.fragment, aggregate_order_by(
         literal(""), tokens.c.ordinal)).label("text")).group_by(tokens.c.word).subquery()
     words = select(func.array_agg(aggregate_order_by(pieces.c.text, pieces.c.word))
@@ -36,10 +36,10 @@ def phrase_windows(column, phrase: str):
     ).select_from(words.join(starts, true())).subquery()
 
 
-def phrase_matches(column, phrase: str):
+def phrase_matches(column, phrase: str, *, correlate=(WorkItem, Checkpoint)):
     query = func.phraseto_tsquery("english", phrase)
     direct = func.to_tsvector("english", func.coalesce(column, "")).bool_op("@@")(query)
-    windows = phrase_windows(column, phrase)
+    windows = phrase_windows(column, phrase, correlate=correlate)
     fallback = select(1).select_from(windows).where(
         func.to_tsvector("english", windows.c.text).bool_op("@@")(query)).exists()
     contains_terms = func.to_tsvector("english", func.coalesce(column, "")).bool_op("@@")(

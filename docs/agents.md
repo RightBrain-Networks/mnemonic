@@ -1,13 +1,17 @@
 # Agent workflow
 
-Use [unified search](search.md) to retrieve work, artifacts, and transcripts in one
+Use [unified search](search.md) to retrieve work, artifacts, transcripts, and decisions in one
 ranked, filtered, paginated read through REST or MCP.
 
 For code reviews, branch by temperature before ordinary recall: the
 [code-review protocol](code-reviews.md) governs mandatory handoff, durable
 originating-session recommendation answers, minimal cold coordination, warm
 adversarial review and one atomic remediation. Reviews are not implementation
-closeouts. The current catalog is 59 tools and seventeen protected writes.
+closeouts. The current catalog is 67 tools and 21 protected writes.
+The [knowledge graph](knowledge-graph.md) retains decision revisions and code
+provenance. After implementing code informed by a decision, append the resulting
+commit hash and exact consulted revision through `decision_scope_append`;
+include the work item and native session ID when available.
 The [artifact library](artifacts.md) adds project file upload/download, atomic
 replacement, permanent content deletion, and searchable retained metadata/audit.
 Use `get_artifact_text` to page normalized text at a required current revision;
@@ -124,7 +128,7 @@ declared pattern must match independently before an `unchanged` result. The
 copyable scoped-checkpoint example is
 [`repository-scoped-checkpoint.json`](../examples/repository-scoped-checkpoint.json).
 
-`suggest_duplicate_work` is a safe read, not one of the seventeen protected
+`suggest_duplicate_work` is a safe read, not one of the 21 protected
 mutations. It takes no operation UUID, does not persist the draft or result, and
 may be retried normally after a timeout, `duplicate_suggestion_busy`, or
 `duplicate_suggestion_unavailable`. Busy responses advise a one-second retry;
@@ -159,8 +163,9 @@ mixed-client workflow.
 
 ## Protect mutation intents and recover unknown outcomes
 
-The seventeen protected MCP mutations require a caller-generated UUID in the
-top-level `client_operation_id` argument:
+The 21 protected MCP mutations use a top-level `client_operation_id` UUID.
+On a fresh call the adapter generates it when omitted; retain the returned
+`_meta.mnemonic_generated_ids` value for an exact retry. The protected tools are:
 
 - `create_work`;
 - `add_checkpoint`;
@@ -178,11 +183,16 @@ top-level `client_operation_id` argument:
 - `upload_artifact`;
 - `replace_artifact`;
 - `delete_artifact`;
-- `update_artifact`.
+- `update_artifact`;
+- `create_knowledge_domain`;
+- `rename_knowledge_domain`;
+- `decision_put`;
+- `decision_scope_append`.
 
-Before the first attempt, generate one fresh random UUID and retain it together
-with the complete, exact tool name and argument object in private client-local
-pending-call state. Include target IDs, provenance/actor fields, expected
+For callers supplying the UUID explicitly, generate it once before the first attempt.
+Retain the UUID with the complete, exact tool name and argument object in private
+client-local pending-call state. See [automatic UUIDs](automatic-uuids.md) for
+generated-ID recovery rules. Include target IDs, provenance/actor fields, expected
 version, metadata, explicit optional values, and any release token. Submit that
 frozen call once. The MCP adapter itself makes one outbound attempt and never
 generates, substitutes, caches, or automatically retries an operation UUID.
@@ -768,7 +778,7 @@ source that is already an alias. Source gates, structural edges, active-lease
 token mismatch, and depth have distinct merge errors. `duplicate_graph_invalid`
 is an integrity incident: stop authority-changing work and involve the operator.
 
-After an unknown outcome from one of the seventeen protected writes, make at
+After an unknown outcome from one of the 21 protected writes, make at
 most one retry using only its retained exact operation; search or recall cannot
 substitute for a confirmed receipt response. If that retry also has an unknown
 outcome, stop retrying and use safe reads only to reconcile observable state

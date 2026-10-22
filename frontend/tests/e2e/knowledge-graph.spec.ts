@@ -1,0 +1,127 @@
+import { expect, request, test, type APIRequestContext } from "@playwright/test";
+import type { Decision, KnowledgeDomain } from "../../lib/knowledge";
+
+async function apiClient() {
+  return request.newContext({ baseURL: process.env.MNEMONIC_E2E_API_URL,
+    extraHTTPHeaders: { Authorization: `Bearer ${process.env.MNEMONIC_E2E_API_KEY}`, Accept: "application/json" } });
+}
+
+async function seed(api: APIRequestContext) {
+  const projectResult = await api.post("/api/v1/projects", { data: { name: `Knowledge graph ${crypto.randomUUID().slice(0, 8)}` } });
+  expect(projectResult.ok(), await projectResult.text()).toBe(true);
+  const project = await projectResult.json() as { id: string; name: string };
+  const path = `/api/v1/projects/${project.id}/knowledge`;
+  async function domain(name: string, prefix: string) {
+    const response = await api.post(`${path}/domains`, { data: { name, prefix, client_operation_id: crypto.randomUUID() } });
+    expect(response.ok(), await response.text()).toBe(true);
+    return await response.json() as KnowledgeDomain;
+  }
+  const architecture = await domain("Architecture", "ADR");
+  const owners = await domain("Owner decisions", "ODR");
+  const input = { domain_id: architecture.id, title: "Keep a durable decision history", content: "Original plain text decision.\n", media_type: "text/plain", state: "proposed", author_kind: "agent", agent_session_id: "knowledge-acceptance-session", model_id: "codex" };
+  const initial = await api.put(`${path}/decisions`, { data: { ...input, client_operation_id: crypto.randomUUID() } });
+  expect(initial.ok(), await initial.text()).toBe(true);
+  const previous = (await initial.json()).decision as Decision;
+  const updated = await api.put(`${path}/decisions`, { data: { ...input, decision_id: previous.decision_id, expected_revision: 0, content: "# Durable decision history\n\nEvery revision remains available for **audit and attribution**.\n\n- Cite the exact revision.\n- Record the resulting commit.\n", media_type: "text/markdown", state: "accepted", client_operation_id: crypto.randomUUID() } });
+  expect(updated.ok(), await updated.text()).toBe(true);
+  const current = (await updated.json()).decision as Decision;
+  const related = await api.put(`${path}/decisions`, { data: { ...input, domain_id: owners.id,
+    title: "Retain owner approvals", content: "Owner approvals cite the durable architecture history.\n",
+    state: "accepted", related_decision_ids: [current.decision_id], client_operation_id: crypto.randomUUID() } });
+  expect(related.ok(), await related.text()).toBe(true);
+  const downstream = (await related.json()).decision as Decision;
+  const scope = await api.post(`${path}/decisions/${current.decision_id}/scope`, { data: { revision: 0, commit_hash: "abc01234".repeat(5), agent_session_id: "implementation-session", client_operation_id: crypto.randomUUID() } });
+  expect(scope.ok(), await scope.text()).toBe(true);
+  return { project, current, architecture, downstream };
+}
+
+test("knowledge graph browses domains, immutable revisions and revision-pinned code scope", async ({ page }, testInfo) => {
+  const api = await apiClient();
+  try {
+    const { project, current, downstream } = await seed(api);
+    await page.goto(`/knowledge?project=${project.id}`);
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Knowledge graph.");
+    await expect(page.getByRole("link", { name: "Knowledge graph", exact: true })).toHaveAttribute("aria-current", "page");
+    await expect(page.getByRole("button", { name: current.title, exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Upload", exact: true })).toHaveCount(0);
+    await expect(page.locator('input[type="file"]')).toHaveCount(0);
+    await page.getByRole("group", { name: "Filter by domain" }).getByRole("button", { name: /Owner decisions/ }).click();
+    await expect(page.getByRole("button", { name: current.title, exact: true })).toHaveCount(0);
+    await page.getByRole("group", { name: "Filter by domain" }).getByRole("button", { name: /Architecture/ }).click();
+    await expect(page.getByRole("button", { name: current.title, exact: true })).toBeVisible();
+    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.screenshot({ path: testInfo.outputPath("knowledge-graph-directory.png"), fullPage: true, animations: "disabled" });
+    await page.getByRole("button", { name: `View ${current.reference}`, exact: true }).click();
+    const drawer = page.getByRole("dialog", { name: current.title, exact: true });
+    await expect(drawer.getByRole("button", { name: "Close preview" })).toBeFocused();
+    if (testInfo.project.name === "chromium-narrow") await expect.poll(async () => (await drawer.boundingBox())?.width).toBe(page.viewportSize()!.width);
+    await expect(drawer.getByRole("region", { name: "Markdown contents" })).toContainText("audit and attribution");
+    await page.screenshot({ path: testInfo.outputPath("knowledge-graph-document.png"), animations: "disabled" });
+    await drawer.getByRole("button", { name: "Revisions", exact: true }).click();
+    await drawer.getByRole("button", { name: `${current.decision_id}-0`, exact: true }).click();
+    await expect(drawer.getByRole("textbox", { name: "Plain text contents" })).toHaveValue("Original plain text decision.\n");
+    await expect(drawer.getByRole("textbox", { name: "Plain text contents" })).toHaveAttribute("readonly", "");
+    await drawer.getByRole("button", { name: "Code scope", exact: true }).click();
+    await expect(drawer).toContainText("abc01234".repeat(5));
+    await expect(drawer).toContainText("implementation-session");
+    await expect(drawer.getByRole("button", { name: `${current.decision_id}-0`, exact: true })).toBeVisible();
+    await page.screenshot({ path: testInfo.outputPath("knowledge-graph-scope.png"), animations: "disabled" });
+    await drawer.getByRole("button", { name: "View current revision" }).click();
+    await expect(drawer.getByRole("region", { name: "Markdown contents" })).toBeVisible();
+    await drawer.getByRole("button", { name: "Details & links" }).click();
+    await expect(drawer).toContainText("knowledge-acceptance-session");
+    await expect(drawer).toContainText(current.sha256);
+    await drawer.getByRole("button", { name: downstream.reference, exact: true }).click();
+    await expect(page.getByRole("dialog", { name: downstream.title, exact: true }).getByRole("textbox", { name: "Plain text contents" })).toHaveValue(/Owner approvals/);
+    await page.keyboard.press("Escape");
+    await expect(drawer).toBeHidden();
+    await expect(page.getByRole("button", { name: `View ${current.reference}`, exact: true })).toBeFocused();
+    await page.goto(`/knowledge?project=${project.id}&decision=${current.decision_id}&revision=0`);
+    await expect(page.getByRole("textbox", { name: "Plain text contents" })).toHaveValue("Original plain text decision.\n");
+  } finally { await api.dispose(); }
+});
+
+test("domain management normalizes prefixes, preserves uncertain retries and supports rename only", async ({ page }) => {
+  const api = await apiClient();
+  try {
+    const { project } = await seed(api);
+    await page.goto(`/knowledge?project=${project.id}`);
+    await page.getByRole("button", { name: "Add domain", exact: true }).click();
+    let dialog = page.getByRole("dialog", { name: "Add domain", exact: true });
+    await dialog.getByRole("textbox", { name: "Domain name", exact: true }).fill("Bookkeeping");
+    await dialog.getByRole("textbox", { name: "Decision prefix" }).fill("bdr");
+    await expect(dialog.getByRole("textbox", { name: "Decision prefix" })).toHaveValue("BDR");
+    const bodies: string[] = [];
+    await page.route(`**/api/mnemonic/projects/${project.id}/knowledge/domains`, async (route) => {
+      if (route.request().method() !== "POST") return route.continue();
+      bodies.push(route.request().postData()!);
+      if (bodies.length === 1) {
+        const response = await route.fetch();
+        expect(response.ok(), await response.text()).toBe(true);
+        return route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ detail: "Response interrupted after saving." }) });
+      }
+      return route.continue();
+    });
+    await dialog.getByRole("button", { name: "Create domain", exact: true }).click();
+    await expect(dialog.getByRole("alert")).toContainText("outcome is unconfirmed");
+    await expect(dialog.getByRole("textbox", { name: "Domain name", exact: true })).toBeDisabled();
+    await expect(dialog.getByRole("button", { name: "Cancel", exact: true })).toBeDisabled();
+    await expect(page.getByRole("combobox", { name: "Select project" })).toBeDisabled();
+    await page.keyboard.press("Escape");
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole("button", { name: "Retry pending action", exact: true }).click();
+    await expect(dialog).toBeHidden();
+    expect(bodies).toHaveLength(2);
+    expect(bodies[1]).toBe(bodies[0]);
+    await expect(page.getByRole("group", { name: "Filter by domain" }).getByRole("button", { name: /Bookkeeping/ })).toHaveAttribute("aria-pressed", "true");
+    await page.getByRole("button", { name: "Rename domain", exact: true }).click();
+    dialog = page.getByRole("dialog", { name: "Rename domain", exact: true });
+    await expect(dialog.getByRole("textbox", { name: "Decision prefix" })).toHaveValue("BDR");
+    await expect(dialog.getByRole("textbox", { name: "Decision prefix" })).toBeDisabled();
+    await dialog.getByRole("textbox", { name: "Domain name", exact: true }).fill("Finance decisions");
+    await dialog.getByRole("button", { name: "Save name", exact: true }).click();
+    await expect(dialog).toBeHidden();
+    await expect(page.getByRole("group", { name: "Filter by domain" }).getByRole("button", { name: /Finance decisions/ })).toBeVisible();
+    await expect(page.getByRole("button", { name: /Delete domain/ })).toHaveCount(0);
+  } finally { await api.dispose(); }
+});

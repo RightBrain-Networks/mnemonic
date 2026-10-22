@@ -88,6 +88,7 @@ def test_unified_empty_result_echoes_normalized_effective_filters(api, project):
     })
     assert page["total"] == 0
     assert page["applied_filters"] == {
+        "decisions": {"all_revisions": False, "domain_ids": None, "state": None},
         "project_id": project["id"], "project_ids": None,
         "work_items": {"status": "done", "tag": "discovery", "source_client": "codex",
                        "source_session_id": "prior-session", "duplicate_scope": "aliases",

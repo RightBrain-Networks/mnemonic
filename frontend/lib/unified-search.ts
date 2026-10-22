@@ -71,6 +71,7 @@ function facetPage(value: unknown, projectId: string, facet: SearchFacet, limit:
     || !validSearchPagination(page)
     || !totals || !SEARCH_FACETS.every((name) => finiteInteger(totals[name]))
     || totals[facet] !== page.total || SEARCH_FACETS.some((name) => name !== facet && totals[name] !== 0)
+    || "decisions" in totals && totals.decisions !== 0
     || !coverage || typeof page.indexing_incomplete !== "boolean") throw new Error("Mnemonic returned invalid unified search results.");
   validateSingleProjectCoverage(page, projectId);
   const payloadKey = facet === "work_items" ? "work_item" : facet === "artifacts" ? "artifact" : "transcript";
@@ -82,7 +83,7 @@ function facetPage(value: unknown, projectId: string, facet: SearchFacet, limit:
     if (!hit || hit.facet !== facet || !sameUuid(hit.project_id, projectId) || !validUuid(hit.id) || !payload || !sameUuid(hit.id, identity?.id)
       || typeof hit.score !== "number" || !Number.isFinite(hit.score) || hit.score < 0
       || ![hit.created_at, hit.updated_at].every((time) => typeof time === "string" && Number.isFinite(Date.parse(time)))
-      || ["work_item", "artifact", "transcript"].some((name) => name !== payloadKey && hit[name] != null)) throw new Error("Mnemonic returned a search result outside the requested facet.");
+      || ["work_item", "artifact", "transcript", "decision"].some((name) => name !== payloadKey && hit[name] != null)) throw new Error("Mnemonic returned a search result outside the requested facet.");
     if (decodeHitRanking(hit, page.score_type as SearchRanking["score_type"], page.total as number).rank !== offset + index + 1) throw new Error("Mnemonic returned invalid unified rank ordering.");
     ids.push(hit.id.toLowerCase());
     return payload;
@@ -94,7 +95,7 @@ function facetPage(value: unknown, projectId: string, facet: SearchFacet, limit:
   const disclosure = decodeSearchDisclosure(page, projectId, searched);
   const term_diagnostics = decodeTermDiagnostics(page.term_diagnostics, page.total as number, searched, disclosure.diagnostics, disclosure.query_interpretation.q);
   const kinds = objectValue(page.facet_total_kinds), scores = objectValue(page.facet_score_types);
-  if (!kinds || !scores || !SEARCH_FACETS.every((name) => searched.includes(name) ? kinds[name] != null && scores[name] != null : kinds[name] === null && scores[name] === null)
+  if (!kinds || !scores || "decisions" in kinds && kinds.decisions !== null || "decisions" in scores && scores.decisions !== null || !SEARCH_FACETS.every((name) => searched.includes(name) ? kinds[name] != null && scores[name] != null : kinds[name] === null && scores[name] === null)
     || page.score_type !== (disclosure.query_interpretation.q ? "unified_reciprocal_rank" : "none")
     || page.total_kind !== (searched.length ? kinds[facet] : disclosure.query_interpretation.q ? "lexical_matches" : "browsed_records")) throw new Error("Mnemonic returned inconsistent facet ranking.");
   const ranking = decodeSearchRanking({ score_type: scores[facet] ?? "none", total_kind: kinds[facet] ?? "browsed_records", semantic: page.semantic });

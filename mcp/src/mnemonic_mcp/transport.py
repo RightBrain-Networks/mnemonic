@@ -19,6 +19,8 @@ from starlette.datastructures import Headers
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from .knowledge_transport import decision_literals, large_decision_matches
+
 MCP_REQUEST_MAX_BYTES = 1_048_576
 MCP_ARTIFACT_REQUEST_MAX_BYTES = 90 * 1024 * 1024
 MCP_ARTIFACT_CONTENT_MAX_CHARS = 4 * ((64 * 1024 * 1024 + 2) // 3)
@@ -38,6 +40,8 @@ MCP_SIZE_LIMIT_MESSAGE = (
     "The configured artifact library limit may be lower or the library may be disabled; "
     "call list_artifacts without content to learn its current status. "
     "Larger files require the binary REST API when the configured library limit permits."
+    " Decision uploads allow 1048576 UTF-8 content bytes plus ordinary metadata; "
+    "JSON escaping is accounted for separately."
 )
 
 _REQUEST_ID_PATTERN = re.compile(r"[A-Za-z0-9._:-]{1,128}", re.ASCII)
@@ -93,6 +97,8 @@ def _prevalidate_large_upload(raw: bytes) -> None:
     """Exclude JSON object/array memory amplification before decoding large bodies."""
     if len(raw) <= MCP_REQUEST_MAX_BYTES:
         return
+    if next(decision_literals(raw, MCP_REQUEST_MAX_BYTES), None) is not None:
+        return
     minimum_content = len(raw) - MCP_REQUEST_MAX_BYTES
     for match in _BASE64_LITERAL_PATTERN.finditer(raw):
         size = match.end(1) - match.start(1)
@@ -118,6 +124,10 @@ def _validate_method_envelope(raw: bytes, document: dict[str, Any]) -> None:
     if document.get("method") != "tools/call" or not isinstance(params, dict):
         raise MCPRequestTooLarge("oversized ordinary MCP request")
     name = params.get("name")
+    if name == "decision_put" and large_decision_matches(
+        raw, params.get("arguments"), MCP_REQUEST_MAX_BYTES,
+    ):
+        return
     if not isinstance(name, str) or name not in {"upload_artifact", "replace_artifact"}:
         raise MCPRequestTooLarge("oversized ordinary MCP request")
     arguments = params.get("arguments")

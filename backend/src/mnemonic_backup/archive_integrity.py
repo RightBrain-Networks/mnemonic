@@ -6,6 +6,7 @@ from types import ModuleType
 
 from sqlalchemy import Connection, text
 
+from mnemonic_api.knowledge_integrity import KNOWLEDGE_FINDINGS
 from mnemonic_api.transcript_recovery_db import RECOVERY_FINDINGS
 from mnemonic_backup.archive_schema import HEAD, BackupError
 
@@ -33,6 +34,7 @@ def validate_integrity(connection: Connection) -> None:
     findings = previous._blocking_counts(counts)
     checks = dict(audit._review_checks(HEAD))
     checks.update(RECOVERY_FINDINGS)
+    checks.update(KNOWLEDGE_FINDINGS)
     for name in ("_ACTIVITY_FINDINGS", "_REPORT_FINDINGS", "_REFERENCE_FINDINGS",
                  "_MOVE_FINDINGS", "_CROSS_PROJECT_RELATIONSHIP_FINDINGS", "_ARTIFACT_FINDINGS",
                  "_PRECEDENCE_FINDINGS"):

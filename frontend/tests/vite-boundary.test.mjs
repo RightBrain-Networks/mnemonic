@@ -58,7 +58,7 @@ test("Vite proxies public browser traffic while private routes and missing asset
     assert.equal((await response.text()).includes('<div id="root">'), false, path);
   }
   assert.equal(received.length, 4);
-  for (const path of ["/", "/work-items?work=test", "/settings/prompts/", "/@vite/client", "/main.tsx", "/icon.svg"]) {
+  for (const path of ["/", "/work-items?work=test", "/knowledge", "/settings/prompts/", "/@vite/client", "/main.tsx", "/icon.svg"]) {
     const response = await fetch(base + path);
     assert.equal(response.status, 200, path);
     await response.arrayBuffer();

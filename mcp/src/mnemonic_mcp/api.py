@@ -38,6 +38,21 @@ class TransportEffect(StrEnum):
 
 
 _APPLICATION_ERRORS = {
+    "knowledge_domain_not_found": "Decision domain not found in this project; list_knowledge_domains.",
+    "knowledge_domain_name_conflict": "Domain name already exists; list_knowledge_domains before a new intent.",
+    "knowledge_domain_prefix_conflict": "Domain prefix already exists and cannot change; list_knowledge_domains.",
+    "knowledge_domain_version_conflict": "Domain version changed; list_knowledge_domains before a new rename intent.",
+    "knowledge_domain_exhausted": "This domain has exhausted its decision ordinals; choose another domain.",
+    "decision_not_found": "Decision not found in this project; search the decisions facet.",
+    "decision_revision_not_found": "Decision revision not found; read decision_history for retained revisions.",
+    "decision_reference_invalid": "Use a canonical decision reference such as ADR-00001 or ADR-00001-0.",
+    "decision_revision_conflict": "Decision revision changed; use decision_get before preparing a new update intent.",
+    "decision_revision_mismatch": "Reference suffix and explicit revision must identify the same decision revision.",
+    "decision_domain_mismatch": "An existing decision cannot change domains; use its original domain_id.",
+    "decision_supersession_domain": "Supersedes requires the same domain; use related_decision_ids across domains.",
+    "decision_supersession_cycle": "Supersession cannot create a cycle; inspect the decisions before a new intent.",
+    "decision_self_reference": "A decision cannot link to or supersede itself.",
+    "decision_line_range_invalid": "Line range starts beyond the document; read decision_get without a range first.",
     "transcript_path_not_allowed": (
         "transcript_path_not_allowed: The asserted native transcript path is outside the "
         "backend's approved source roots. Verify the client's actual transcript directory, "

@@ -156,6 +156,17 @@ export default function ArtifactLibrary({ projectId, maximumBytes, onPendingChan
   }, [projectId, routeQuery]);
 
   useEffect(() => {
+    const params = new URLSearchParams(routeQuery);
+    const id = params.get("artifact");
+    if (!enabled || pendingRef.current || !sameUuid(params.get("project"), projectId) || !validUuid(id)) return;
+    let cancelled = false;
+    void client.fetchQuery(artifactDetailOptions(client, projectId, id)).then((artifact) => {
+      if (!cancelled && !pendingRef.current) setSelected(artifact);
+    }).catch((error) => { if (!cancelled) setActionError(errorMessage(error)); });
+    return () => { cancelled = true; };
+  }, [client, enabled, projectId, routeQuery]);
+
+  useEffect(() => {
     if (!pending) return;
     const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ""; };
     window.addEventListener("beforeunload", warn);

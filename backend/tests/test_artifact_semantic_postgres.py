@@ -482,7 +482,7 @@ def test_semantic_date_scope_diagnostics_and_ranking_use_the_same_corpus(
     assert page["total"] == 1 and page["total_kind"] == "ranked_candidates"
     assert page["semantic"]["inference"]["status"] == "completed"
     assert page["semantic"]["comparison_incomplete"] is False
-    assert page["term_diagnostics"] == [{"term": "listener", "matches": {
+    assert page["term_diagnostics"] == [{"term": "listener", "matches": {"decisions": None,
         "work_items": None, "artifacts": 1, "transcripts": None}}]
     if endpoint != "dedicated":
         assert page["facet_score_types"]["artifacts"] == "semantic_reciprocal_rank"

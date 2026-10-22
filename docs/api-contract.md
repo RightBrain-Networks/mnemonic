@@ -11,14 +11,15 @@ the rubric. MCP exposes only `get_prompt(project_id, prompt_id="priority-rubric"
 Migration `0051_priority_rubrics` seeds existing and future projects from the
 previous bundled rubric. Edits are retained in PostgreSQL and project backups.
 
-Use [unified search](search.md) to retrieve work, artifacts, and transcripts in one
+Use [unified search](search.md) to retrieve work, artifacts, transcripts, and decisions in one
 ranked, filtered, paginated read through REST or MCP.
 
-This is application/API/MCP/dashboard `0.84.1`, plugin `0.50.0`, and migration
-`0052_dependency_cycles`. See [dependency cycles](dependency-cycles.md) for explicit
-parent closure requirements, cycle refusal, and honest deadlock display. The catalog has exactly 59 MCP tools, 17
-protected MCP writes, 24 REST receipt kinds, 21 protected browser mutations and
-24 work-event types. The 24 REST receipt kinds comprise 18 work operations, four artifact operations
+This is application/API/MCP/dashboard `0.85.0`, plugin `0.50.0`, and migration
+`0053_knowledge_graph`. See [knowledge graph](knowledge-graph.md) for retained
+decision revisions and commit provenance, and [dependency cycles](dependency-cycles.md) for explicit
+parent closure requirements, cycle refusal, and honest deadlock display. The catalog has exactly 67 MCP tools, 21
+protected MCP writes, 28 REST receipt kinds, 23 protected browser mutations and
+24 work-event types. The 28 REST receipt kinds comprise 18 work operations, four knowledge operations, four artifact operations
 with filesystem recovery journals, and two transcript operations (rebuild and import). See
 [artifact contracts](artifacts.md) for binary routes, retention and work discovery.
 Relationship identity and graph invariants are global;
@@ -1404,9 +1405,9 @@ as "No longer needed".
 
 ## MCP contract
 
-The catalog is exactly 59 tools:
+The catalog is exactly 67 tools:
 
-`search` is the shared safe read over work, artifacts and transcripts; see
+`search` is the shared safe read over work, artifacts, transcripts and decisions; see
 [the request, ranking, facet, pagination and coverage contract](search.md).
 
 Transcript tools: `list_transcripts`, `search_transcript_contents`, `get_transcript`,

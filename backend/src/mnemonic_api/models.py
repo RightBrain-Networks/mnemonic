@@ -31,6 +31,7 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, deferred, mapped_column
 from sqlalchemy.schema import conv
 
 from mnemonic_api import code_review_db_tables as reviews
+from mnemonic_api import knowledge_db as knowledge
 from mnemonic_api import manual_review_db as manual_reviews
 from mnemonic_api import phase12_db_tables as phase12
 from mnemonic_api import transcript_db_tables as transcripts
@@ -166,7 +167,8 @@ class ClientOperation(Base):
             "'delete_work', 'move_work', 'remove_relationship', 'release_claim', "
             "'request_human_input', 'resolve_human_input', 'merge_work', "
             "'dismiss_job_completion_report', 'create_job_completion_report_follow_up', "
-            "'respond_to_work_follow_up', 'complete_code_review')",
+            "'respond_to_work_follow_up', 'complete_code_review', 'create_knowledge_domain', "
+            "'rename_knowledge_domain', 'put_decision', 'append_decision_scope')",
             name="operation_kind_valid",
         ),
         CheckConstraint(
@@ -2347,3 +2349,88 @@ class TranscriptWorkerHealth(Base):
     worker_id: Mapped[UUID]
     checked_at: Mapped[datetime]
     report: Mapped[dict]
+
+
+class KnowledgeDomain(Base):
+    __table__ = Table("knowledge_domains", Base.metadata, *knowledge.domain_elements())
+
+    id: Mapped[UUID]
+    project_id: Mapped[UUID]
+    name: Mapped[str]
+    prefix: Mapped[str]
+    version: Mapped[int]
+    next_ordinal: Mapped[int]
+    created_at: Mapped[datetime]
+    updated_at: Mapped[datetime]
+
+
+class DecisionDocument(Base):
+    __table__ = Table("decision_documents", Base.metadata, *knowledge.document_elements())
+
+    id: Mapped[UUID]
+    project_id: Mapped[UUID]
+    domain_id: Mapped[UUID]
+    ordinal: Mapped[int]
+    current_revision: Mapped[int]
+    created_at: Mapped[datetime]
+    updated_at: Mapped[datetime]
+
+
+class DecisionRevision(Base):
+    __table__ = Table("decision_revisions", Base.metadata, *knowledge.revision_elements())
+
+    id: Mapped[UUID]
+    project_id: Mapped[UUID]
+    document_id: Mapped[UUID]
+    revision: Mapped[int]
+    title: Mapped[str]
+    content: Mapped[str] = deferred(__table__.c.content)
+    media_type: Mapped[str]
+    state: Mapped[str]
+    size_bytes: Mapped[int]
+    sha256: Mapped[str]
+    author_kind: Mapped[str]
+    agent_session_id: Mapped[str | None]
+    model_id: Mapped[str | None]
+    creation_transaction_id: Mapped[int]
+    created_at: Mapped[datetime]
+
+
+class DecisionRelationship(Base):
+    __table__ = Table("decision_relationships", Base.metadata, *knowledge.relationship_elements())
+
+    revision_id: Mapped[UUID]
+    target_document_id: Mapped[UUID]
+    kind: Mapped[str]
+    project_id: Mapped[UUID]
+
+
+class DecisionWorkLink(Base):
+    __table__ = Table("decision_work_item_links", Base.metadata,
+                      *knowledge.resource_link_elements("work_item"))
+
+    revision_id: Mapped[UUID]
+    work_item_id: Mapped[UUID]
+    project_id: Mapped[UUID]
+
+
+class DecisionArtifactLink(Base):
+    __table__ = Table("decision_artifact_links", Base.metadata,
+                      *knowledge.resource_link_elements("artifact"))
+
+    revision_id: Mapped[UUID]
+    artifact_id: Mapped[UUID]
+    project_id: Mapped[UUID]
+
+
+class DecisionScope(Base):
+    __table__ = Table("decision_scopes", Base.metadata, *knowledge.scope_elements())
+
+    id: Mapped[UUID]
+    project_id: Mapped[UUID]
+    document_id: Mapped[UUID]
+    revision: Mapped[int]
+    commit_hash: Mapped[str]
+    work_item_id: Mapped[UUID | None]
+    agent_session_id: Mapped[str | None]
+    created_at: Mapped[datetime]

@@ -2269,6 +2269,7 @@ def build_server(settings: Settings, api: MnemonicAPI | None = None) -> FastMCP:
     from .code_review_tools import register_code_review_tools
     from .command_help import register_help_tool
     from .download_grants import register_download_grants
+    from .knowledge_tools import register_knowledge_tools
     from .search_tools import register_search_tool
     from .transcript_tools import register_transcript_tools
     from .upload_grants import register_upload_grants
@@ -2298,6 +2299,7 @@ def build_server(settings: Settings, api: MnemonicAPI | None = None) -> FastMCP:
     register_prompt_tool(server, api)
     register_code_review_tools(server, api)
     register_artifact_tools(server, api)
+    register_knowledge_tools(server, api)
     register_upload_grants(server, api)
     register_download_grants(server, api)
     register_transcript_tools(server, api)

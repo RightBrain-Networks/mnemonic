@@ -5,6 +5,7 @@ import re
 UUID = r"[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}"
 PROJECT = rf"projects/{UUID}"
 WORK = rf"{PROJECT}/work-items/{UUID}"
+DECISION = rf"{PROJECT}/knowledge/decisions/[A-Z]{{1,5}}-[0-9]{{5,19}}"
 PROMPT_IDS = (
     "recall-pointer",
     "job-completion-report",
@@ -19,6 +20,16 @@ PROMPT_DETAIL = re.compile(rf"{PROJECT}/prompts/({'|'.join(PROMPT_IDS)})")
 
 # Each entry names one browser contract and its exact method/query surface.
 _ROUTES = (
+    ("knowledge_domains", rf"{PROJECT}/knowledge/domains", {"GET": "limit offset", "POST": ""}),
+    ("knowledge_domain", rf"{PROJECT}/knowledge/domains/{UUID}", {"PATCH": ""}),
+    ("knowledge_decisions", rf"{PROJECT}/knowledge/decisions",
+     {"GET": "domain_id state q limit offset"}),
+    ("knowledge_decision", rf"{DECISION}(?:-[0-9]{{1,10}})?",
+     {"GET": "revision line_start line_end"}),
+    ("knowledge_history", rf"{DECISION}/history",
+     {"GET": "limit offset"}),
+    ("knowledge_scope", rf"{DECISION}/scope",
+     {"GET": "revision limit offset"}),
     ("projects", "projects", {"GET": "limit offset", "POST": ""}),
     ("project", PROJECT, {"GET": "", "PATCH": ""}),
     ("settings", rf"{PROJECT}/settings", {"GET": "work_item_id", "PATCH": ""}),
@@ -93,6 +104,8 @@ _ROUTES = (
 ROUTES = tuple((name, re.compile(pattern), methods) for name, pattern, methods in _ROUTES)
 PROTECTED_MUTATIONS = frozenset(
     {
+        ("knowledge_domains", "POST"),
+        ("knowledge_domain", "PATCH"),
         ("follow_up_answer", "POST"),
         ("work_items", "POST"),
         ("checkpoints", "POST"),

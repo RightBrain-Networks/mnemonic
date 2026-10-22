@@ -50,17 +50,21 @@ def mixed(api, project, work_payload, tmp_path, postgres_engine, artifact_storag
 def test_defaults_include_all_facets_and_work_statuses(api, project, mixed):
     result = search(api, project)
     assert result["limit"] == 20 and result["offset"] == 0
-    assert result["facet_totals"] == {"work_items": 2, "artifacts": 1, "transcripts": 1}
+    assert result["facet_totals"] == {
+        "decisions": 0, "work_items": 2, "artifacts": 1, "transcripts": 1,
+    }
     assert set(identities(result)) == {row["id"] for row in mixed}
     assert all(hit["score"] == 0 for hit in result["items"])
 
 
 def test_content_is_opt_in_and_relevance_mixes_facets(api, project, mixed):
-    assert search(api, project, q="needle")["facet_totals"] == {
+    assert search(api, project, q="needle")["facet_totals"] == {"decisions": 0,
         "work_items": 2, "artifacts": 1, "transcripts": 0,
     }
     full = search(api, project, q="needle", fulltext=True)
-    assert full["facet_totals"] == {"work_items": 2, "artifacts": 1, "transcripts": 1}
+    assert full["facet_totals"] == {
+        "decisions": 0, "work_items": 2, "artifacts": 1, "transcripts": 1,
+    }
     scores = [hit["score"] for hit in full["items"]]
     assert scores == sorted(scores, reverse=True)
     assert {hit["facet"] for hit in full["items"][:3]} == {
@@ -117,7 +121,9 @@ def test_filters_are_independent_and_project_scoped(api, project, mixed):
     })
     assert set(identities(result)) == {first["id"], artifact["id"], transcript["id"]}
     empty = search(api, project, filters={"transcripts": {"agent_session_id": "missing-session"}})
-    assert empty["facet_totals"] == {"work_items": 2, "artifacts": 1, "transcripts": 0}
+    assert empty["facet_totals"] == {
+        "decisions": 0, "work_items": 2, "artifacts": 1, "transcripts": 0,
+    }
     other = api.post("/api/v1/projects", json={"name": "Other search project"}).json()
     assert search(api, other, q="needle", fulltext=True)["total"] == 0
     assert api.post(path({"id": str(uuid4())}), json={}).status_code == 404
@@ -174,7 +180,9 @@ def test_replacement_deletion_erase_searchable_body(api, project, artifact_stora
 def test_disabled_artifacts_do_not_block_other_facets(api, project, mixed):
     api.app.state.settings.artifact_max_bytes = 0
     result = search(api, project)
-    assert result["facet_totals"] == {"work_items": 2, "artifacts": 0, "transcripts": 1}
+    assert result["facet_totals"] == {
+        "decisions": 0, "work_items": 2, "artifacts": 0, "transcripts": 1,
+    }
     assert result["coverage"]["artifacts"]["enabled"] is False
     assert result["indexing_incomplete"] is True
 

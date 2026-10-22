@@ -568,6 +568,7 @@ def move_work_record(
         require_canonical_work_item,
         require_no_duplicate_membership,
     )
+    from mnemonic_api.services.knowledge import require_no_knowledge_links
 
     if payload.target_project_id == source_project_id:
         raise conflict(
@@ -580,6 +581,7 @@ def move_work_record(
         require_sealed_completion_episode(database, work_item)
     require_sealed_closeout_report(database, work_item)
     require_no_review_history_for_move(database, work_item)
+    require_no_knowledge_links(database, work_item)
     require_no_duplicate_membership(database, work_item)
     require_no_unresolved_gates(database, work_item.id)
     require_no_active_lease_for_move(database, work_item.id)

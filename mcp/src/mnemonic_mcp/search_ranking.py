@@ -93,12 +93,14 @@ class FacetTotalKinds(RankingModel):
     work_items: TotalKind | None = None
     artifacts: TotalKind | None = None
     transcripts: TotalKind | None = None
+    decisions: TotalKind | None = None
 
 
 class FacetScoreTypes(RankingModel):
     work_items: ScoreType | None = None
     artifacts: ScoreType | None = None
     transcripts: ScoreType | None = None
+    decisions: ScoreType | None = None
 
 
 
