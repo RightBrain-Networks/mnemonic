@@ -26,7 +26,9 @@ tests, type checking, and a production build; 34 focused desktop/narrow browser
 cases covered existing knowledge and completion flows plus impact, reassessment,
 retry preservation, merge lookup, and completion provenance. Four further
 desktop/narrow cases verified concurrent assessment drafts and the updated
-Resources menu. The full browser suite remains part of required pull-request CI. Plugin/reference exports, skill
+Resources menu. The full browser suite is exercised separately against the
+isolated local stack. Required CI covers backend, MCP, frontend unit/build,
+Python quality, secret scanning, and the authentic repository-verifier runtime. Plugin/reference exports, skill
 validation, operational-script lint, OpenAPI generation, and secret scanning passed.
 
 Screenshots show [impact paths](images/knowledge-impact-paths.png),
