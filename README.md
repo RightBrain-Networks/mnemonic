@@ -28,6 +28,8 @@ Tested with Claude Code, OpenAI Codex, and OpenCode. Probably works with any sim
 
 - **It's not exactly lightweight** `mnemonic` imports, normalizes, and indexes agent transcripts and creates embeddings of the text. This doesn't require a GPU, but it's not likely to run well on a Raspberry Pi and can consume quite a bit (tens of GB) of diskspace. Plus the Docker Compose stack is 6-7 containers (depending on your config). And: the dashboard UX take a while fully master and there are over 60+ MCP tools. **`mnemonic` was designed to help bring engineering rigor to AI-enabled development workflows** but doesn't pretend that cost is free. It's a tool for experienced developers.
 
+- **`mnemonic` is overkill if you only run one session at a time**. The platform was designed (and has been tested) to juggle 3 to 15 concurrent agents. It will **dramatically** accelerate work throughput at that scale. However, the operational overhead of the MCP tool calls will nerf efficiency gains if you routinely use it with only one or two simultaneous sessions.
+
 ## Basic concepts
 
 The included agent skills encourage the LLM to default to using `mnemonic` to save hand-off prompts and self-discovered follow-up tasks, rather than your bug/issue tracker, Markdown docs, or ephemeral "Suggested task chips". 
