@@ -47,7 +47,7 @@ async function add(api: APIRequestContext, projectId: string, queue: Queue, titl
       } })
     : await api.post(`/api/v1/projects/${projectId}/work-items/${work.id}/gates`, { data: {
         gate_type: "human", question: `Should we proceed with ${title}?`,
-        requested_by_client: "playwright-api", requested_by_session_id: "dashboard-motion",
+        requested_by_client: "playwright-api", requested_by_session_id: "dashboard-motion", requested_by_model: "playwright-fixture",
         client_operation_id: crypto.randomUUID()
       } });
   expect(result.ok(), await result.text()).toBe(true);

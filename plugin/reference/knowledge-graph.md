@@ -11,7 +11,9 @@ independent findings are frozen.
 
 Resolve the exact project first. `list_knowledge_domains` returns project-owned
 names, immutable prefixes, versions, and counts. Do not assume a domain exists
-or choose the first project/domain. `create_knowledge_domain` creates an authorized
+or choose the first project/domain. Projects include a Product Decision Records
+domain, identified by `is_product_decision_domain`; retain the returned ID and
+prefix rather than inferring them from a display name. `create_knowledge_domain` creates an authorized
 domain using a unique name and prefix; prefixes become uppercase and must match
 `[A-Z]{1,5}`. `rename_knowledge_domain` needs the current domain version. A prefix
 cannot change, and domain deletion is unavailable.
@@ -31,6 +33,52 @@ Optional `line_start`/`line_end` are inclusive and one-based. Use
 `decision_history` to page immutable revision metadata, then fetch the exact
 needed text. Reading a decision alone does not establish that it informed code.
 Keep a deliberate list of the revisions that actually influenced implementation.
+
+## Product decisions and Needs Attention
+
+Every Needs Attention question is a canonical knowledge document in the project's
+Product Decision Records domain. Use `request_human_input` to create or revise an
+open question after fetching `get_prompt` with `request-human-review` and its work
+ID. Supply the actual native requester session and authoring model. The response's
+`decision` contains the stable ID and exact revision reference. `decision_get`
+returns the ordinary decision metadata plus `human_gate`, which identifies the
+question, primary work item and its `work_project_id`, current question version
+and unresolved/resolved state. Use that project ID when opening the work.
+Historical resolved questions may retain their PDR in its original project after
+the work moved; their gate reports `decision.originating_work_project_id` rather
+than a cross-project ordinary work link. Managed PDR work cannot move again.
+
+A new question is proposed revision 0. Question version N corresponds to decision
+revision N-1. A human answer appends revision N containing the question and answer,
+with human authorship and accepted state. Here accepted means the owner's decision
+was recorded: the answer may be a refusal or "No longer needed". Read the answer;
+state alone is never approval to implement. Original question authors, context
+anchors, every earlier revision, and resolver provenance remain available.
+
+Optional `decision_metadata` accepts `title`, `related_decision_ids`,
+`related_work_item_ids`, `related_artifact_ids`, `depends_on`, `supersedes`, and
+`supersession_details`. On question revision, omitted metadata or individual fields
+retain their current values; explicit empty lists clear optional links. The primary
+work item remains linked for new questions. New questions default to the work title and no
+optional links. Read current decision metadata before changing it. Use exact
+dependencies and supersession details under the same graph rules as other domains.
+To remove a supersession, remove it from both `supersedes` and
+`supersession_details`; retained detailed entries also establish supersedes links.
+
+Keep the original `gate_id` and latest `expected_question_version` when rewriting
+an unresolved question. `decision_put` cannot revise a managed PDR, including its
+state; it cannot resolve a human gate. Agents cannot answer or withdraw questions.
+Direct resolution to the human dashboard. A resolved answer is immutable; a later
+product choice needs a new question with explicit references to the earlier PDR.
+Creating an ordinary document with a PDR prefix does not create a human question.
+
+PDRs participate in normal decision search, immutable history, dependencies,
+assessments and scope. Search the domain with `facets=["decisions"]` and its
+`domain_ids`; opt into `fulltext=true` for question/answer text and
+`all_revisions=true` for earlier questions. If an answered PDR actually informs
+code, cite its exact answered revision in completion provenance or append scope
+outside closeout. Do not cite the old unanswered revision as if it included the
+answer, or invent use because a PDR is linked to the work.
 
 ## Author immutable decisions and explicit dependencies
 
@@ -73,6 +121,8 @@ Every actual programming decision based on a document must retain the exact
 consulted revision and resulting full Git commit hash. Prefer the work closeout
 declaration when completing authorized implementation: projects with knowledge
 domains require `job_completion_report.decision_provenance` for fresh Done.
+The default PDR domain means this applies to every project, even when its domain
+contains no documents. Use a truthful uncited disposition below when appropriate.
 
 ```json
 {

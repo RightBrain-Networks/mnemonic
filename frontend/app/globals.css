@@ -2525,6 +2525,11 @@ html[data-theme="dark"] .review-policy-summary, html[data-theme="dark"] .review-
 }
 
 .question-versions { min-width: 0; }
+.question-decision-record { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; margin: 12px 0; }
+.question-decision-record > span:last-child { color: var(--muted); font-size: .8rem; }
+.decision-attention-origin { padding: 0 24px 16px; font-size: .85rem; }
+.decision-attention-origin p { margin: 0 0 8px; color: var(--muted); }
+.decision-attention-origin a { display: inline-block; margin-right: 18px; }
 .question-version-tabs { display: flex; gap: .25rem; overflow-x: auto; border-bottom: 1px solid var(--line); margin: 1rem 0; padding-bottom: 0; }
 .question-version-tabs button { flex: 0 0 auto; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--muted); padding: .65rem .9rem; cursor: pointer; font: inherit; font-size: .85rem; }
 .question-version-tabs button[aria-selected="true"] { border-bottom-color: var(--accent); color: var(--ink); font-weight: 600; }

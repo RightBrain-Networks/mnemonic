@@ -10,6 +10,7 @@ import {
   humanGateHistorySearchParams,
   humanGateOmissionSentence,
   humanGatePath,
+  humanGateDecisionPath,
   humanGateProjectionKey,
   humanGateResolutionStatus
 } from "../lib/human-gates.ts";
@@ -38,6 +39,13 @@ function gate(overrides = {}) {
     project_id: project,
     work_item_id: work,
     gate_type: "human",
+    decision: {
+      document_id: "2dfa9455-4a17-4cd4-938b-010ea17ccaf0", domain_id: "3dfa9455-4a17-4cd4-938b-010ea17ccaf0",
+      decision_id: "PDR-00001", reference: `PDR-00001-${(overrides.question_version ?? 1) - (overrides.status === "resolved" ? 0 : 1)}`,
+      revision: (overrides.question_version ?? 1) - (overrides.status === "resolved" ? 0 : 1),
+      state: overrides.status === "resolved" ? "accepted" : "proposed", sha256: "a".repeat(64),
+      metadata: { title: "Which path should continue?", related_decision_ids: [], related_work_item_ids: [work], related_artifact_ids: [], depends_on: [], supersedes: [], supersession_details: [] }
+    },
     question: "<script>render this literally</script>",
     requested_by_client: "claude-code",
     requested_by_session_id: "session-1",
@@ -312,4 +320,43 @@ test("question history is ordered, complete, and contains valid prose", () => {
     { ...revised, previous_questions: [{ ...version, question: "" }] },
     { ...revised, previous_questions: [{ ...version, created_at: "2020-01-01T00:00:00Z" }] }
   ]) assert.throws(() => decodeHumanGate(malformed));
+});
+
+test("current human questions require coherent PDR identity while historical receipts preserve omission", () => {
+  const current = gate();
+  assert.equal(decodeHumanGate(current).decision.reference, "PDR-00001-0");
+  for (const decision of [null, { ...current.decision, extra: true },
+    { ...current.decision, decision_id: "ADR-00001", reference: "ADR-00001-0" },
+    { ...current.decision, revision: 1, reference: "PDR-00001-1" },
+    { ...current.decision, state: "accepted" }, { ...current.decision, document_id: "invalid" },
+    { ...current.decision, sha256: "invalid" }, { ...current.decision, metadata: {} },
+    { ...current.decision, metadata: { ...current.decision.metadata, related_work_item_ids: [] } }]) {
+    assert.throws(() => decodeHumanGate(gate({ decision })), /product decision/);
+  }
+  const historical = resolvedGate();
+  delete historical.decision;
+  assert.throws(() => decodeHumanGate(historical), /invalid human gate/);
+  assert.equal(decodeHumanGate(historical, { allowHistoricalReceipt: true }).decision, undefined);
+  assert.throws(() => decodeHumanGate({ ...historical, decision: null }, { allowHistoricalReceipt: true }), /product decision/);
+  assert.equal(humanGateDecisionPath(current), `/knowledge?project=${project}&decision=PDR-00001&revision=0`);
+  assert.equal(humanGateDecisionPath(resolvedGate({ question_version: 2 }), 1), `/knowledge?project=${project}&decision=PDR-00001&revision=0`);
+  assert.equal(humanGateDecisionPath(resolvedGate()), `/knowledge?project=${project}&decision=PDR-00001&revision=1`);
+  assert.equal(humanGateDecisionPath(historical), null);
+});
+
+test("historical resolved PDRs retain their project when the originating work previously moved", () => {
+  const resolved = resolvedGate();
+  const decision = { ...resolved.decision, originating_work_project_id: otherProject,
+    metadata: { ...resolved.decision.metadata, related_work_item_ids: [] } };
+  const moved = { ...resolved, decision };
+  assert.equal(decodeHumanGate(moved).decision.originating_work_project_id, otherProject);
+  assert.equal(humanGateDecisionPath(moved), `/knowledge?project=${project}&decision=PDR-00001&revision=1`);
+  assert.equal(decodeHumanGatePage({ items: [moved], total: 1, limit: 30, next_cursor: null }, otherProject, work).items[0].project_id, project);
+  for (const originating_work_project_id of [undefined, null, "bad", project]) {
+    assert.throws(() => decodeHumanGate({ ...moved, decision: { ...decision, originating_work_project_id } }), /product decision/);
+  }
+  const missingOrigin = { ...decision };
+  delete missingOrigin.originating_work_project_id;
+  assert.throws(() => decodeHumanGate({ ...moved, decision: missingOrigin }), /product decision/);
+  assert.throws(() => decodeHumanGate(gate({ decision: { ...decision, revision: 0, reference: "PDR-00001-0", state: "proposed" } })), /product decision/);
 });

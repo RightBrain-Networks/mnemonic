@@ -105,8 +105,8 @@ one-off ID needed before dispatch. Explicit IDs and REST receipts retain their
 contracts; prepared upload intents keep their helper-generated IDs. See
 `docs/automatic-uuids.md`. The tool idempotence hint is false for these calls.
 
-The current application/API/MCP/dashboard release is `0.86.0`, Claude plugin
-`0.51.0`, and Alembic head `0055_decision_provenance`. The catalog is exactly
+The current application/API/MCP/dashboard release is `0.87.0`, Claude plugin
+`0.52.0`, and Alembic head `0056_product_decisions`. The catalog is exactly
 74 MCP tools, 23 receipt-protected MCP writes, 30 REST receipt kinds, 24 protected
 browser mutations, 24 work-event types, and three plugin skills. Project priority
 guidance is editable in Settings > Workspace; agents explicitly call
@@ -150,6 +150,16 @@ requires a report and operation UUID. Sparse historical requests remain
 parseable exclusively for permanent receipt replay before fresh domain guards.
 Do not run older processes against this schema, infer historical reports, or add
 projection, redirect, coalescing, or compatibility execution paths.
+
+Every project has a default Product Decision Records (PDR) domain. Needs Attention
+questions are PDR documents: each question version appends a proposed revision;
+a human answer appends an accepted revision. Accepted records the owner’s chosen
+decision, including a negative answer. Use request_human_input for managed PDR
+revisions, with optional decision_metadata for title, cross-references and pinned
+dependencies. decision_put cannot bypass human gates. Cite the exact answered PDR
+revision when implementing its decision. All Done closeouts therefore require
+an explicit decision_provenance declaration; no-applicable-decisions and not-code
+remain available with a concrete reason. Existing question history is retained.
 
 Needs Attention shows the latest authored question with previous versions in
 horizontal tabs. After updating work or related work, rewrite affected open
@@ -346,8 +356,8 @@ Knowledge revisions may declare `depends_on` with exact target revisions and rea
 related links do not establish causality. Use `decision_impact` before amending a
 decision and inspect coverage, then page the immutable assessment episodes and
 record version-checked dispositions with truthful actor identity. Assessments do
-not change decision state or grant execution authority. Fresh Done in projects
-with knowledge domains requires `job_completion_report.decision_provenance`: exact
+not change decision state or grant execution authority. Every project has a PDR
+domain, so fresh Done requires `job_completion_report.decision_provenance`: exact
 citations and repository/commit identities, or an explicit reason for
 `no-applicable-decisions`/`not-code`. Closeout appends scope atomically; do not
 repeat it manually. Preserve original commit records and use

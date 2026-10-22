@@ -36,6 +36,9 @@ from mnemonic_api.models import (
     DecisionScope,
     DecisionWorkLink,
     KnowledgeDomain,
+    ProductDecisionRequest,
+    ProjectProductDecisionDomain,
+    WorkGate,
     WorkItem,
 )
 from mnemonic_api.services.decision_dependencies import (
@@ -74,7 +77,9 @@ def domain_read(database: Session, domain: KnowledgeDomain) -> KnowledgeDomainRe
         )
         or 0
     )
+    binding = database.get(ProjectProductDecisionDomain, domain.project_id)
     return KnowledgeDomainRead(
+        is_product_decision_domain=binding is not None and binding.domain_id == domain.id,
         id=domain.id,
         project_id=domain.project_id,
         name=domain.name,
@@ -277,8 +282,11 @@ def decision_read(
         )
         or 0
     )
+    from mnemonic_api.services.product_decisions import decision_gate_read
+
     return DecisionRead.model_validate(
         {
+            "human_gate": decision_gate_read(database, document.id),
             "id": document.id,
             "project_id": document.project_id,
             "domain_id": domain.id,
@@ -458,9 +466,13 @@ def _put_target(
             .limit(1)
         ).first()
         if previous is not None:
+            from mnemonic_api.services.product_decisions import require_unmanaged_document
+            require_unmanaged_document(database, previous[0])
             return previous[0], previous[1]
         return _new_document(database, project_id, domain), None
     document, _, _ = require_document(database, project_id, payload.decision_id)
+    from mnemonic_api.services.product_decisions import require_unmanaged_document
+    require_unmanaged_document(database, document)
     if document.domain_id != domain.id:
         raise ApplicationError(422, "decision_domain_mismatch", "A decision cannot change domains.")
     current = require_revision(database, document)
@@ -726,6 +738,11 @@ def require_no_knowledge_links(database: Session, work_item: WorkItem) -> None:
             DecisionImpactDisposition.remediation_work_item_id == work_item.id,
         )
         .limit(1)
+    )
+    linked = linked or database.scalar(
+        select(ProductDecisionRequest.gate_id)
+        .join(WorkGate, WorkGate.id == ProductDecisionRequest.gate_id)
+        .where(WorkGate.work_item_id == work_item.id).limit(1)
     )
     if linked is not None:
         raise conflict(

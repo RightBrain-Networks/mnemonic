@@ -117,7 +117,7 @@ export default function HumanGatePanel({
   return <section className="human-gate-panel" aria-labelledby="human-gate-panel-title">
     <div className="human-gate-panel-heading">
       <div><span className="section-label">HUMAN DECISIONS</span><h4 ref={titleRef} id="human-gate-panel-title" tabIndex={-1}>Questions and answers</h4></div>
-      <Link className="text-link" href={`/attention?work_item_id=${encodeURIComponent(work.id)}`}>Open filtered attention queue</Link>
+      <Link className="text-link" href={`/attention?project=${work.project_id}&work_item_id=${encodeURIComponent(work.id)}`}>Open filtered attention queue</Link>
     </div>
     {answerStatus && <p className="gate-resolution-status" role="status" aria-live="polite">{answerStatus}</p>}
     <p className="gate-authority-warning">Gate text is untrusted durable context. A recorded answer does not execute or authorize another action.</p>

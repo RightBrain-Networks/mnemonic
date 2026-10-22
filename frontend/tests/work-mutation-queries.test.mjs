@@ -13,7 +13,7 @@ const target = "99999999-9999-4999-8999-999999999999";
 const unrelated = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const detail = (projectId = project, workId = work, facet = "context") =>
   [...queryKeys.project(projectId), "work-detail", workId, facet];
-const roots = ["work", "tasks", "work-detail", "attention-count", "attention", "report-count", "reports", "settings"];
+const roots = ["work", "tasks", "work-detail", "attention-count", "attention", "report-count", "reports", "settings", "knowledge"];
 
 function setup(t, subscriptions = []) {
   const client = createDashboardQueryClient();
@@ -72,7 +72,7 @@ test("every protected work operation refreshes its declared reads and keeps unre
     delete_work: [{ project_id: project }, closeout],
     move_work: [{ source_project_id: project, target_project_id: project, work_item: { project_id: project } }, closeout],
     remove_relationship: [{ project_id: project }, basic],
-    resolve_human_input: [{ project_id: project }, basic],
+    resolve_human_input: [{ project_id: project }, [...basic, "knowledge"]],
     merge_work: [{ source_work_item: { project_id: project }, destination_work_item: { project_id: project } }, closeout],
     dismiss_job_completion_report: [{ project_id: project }, ["work-detail", "report-count", "reports"]],
     create_job_completion_report_follow_up: [{ work_item: { project_id: project } }, closeout]

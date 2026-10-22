@@ -163,7 +163,7 @@ def test_project_activity_audit_accepts_review_events_and_checks_review_facts(
     close_work(api, project, question_work, checkpoint_fields, review=False)
     report = _audit(postgres_engine)
     assert report["result"] == "pass", report["blocking_findings"]
-    assert report["expected_head"] == "0055_decision_provenance"
+    assert report["expected_head"] == "0056_product_decisions"
 
 
 def test_project_and_review_audits_keep_supported_0024_boundary(postgres_engine: Engine):
@@ -761,34 +761,14 @@ def test_project_activity_audit_tracks_reopen_owner_through_move_chain(
 
 
 def test_project_activity_audit_rejects_unresolved_gate_in_historical_project(
-    api, project, work_payload, postgres_engine
+    api, project, work_payload, postgres_engine, monkeypatch
 ):
-    from .test_human_gates_postgres import gate_request, resolution_payload
+    from .test_human_gates_postgres import gate_request
+    from .test_product_decision_migration_postgres import legacy_resolved_moved_gate
 
-    created = api.post(
-        f"/api/v1/projects/{project['id']}/work-items",
-        json=work_payload,
+    work, gate, target = legacy_resolved_moved_gate(
+        api, project, work_payload, postgres_engine, monkeypatch,
     )
-    assert created.status_code == 201, created.text
-    work = created.json()["work_item"]
-    source_gate_path = f"/api/v1/projects/{project['id']}/work-items/{work['id']}/gates"
-    requested = api.post(source_gate_path, json=gate_request())
-    assert requested.status_code == 201, requested.text
-    gate = requested.json()
-    resolved = api.post(
-        f"{source_gate_path}/{gate['id']}/resolve",
-        json=resolution_payload(revision=gate["current_context_revision"]),
-    )
-    assert resolved.status_code == 200, resolved.text
-    target = _create_api_project(api, "Resolved gate destination")
-    moved = api.post(
-        f"/api/v1/projects/{project['id']}/work-items/{work['id']}/move",
-        json={
-            "target_project_id": target["id"],
-            "expected_version": work["version"],
-        },
-    )
-    assert moved.status_code == 200, moved.text
     initial_report = _audit(postgres_engine)
     assert initial_report["result"] == "pass", initial_report
 

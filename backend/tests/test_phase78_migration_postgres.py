@@ -14,15 +14,18 @@ from fastapi.testclient import TestClient
 from sqlalchemy import Connection, Engine, create_engine, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import DBAPIError
+from sqlalchemy.orm import Session
 from sqlalchemy.schema import CreateSchema, DropSchema
 
 from mnemonic_api.config import Settings
 from mnemonic_api.main import create_app
-from mnemonic_api.schemas import ProgressEventCreate, WorkEventRead
+from mnemonic_api.models import WorkGate, WorkItem
+from mnemonic_api.schemas import HumanGateRequestCreate, ProgressEventCreate, WorkEventRead
 from mnemonic_api.services.client_operations import (
     prepare_client_operation,
     request_fingerprint,
 )
+from mnemonic_api.services.product_decisions import write_answer_decision, write_question_decision
 
 from .conftest import BACKEND_DIR, reset_disposable_schema
 
@@ -208,7 +211,29 @@ def _insert_gate(
             "created_at": created_at,
         },
     )
+    _retain_product_decision(connection, gate_id)
     return gate_id, attention_sequence, created_at
+
+
+def _retain_product_decision(connection: Connection, gate_id: UUID, *, resolved=False) -> None:
+    """Keep current-schema seed rows coherent; historical-schema fixtures predate PDRs."""
+    if connection.scalar(text("SELECT to_regclass('product_decision_requests')")) is None:
+        return
+    with Session(bind=connection) as database:
+        gate = database.get(WorkGate, gate_id)
+        assert gate is not None
+        work = database.get(WorkItem, gate.work_item_id)
+        assert work is not None
+        if resolved:
+            write_answer_decision(database, work, gate)
+        else:
+            payload = HumanGateRequestCreate(
+                question=gate.question, requested_by_client=gate.requested_by_client,
+                requested_by_session_id=gate.requested_by_session_id,
+                requested_by_model=gate.requested_by_model,
+            )
+            write_question_decision(database, work, gate, payload, gate.created_at, creating=True)
+        database.flush()
 
 
 def _resolve_gate(
@@ -266,6 +291,7 @@ def _resolve_gate(
             "resolved_at": resolved_at,
         },
     )
+    _retain_product_decision(connection, gate_id, resolved=True)
     return resolved_at
 
 
@@ -552,18 +578,18 @@ def test_gate_events_are_atomic_and_resolution_is_one_way(postgres_engine: Engin
 
     with pytest.raises(DBAPIError, match="exact retained audit events"):
         with postgres_engine.begin() as connection:
-            connection.execute(
+            unpaired_gate = connection.scalar(
                 text(
                     """
                     INSERT INTO work_gates (
                         project_id, work_item_id, question,
-                        requested_by_client, requested_by_session_id,
+                        requested_by_client, requested_by_session_id,requested_by_model,
                         requested_work_version, requested_context_checkpoint_id,
                         requested_relationship_event_count
                     ) VALUES (
                         :project_id, :work_item_id, 'Unpaired question',
-                        'pytest', 'unpaired', 1, :checkpoint_id, 0
-                    )
+                        'pytest', 'unpaired', 'fixture-model',1, :checkpoint_id, 0
+                    ) RETURNING id
                     """
                 ),
                 {
@@ -572,6 +598,7 @@ def test_gate_events_are_atomic_and_resolution_is_one_way(postgres_engine: Engin
                     "checkpoint_id": checkpoint_id,
                 },
             )
+            _retain_product_decision(connection, unpaired_gate)
 
     with postgres_engine.begin() as connection:
         gate_id, sequence, created_at = _insert_gate(
@@ -624,6 +651,7 @@ def test_gate_events_are_atomic_and_resolution_is_one_way(postgres_engine: Engin
                     "gate_id": gate_id,
                 },
             )
+            _retain_product_decision(connection, gate_id, resolved=True)
 
     with postgres_engine.begin() as connection:
         resolved_at = _resolve_gate(

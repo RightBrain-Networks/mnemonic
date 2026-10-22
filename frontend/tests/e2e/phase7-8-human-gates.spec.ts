@@ -80,7 +80,7 @@ async function createGate(
         question,
         requested_by_client: "playwright-api",
         requested_by_session_id: sessionId,
-        requested_by_model: null,
+        requested_by_model: "playwright-fixture",
         client_operation_id: crypto.randomUUID()
       }
     }
@@ -446,7 +446,7 @@ test("question versions replace graph review and preserve drafts across a concur
     async function rewrite(question: string, version: number): Promise<void> {
       const response = await client.post(`/api/v1/projects/${state.projectId}/work-items/${workId}/gates`, { data: {
         question, gate_id: gate.id, expected_question_version: version,
-        requested_by_client: "playwright-api", requested_by_session_id: sessionId,
+        requested_by_client: "playwright-api", requested_by_session_id: sessionId, requested_by_model: "playwright-fixture",
         client_operation_id: crypto.randomUUID()
       }});
       expect(response.status(), await response.text()).toBe(201);
@@ -600,7 +600,9 @@ test("a deep attention cursor and sibling drafts survive refresh and resolution"
     await page.unroute("**/api/mnemonic/**");
 
     await attentionList.getByRole("link", { name: "Show every question" }).click();
-    await expect(page).toHaveURL(/\/attention$/);
+    await expect(page).toHaveURL((url) => url.pathname === "/attention"
+      && url.searchParams.get("project") === state.projectId
+      && !url.searchParams.has("work_item_id"));
     await expect(page.locator(".attention-filter")).toHaveCount(0);
     await page.goto(`/attention?work_item_id=${workId}`);
     await page.locator("#project-select").selectOption(state.projectId);

@@ -3,6 +3,15 @@
 Use [unified search](search.md) to retrieve work, artifacts, and transcripts in one
 ranked, filtered, paginated read through REST or MCP.
 
+For release 0.87.0 (plugin 0.52.0), see the [PDR deployment notes](knowledge-graph.md#dashboard-and-deployment).
+Migration `0056_product_decisions` creates a default PDR domain for every project
+and imports existing Needs Attention questions and answers as immutable decision
+revisions. It reuses existing PDR domains and preserves their document numbers.
+Deploy aligned API, worker, MCP, and dashboard versions after the normal authorized
+backup and migration procedure; old writers cannot create the required PDR records.
+The aggregate integrity audit and project backup format include the new bindings.
+No additional service, environment variable, or external integration is required.
+
 For the coordinated 0.13.0 code-review release (plugin 0.14.0, migration 0024),
 see [code-review deployment and recovery](code-reviews.md#recovery-and-deployment).
 Back up and quiesce old writers; do not deploy older processes against the new

@@ -6449,6 +6449,48 @@
         "title": "DecisionFacetHit",
         "type": "object"
       },
+      "DecisionHumanGateRead": {
+        "additionalProperties": false,
+        "properties": {
+          "gate_id": {
+            "format": "uuid",
+            "title": "Gate Id",
+            "type": "string"
+          },
+          "question_version": {
+            "minimum": 1.0,
+            "title": "Question Version",
+            "type": "integer"
+          },
+          "status": {
+            "enum": [
+              "unresolved",
+              "resolved"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "work_item_id": {
+            "format": "uuid",
+            "title": "Work Item Id",
+            "type": "string"
+          },
+          "work_project_id": {
+            "format": "uuid",
+            "title": "Work Project Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "work_project_id",
+          "gate_id",
+          "work_item_id",
+          "status",
+          "question_version"
+        ],
+        "title": "DecisionHumanGateRead",
+        "type": "object"
+      },
       "DecisionProvenance": {
         "additionalProperties": false,
         "properties": {
@@ -6736,6 +6778,16 @@
           "domain_name": {
             "title": "Domain Name",
             "type": "string"
+          },
+          "human_gate": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DecisionHumanGateRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "id": {
             "format": "uuid",
@@ -7330,6 +7382,16 @@
           "domain_name": {
             "title": "Domain Name",
             "type": "string"
+          },
+          "human_gate": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DecisionHumanGateRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "id": {
             "format": "uuid",
@@ -8633,6 +8695,140 @@
         "title": "HumanGateContextRevision",
         "type": "object"
       },
+      "HumanGateDecisionMetadata": {
+        "additionalProperties": false,
+        "properties": {
+          "depends_on": {
+            "items": {
+              "$ref": "#/components/schemas/DecisionDependency"
+            },
+            "maxItems": 100,
+            "title": "Depends On",
+            "type": "array"
+          },
+          "related_artifact_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 100,
+            "title": "Related Artifact Ids",
+            "type": "array"
+          },
+          "related_decision_ids": {
+            "items": {
+              "pattern": "^[A-Z]{1,5}-[0-9]{5,19}$",
+              "type": "string"
+            },
+            "maxItems": 100,
+            "title": "Related Decision Ids",
+            "type": "array"
+          },
+          "related_work_item_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 100,
+            "title": "Related Work Item Ids",
+            "type": "array"
+          },
+          "supersedes": {
+            "items": {
+              "pattern": "^[A-Z]{1,5}-[0-9]{5,19}$",
+              "type": "string"
+            },
+            "maxItems": 100,
+            "title": "Supersedes",
+            "type": "array"
+          },
+          "supersession_details": {
+            "items": {
+              "$ref": "#/components/schemas/SupersessionDetail"
+            },
+            "maxItems": 100,
+            "title": "Supersession Details",
+            "type": "array"
+          },
+          "title": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "title": "HumanGateDecisionMetadata",
+        "type": "object"
+      },
+      "HumanGateDecisionRead": {
+        "additionalProperties": false,
+        "properties": {
+          "decision_id": {
+            "pattern": "^[A-Z]{1,5}-[0-9]{5,19}$",
+            "title": "Decision Id",
+            "type": "string"
+          },
+          "document_id": {
+            "format": "uuid",
+            "title": "Document Id",
+            "type": "string"
+          },
+          "domain_id": {
+            "format": "uuid",
+            "title": "Domain Id",
+            "type": "string"
+          },
+          "metadata": {
+            "$ref": "#/components/schemas/HumanGateDecisionMetadata"
+          },
+          "originating_work_project_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Originating Work Project Id"
+          },
+          "reference": {
+            "title": "Reference",
+            "type": "string"
+          },
+          "revision": {
+            "minimum": 0.0,
+            "title": "Revision",
+            "type": "integer"
+          },
+          "sha256": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Sha256",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "proposed",
+              "accepted"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "metadata",
+          "sha256",
+          "document_id",
+          "domain_id",
+          "decision_id",
+          "reference",
+          "revision",
+          "state"
+        ],
+        "title": "HumanGateDecisionRead",
+        "type": "object"
+      },
       "HumanGateEventMetadata": {
         "additionalProperties": false,
         "properties": {
@@ -8784,6 +8980,16 @@
           },
           "current_context_revision": {
             "$ref": "#/components/schemas/HumanGateContextRevision"
+          },
+          "decision": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/HumanGateDecisionRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "gate_type": {
             "const": "human",
@@ -8971,6 +9177,10 @@
             ],
             "description": "Optional caller-generated UUID for durable replay of this mutation. Reuse it only with the exact same operation and semantic arguments after an unknown outcome.",
             "title": "Client Operation Id"
+          },
+          "decision_metadata": {
+            "$ref": "#/components/schemas/HumanGateDecisionMetadata",
+            "title": "Decision Metadata"
           },
           "expected_question_version": {
             "anyOf": [
@@ -11013,6 +11223,11 @@
             "format": "uuid",
             "title": "Id",
             "type": "string"
+          },
+          "is_product_decision_domain": {
+            "default": false,
+            "title": "Is Product Decision Domain",
+            "type": "boolean"
           },
           "name": {
             "title": "Name",
@@ -20508,7 +20723,7 @@
   "info": {
     "description": "Durable project-scoped work with immutable agent checkpoints.",
     "title": "Mnemonic API",
-    "version": "0.86.0"
+    "version": "0.87.0"
   },
   "openapi": "3.1.0",
   "paths": {

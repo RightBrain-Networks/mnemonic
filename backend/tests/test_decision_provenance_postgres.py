@@ -44,7 +44,9 @@ def test_completion_requires_explicit_declaration_and_rolls_back(
 ):
     domain(api, project)
     work = create(api, project, work_payload)
-    failed, _ = close(api, project, work, checkpoint_fields)
+    failed, _ = close(api, project, work, checkpoint_fields, job_completion_report={
+        "summary": "Missing declaration.", "fyi_items": [], "prompt_revision": "1",
+    })
     assert failed.status_code == 422, failed.text
     assert failed.json()["detail"]["code"] == "decision_provenance_required"
     endpoint = f"/api/v1/projects/{project['id']}/work-items/{work['id']}"
@@ -130,12 +132,26 @@ def test_merge_reconciliation_reverse_lookup_and_immutability(api, project, data
 
 
 def test_old_receipt_remains_replayable_after_domain_creation(
-    api, project, work_payload, checkpoint_fields,
+    api, project, work_payload, checkpoint_fields, postgres_engine,
 ):
+    from alembic import command
+    from alembic.config import Config
+
+    from .conftest import BACKEND_DIR
+
+    config = Config(str(BACKEND_DIR / "alembic.ini"))
+    with postgres_engine.begin() as connection:
+        config.attributes["connection"] = connection
+        command.downgrade(config, "0055_decision_provenance")
     work = create(api, project, work_payload)
-    result, intent = close(api, project, work, checkpoint_fields)
+    result, intent = close(api, project, work, checkpoint_fields, job_completion_report={
+        "summary": "Historical domainless completion.", "fyi_items": [], "prompt_revision": "1",
+    })
     assert result.status_code == 200, result.text
     assert "decision_provenance" not in result.json()["job_completion_report"]
+    with postgres_engine.begin() as connection:
+        config.attributes["connection"] = connection
+        command.upgrade(config, "head")
     domain(api, project)
     endpoint = f"/api/v1/projects/{project['id']}/work-items/{work['id']}/complete"
     assert api.post(endpoint, json=intent).json() == result.json()

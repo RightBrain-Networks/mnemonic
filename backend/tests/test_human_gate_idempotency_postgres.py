@@ -58,8 +58,7 @@ def request_body(operation_id: UUID | None = None) -> dict[str, Any]:
         "requested_by_session_id": "phase78-idempotency",
         "requested_by_model": "test-model",
     }
-    if operation_id is not None:
-        body["client_operation_id"] = str(operation_id)
+    body["client_operation_id"] = str(operation_id or uuid4())
     return body
 
 
@@ -193,8 +192,11 @@ def assert_applied_exactly_once(
         event for event in state["work_events"] if event["gate_id"] is not None
     ]
     assert all(event["gate_id"] == gate["id"] for event in gate_events)
-    assert len(state["client_operations"]) == 1
-    receipt = state["client_operations"][0]
+    assert len(state["client_operations"]) == (1 if case.mutation == "request" else 2)
+    receipts = [row for row in state["client_operations"]
+                if str(row["client_operation_id"]) == case.body["client_operation_id"]]
+    assert len(receipts) == 1
+    receipt = receipts[0]
     assert receipt["state"] == "completed"
     assert receipt["mutation_applied"] is True
     assert receipt["response_body"] == response_body

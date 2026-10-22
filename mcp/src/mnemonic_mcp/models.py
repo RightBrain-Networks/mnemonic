@@ -60,6 +60,7 @@ from .external_records import (
     validate_external_page,
 )
 from .lease_models import LeaseSettingsRead
+from .pdr_models import HumanGateDecisionMetadata, product_decision_hash
 from .phase12_models import JobCompletionReportRead, reject_null_report
 from .precedence_models import DependencyIssue
 from .response_validation import validate_page_bounds, validate_page_items
@@ -2349,6 +2350,29 @@ class HumanGateQuestionVersion(CanonicalResponse):
     context_revision: HumanGateContextRevision
 
 
+class HumanGateDecisionRead(CanonicalResponse):
+    document_id: UUID
+    domain_id: UUID
+    decision_id: Annotated[str, Field(pattern=r"^[A-Z]{1,5}-[0-9]{5,19}$")]
+    reference: Annotated[str, Field(pattern=r"^[A-Z]{1,5}-[0-9]{5,19}-[0-9]{1,10}$")]
+    revision: StrictInt = Field(ge=0, le=2_147_483_647)
+    state: Literal["proposed", "accepted"]
+    sha256: Annotated[str, Field(pattern=r"^[a-f0-9]{64}$")]
+    metadata: HumanGateDecisionMetadata
+    originating_work_project_id: UUID | None = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
+
+    @model_validator(mode="after")
+    def coherent_reference(self) -> Self:
+        if (not self.decision_id.startswith("PDR-")
+                or self.reference != f"{self.decision_id}-{self.revision}"):
+            raise ValueError("Decision reference must identify the stated revision")
+        if self.metadata.model_fields_set != set(HumanGateDecisionMetadata.model_fields):
+            raise ValueError("Product decision reads require a complete metadata snapshot")
+        return self
+
+
 class HumanGateRead(CanonicalResponse):
     id: UUID
     project_id: UUID
@@ -2357,6 +2381,7 @@ class HumanGateRead(CanonicalResponse):
     question: HumanGateText
     question_version: StrictInt = Field(default=1, ge=1)
     previous_questions: list[HumanGateQuestionVersion] = Field(default_factory=list)
+    decision: HumanGateDecisionRead | None = Field(default=None, exclude_if=lambda v: v is None)
     requested_by_client: RetainedClientName
     requested_by_session_id: RetainedSessionID
     requested_by_model: RetainedModelName | None
@@ -2397,6 +2422,24 @@ class HumanGateRead(CanonicalResponse):
             if version.version != index or version.created_at < previous_time:
                 raise ValueError("Question versions must be ordered")
             previous_time = version.created_at
+        return self
+
+    @model_validator(mode="after")
+    def product_decision_matches_question(self) -> Self:
+        if self.decision is not None:
+            resolved = self.status == "resolved"
+            linked_work = self.decision.metadata.related_work_item_ids
+            origin_project = self.decision.originating_work_project_id
+            if origin_project is not None and (not resolved or origin_project == self.project_id):
+                raise ValueError("Only resolved historical questions may retain moved origins")
+            if (
+                self.decision.revision != self.question_version - (0 if resolved else 1)
+                or self.decision.state != ("accepted" if resolved else "proposed")
+                or not isinstance(linked_work, list)
+                or (origin_project is None and self.work_item_id not in linked_work)
+                or self.decision.sha256 != product_decision_hash(self.question, self.resolution)
+            ):
+                raise ValueError("Product decision must match the question and resolution")
         return self
 
     @model_validator(mode="after")

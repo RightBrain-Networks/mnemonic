@@ -80,7 +80,7 @@ export default function HumanGateResolution({ gate, disabled = false, onResolved
           disabled={Boolean(pendingIntent) || disabled}
           onChange={(event) => setAnswer(event.target.value)}
           placeholder="Record your decision, constraints, or guidance…" />
-        <span className="field-hint">{Array.from(answer).length}/4,000 · Saved with this question.</span>
+        <span className="field-hint">{Array.from(answer).length}/4,000 · Saved as a new PDR revision with this question. Accepted means your decision was recorded, including when your answer declines a proposal.</span>
       </label>
       {pendingIntent && <div className="gate-pending-intent" role="status">Your answer has an unresolved outcome. Use the pending-mutation recovery control.</div>}
       {message && <div className={message.error ? "error-notice" : "gate-success"} role={message.error ? "alert" : "status"}><p>{message.text}</p></div>}

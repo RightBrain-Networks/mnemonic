@@ -125,6 +125,8 @@ def _job_report_payload(api: TestClient, project: dict[str, object]) -> dict[str
         "summary": "Completed the requested work and recorded the review results.",
         "fyi_items": [],
         "prompt_revision": settings.json()["revision"],
+        "decision_provenance": {"disposition": "not-code",
+                                "reason": "Synthetic closeout fixture; no implementation code."},
     }
 
 

@@ -1,6 +1,6 @@
 import { expect, request, test, type APIRequestContext, type Page } from "@playwright/test";
 import type { JobReportEnvelope, JobReportPage, ProjectSettings } from "../../lib/types";
-import { reportForFixture } from "./job-report-fixture";
+import { reportForFixture, fillFixtureDecisionProvenance } from "./job-report-fixture";
 import { openTab, selectWork, workCard } from "./surface";
 
 async function client() {
@@ -500,6 +500,7 @@ test("closeout submissions wait for their project prompt revision without losing
     const pane = await openProjectWork(page, project.id, complete.title);
     await pane.getByLabel(/^Checkpoint text/).fill("The font change is complete and the browser layouts were checked.");
     await pane.getByLabel(/^Human summary/).fill("The dashboard now uses a consistent, readable font.");
+    await fillFixtureDecisionProvenance(pane);
     await expect(pane.getByText("Loading project report instructions…", { exact: true })).toBeVisible();
     await expect(pane.getByRole("button", { name: "Complete work", exact: true })).toBeDisabled();
     expect(closeoutWrites).toBe(0);

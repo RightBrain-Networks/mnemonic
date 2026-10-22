@@ -431,8 +431,8 @@ startup/investigation and estimate remaining session time for later lease reques
 within the current project bounds. Preserve exact `lease_minutes` arguments on
 uncertain claim retries.
 
-Application/API/MCP/dashboard 0.86.0, plugin 0.51.0 and Alembic
-`0055_decision_provenance` ship together: 74 MCP tools, 23
+Application/API/MCP/dashboard 0.87.0, plugin 0.52.0 and Alembic
+`0056_product_decisions` ship together: 74 MCP tools, 23
 receipt-protected MCP writes,
 30 REST receipt kinds, 24 protected browser mutations, 24 event types and three
 plugin skills. Existing projects default to Never/Never/off review settings;
@@ -546,8 +546,8 @@ coverage from encrypted, binary, unsupported, or truncated content. See
 Knowledge graph change analysis uses revision-pinned `depends_on` annotations,
 explicit full/partial supersession details, `decision_impact`, and durable assessment
 episodes. Scope can be captured atomically during work closeout through the nested
-`decision_provenance` declaration, required for fresh Done when the project has
-knowledge domains. Reverse commit lookup and append-only merge reconciliation
+`decision_provenance` declaration, required for fresh Done in every project because
+each project has a PDR domain. Reverse commit lookup and append-only merge reconciliation
 retain original attribution. See [knowledge graph](docs/knowledge-graph.md) and the
 [shared agent workflow](plugin/reference/knowledge-graph.md) for all knowledge tools,
 coverage limits, exact retries, and the local Git helper.

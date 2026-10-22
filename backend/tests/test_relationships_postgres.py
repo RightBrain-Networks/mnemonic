@@ -1062,6 +1062,8 @@ def test_context_relationship_projection_has_fixed_cap_and_exact_omissions(
             "question": "Review every current relationship before answering.",
             "requested_by_client": "pytest-agent",
             "requested_by_session_id": "complete-relationship-review",
+            "requested_by_model": "test-model",
+            "client_operation_id": str(uuid4()),
         },
     )
     assert gate_response.status_code == 201, gate_response.text

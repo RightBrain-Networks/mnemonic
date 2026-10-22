@@ -682,10 +682,10 @@ def assemble_work_context(
         row["current_context_revision"]
     )
     unresolved_gates = [
-        human_gate_read(item, current_revision) for item in row["unresolved_gates"]
+        human_gate_read(database, item, current_revision) for item in row["unresolved_gates"]
     ]
     recent_resolved_gates = [
-        human_gate_read(item, current_revision)
+        human_gate_read(database, item, current_revision)
         for item in row["recent_resolved_gates"]
     ]
     unresolved_gate_total = int(row["unresolved_gate_total"])

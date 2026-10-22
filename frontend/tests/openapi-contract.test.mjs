@@ -27,7 +27,7 @@ const DEFAULTED_RESPONSE_FIELDS = {
   "frontend/lib/hierarchy-presentation.ts:decodeHierarchySearchPage": ["diagnostics", "term_diagnostics", "semantic", "next_offset", "page_truncated"],
   "frontend/lib/readiness-codecs.ts:decodeReadiness": ["review_status", "dependency_issue"],
   "frontend/lib/relationship-codecs.ts:decodeRelationship": ["requires_child_closeout"],
-  "frontend/lib/human-gates.ts:GATE_FIELDS": ["question_version", "previous_questions"],
+  "frontend/lib/human-gates.ts:GATE_FIELDS": ["question_version", "previous_questions", "decision"],
   "frontend/lib/readiness-codecs.ts:decodeLease": ["purpose", "code_review_id", "mode"],
   "frontend/lib/duplicate-handling.ts:decodeWorkItemDetail": ["code_review_context", "transcripts"],
   "frontend/lib/work-events.ts:EVENT_FIELDS": ["code_review_id", "code_review_result_id", "work_follow_up_id", "work_follow_up_answer_id"],

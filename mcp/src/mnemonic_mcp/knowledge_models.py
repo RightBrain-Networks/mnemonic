@@ -91,6 +91,7 @@ class KnowledgeDomainRead(KnowledgeModel):
     created_at: datetime
     updated_at: datetime
     decision_count: Annotated[StrictInt, Field(ge=0)]
+    is_product_decision_domain: StrictBool = Field(default=False, exclude_if=lambda v: not v)
 
 
 class DecisionPutRequest(KnowledgeModel):
@@ -144,6 +145,14 @@ class DecisionPut(DecisionPutRequest):
     client_operation_id: UUID
 
 
+class DecisionHumanGateRead(KnowledgeModel):
+    gate_id: UUID
+    work_item_id: UUID
+    work_project_id: UUID
+    status: Literal["unresolved", "resolved"]
+    question_version: Annotated[StrictInt, Field(ge=1)]
+
+
 class DecisionRead(KnowledgeModel):
     id: UUID
     project_id: UUID
@@ -173,6 +182,7 @@ class DecisionRead(KnowledgeModel):
     scope_count: Annotated[StrictInt, Field(ge=0)]
     depends_on: list[DecisionDependency] = Field(default=[], exclude_if=lambda value: not value)
     supersession_details: list[SupersessionDetail] = Field(default=[], exclude_if=lambda v: not v)
+    human_gate: DecisionHumanGateRead | None = Field(default=None, exclude_if=lambda v: v is None)
 
 
 class DecisionTextRead(DecisionRead):

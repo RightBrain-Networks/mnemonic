@@ -77,6 +77,9 @@ def test_report_macros_freeze_before_closeout_and_receipt_replay_survives_extern
             "summary": "Implemented the requested changes.",
             "fyi_items": [],
             "prompt_revision": settings["revision"],
+            "decision_provenance": {
+                "disposition": "not-code", "reason": "Synthetic prompt fixture; no code produced.",
+            },
         },
     )
     assert response.status_code == 200, response.text
@@ -223,6 +226,9 @@ def test_expanded_report_history_is_retained_and_prevents_lossy_downgrade(
 ):
     from alembic import command
     from alembic.config import Config
+    from alembic.migration import MigrationContext
+    from alembic.operations import Operations
+    from alembic.script import ScriptDirectory
 
     work = create(api, project, work_payload)
     base = f"/api/v1/projects/{project['id']}"
@@ -240,6 +246,9 @@ def test_expanded_report_history_is_retained_and_prevents_lossy_downgrade(
             "summary": "Implemented the requested changes.",
             "fyi_items": [],
             "prompt_revision": settings["revision"],
+            "decision_provenance": {
+                "disposition": "not-code", "reason": "Synthetic prompt fixture; no code produced.",
+            },
         },
     )
     assert response.status_code == 200, response.text
@@ -247,14 +256,21 @@ def test_expanded_report_history_is_retained_and_prevents_lossy_downgrade(
     detail = api.get(base + f"/job-completion-reports/{report['id']}")
     assert detail.json()["report"]["authoring_prompt"] == settings["job_completion_report_prompt"]
     config = Config(str(Path(__file__).parents[1] / "alembic.ini"))
-    with pytest.raises(RuntimeError, match="Expanded report history"):
+    with pytest.raises(RuntimeError, match="Decision provenance exists"):
         with postgres_engine.begin() as connection:
             config.attributes["connection"] = connection
             command.downgrade(config, "0034_variable_work_leases")
+    # The newer provenance guard stops a full downgrade first. Exercise the
+    # original prompt guard independently without deleting retained provenance.
+    revision = ScriptDirectory.from_config(config).get_revision("0035_prompt_library")
+    with pytest.raises(RuntimeError, match="Expanded report history"):
+        with postgres_engine.begin() as connection:
+            with Operations.context(MigrationContext.configure(connection)):
+                revision.module.downgrade()
     with postgres_engine.connect() as connection:
         assert (
             connection.scalar(text("SELECT version_num FROM alembic_version"))
-            == "0055_decision_provenance"
+            == "0056_product_decisions"
         )
 
 

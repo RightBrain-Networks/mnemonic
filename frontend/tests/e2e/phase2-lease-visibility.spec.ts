@@ -1,6 +1,7 @@
 import { expect, request, test } from "@playwright/test";
 import { expireLease } from "./database";
 import { closeDetail, selectWork, workCard } from "./surface";
+import { fillFixtureDecisionProvenance } from "./job-report-fixture";
 
 const runId = crypto.randomUUID();
 let projectId: string;
@@ -275,6 +276,9 @@ test("a human can move work through every manual status", async ({ page }, testI
   await promoted.getByRole("button", { name: `Choose an action for ${title}` }).click();
   await expect(promoted.getByRole("menuitem", { name: `Promote ${title}` })).toHaveCount(0);
   await promoted.getByRole("menuitem", { name: `Done ${title}` }).click();
+  const completionDialog = page.getByRole("dialog", { name: "Record completion decision", exact: true });
+  await fillFixtureDecisionProvenance(completionDialog);
+  await completionDialog.getByRole("button", { name: "Record completion", exact: true }).click();
   await expect(page.locator(".toast")).toContainText("is Done");
   await expect(card).toHaveCount(0);
 

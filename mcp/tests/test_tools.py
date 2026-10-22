@@ -1156,6 +1156,7 @@ async def test_tool_catalog_ready_event_and_gate_schemas(settings):
         "requested_by_session_id",
     }
     assert set(request_gate_input["properties"]) == {
+        "decision_metadata",
         "gate_id",
         "expected_question_version",
         "project_id",
@@ -1174,6 +1175,7 @@ async def test_tool_catalog_ready_event_and_gate_schemas(settings):
     request_gate_output = tools["request_human_input"].outputSchema
     assert request_gate_output["additionalProperties"] is False
     assert set(request_gate_output["properties"]) == {
+        "decision",
         "question_version",
         "previous_questions",
         "id",

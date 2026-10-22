@@ -17,6 +17,7 @@ from fastapi.responses import JSONResponse
 from mnemonic_api.application.mutations import run_registered_mutation
 from mnemonic_api.application.state import api_key_of, settings_of
 from mnemonic_api.database import Database
+from mnemonic_api.errors import ApplicationError
 from mnemonic_api.schemas import (
     HumanAttentionListQuery,
     HumanAttentionPage,
@@ -38,6 +39,14 @@ from mnemonic_api.services.gates import (
 from mnemonic_api.services.work_context import assemble_work_context
 
 router = APIRouter()
+
+
+def _require_operation_id(operation_id: UUID | None) -> None:
+    if operation_id is None:
+        raise ApplicationError(
+            422, "client_operation_id_required",
+            "Product decision changes require a client operation ID.",
+        )
 
 
 @router.get("/projects/{project_id}/human-attention", response_model=HumanAttentionPage)
@@ -77,6 +86,7 @@ def create_human_gate(
     reject_gate_secret_echo(payload, known_secret_values=(api_key_of(request),))
 
     def execute(domain_payload: HumanGateRequestCreate) -> HumanGateRead:
+        _require_operation_id(payload.client_operation_id)
         return request_human_gate(database, project_id, work_item_id, domain_payload)
 
     return run_registered_mutation(
@@ -105,6 +115,7 @@ def resolve_human_gate_route(
     reject_gate_secret_echo(payload, known_secret_values=(api_key_of(request),))
 
     def execute(domain_payload: HumanGateResolutionCreate) -> HumanGateRead:
+        _require_operation_id(payload.client_operation_id)
         return resolve_human_gate(database, project_id, work_item_id, gate_id, domain_payload)
 
     return run_registered_mutation(

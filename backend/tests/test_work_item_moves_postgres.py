@@ -1246,6 +1246,8 @@ def test_move_preserves_relationships_and_rejects_other_conflicts(
             "question": "Which project should own this work?",
             "requested_by_client": "pytest",
             "requested_by_session_id": "move-gate",
+            "requested_by_model": "test-model",
+            "client_operation_id": str(uuid4()),
         },
     )
     assert gate.status_code == 201, gate.text
@@ -1254,7 +1256,8 @@ def test_move_preserves_relationships_and_rejects_other_conflicts(
         json=_move_payload(target, 1),
     )
     assert rejected_gate.status_code == 409
-    assert rejected_gate.json()["detail"]["code"] == "work_gated"
+    # Every question now carries a permanent PDR work link, checked before gate state.
+    assert rejected_gate.json()["detail"]["code"] == "work_has_knowledge_links"
 
     alias = _work(api, project, work_payload, "Move duplicate alias")["work_item"]
     canonical = _work(api, project, work_payload, "Move duplicate canonical")["work_item"]

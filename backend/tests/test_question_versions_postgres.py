@@ -116,21 +116,54 @@ def test_question_migration_preserves_original_prose_and_refuses_used_rollback(
 
     work = create_work(api, project, work_payload, title="Original question survives upgrade")
     path = gate_path(project, work)
-    original = api.post(path, json=gate_request(question="  Keep exact prose.\r\n")).json()
+    question = "  Keep exact prose.\r\n"
+    identifier = uuid4()
     config = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
     with postgres_engine.begin() as connection:
         config.attributes["connection"] = connection
         command.downgrade(config, "0029_artifact_links_sensitive")
-        assert connection.scalar(text("SELECT question FROM work_gates")) == original["question"]
-        command.upgrade(config, "head")
-    assert api.get(path).json()["items"][0] == original
-    revised, _ = revise(api, path, original, "Revised prose also stays exact.\r\n")
-    assert revised.status_code == 201, revised.text
+        connection.execute(text("""
+            INSERT INTO work_gates(id,project_id,work_item_id,question,requested_by_client,
+                requested_by_session_id,requested_by_model,requested_work_version,
+                requested_context_checkpoint_id,requested_relationship_event_count)
+            VALUES(:id,:project,:work,:question,'pytest-agent','old-session',NULL,1,:checkpoint,0)
+        """), {"id": identifier, "project": project["id"], "work": work["work_item"]["id"],
+               "question": question, "checkpoint": work["initial_checkpoint"]["id"]})
+        connection.execute(text("""
+            INSERT INTO work_events(project_id,work_item_id,event_type,actor_kind,actor_client,
+                actor_session_id,body,gate_id,metadata,created_at)
+            SELECT project_id,work_item_id,'human_attention_requested','client',
+                requested_by_client,requested_by_session_id,question,id,
+                jsonb_build_object('gate_id',id::text,'gate_type','human'),created_at
+            FROM work_gates WHERE id=:id
+        """), {"id": identifier})
+    with postgres_engine.begin() as connection:
+        config.attributes["connection"] = connection
+        command.upgrade(config, "0030_question_versions")
+        assert connection.scalar(text("SELECT question FROM work_gates")) == question
+        assert connection.scalar(text("SELECT question_revisions FROM work_gates")) == []
+        connection.execute(text("""
+            UPDATE work_gates SET question_revisions=jsonb_build_array(jsonb_build_object(
+                'version',2,'question',CAST(:question AS text),'created_at',clock_timestamp(),
+                'requested_by_client',requested_by_client,
+                'requested_by_session_id',requested_by_session_id,
+                'requested_by_model',requested_by_model,
+                'context_revision',jsonb_build_object('work_version',requested_work_version,
+                    'context_checkpoint_id',requested_context_checkpoint_id,
+                    'relationship_event_count',requested_relationship_event_count)))
+            WHERE id=:id
+        """), {"question": "Revised prose also stays exact.\r\n", "id": identifier})
     with pytest.raises(RuntimeError, match="Question versions or receipts exist"):
         with postgres_engine.begin() as connection:
             config.attributes["connection"] = connection
             command.downgrade(config, "0029_artifact_links_sensitive")
-    assert api.get(path).json()["items"][0] == revised.json()
+    with postgres_engine.begin() as connection:
+        config.attributes["connection"] = connection
+        command.upgrade(config, "head")
+    retained = api.get(path).json()["items"][0]
+    assert retained["question"] == "Revised prose also stays exact.\r\n"
+    assert retained["previous_questions"][0]["question"] == question
+    assert retained["decision"]["revision"] == 1
 
 
 @pytest.mark.postgres

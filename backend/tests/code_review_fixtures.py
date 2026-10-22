@@ -13,6 +13,9 @@ def close(api, project, work, checkpoint_fields, **overrides):
         "summary": "Repair cache invalidation and validate concurrent readers.",
         "fyi_items": [],
         "prompt_revision": revision,
+        "decision_provenance": {
+            "disposition": "not-code", "reason": "Synthetic review fixture; no code produced.",
+        },
     }
     return report_close(
         api, project, work, checkpoint_fields, job_completion_report=report, **overrides

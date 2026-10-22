@@ -614,6 +614,8 @@ def test_every_fresh_alias_mutation_fails_without_side_effects(
                 "question": "Forbidden alias question?",
                 "requested_by_client": "pytest",
                 "requested_by_session_id": "fresh-alias-gate",
+            "requested_by_model": "test-model",
+            "client_operation_id": str(uuid4()),
             },
         ),
         "claim": api.post(

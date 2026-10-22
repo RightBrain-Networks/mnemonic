@@ -827,7 +827,8 @@ function decodeSuccess<K extends MutationKind>(
       projectId: path.projectId,
       workItemId: path.workItemId,
       gateId: path.gateId,
-      status: "resolved"
+      status: "resolved",
+      allowHistoricalReceipt: true
     });
     const reviewed = objectValue(body.reviewed_context_revision);
     if (

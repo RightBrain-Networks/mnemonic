@@ -2,6 +2,10 @@
 
 
 from mnemonic_api.impact_integrity import IMPACT_FINDINGS
+from mnemonic_api.product_decision_integrity import (
+    PRODUCT_DECISION_FINDINGS,
+    has_product_revision_source,
+)
 from mnemonic_api.provenance_integrity import PROVENANCE_FINDINGS
 
 
@@ -144,7 +148,9 @@ KNOWLEDGE_FINDINGS = {
             WHERE receipt.project_id=domain.project_id
               AND receipt.operation_kind='create_knowledge_domain' AND receipt.state='completed'
               AND receipt.response_body->>'id'=domain.id::text
-        )
+        ) AND NOT EXISTS (SELECT 1 FROM project_product_decision_domains binding
+            WHERE binding.project_id=domain.project_id AND binding.domain_id=domain.id
+                AND binding.created_automatically AND domain.prefix='PDR')
     """,
     "invalid_decision_revision_receipts": f"""
         SELECT count(*) FROM client_operations receipt
@@ -158,14 +164,15 @@ KNOWLEDGE_FINDINGS = {
               AND receipt.response_body->'created'=to_jsonb(receipt.mutation_applied)
           )
     """,
-    "decision_revisions_without_creation_receipts": """
-        SELECT count(*) FROM decision_revisions revision WHERE NOT EXISTS (
+    "decision_revisions_without_creation_receipts": f"""
+        SELECT count(*) FROM decision_revisions revision
+        WHERE NOT {has_product_revision_source()} AND NOT EXISTS (
             SELECT 1 FROM client_operations receipt
             WHERE receipt.project_id=revision.project_id
               AND receipt.operation_kind='put_decision' AND receipt.state='completed'
               AND receipt.mutation_applied
-              AND receipt.response_body#>>'{decision,id}'=revision.document_id::text
-              AND receipt.response_body#>'{decision,revision}'=to_jsonb(revision.revision)
+              AND receipt.response_body#>>'{{decision,id}}'=revision.document_id::text
+              AND receipt.response_body#>'{{decision,revision}}'=to_jsonb(revision.revision)
         )
     """,
     "invalid_decision_scope_receipts": f"""
@@ -193,3 +200,4 @@ KNOWLEDGE_FINDINGS = {
 
 KNOWLEDGE_FINDINGS.update(PROVENANCE_FINDINGS)
 KNOWLEDGE_FINDINGS.update(IMPACT_FINDINGS)
+KNOWLEDGE_FINDINGS.update(PRODUCT_DECISION_FINDINGS)

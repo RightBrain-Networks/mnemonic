@@ -8,6 +8,7 @@ from uuid import UUID
 from pydantic import Field, StrictInt, StringConstraints, field_validator, model_validator
 
 from mnemonic_api.impact_schemas import DecisionDependency, SupersessionDetail
+from mnemonic_api.product_decision_schemas import DecisionHumanGateRead
 from mnemonic_api.provenance_schemas import RepositoryIdentity
 from mnemonic_api.schemas import APIModel
 
@@ -80,6 +81,7 @@ class DomainRename(DomainRenameRequest):
 
 
 class KnowledgeDomainRead(APIModel):
+    is_product_decision_domain: bool = Field(default=False, exclude_if=lambda value: not value)
     id: UUID
     project_id: UUID
     name: str
@@ -142,6 +144,9 @@ class DecisionPut(DecisionPutRequest):
 
 
 class DecisionRead(APIModel):
+    human_gate: DecisionHumanGateRead | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
     id: UUID
     project_id: UUID
     domain_id: UUID

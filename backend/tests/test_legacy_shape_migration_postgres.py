@@ -457,6 +457,10 @@ def test_completion_generation_advances_only_on_reopen(
                     "summary": prompt,
                     "fyi_items": [],
                     "prompt_revision": "1",
+                    "decision_provenance": {
+                        "disposition": "not-code",
+                        "reason": "Synthetic lifecycle test completes no implementation code.",
+                    },
                 },
                 "checkpoint": {
                     "prompt": prompt,

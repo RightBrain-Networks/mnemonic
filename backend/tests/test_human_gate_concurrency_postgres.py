@@ -318,7 +318,9 @@ def terminal_work(
     # This direct service test models the receipt-reserved domain context.
     database.info["client_operation_keyed"] = True
     report = JobCompletionReportInput(summary="This test work reached its stated closeout.",
-                                      fyi_items=[], prompt_revision="1")
+                                      fyi_items=[], prompt_revision="1",
+                                      decision_provenance={"disposition": "not-code",
+                                          "reason": "Synthetic concurrency fixture; no code."})
     if action == "complete":
         return complete_work_record(
             database,
