@@ -538,7 +538,7 @@ startup/investigation and estimate remaining session time for later lease reques
 within the current project bounds. Preserve exact `lease_minutes` arguments on
 uncertain claim retries.
 
-Application/API/MCP/dashboard 0.87.0, plugin 0.52.0 and Alembic
+Application/API/MCP/dashboard 0.88.0, plugin 0.52.0 and Alembic
 `0056_product_decisions` ship together: 74 MCP tools, 23
 receipt-protected MCP writes,
 30 REST receipt kinds, 24 protected browser mutations, 24 event types and three

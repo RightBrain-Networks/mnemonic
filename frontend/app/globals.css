@@ -2346,6 +2346,8 @@ html.theme-crossfade *::after {
 
 /* Human report layout retains exact historical ownership. */
 .settings-stack, .job-report-list, .job-report-items { display: grid; gap: 1.5rem; }
+.job-report-list-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem; }
+.job-report-list-heading h2 { margin: 0; }
 .job-report-items { align-content: start; overflow-anchor: none; }
 .job-report-items:empty { display: none; }
 .job-report-card { min-width: 0; padding: clamp(1rem, 3vw, 2rem); background: var(--surface); border: 1px solid var(--line); border-radius: 1rem; }

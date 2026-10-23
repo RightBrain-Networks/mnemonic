@@ -2931,7 +2931,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
             description={project ? `Closeout reports to review in “${project.name}”.` : "Choose a project to read its closeout reports."}
           />
           {project && activityReadyProjectId === project.id
-            ? <JobReportList key={project.id} projectId={project.id}
+            ? <JobReportList key={project.id} projectId={project.id} projectName={project.name}
                 repositoryUrl={project.repository_url}
                 onChanged={() => { refreshReports(); refreshWork(); }}
                 onOpenWork={(workItemId, preferredProjectId) => {

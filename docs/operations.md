@@ -3,6 +3,12 @@
 Use [unified search](search.md) to retrieve work, artifacts, and transcripts in one
 ranked, filtered, paginated read through REST or MCP.
 
+Release 0.88.0 adds confirmed **Clear all** dismissal to the dashboard's
+[Summaries inbox](project-activity-and-reports.md#settings-and-summaries).
+The coordinated application/API/MCP/dashboard version is 0.88.0; plugin 0.52.0
+and migration `0056_product_decisions` are unchanged. This release uses the
+existing report dismissal API and requires no new migration or configuration.
+
 For release 0.87.0 (plugin 0.52.0), see the [PDR deployment notes](knowledge-graph.md#dashboard-and-deployment).
 Migration `0056_product_decisions` creates a default PDR domain for every project
 and imports existing Needs Attention questions and answers as immutable decision

@@ -95,7 +95,18 @@ retaining the exact original identity.
 Dismissal is a monotonic human action. It hides the report from the default
 inbox, retains its first dismissal identity/time/actor, and leaves it retrievable
 through the API. A different-key repeat returns `dismissed: false`; a same-key
-retry returns its original result. Create Follow-up opens a manually reviewed
+retry returns its original result.
+
+The **Clear all** button at the top of `/summaries` opens a confirmation modal
+for the selected project's pending reports, including pages not yet loaded in
+the dashboard. The modal collects the current reports before confirmation and
+shows their count. Confirming dismisses that fixed set using the same human
+dismissal action; reports arriving afterward remain pending. Cancellation makes
+no changes. If only some dismissals succeed, the dashboard reports the progress
+and keeps the remaining reports pending. Dismissal preserves every report and
+its source work; it does not approve the work or resolve Needs Attention items.
+
+Create Follow-up opens a manually reviewed
 form that creates Pending work with an initial checkpoint and immutable links
 to both the report and its exact source work. It does not assign an agent,
 create a graph edge, or dismiss the report. Intentional additional follow-ups
