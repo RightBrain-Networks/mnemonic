@@ -13,10 +13,11 @@ import { useWorkItemMotion } from "@/components/use-work-item-motion";
 import JobReportContent from "@/components/job-report-content";
 import JobReportFollowUpForm from "@/components/job-report-follow-up-form";
 import SummaryReviewButton from "@/components/summary-review-button";
+import ClearSummariesButton from "@/components/clear-summaries-button";
 
-export default function JobReportList({ projectId, onChanged, onOpenWork, repositoryUrl }: {
+export default function JobReportList({ projectId, projectName, onChanged, onOpenWork, repositoryUrl }: {
   repositoryUrl?: string | null;
-  projectId: string; onChanged: () => void;
+  projectId: string; projectName: string; onChanged: () => void;
   onOpenWork: (workItemId: string, preferredProjectId?: string) => void | Promise<void>;
 }) {
   const registry = useMutationIntentRegistry();
@@ -88,7 +89,24 @@ export default function JobReportList({ projectId, onChanged, onOpenWork, reposi
     } catch (failure) { if (alive.current) setActionError(errorMessage(failure)); }
   }
   return <section className="job-report-list" aria-labelledby="summary-list-title">
-    <h2 id="summary-list-title" className="section-label" tabIndex={-1} ref={heading}>Reports to review</h2>
+    <div className="job-report-list-heading">
+      <h2 id="summary-list-title" className="section-label" tabIndex={-1} ref={heading}>Reports to review</h2>
+      <ClearSummariesButton projectId={projectId} projectName={projectName}
+        disabled={!page || Boolean(error) || items.length === 0 || selectedReport !== null}
+        onCleared={(ids) => {
+          const cleared = new Set(ids);
+          setMotionCapture((value) => value + 1);
+          void client.cancelQueries({ queryKey: listOptions.queryKey, exact: true });
+          client.setQueryData(listOptions.queryKey, (current) => current ? {
+            ...current, pages: current.pages.map((entry) => ({ ...entry, items: entry.items.filter((value) => !cleared.has(value.report.id)) }))
+          } : current);
+        }}
+        onSettled={() => { reload(); onChanged(); }}
+        onComplete={(count) => {
+          setAnnouncement(`${count} ${count === 1 ? "summary" : "summaries"} cleared.`);
+          heading.current?.focus({ preventScroll: true });
+        }} />
+    </div>
     <p className="sr-only" role="status" aria-live="polite">{announcement}</p>
     {error && <div className="error-notice" role="alert"><p>{error}</p><button className="button button-secondary" onClick={() => reload()}>Reload reports</button></div>}
     {actionError && <p className="error-notice" role="alert">{actionError}</p>}
