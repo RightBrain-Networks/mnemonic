@@ -57,7 +57,7 @@ For non-blocking FYIs, the *"Summaries"* list contain simplified, plain-language
    - *"What information did the agent rely upon to decide to implement X instead of Y here?"* 
    - *"If I were to change my mind and decide this app needed to support multiple users, what downstream parts of the architecture needs to be revisited?"*
 
-   This feature is especially handy to determine the precise the blast radius of a mistake made dozens of PRs or weeks earlier.
+   This feature is especially handy to precisely determine the blast radius of a mistake made dozens of PRs or weeks earlier.
 
  - **Code review hand-offs** -- Projects can also require or invite an adversarial code review at configurable priority thresholds (both default to Never). Reviewers lease the original *Done* item and perform either a warm or cold code review. See [code reviews](docs/code-reviews.md) for the complete workflow.
 
