@@ -3,6 +3,17 @@
 Use [unified search](search.md) to retrieve work, artifacts, and transcripts in one
 ranked, filtered, paginated read through REST or MCP.
 
+Release 0.90.0 separates causal decision impact from prerequisite/reference
+context, names missing commit coverage, and exposes revision authors with timed
+observations of their currently held work. Done provenance reuses exact existing
+decision/revision/repository/commit scope while retaining report declarations.
+Deploy API, worker, MCP, and dashboard together with plugin 0.53.0; the Alembic
+head remains `0057_automatic_decision_reviews`, with no new migration or service.
+The original untouched shipped `decision-impact-review` prompt refreshes on its
+next read under the prompt lock. Customized prompts and prior investigation
+snapshots remain unchanged. See [prompt updates](prompts.md#automatic-decision-impact-reviews-0890)
+and [knowledge graph](knowledge-graph.md) for pagination and agent behavior.
+
 Release 0.89.0 adds opt-in [automatic decision impact reviews](knowledge-graph.md#automatic-decision-impact-reviews).
 Migration `0057_automatic_decision_reviews` defaults existing and new projects to
 disabled with priority 40; it adds an immutable work marker without backfilling

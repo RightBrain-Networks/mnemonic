@@ -14,6 +14,7 @@ from .impact_models import (
     ImpactAssessmentRead,
     ImpactDispositionCreate,
     ImpactDispositionRead,
+    ImpactKind,
     ImpactRead,
     Reason,
     Reference,
@@ -33,10 +34,11 @@ def _reference_matches(actual: str, requested: str, revision: int | None = None)
 
 def _impact_matches(
     result: ImpactRead, project_id: UUID, reference: str, revision: int | None,
-    max_depth: int, limit: int, offset: int,
+    max_depth: int, limit: int, offset: int, kind: ImpactKind,
 ) -> bool:
     return (
         result.project_id == project_id
+        and result.kind == kind
         and _reference_matches(result.origin_reference, reference, revision)
         and (result.limit, result.offset, result.coverage.max_depth) == (limit, offset, max_depth)
         and all(item.path and item.path[0] == result.origin_reference for item in result.items)
@@ -55,14 +57,15 @@ def _register_impact_reads(server: FastMCP, api: MnemonicAPI) -> None:
         project_id: UUID, decision_id: DecisionReference, revision: RevisionNumber | None = None,
         max_depth: Annotated[StrictInt, Field(ge=1, le=16)] = 8,
         limit: Limit = 50, offset: Offset = 0,
+        kind: ImpactKind = "code-impact",
     ) -> ImpactRead:
-        """Trace reverse declared dependencies from an exact decision revision to downstream decisions, recorded commits, work, and artifacts. Current revision is the default; retain origin_reference. Follow next_offset and inspect coverage/evidence_truncated. Each candidate carries one shortest explanatory path; related-only candidates have unknown dependency semantics. Bounded traversal and recorded provenance cannot prove all affected code is known. This is a read, not authorization to revise decisions or implement changes."""
+        """Trace reverse declared dependencies from an exact decision revision to downstream decisions, recorded commits, work, and artifacts. Current revision is the default; retain origin_reference. Follow next_offset and inspect coverage/evidence_truncated. kind=code-impact (default) returns the changed decision and reverse depends_on dependents; kind=context separately pages prerequisites and related-only records for optional contradiction checks. Each candidate carries one shortest explanatory path. candidate_count counts required code-impact records; context_count is separate. Inspect no-linked-commit warnings and revision author/current active-work context. Missing scope calls for repository commit-message, declared-file, and source-ID searches; an empty graph never proves no implementation. Bounded traversal and recorded provenance cannot prove all affected code is known. This is a read, not authorization to revise decisions or implement changes."""
         return await _read(
             api, f"projects/{project_id}/knowledge/decisions/{decision_id}/impact", ImpactRead,
             lambda result: _impact_matches(
-                result, project_id, decision_id, revision, max_depth, limit, offset,
+                result, project_id, decision_id, revision, max_depth, limit, offset, kind,
             ),
-            {"max_depth": max_depth, "limit": limit, "offset": offset,
+            {"max_depth": max_depth, "limit": limit, "offset": offset, "kind": kind,
              **({"revision": revision} if revision is not None else {})},
         )
 
@@ -85,14 +88,15 @@ def _register_assessment_reads(server: FastMCP, api: MnemonicAPI) -> None:
     @server.tool(annotations=_READ)
     async def decision_assessment_get(
         project_id: UUID, assessment_id: UUID, limit: Limit = 50, offset: Offset = 0,
+        kind: ImpactKind = "code-impact",
     ) -> ImpactAssessmentDetail:
-        """Read one captured decision-change assessment, a page of candidates and their latest dispositions. Follow next_offset; read version before appending a disposition. Inspect exact before/after text when diff.truncated and scope when evidence_truncated. Candidate snapshots retain the evidence known at the change; later registrations require a fresh decision_impact read. Earlier dispositions remain available through decision_assessment_history. Neither open nor reviewed candidates grant execution authority."""
+        """Read one captured decision-change assessment and a page of latest dispositions. kind=code-impact (default) selects required origin/reverse-dependency candidates; kind=context selects optional prerequisite and related records. total/next_offset apply to the selected kind. Context-only records need no individual verdict, including historical related-only entries. Compare complete before/after text to classify rule, scope, or references-only changes before reviewing candidates; headings do not establish semantics. Follow next_offset; read version before appending a disposition. Inspect exact before/after text when diff.truncated and scope when evidence_truncated. Candidate snapshots retain the evidence known at the change; later registrations require a fresh decision_impact read. Earlier dispositions remain available through decision_assessment_history. Neither open nor reviewed candidates grant execution authority."""
         return await _read(
             api, f"projects/{project_id}/knowledge/assessments/{assessment_id}",
             ImpactAssessmentDetail,
-            lambda item: (item.project_id, item.id, item.limit, item.offset)
-            == (project_id, assessment_id, limit, offset),
-            {"limit": limit, "offset": offset},
+            lambda item: (item.project_id, item.id, item.limit, item.offset, item.kind)
+            == (project_id, assessment_id, limit, offset, kind),
+            {"limit": limit, "offset": offset, "kind": kind},
         )
 
     @server.tool(annotations=_READ)
@@ -119,7 +123,7 @@ def _register_assessment_writes(server: FastMCP, api: MnemonicAPI) -> None:
         reason: Reason, actor: ImpactActor, client_operation_id: UUID,
         remediation_work_item_id: UUID | None = None,
     ) -> ImpactDispositionRead:
-        """Append an evidenced assessment for one exact captured candidate revision: still-valid, change-required, not-affected, or resolved. Supply the current assessment expected_version, a concrete reason, and remediation work ID when applicable. Inspect evidence before deciding; resolved must reflect completed authorized remediation. This never changes document lifecycle, completes work, resolves a human gate, or grants authority. Retain the operation ID and every argument for an exact uncertain retry. A definitive version conflict requires rereading before a new intent."""
+        """Append an evidenced assessment for one exact captured candidate revision: still-valid, change-required, not-affected, or resolved. Supply the current assessment expected_version, a concrete reason, and remediation work ID when applicable. Context-only verdicts are optional and may use a short truthful contradiction note; every recorded change-required result still requires tracked remediation before review Done. Inspect evidence before deciding; resolved must reflect completed authorized remediation. This never changes document lifecycle, completes work, resolves a human gate, or grants authority. Retain the operation ID and every argument for an exact uncertain retry. A definitive version conflict requires rereading before a new intent."""
         intent = _validated(ImpactDispositionCreate, {
             "candidate_reference": candidate_reference, "expected_version": expected_version,
             "disposition": disposition, "reason": reason,

@@ -87,7 +87,8 @@ IMPACT_FINDINGS = {
                   'title',revision.title,'state',revision.state)
         ) OR jsonb_typeof(item->'path') IS DISTINCT FROM 'array'
           OR item->'path'->>-1 IS DISTINCT FROM item->>'reference'
-          OR item->>'relationship' NOT IN ('origin','depends-on','related-only')
+          OR item->>'relationship' NOT IN (
+              'origin','depends-on','depends-on-prerequisite','related-only')
     """,
     "invalid_decision_impact_dispositions": """
         SELECT count(*) FROM decision_impact_dispositions disposition

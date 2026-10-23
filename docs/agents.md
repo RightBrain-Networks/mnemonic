@@ -7,11 +7,16 @@ For code reviews, branch by temperature before ordinary recall: the
 [code-review protocol](code-reviews.md) governs mandatory handoff, durable
 originating-session recommendation answers, minimal cold coordination, warm
 adversarial review and one atomic remediation. Reviews are not implementation
-closeouts. The current catalog is 67 tools and 21 protected writes.
+closeouts. The current catalog is 74 tools and 23 protected writes.
 The [knowledge graph](knowledge-graph.md) retains decision revisions and code
 provenance. After implementing code informed by a decision, append the resulting
-commit hash and exact consulted revision through `decision_scope_append`;
-include the work item and native session ID when available.
+commit hash and exact consulted revision through `decision_scope_append` as each
+pull request merges; include the repository, work item, and native session ID.
+Done still declares complete actual provenance and reuses exact registered scope.
+Impact review separates origin/reverse-dependency code-impact candidates from
+optional prerequisite/reference context. Classify full-document rule/scope changes
+first and investigate named missing-code warnings through repository history,
+decision-declared files, and source-ID searches.
 The [artifact library](artifacts.md) adds project file upload/download, atomic
 replacement, permanent content deletion, and searchable retained metadata/audit.
 Use `get_artifact_text` to page normalized text at a required current revision;
@@ -128,7 +133,7 @@ declared pattern must match independently before an `unchanged` result. The
 copyable scoped-checkpoint example is
 [`repository-scoped-checkpoint.json`](../examples/repository-scoped-checkpoint.json).
 
-`suggest_duplicate_work` is a safe read, not one of the 21 protected
+`suggest_duplicate_work` is a safe read, not one of the 23 protected
 mutations. It takes no operation UUID, does not persist the draft or result, and
 may be retried normally after a timeout, `duplicate_suggestion_busy`, or
 `duplicate_suggestion_unavailable`. Busy responses advise a one-second retry;
@@ -163,7 +168,7 @@ mixed-client workflow.
 
 ## Protect mutation intents and recover unknown outcomes
 
-The 21 protected MCP mutations use a top-level `client_operation_id` UUID.
+The 23 protected MCP mutations use a top-level `client_operation_id` UUID.
 On a fresh call the adapter generates it when omitted; retain the returned
 `_meta.mnemonic_generated_ids` value for an exact retry. The protected tools are:
 
@@ -187,7 +192,9 @@ On a fresh call the adapter generates it when omitted; retain the returned
 - `create_knowledge_domain`;
 - `rename_knowledge_domain`;
 - `decision_put`;
-- `decision_scope_append`.
+- `decision_scope_append`;
+- `decision_assessment_append`;
+- `decision_scope_reconcile`.
 
 For callers supplying the UUID explicitly, generate it once before the first attempt.
 Retain the UUID with the complete, exact tool name and argument object in private
@@ -778,7 +785,7 @@ source that is already an alias. Source gates, structural edges, active-lease
 token mismatch, and depth have distinct merge errors. `duplicate_graph_invalid`
 is an integrity incident: stop authority-changing work and involve the operator.
 
-After an unknown outcome from one of the 21 protected writes, make at
+After an unknown outcome from one of the 23 protected writes, make at
 most one retry using only its retained exact operation; search or recall cannot
 substitute for a confirmed receipt response. If that retry also has an unknown
 outcome, stop retrying and use safe reads only to reconcile observable state

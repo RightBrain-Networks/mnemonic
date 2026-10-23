@@ -10,7 +10,9 @@ provenance, or change assessments, read
 [knowledge-graph.md](${CLAUDE_PLUGIN_ROOT}/reference/knowledge-graph.md).
 Use the knowledge tools for decision records rather than saving a second artifact
 copy. Preserve the user's unstructured text and explicit decision state. A saved
-decision, dependency, or assessment never grants implementation authority.
+decision, dependency, or assessment never grants implementation authority. Register
+actual decision scope as pull requests merge; Done still declares complete citations
+and reuses exact decision/revision/repository/commit registrations.
 
 For a local artifact upload, replacement, or download, read the short
 [transfer procedure](${CLAUDE_PLUGIN_ROOT}/reference/artifact-transfers.md) first.

@@ -134,9 +134,11 @@ contains no documents. Use a truthful uncited disposition below when appropriate
 
 Replace the example repository and hash with inspected values. `cited` requires
 nonempty citations and commits. Each citation applies to every listed commit,
-so only group commits that share those stated influences. The server registers
-the scope atomically with Done, inferring the closeout's exact work/session
-identity. The declaration allows at most 100 citations, 100 commits, and 500
+so only group commits that share those stated influences. Done atomically registers
+missing scope and reuses an existing citation for the same project, decision,
+revision, repository, and commit. The original scope's work/session attribution
+is preserved; the new immutable report retains its own complete declaration.
+The declaration allows at most 100 citations, 100 commits, and 500
 citation/commit pairs. Preserve it with the complete closeout intent for retries.
 
 If code used no applicable knowledge decision, declare
@@ -147,11 +149,16 @@ explicit declarations, not automatic inferences from empty search results.
 Neither uncited mode accepts citations. Historical missing declarations remain
 unknown; never backfill invented influences from commit messages or prose.
 
-Outside a work closeout, use `decision_scope_append` for each actual consulted
-revision and implemented commit. Supply `repository`, work item ID, and actual
-native agent session ID whenever available. Do not append a duplicate manual
-record for an already registered closeout declaration. Scope is append-only;
-revision updates never move older commits onto a newer decision revision.
+Use `decision_scope_append` for each actual consulted revision and implemented
+commit as a pull request merges, even when its larger work item remains open.
+Supply `repository`, work item ID, and actual native agent session ID whenever
+available. Include those actual citations and commits again in the complete Done
+declaration; closeout reuses exact registered citations instead of counting them
+twice. A missing repository remains unknown and cannot match an explicit identity.
+Reuse the same credential-free repository string consistently. Manual appends
+retain their existing request/metadata identity rules; this does not make arbitrary
+repeated appends with different work/session metadata interchangeable. Scope stays
+append-only; revision updates never move older commits onto a newer revision.
 
 Use the bundled [decision provenance helper](${CLAUDE_PLUGIN_ROOT}/scripts/decision_provenance.py)
 to inspect the user-selected local repository and actual commits. Resolve its
@@ -174,6 +181,9 @@ or independently verify Git.
 
 `decision_scope` pages citations for one decision, optionally one revision.
 `decision_commit_lookup` does the reverse for an exact repository and full hash.
+Their `completion_citations` show subsequent report/work and actor provenance
+when Done reused an existing scope; the original scope author/work is unchanged.
+Inspect `completion_citations_truncated` for bounded report coverage.
 After squash/rebase/merge, inspect actual merge evidence and call
 `decision_scope_reconcile` with repository, original hash, and merged hash.
 This appends a mapping to registered scopes without rewriting their original
@@ -183,18 +193,24 @@ actual integration relationship. Never guess a mapping because diffs look alike.
 ## Assess a change and record what was done
 
 Before amending or reversing a decision, call `decision_impact` for its exact
-revision. It follows reverse declared dependencies, retains historical revision
-identity, and returns one deterministic shortest explanatory path per candidate
-with registered commits, work links, and artifact links. `related-only` candidates
-are possible leads with unknown dependency semantics, not proven dependents.
+revision. With `kind="code-impact"` (the default), it returns the changed decision
+and records that depend on it through reverse declared dependencies. It retains
+historical revision identity and one deterministic shortest explanatory path per
+candidate with registered commits, work links, and artifact links. Request
+`kind="context"` separately for outward `depends-on-prerequisite` and `related-only`
+records. Those are contradiction-check context; a decision's dependence on another
+record does not mean changing it breaks the prerequisite's code. `candidate_count`
+counts required code-impact records; `context_count` counts contextual records.
+Pagination applies to the requested kind; page both when inspecting context.
 
 Follow every `next_offset` and inspect coverage. Traversal has a bounded depth
 and candidate count; each candidate's evidence is also bounded. When
 `evidence_truncated`, page `decision_scope` and retrieve exact decision metadata
 for the missing evidence. `provenance_complete=false` remains explicit even if
 all recorded dependencies were traversed: no recorded citations is different
-from proof of no affected code. Reports should distinguish recorded dependencies,
-related leads, and unregistered or truncated evidence.
+from proof of no affected code. A warning names the exact origin revision when
+it has no linked commits. Reports should distinguish recorded dependencies,
+context checks, and unregistered or truncated evidence.
 
 Actual document revisions and supersession create durable assessment episodes.
 An amended replacement decision creates another supersession assessment for
@@ -205,13 +221,13 @@ and coverage at creation. Fetch both exact texts when the diff is truncated.
 Later scope/dependency registrations do not rewrite this snapshot; run a fresh
 impact read to inspect newly recorded evidence.
 
-Episode summaries expose unassessed and change-required counts with a derived
+Episode summaries expose unassessed code-impact and change-required counts with a derived
 `pending`, `change-required`, or `resolved` status. This status describes the
 recorded candidate review; it never proves all unregistered consequences are
 known. A decision filter includes episodes where it is the origin, replacement,
 or a captured candidate.
 
-For each candidate you are authorized to assess, append an evidenced disposition
+For each code-impact candidate you are authorized to assess, append an evidenced disposition
 with `decision_assessment_append`: exact `candidate_reference`, current assessment
 `expected_version`, `disposition`, concrete reason, truthful `actor` containing
 `actor_client`, actual native `actor_session_id`, optional `actor_model`, and
@@ -222,6 +238,33 @@ does not change decision lifecycle, resolve a human question, or imply that all
 unrecorded downstream code was inspected. Earlier judgments remain available
 through `decision_assessment_history`; page history and reread the assessment
 version when concurrent changes matter.
+
+## Investigate an assigned decision impact review
+
+Use the ordinary work claim/checkpoint/closeout lifecycle for the pinned transition;
+this is an investigation, not a specialized code review or permission to implement
+remediation. Read the exact before/after texts before investigating candidates.
+Classify the change as a rule change, scope change, references-only, or a combination.
+Do not classify by headings: a rule's scope can change inside "Related records".
+Inspect revision author/session/model information and observed active work. If the
+author also holds implementation work under review, verify that author's account
+against code independently; an overlap is context, not itself a finding.
+
+If scope is missing or incomplete, use the stable decision ID in the authorized
+repository's local commit history, inspect files named in the document, and search
+source text for that ID. For example, `git log --all --fixed-strings --grep='BDR-00039'`
+and `rg -n -F -- 'BDR-00039' .` find leads; use the actual assigned ID. Inspect the
+matching changes and current code. Mentions are not proof of causal use, and absent
+local matches are not proof that remote or unregistered implementation is absent.
+
+The assessment's `kind="code-impact"` candidates require evidenced dispositions.
+`kind="context"` records do not each require a verdict, including related-only
+records retained in older episodes. A short truthful contradiction-check note is
+enough, such as "Mentioned by the changed decision; checked that the new text does
+not contradict it." Optional context dispositions remain available. Every recorded
+`change-required` result, including context, needs a distinct undeleted remediation
+work link before Done. Keep actual fixes in separately authorized work. Report
+extra live candidates absent from the frozen ledger and remaining coverage gaps.
 
 ## Preserve exact writes across uncertainty
 

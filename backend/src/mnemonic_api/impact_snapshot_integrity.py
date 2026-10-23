@@ -54,7 +54,14 @@ SNAPSHOT_FINDINGS = {
                                   AND edge.target_document_id=current.document_id)
                               OR (edge.revision_id=current.id
                                   AND edge.target_document_id=previous.document_id))))
-                        OR ((candidate->>'relationship'<>'related-only'
+                        OR (candidate->>'relationship'='depends-on-prerequisite'
+                         AND hop.number=jsonb_array_length({_PATH}) AND EXISTS (
+                            SELECT 1 FROM decision_dependencies edge
+                            WHERE edge.revision_id=previous.id
+                              AND edge.target_revision_id=current.id
+                              AND candidate->>'rationale'=edge.rationale))
+                        OR ((candidate->>'relationship' NOT IN (
+                                'related-only','depends-on-prerequisite')
                              OR hop.number<jsonb_array_length({_PATH})) AND EXISTS (
                             SELECT 1 FROM decision_dependencies edge
                             WHERE edge.revision_id=current.id
@@ -85,6 +92,39 @@ SNAPSHOT_FINDINGS = {
                   WHERE NOT EXISTS (SELECT 1 FROM decision_commit_mappings mapping
                       WHERE mapping.scope_id=scope.id AND mapping.merged_commit_hash=merged))
         )
+    """,
+    "invalid_decision_impact_completion_citations": f"""
+        SELECT count(*) FROM decision_impact_assessments assessment,
+            jsonb_array_elements(assessment.candidates) candidate,
+            jsonb_array_elements({_SCOPES}) citation
+        WHERE (citation ? 'completion_citations' AND (
+            jsonb_typeof(citation->'completion_citations') IS DISTINCT FROM 'array'
+            OR jsonb_array_length({_array("citation->'completion_citations'")})>10))
+          OR (citation ? 'completion_citations_truncated' AND
+              jsonb_typeof(citation->'completion_citations_truncated')
+                  IS DISTINCT FROM 'boolean')
+          OR EXISTS (
+            SELECT 1 FROM jsonb_array_elements(
+                {_array("citation->'completion_citations'")}) completion
+            WHERE NOT EXISTS (
+                SELECT 1 FROM job_completion_reports report
+                WHERE report.project_id=assessment.project_id
+                  AND completion @> jsonb_build_object(
+                    'report_id',report.id,'work_item_id',report.work_item_id,
+                    'actor_client',report.actor_client,'actor_session_id',report.actor_session_id,
+                    'actor_model',report.actor_model)
+                  AND CASE WHEN pg_input_is_valid(completion->>'created_at',
+                           'timestamp with time zone')
+                      THEN (completion->>'created_at')::timestamptz END=report.created_at
+                  AND report.created_at<=assessment.created_at
+                  AND report.decision_provenance @> jsonb_build_object(
+                    'disposition','cited',
+                    'citations',jsonb_build_array(jsonb_build_object(
+                        'decision_id',candidate->>'decision_id','revision',candidate->'revision')),
+                    'commits',jsonb_build_array(jsonb_build_object(
+                        'repository',citation->>'repository','commit_hash',citation->>'commit_hash')))
+            )
+          )
     """,
     "invalid_decision_impact_resource_evidence": _REFS
     + f"""

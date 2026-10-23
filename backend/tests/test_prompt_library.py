@@ -2,6 +2,7 @@
 
 import os
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from uuid import uuid4
 
 import pytest
@@ -98,3 +99,82 @@ def test_storage_rejects_non_uuid_project_paths(tmp_path):
     with pytest.raises(ApplicationError):
         storage.read("../../outside", "recall-pointer")
     assert not (tmp_path / "outside").exists()
+
+
+def _old_impact_prompt():
+    return (Path(__file__).parent / "fixtures" / "decision-impact-review-v1.md").read_bytes()
+
+
+def _install_impact_prompt(storage, project, content):
+    original = storage.read(project, "decision-impact-review")
+    path = storage.root / "projects" / str(project) / "decision-impact-review.md"
+    path.write_bytes(content)
+    return original, path
+
+
+def test_impact_default_upgrade_preserves_creation_time_and_is_stable(tmp_path):
+    storage = PromptStorage(tmp_path)
+    project = uuid4()
+    original, path = _install_impact_prompt(storage, project, _old_impact_prompt())
+    before = storage._read_prompt(project, "decision-impact-review")
+    refreshed = storage.read(project, "decision-impact-review")
+    assert refreshed.content == default_prompt("decision-impact-review")
+    assert refreshed.revision != before.revision
+    assert refreshed.created_at == original.created_at
+    assert path.read_bytes() == refreshed.content.encode()
+    assert storage.read(project, "decision-impact-review") == refreshed
+    with pytest.raises(ApplicationError) as error:
+        storage.write(project, "decision-impact-review", "A stale edit", before.revision)
+    assert error.value.detail["code"] == "prompt_changed"
+
+
+@pytest.mark.parametrize("content", [b"My review instructions", _old_impact_prompt() + b"\n"])
+def test_impact_default_upgrade_preserves_customized_bytes(tmp_path, content):
+    storage = PromptStorage(tmp_path)
+    project = uuid4()
+    original, path = _install_impact_prompt(storage, project, content)
+    current = storage.read(project, "decision-impact-review")
+    assert current.content.encode() == content
+    assert path.read_bytes() == content
+    assert current.created_at == original.created_at
+
+
+def test_impact_upgrade_rereads_under_lock_before_replacing(tmp_path, monkeypatch):
+    from contextlib import contextmanager
+
+    storage = PromptStorage(tmp_path)
+    project = uuid4()
+    _, path = _install_impact_prompt(storage, project, _old_impact_prompt())
+    lock = storage.lock
+
+    @contextmanager
+    def edited_before_lock(project_id):
+        path.write_bytes(b"A concurrent human edit")
+        with lock(project_id):
+            yield
+
+    monkeypatch.setattr(storage, "lock", edited_before_lock)
+    assert storage.read(project, "decision-impact-review").content == "A concurrent human edit"
+    assert path.read_bytes() == b"A concurrent human edit"
+
+
+def test_impact_default_upgrade_can_retry_after_publish_failure(tmp_path, monkeypatch):
+    storage = PromptStorage(tmp_path)
+    project = uuid4()
+    _, path = _install_impact_prompt(storage, project, _old_impact_prompt())
+    publish = storage._publish
+
+    def failed_publish(directory, filename, content, *, exclusive):
+        if filename == "decision-impact-review.md" and not exclusive:
+            raise OSError("Injected replacement failure")
+        return publish(directory, filename, content, exclusive=exclusive)
+
+    with monkeypatch.context() as failing:
+        failing.setattr(storage, "_publish", failed_publish)
+        with pytest.raises(ApplicationError) as error:
+            storage.read(project, "decision-impact-review")
+        assert error.value.detail["code"] == "prompt_unavailable"
+    assert path.read_bytes() == _old_impact_prompt()
+    assert storage.read(project, "decision-impact-review").content == default_prompt(
+        "decision-impact-review"
+    )

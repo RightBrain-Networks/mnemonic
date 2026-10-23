@@ -29,7 +29,7 @@ def candidate(**changes):
 def coverage():
     return {
         "traversal_complete": True, "provenance_complete": False, "max_depth": 8,
-        "candidate_limit": 500, "visited_revisions": 1, "reasons": [],
+        "candidate_limit": 500, "visited_revisions": 1, "reasons": [], "warnings": [],
         "related_semantics": "unknown",
         "snapshot_at": NOW,
         "notes": [
@@ -40,9 +40,17 @@ def coverage():
     }
 
 
+def author(reference):
+    return {"reference": reference, "author_kind": "agent", "agent_session_id": "native-thread",
+            "model_id": "test-model", "authored_at": NOW, "work_observed_at": NOW,
+            "active_work_items": [], "active_work_items_truncated": False}
+
+
 def impact(**changes):
     return {
         "project_id": PROJECT_ID, "origin_reference": "ADR-00001-0",
+        "origin_author": author("ADR-00001-0"), "kind": "code-impact",
+        "candidate_count": 1, "context_count": 0,
         "items": [candidate()], "total": 1, "limit": 50, "offset": 0,
         "next_offset": None, "coverage": coverage(), **changes,
     }
@@ -52,7 +60,8 @@ def assessment(**changes):
     return {
         "id": ASSESSMENT_ID, "project_id": PROJECT_ID, "trigger": "revision",
         "before_reference": "ADR-00001-0", "after_reference": "ADR-00001-1",
-        "extent": None, "reason": None, "candidate_count": 1,
+        "extent": None, "reason": None, "candidate_count": 1, "context_count": 0,
+        "before_author": author("ADR-00001-0"), "after_author": author("ADR-00001-1"),
         "diff": {"changed_fields": ["content"], "before_sha256": "a" * 64,
                  "after_sha256": "b" * 64, "unified_diff": "-old\n+new\n", "truncated": False},
         "coverage": coverage(), "created_at": NOW, "version": 0,
@@ -137,7 +146,7 @@ async def test_put_rejects_unrequested_supersedes_link(settings):
 async def test_impact_fetch_pins_origin_and_discloses_incomplete_provenance(settings):
     def handler(request):
         assert request.url.path.endswith("/decisions/ADR-00001-0/impact")
-        assert dict(request.url.params) == {"max_depth": "8", "limit": "50", "offset": "0"}
+        assert dict(request.url.params) == {"max_depth": "8", "limit": "50", "offset": "0", "kind": "code-impact"}
         return stream_json(impact())
 
     result = structured(await adapter(settings, handler).call_tool("decision_impact", {
@@ -165,7 +174,8 @@ async def test_assessment_reads_and_history_stay_with_exact_episode(settings):
             return stream_json({"items": [disposition()], "total": 1, "limit": 50, "offset": 0})
         if request.url.path.endswith(ASSESSMENT_ID):
             return stream_json(assessment(
-                version=1, candidates=[candidate()], dispositions=[disposition()],
+                version=1, kind="code-impact", total=1, candidates=[candidate()],
+                dispositions=[disposition()],
                 disposition_history_total=1, limit=50, offset=0, next_offset=None,
                 unassessed_count=0, change_required_count=1, status="change-required",
             ))
@@ -193,6 +203,56 @@ async def test_assessment_filter_can_match_a_captured_candidate(settings):
         "decision_assessments", {"project_id": PROJECT_ID, "decision_id": "BDR-00004"},
     ))
     assert result["items"][0]["before_reference"] == "ADR-00001-0"
+
+
+@pytest.mark.parametrize("tool", ["decision_impact", "decision_assessment_get"])
+async def test_context_pages_have_independent_counts_and_exact_kind(settings, tool):
+    context = candidate(relationship="depends-on-prerequisite")
+    response = (
+        impact(kind="context", context_count=1, items=[context])
+        if tool == "decision_impact" else assessment(
+            kind="context", context_count=1, total=1, candidates=[context], dispositions=[],
+            disposition_history_total=0, limit=50, offset=0, next_offset=None,
+        )
+    )
+
+    def handler(request):
+        assert request.url.params["kind"] == "context"
+        return stream_json(response)
+
+    arguments = {"project_id": PROJECT_ID, "kind": "context"}
+    arguments.update({"decision_id": "ADR-00001-0"} if tool == "decision_impact"
+                     else {"assessment_id": ASSESSMENT_ID})
+    result = structured(await adapter(settings, handler).call_tool(tool, arguments))
+    assert result["kind"] == "context" and result["context_count"] == 1
+    arguments["kind"] = "code-impact"
+    with pytest.raises(ToolError, match="unexpected response"):
+        await adapter(settings, lambda request: stream_json(response)).call_tool(tool, arguments)
+
+
+@pytest.mark.parametrize("changes", [
+    {"reference": "ADR-00001-9"},
+    {"author_kind": "human"},
+    {"active_work_items": [{"work_item_id": WORK_ID, "title": "Expired", "holder_client": "codex",
+                            "purpose": "implementation", "expires_at": NOW}]},
+])
+async def test_author_context_rejects_mismatched_or_expired_evidence(settings, changes):
+    response = impact(origin_author={**author("ADR-00001-0"), **changes})
+    with pytest.raises(ToolError, match="unexpected response"):
+        await adapter(settings, lambda request: stream_json(response)).call_tool(
+            "decision_impact", {"project_id": PROJECT_ID, "decision_id": "ADR-00001-0"},
+        )
+
+
+async def test_missing_commit_warning_must_match_pinned_origin(settings):
+    response = impact(coverage={**coverage(), "warnings": [{
+        "code": "origin_has_no_linked_commits", "reference": "ADR-00001-9",
+        "message": "An unrelated revision has no linked commits.",
+    }]})
+    with pytest.raises(ToolError, match="unexpected response"):
+        await adapter(settings, lambda request: stream_json(response)).call_tool(
+            "decision_impact", {"project_id": PROJECT_ID, "decision_id": "ADR-00001-0"},
+        )
 
 
 async def test_assessment_cannot_claim_resolved_while_candidates_are_unassessed(settings):

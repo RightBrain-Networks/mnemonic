@@ -8,7 +8,8 @@ description: Retrieve or safely continue saved Mnemonic work, inspect governing 
 When authorized work uses knowledge decisions or resumes an impact assessment,
 read [knowledge-graph.md](${CLAUDE_PLUGIN_ROOT}/reference/knowledge-graph.md).
 Retain the exact revisions that actually informed the implementation, inspect
-declared dependencies, and record resulting commits at closeout. Reading a
+declared dependencies, and record commits as pull requests merge, then include the
+complete actual citations at closeout. The server reuses exact registered scope. Reading a
 decision is not itself evidence that the code depends on it. During cold review,
 defer contextual decision reads until independent findings are frozen.
 

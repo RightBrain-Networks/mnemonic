@@ -5,9 +5,10 @@ import { useQuery } from "@tanstack/react-query";
 import Link from "@/components/dashboard-link";
 import { KnowledgePagination, KnowledgeReadError } from "@/components/knowledge-shared";
 import { commitLookupOptions } from "@/lib/knowledge-queries";
+import { formatDateTime } from "@/lib/display-time";
 import { validCommitHash, type DecisionScope } from "@/lib/knowledge";
 
-export function ScopeEvidence({ entry, projectId }: { entry: Pick<DecisionScope, "commit_hash" | "repository" | "completion_report_id" | "merged_commit_hashes" | "work_item_id" | "agent_session_id">; projectId: string }) {
+export function ScopeEvidence({ entry, projectId }: { entry: Pick<DecisionScope, "commit_hash" | "repository" | "completion_report_id" | "merged_commit_hashes" | "work_item_id" | "agent_session_id" | "completion_citations" | "completion_citations_truncated">; projectId: string }) {
   return <div className="decision-scope-evidence">
     <span className="break-all">Repository: {entry.repository ?? "Unknown (not recorded)"}</span>
     <code className="break-all">{entry.commit_hash}</code>
@@ -15,6 +16,16 @@ export function ScopeEvidence({ entry, projectId }: { entry: Pick<DecisionScope,
     {entry.work_item_id && <Link href={`/work-items?project=${projectId}&work=${entry.work_item_id}`}>Work item {entry.work_item_id}</Link>}
     {entry.completion_report_id && <span className="break-all">Completion report: {entry.completion_report_id}</span>}
     {entry.agent_session_id && <span className="break-all">Session: {entry.agent_session_id}</span>}
+    {!!entry.completion_citations?.length && <div>
+      <strong>Closeout citations</strong>
+      <ul>{entry.completion_citations.map((citation) => <li key={citation.report_id}>
+        <Link href={`/work-items?project=${projectId}&work=${citation.work_item_id}`}>Completed work {citation.work_item_id}</Link>
+        <div className="break-all">Report: {citation.report_id}</div>
+        <div className="break-all">{citation.actor_client}{citation.actor_session_id ? ` · Session: ${citation.actor_session_id}` : ""}{citation.actor_model ? ` · Model: ${citation.actor_model}` : ""}</div>
+        <time dateTime={citation.created_at}>{formatDateTime(citation.created_at)}</time>
+      </li>)}</ul>
+    </div>}
+    {entry.completion_citations_truncated && <p className="error-notice">Additional closeout citations are omitted from this view. Inspect project report history for the remaining declarations.</p>}
   </div>;
 }
 

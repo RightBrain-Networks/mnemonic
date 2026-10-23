@@ -1,4 +1,4 @@
-import { decodeAssessment, decodeAssessmentDetail, decodeDisposition, decodeImpact } from "./knowledge-impact.ts";
+import { decodeAssessment, decodeAssessmentDetail, decodeDisposition, decodeImpact, type ImpactKind } from "./knowledge-impact.ts";
 import { queryOptions } from "@tanstack/react-query";
 import { queryKeys } from "./query-keys.ts";
 import { decodeDecision, decodeDecisionContent, decodeDomain, decodeKnowledgePage, decodeScope, knowledgeJson, knowledgePath, verifyDecisionContent, type DecisionState } from "./knowledge.ts";
@@ -57,11 +57,11 @@ export function decisionScopeOptions(projectId: string, id: string, offset: numb
   });
 }
 
-export function decisionImpactOptions(projectId: string, id: string, revision: number, offset: number) {
+export function decisionImpactOptions(projectId: string, id: string, revision: number, offset: number, kind: ImpactKind = "code-impact") {
   return queryOptions({
-    queryKey: [...knowledgeKeys.root(projectId), "impact", id, revision, offset],
+    queryKey: [...knowledgeKeys.root(projectId), "impact", id, revision, offset, kind],
     queryFn: async ({ signal }) => decodeImpact(await knowledgeJson(knowledgePath(projectId,
-      `/decisions/${encodeURIComponent(id)}/impact?revision=${revision}&offset=${offset}&limit=25`), { signal }), projectId, `${id}-${revision}`), retry: false
+      `/decisions/${encodeURIComponent(id)}/impact?revision=${revision}&offset=${offset}&limit=25&kind=${kind}`), { signal }), projectId, `${id}-${revision}`, kind), retry: false
   });
 }
 export function assessmentsOptions(projectId: string, decisionId: string, offset: number) {
@@ -71,11 +71,11 @@ export function assessmentsOptions(projectId: string, decisionId: string, offset
       `/assessments?decision_id=${encodeURIComponent(decisionId)}&offset=${offset}&limit=25`), { signal }), (value) => decodeAssessment(value, projectId)), retry: false
   });
 }
-export function assessmentOptions(projectId: string, id: string, offset: number) {
+export function assessmentOptions(projectId: string, id: string, offset: number, kind: ImpactKind = "code-impact") {
   return queryOptions({
-    queryKey: [...knowledgeKeys.root(projectId), "assessment", id, offset],
+    queryKey: [...knowledgeKeys.root(projectId), "assessment", id, offset, kind],
     queryFn: async ({ signal }) => decodeAssessmentDetail(await knowledgeJson(knowledgePath(projectId,
-      `/assessments/${id}?offset=${offset}&limit=25`), { signal }), projectId, id), retry: false
+      `/assessments/${id}?offset=${offset}&limit=25&kind=${kind}`), { signal }), projectId, id, kind), retry: false
   });
 }
 export function dispositionHistoryOptions(projectId: string, id: string, offset: number, enabled: boolean) {

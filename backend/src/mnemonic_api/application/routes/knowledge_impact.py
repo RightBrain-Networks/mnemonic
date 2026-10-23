@@ -14,6 +14,7 @@ from mnemonic_api.impact_schemas import (
     ImpactAssessmentRead,
     ImpactDispositionCreate,
     ImpactDispositionRead,
+    ImpactPageQuery,
     ImpactQuery,
     ImpactRead,
 )
@@ -48,7 +49,7 @@ def get_decision_assessment(
     project_id: UUID,
     assessment_id: UUID,
     database: Database,
-    filters: Annotated[KnowledgePagination, Query()],
+    filters: Annotated[ImpactPageQuery, Query()],
 ) -> ImpactAssessmentDetail:
     begin_coherent_read(database)
     return decision_impact.assessment_detail(database, project_id, assessment_id, filters)

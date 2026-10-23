@@ -7,6 +7,7 @@ from uuid import UUID
 
 from pydantic import Field, StrictInt, StringConstraints, field_validator, model_validator
 
+from mnemonic_api.decision_scope_schemas import ScopeCompletionCitation
 from mnemonic_api.impact_schemas import DecisionDependency, SupersessionDetail
 from mnemonic_api.product_decision_schemas import DecisionHumanGateRead
 from mnemonic_api.provenance_schemas import RepositoryIdentity
@@ -240,6 +241,10 @@ class DecisionScopeRead(APIModel):
     repository: RepositoryIdentity | None = Field(default=None, exclude_if=lambda v: v is None)
     completion_report_id: UUID | None = Field(default=None, exclude_if=lambda v: v is None)
     merged_commit_hashes: list[str] = Field(default=[], exclude_if=lambda v: not v)
+    completion_citations: list[ScopeCompletionCitation] = Field(
+        default=[], max_length=50, exclude_if=lambda v: not v
+    )
+    completion_citations_truncated: bool = Field(default=False, exclude_if=lambda v: not v)
     id: UUID
     project_id: UUID
     document_id: UUID

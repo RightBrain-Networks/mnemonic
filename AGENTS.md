@@ -105,8 +105,8 @@ one-off ID needed before dispatch. Explicit IDs and REST receipts retain their
 contracts; prepared upload intents keep their helper-generated IDs. See
 `docs/automatic-uuids.md`. The tool idempotence hint is false for these calls.
 
-The current application/API/MCP/dashboard release is `0.89.0`, Claude plugin
-`0.52.0`, and Alembic head `0057_automatic_decision_reviews`. The catalog is exactly
+The current application/API/MCP/dashboard release is `0.90.0`, Claude plugin
+`0.53.0`, and Alembic head `0057_automatic_decision_reviews`. The catalog is exactly
 74 MCP tools, 23 receipt-protected MCP writes, 30 REST receipt kinds, 24 protected
 browser mutations, 24 work-event types, and three plugin skills. Project priority
 guidance is editable in Settings > Workspace; agents explicitly call
@@ -359,8 +359,10 @@ record version-checked dispositions with truthful actor identity. Assessments do
 not change decision state or grant execution authority. Every project has a PDR
 domain, so fresh Done requires `job_completion_report.decision_provenance`: exact
 citations and repository/commit identities, or an explicit reason for
-`no-applicable-decisions`/`not-code`. Closeout appends scope atomically; do not
-repeat it manually. Preserve original commit records and use
+`no-applicable-decisions`/`not-code`. Register actual scope as pull requests merge;
+Done still declares complete actual citations and reuses exact existing
+decision/revision/repository/commit scope. Missing repository remains unknown,
+not a match for an explicit identity. Preserve original commit records and use
 `decision_scope_reconcile` only for an inspected integration mapping. Historical
 missing provenance remains unknown. The bundled decision_provenance.py helper
 verifies local commit existence and prepares declarations without network or writes.
@@ -369,4 +371,11 @@ Automatic decision impact reviews are opt-in per project in Settings > Workspace
 default off with priority 40. Actual decision changes create ordinary pending
 work with an immutable decision_review_revision_id marker and a snapshot of
 the editable decision-impact-review prompt. Investigate only; create separate work
-for remediation. See docs/knowledge-graph.md#automatic-decision-impact-reviews.
+for remediation. Impact and assessment reads default to kind=code-impact for the
+origin and reverse depends_on dependents; kind=context separately pages
+prerequisites and related references. Only code-impact candidates require verdicts;
+every recorded change-required result still requires remediation. Classify full
+text changes as rule/scope/reference changes, inspect named missing-commit warnings,
+and use commit messages, decision-declared files and source-ID searches for gaps.
+Revision author metadata and timed active-work observations are evidence, not
+proof of historical ownership. See docs/knowledge-graph.md#automatic-decision-impact-reviews.

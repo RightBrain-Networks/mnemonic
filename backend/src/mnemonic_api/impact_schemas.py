@@ -8,6 +8,8 @@ from pydantic import Field, StrictInt, StringConstraints, field_validator
 
 from mnemonic_api.decision_link_schemas import DecisionDependency as DecisionDependency
 from mnemonic_api.decision_link_schemas import SupersessionDetail as SupersessionDetail
+from mnemonic_api.decision_scope_schemas import ScopeCompletionCitation
+from mnemonic_api.revision_author_schemas import RevisionAuthorContext
 from mnemonic_api.schemas import APIModel, MutationActor
 
 Identifier = Annotated[str, StringConstraints(pattern=r"^[A-Z]{1,5}-[0-9]{5,19}$")]
@@ -16,11 +18,18 @@ Revision = Annotated[StrictInt, Field(ge=0, le=2_147_483_647)]
 Reason = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=4000)]
 
 
-class ImpactQuery(APIModel):
-    revision: Annotated[int | None, Field(ge=0)] = None
-    max_depth: Annotated[int, Field(ge=1, le=16)] = 8
+ImpactKind = Literal["code-impact", "context"]
+
+
+class ImpactPageQuery(APIModel):
+    kind: ImpactKind = "code-impact"
     limit: Annotated[int, Field(ge=1, le=100)] = 50
     offset: Annotated[int, Field(ge=0)] = 0
+
+
+class ImpactQuery(ImpactPageQuery):
+    revision: Annotated[int | None, Field(ge=0)] = None
+    max_depth: Annotated[int, Field(ge=1, le=16)] = 8
 
 
 class ImpactScopeEvidence(APIModel):
@@ -32,6 +41,10 @@ class ImpactScopeEvidence(APIModel):
     repository: str | None = None
     completion_report_id: UUID | None = None
     merged_commit_hashes: list[str] = []
+    completion_citations: list[ScopeCompletionCitation] = Field(
+        default_factory=list, exclude_if=lambda value: not value,
+    )
+    completion_citations_truncated: bool = Field(default=False, exclude_if=lambda value: not value)
 
 
 class ImpactCandidate(APIModel):
@@ -41,13 +54,19 @@ class ImpactCandidate(APIModel):
     title: str
     state: str
     is_current: bool
-    relationship: Literal["origin", "depends-on", "related-only"]
+    relationship: Literal["origin", "depends-on", "depends-on-prerequisite", "related-only"]
     path: list[str]
     rationale: str | None
     scopes: list[ImpactScopeEvidence]
     related_work_item_ids: list[UUID]
     related_artifact_ids: list[UUID]
     evidence_truncated: bool
+
+
+class ImpactWarning(APIModel):
+    code: Literal["origin_has_no_linked_commits"]
+    reference: str
+    message: str
 
 
 class ImpactCoverage(APIModel):
@@ -57,6 +76,7 @@ class ImpactCoverage(APIModel):
     candidate_limit: int
     visited_revisions: int
     reasons: list[str]
+    warnings: list[ImpactWarning] = []
     related_semantics: Literal["unknown"] = "unknown"
     snapshot_at: datetime | None = None
     notes: list[str] = [
@@ -71,7 +91,11 @@ class ImpactCoverage(APIModel):
 class ImpactRead(APIModel):
     project_id: UUID
     origin_reference: str
+    origin_author: RevisionAuthorContext
     items: list[ImpactCandidate]
+    kind: ImpactKind
+    candidate_count: int
+    context_count: int
     total: int
     limit: int
     offset: int
@@ -127,10 +151,13 @@ class ImpactAssessmentRead(APIModel):
     trigger: Literal["revision", "supersession"]
     before_reference: str
     after_reference: str
+    before_author: RevisionAuthorContext
+    after_author: RevisionAuthorContext
     extent: Literal["full", "partial"] | None
     reason: str | None
     diff: ImpactDiff
     candidate_count: int
+    context_count: int
     coverage: ImpactCoverage
     created_at: datetime
     version: int
@@ -140,6 +167,8 @@ class ImpactAssessmentRead(APIModel):
 
 
 class ImpactAssessmentDetail(ImpactAssessmentRead):
+    kind: ImpactKind
+    total: int
     candidates: list[ImpactCandidate]
     dispositions: list[ImpactDispositionRead]
     disposition_history_total: int

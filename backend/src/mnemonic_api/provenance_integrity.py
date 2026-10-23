@@ -44,8 +44,7 @@ PROVENANCE_FINDINGS = {
             SELECT 1 FROM decision_scopes s
             JOIN decision_documents d ON d.id=s.document_id
             JOIN knowledge_domains domain ON domain.id=d.domain_id
-            WHERE s.completion_report_id=r.id AND s.project_id=r.project_id
-              AND s.work_item_id=r.work_item_id AND s.agent_session_id=r.actor_session_id
+            WHERE s.project_id=r.project_id
               AND s.repository=implementation->>'repository'
               AND s.commit_hash=implementation->>'commit_hash'
               AND to_jsonb(s.revision)=citation->'revision'

@@ -8,7 +8,9 @@ description: Find Mnemonic work, artifacts, transcripts, and decision documents;
 For decisions, domains, implementation provenance, or amendment impact, read
 [knowledge-graph.md](${CLAUDE_PLUGIN_ROOT}/reference/knowledge-graph.md).
 Search identifies candidates; read the exact decision revision before relying
-on it. A related document or a search hit does not establish a dependency.
+on it. A related document or a search hit does not establish a dependency. Impact reads
+separate required code-impact candidates from optional prerequisite/reference
+context; page the selected kind and inspect missing-commit warnings.
 
 For a local artifact upload, replacement, or download, read the short
 [transfer procedure](${CLAUDE_PLUGIN_ROOT}/reference/artifact-transfers.md) first.
