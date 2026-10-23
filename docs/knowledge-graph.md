@@ -259,3 +259,71 @@ recovery. Earlier migrations also refuse downgrades that discard populated
 impact or provenance history.
 Production API, MCP, web, and worker rollout still requires explicit operator
 approval to interrupt services. No filesystem content migration is needed.
+
+## Automatic decision impact reviews
+
+Release 0.89.0 adds **Automatic decision impact reviews** to `/settings/workspace`.
+The project setting defaults to off. Enabling it reveals the priority for new
+investigations, an integer from 0 through 100 with a default of 40. Disabling
+the setting hides the priority input and stops future automatic creation; it
+does not cancel existing work. Changing settings does not backfill earlier
+decision changes.
+
+When enabled, an actual decision revision creates one standard Pending work
+item in the same transaction as the decision and its impact assessments.
+This includes text, metadata, state, and managed PDR revisions. A replacement
+document that supersedes an existing decision also creates an investigation.
+An initial document without supersession, an unchanged save, and a receipt
+replay create no additional work. Multiple impact assessments for the same
+triggering revision share one investigation. Concurrent writes retain the
+existing expected-revision checks.
+
+The task card displays **DECISION IMPACT REVIEW**. Its initial checkpoint records the
+exact previous and replacement revision references, source project, impact
+assessment IDs, and a rendered snapshot of the editable `decision-impact-review`
+prompt from Settings > Prompts. Investigations use ordinary work claims,
+checkpoints, gates, priorities, and closeout rules. They are separate from the
+specialized code-review queue. Agents investigate downstream code and create
+separate standard work with `create_work` for remediation or further research;
+the investigation itself must not change code. The default prompt requires
+paging impact/provenance results and explicitly reporting missing coverage.
+
+REST project settings and MCP `get_project_settings` expose
+`automatic_decision_reviews` and `decision_review_priority`. Updates use the
+existing revision-checked settings PATCH. Work detail, task summaries, ready
+work pointers, and compact search include `decision_review_revision_id` only
+for generated investigations. The marker is immutable and uniquely identifies
+the triggering decision revision; ordinary work has no marker. No new MCP
+tool or specialized work lifecycle is introduced.
+
+Deploy aligned API, worker, MCP, and dashboard 0.89.0 with migration
+`0057_automatic_decision_reviews` after the normal authorized backup and
+migration procedure. Plugin 0.52.0 remains compatible. The migration adds
+default-off settings and the nullable work marker; it creates no historical
+investigations and preserves existing project prompts. Downgrade refuses
+when nondefault settings or generated investigations would be lost. No new
+service or environment variable is required.
+
+Each investigation drives its existing impact-assessment episodes. Start with
+`decision_assessment_get` for the retained diff and candidate pages; the task
+stores references rather than a second diff or disposition ledger. Done returns
+409 `decision_impact_review_incomplete` until every pinned candidate has an
+assessment disposition and each `change-required` candidate has linked, distinct,
+undeleted remediation work. This does not require remediation to be finished
+before the investigation closes. Additional evidence found by a fresh impact
+trace is reported explicitly; it cannot rewrite an immutable episode snapshot.
+
+Check whether code already satisfies the replacement decision first. An
+already-compliant result is normal and should receive an evidenced disposition.
+Remediation work must name the replacement revision, and its implementation
+closeout must record that exact citation and resulting commits through the
+standard decision-provenance declaration. The closeout appends scope atomically;
+verified integration mappings preserve later merge hashes.
+
+Successive changes retain separate pinned investigations. Later reviews consult
+existing dispositions and remediation to avoid duplicate work; they never replace
+an active or unclaimed review's historical scope. Missing recorded scope does not
+suppress a review: unregistered implementation and indirect dependencies remain
+unknown coverage. Bulk changes use the same one-per-triggering-revision rule;
+projects may disable automation before a bulk import to suppress new reviews,
+without creating a backlog when it is enabled again.

@@ -238,4 +238,4 @@ def test_force_journal_survives_backup_and_prevents_unsafe_downgrade(
         migrate(postgres_engine, "0047_artifact_transfer", downgrade=True)
     with postgres_engine.connect() as connection:
         head = connection.scalar(text("SELECT version_num FROM alembic_version"))
-        assert head == "0056_product_decisions"
+        assert head == "0057_automatic_decision_reviews"

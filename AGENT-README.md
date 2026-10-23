@@ -538,8 +538,8 @@ startup/investigation and estimate remaining session time for later lease reques
 within the current project bounds. Preserve exact `lease_minutes` arguments on
 uncertain claim retries.
 
-Application/API/MCP/dashboard 0.88.0, plugin 0.52.0 and Alembic
-`0056_product_decisions` ship together: 74 MCP tools, 23
+Application/API/MCP/dashboard 0.89.0, plugin 0.52.0 and Alembic
+`0057_automatic_decision_reviews` ship together: 74 MCP tools, 23
 receipt-protected MCP writes,
 30 REST receipt kinds, 24 protected browser mutations, 24 event types and three
 plugin skills. Existing projects default to Never/Never/off review settings;
@@ -667,3 +667,9 @@ each project has a PDR domain. Reverse commit lookup and append-only merge recon
 retain original attribution. See [knowledge graph](docs/knowledge-graph.md) and the
 [shared agent workflow](plugin/reference/knowledge-graph.md) for all knowledge tools,
 coverage limits, exact retries, and the local Git helper.
+
+Automatic decision impact reviews are opt-in per project in Settings > Workspace,
+default off with priority 40. Actual decision changes create ordinary pending
+work with an immutable decision_review_revision_id marker and a snapshot of
+the editable decision-impact-review prompt. Investigate only; create separate work
+for remediation. See docs/knowledge-graph.md#automatic-decision-impact-reviews.

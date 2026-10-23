@@ -14,8 +14,8 @@ previous bundled rubric. Edits are retained in PostgreSQL and project backups.
 Use [unified search](search.md) to retrieve work, artifacts, transcripts, and decisions in one
 ranked, filtered, paginated read through REST or MCP.
 
-This is application/API/MCP/dashboard `0.88.0`, plugin `0.52.0`, and migration
-`0056_product_decisions`. See [knowledge graph](knowledge-graph.md) for retained
+This is application/API/MCP/dashboard `0.89.0`, plugin `0.52.0`, and migration
+`0057_automatic_decision_reviews`. See [knowledge graph](knowledge-graph.md) for retained
 decision revisions and commit provenance, and [dependency cycles](dependency-cycles.md) for explicit
 parent closure requirements, cycle refusal, and honest deadlock display. The catalog has exactly 74 MCP tools, 23
 protected MCP writes, 30 REST receipt kinds, 24 protected browser mutations and
@@ -2143,3 +2143,15 @@ requests](code-reviews.md#human-review-requests-0540) for the full workflow.
 MCP callers may omit top-level retry IDs on fresh calls. The adapter mints and
 returns them before using these unchanged REST receipt contracts. See
 [Automatic MCP UUIDs](automatic-uuids.md) for recovery and `generate_uuid`.
+
+### Automatic decision impact reviews
+
+Project settings add `automatic_decision_reviews` (default false) and
+`decision_review_priority` (integer 0–100, default 40). The existing revision-checked
+PATCH controls them. The managed prompt ID is `decision-impact-review`.
+Generated ordinary work exposes an immutable optional `decision_review_revision_id`.
+One investigation per triggering revision shares the existing impact-assessment
+ledger. Done fails with 409 `decision_impact_review_incomplete` while pinned
+candidates lack dispositions or change-required findings lack separate remediation
+work; error context reports `missing_dispositions` and `untracked_changes` counts.
+See [decision impact reviews](knowledge-graph.md#automatic-decision-impact-reviews).

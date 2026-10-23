@@ -138,15 +138,17 @@ def test_old_receipt_remains_replayable_after_domain_creation(
     from alembic.config import Config
 
     from .conftest import BACKEND_DIR
+    from .test_product_decision_migration_postgres import _historical_automatic_review_columns
 
     config = Config(str(BACKEND_DIR / "alembic.ini"))
+    work = create(api, project, work_payload)
     with postgres_engine.begin() as connection:
         config.attributes["connection"] = connection
         command.downgrade(config, "0055_decision_provenance")
-    work = create(api, project, work_payload)
-    result, intent = close(api, project, work, checkpoint_fields, job_completion_report={
-        "summary": "Historical domainless completion.", "fyi_items": [], "prompt_revision": "1",
-    })
+    with _historical_automatic_review_columns():
+        result, intent = close(api, project, work, checkpoint_fields, job_completion_report={
+            "summary": "Historical domainless completion.", "fyi_items": [], "prompt_revision": "1",
+        })
     assert result.status_code == 200, result.text
     assert "decision_provenance" not in result.json()["job_completion_report"]
     with postgres_engine.begin() as connection:

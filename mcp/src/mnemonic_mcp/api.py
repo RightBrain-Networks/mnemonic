@@ -183,6 +183,11 @@ _APPLICATION_ERRORS = {
         "reopened. Its history is retained; save any continuation as new work."
     ),
     "work_blocked": "This work item has an unresolved blocker.",
+    "decision_impact_review_incomplete": (
+        "Append an evidenced disposition for every candidate in the pinned impact assessments. "
+        "Link separate remediation work for each change-required candidate before completing "
+        "this investigation. Read the existing assessments for the remaining work."
+    ),
     "work_gated": (
         "This work item has unresolved human input. Inspect its current context or the human "
         "attention queue; do not bypass the gate with another claim or terminal mutation."

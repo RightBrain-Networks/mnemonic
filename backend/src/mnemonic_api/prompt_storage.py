@@ -25,6 +25,9 @@ PROMPTS = {
     "request-human-review": (
         "Request human review", "Write a decision for the human in Needs Attention.",
     ),
+    "decision-impact-review": (
+        "Decision impact review", "Investigate code affected by a changed decision document.",
+    ),
 }
 MAX_BYTES = 400_000
 _DIRECTORY_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC

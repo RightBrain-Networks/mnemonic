@@ -40,7 +40,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
-HEAD = "0056_product_decisions"
+HEAD = "0057_automatic_decision_reviews"
 MAX_MANIFEST_BYTES = 8 * 1024 * 1024
 
 

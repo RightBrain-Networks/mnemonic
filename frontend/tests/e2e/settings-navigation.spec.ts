@@ -4,7 +4,7 @@ import { statePath, type E2EState } from "./global.setup";
 
 const preferenceKey = "mnemonic.settings-menu";
 const sections = [
-  { label: "Workspace", path: "/settings/workspace", cards: ["Project details", "Priority rubric"] },
+  { label: "Workspace", path: "/settings/workspace", cards: ["Project details", "Priority rubric", "Automatic decision impact reviews"] },
   { label: "Prompts", path: "/settings/prompts", cards: ["Project prompts", "Macro glossary"] },
   { label: "Code reviews", path: "/settings/code-reviews", cards: ["Code reviews"] },
   { label: "Backups", path: "/settings/backups", cards: ["Project backups"] }

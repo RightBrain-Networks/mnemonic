@@ -159,7 +159,7 @@ def _register_activity_settings(server: FastMCP, api: MnemonicAPI) -> None:
 
     @server.tool(annotations=_READ)
     async def get_project_settings(project_id: UUID) -> ProjectSettingsValues:
-        """Read effective lease durations and code-review policy without authored prompt text. For an immediate assigned-work status check or a cold review before findings freeze, use get_work(status_only=true). Retrieve project instructions separately through get_prompt: job-completion-report with the exact work_item_id before authoring a closeout, request-human-review before a Needs Attention question, or priority-rubric when scoring priority. Only the report prompt's returned prompt_revision belongs in a fresh closeout; do not use settings as an alternate prompt source. This read grants no execution authority."""
+        """Read effective lease durations, code-review policy, and automatic decision-impact-review settings without authored prompt text. For an immediate assigned-work status check or a cold review before findings freeze, use get_work(status_only=true). Retrieve project instructions separately through get_prompt: job-completion-report with the exact work_item_id before authoring a closeout, request-human-review before a Needs Attention question, or priority-rubric when scoring priority. Only the report prompt's returned prompt_revision belongs in a fresh closeout; do not use settings as an alternate prompt source. This read grants no execution authority."""
         settings = cast(
             ProjectSettingsRead,
             await api.request(

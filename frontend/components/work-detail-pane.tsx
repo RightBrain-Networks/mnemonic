@@ -33,6 +33,7 @@ import RelationshipPanel from "@/components/relationship-panel";
 import WorkEventTimeline from "@/components/work-event-timeline";
 import {
   ActiveLeaseSummary,
+  DecisionReviewBadge,
   OperationalBadge,
   StatusBadge,
   clientLabel,
@@ -423,6 +424,7 @@ function OpenedPane({ opened, props }: { opened: WorkSummary; props: WorkDetailP
         <span className="detail-activity">Last activity <time dateTime={work.updated_at}>{formatDateTime(work.updated_at)}</time></span>
       </div>
       <h3 className="detail-title">{work.title}</h3>
+      <DecisionReviewBadge revisionId={work.decision_review_revision_id} />
       <p className="detail-summary">{work.summary}</p>
       <ExternalReferences references={work.external_references} />
       <WorkArtifactLinks projectId={work.project_id} workItemId={work.id} />

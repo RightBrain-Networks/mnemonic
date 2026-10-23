@@ -10,7 +10,7 @@ from .phase12_models import Phase12Wire, PositiveDecimalString
 PromptId = Literal[
     "recall-pointer", "job-completion-report", "cold-code-review", "warm-code-review",
     "review-recommendation", "review-remediation", "resume-work", "request-human-review",
-    "priority-rubric",
+    "priority-rubric", "decision-impact-review",
 ]
 
 

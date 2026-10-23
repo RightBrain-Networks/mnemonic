@@ -189,7 +189,7 @@ test("only authored report prose marks a closeout draft dirty", () => {
 });
 
 test("settings are exact revisioned aggregates with independent editable prompt bounds", () => {
-  const settings={lease_default_minutes:15,lease_minimum_minutes:10,lease_maximum_minutes:120,project_id:f.project,revision:"3",recall_pointer_template:null,job_completion_report_prompt:"Write clearly.\nUse one paragraph.\tNo jargon.",code_review_required_min_priority:100,code_review_optional_min_priority:100,allow_remediation_code_reviews:false};
+  const settings={lease_default_minutes:15,lease_minimum_minutes:10,lease_maximum_minutes:120,project_id:f.project,revision:"3",recall_pointer_template:null,job_completion_report_prompt:"Write clearly.\nUse one paragraph.\tNo jargon.",code_review_required_min_priority:100,code_review_optional_min_priority:100,allow_remediation_code_reviews:false,automatic_decision_reviews:false,decision_review_priority:40};
   assert.deepEqual(decodeProjectSettings(settings,f.project),settings);
   assert.ok(validReportPrompt(settings.job_completion_report_prompt));
   for (const prompt of [" ","x\u206f","x\0","x".repeat(8001),"🙂".repeat(4097)]) assert.equal(validReportPrompt(prompt),false);

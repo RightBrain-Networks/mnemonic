@@ -9,6 +9,7 @@ import {
   type MouseEvent
 } from "react";
 import {
+  DecisionReviewBadge,
   OperationalBadge,
   StatusBadge,
   clientLabel,
@@ -157,6 +158,7 @@ export default function WorkQueueCard({ summary, presentation, depth = 0 }: Prop
     <h2 className="queue-card-title" id={titleId}>{work.title}</h2>
     <p className="queue-card-summary">{work.summary}</p>
     <div className="queue-card-footer">
+      <DecisionReviewBadge revisionId={work.decision_review_revision_id} />
       {presentation && descendants > 0 && <span className="queue-chip" title={descendantChipTitle(presentation, depth)}>{descendants} descendant{descendants === 1 ? "" : "s"}</span>}
       {work.manual_review_request && <span className="queue-chip" title={work.status === "done" ? "Code review requested by a human operator" : "A human requested code review when this work becomes Done"}>Review requested</span>}
       {attention > 0 && <span className="queue-chip queue-chip-attention">{attention} needs attention</span>}

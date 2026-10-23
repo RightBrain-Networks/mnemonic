@@ -53,7 +53,7 @@ test("prompt directory has a bottom macro glossary and a right editor with copy,
     const selected = await project(api);
     const catalog = await (await api.get(`/api/v1/projects/${selected.id}/prompts`)).json() as PromptLibraryPage;
     await openLibrary(page, selected.id);
-    await expect(page.locator(".prompt-table tbody tr")).toHaveCount(8);
+    await expect(page.locator(".prompt-table tbody tr")).toHaveCount(9);
     await expect(page.locator(".prompt-table thead th")).toHaveText(["Name / purpose", "Size", "Created", "Updated"]);
     for (const macro of catalog.macros) await expect(page.locator(".prompt-glossary").getByText(macro.macro, { exact: true })).toBeVisible();
     expect(await page.locator(".prompt-glossary").evaluate((element) => element.compareDocumentPosition(document.querySelector(".prompt-table")!) & Node.DOCUMENT_POSITION_PRECEDING)).toBeTruthy();

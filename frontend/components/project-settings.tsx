@@ -4,6 +4,7 @@ import Link from "@/components/dashboard-link";
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import WorkLeaseSettings from "@/components/work-lease-settings";
+import AutomaticDecisionReviewSettings from "@/components/automatic-decision-review-settings";
 import CodeReviewSettingsPanel from "@/components/code-review-settings";
 import ProjectBackupsPanel from "@/components/project-backups";
 import { api, ApiError, errorMessage } from "@/lib/api";
@@ -241,6 +242,9 @@ export default function ProjectSettingsPanel({
     </section>}
     {section === "workspace" && <PriorityRubricSettings key={selectedProject.id}
       projectId={selectedProject.id} onNotice={onNotice} />}
+    {section === "workspace" && <AutomaticDecisionReviewSettings key={`decision-reviews-${selectedProject.id}`}
+      projectId={selectedProject.id} settings={settings} loading={loading} loadError={loadError}
+      onSaved={onSaved} onRetry={onRetry} onNotice={onNotice} />}
     {section === "prompts" && <PromptLibrary key={selectedProject.id} project={selectedProject} onNotice={onNotice} onPendingChange={onPromptPendingChange} />}
     {section === "backups" && <ProjectBackupsPanel key={selectedProject.id} project={selectedProject} maximumBytes={backupMaximumBytes} onPendingChange={onBackupPendingChange} />}
   </div>;

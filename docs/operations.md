@@ -3,6 +3,12 @@
 Use [unified search](search.md) to retrieve work, artifacts, and transcripts in one
 ranked, filtered, paginated read through REST or MCP.
 
+Release 0.89.0 adds opt-in [automatic decision impact reviews](knowledge-graph.md#automatic-decision-impact-reviews).
+Migration `0057_automatic_decision_reviews` defaults existing and new projects to
+disabled with priority 40; it adds an immutable work marker without backfilling
+investigations. Deploy API, worker, MCP, and dashboard together after authorized
+backup and migration. Plugin 0.52.0 remains compatible.
+
 Release 0.88.0 adds confirmed **Clear all** dismissal to the dashboard's
 [Summaries inbox](project-activity-and-reports.md#settings-and-summaries).
 The coordinated application/API/MCP/dashboard version is 0.88.0; plugin 0.52.0

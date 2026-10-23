@@ -4133,6 +4133,11 @@
             "title": "Canonical Work Item Id",
             "type": "string"
           },
+          "decision_review_revision_id": {
+            "format": "uuid",
+            "title": "Decision Review Revision Id",
+            "type": "string"
+          },
           "dependency_issue": {
             "$ref": "#/components/schemas/DependencyIssue",
             "title": "Dependency Issue"
@@ -4675,6 +4680,11 @@
           "canonical_work_item_id": {
             "format": "uuid",
             "title": "Canonical Work Item Id",
+            "type": "string"
+          },
+          "decision_review_revision_id": {
+            "format": "uuid",
+            "title": "Decision Review Revision Id",
             "type": "string"
           },
           "dependency_issue": {
@@ -12641,6 +12651,10 @@
             "title": "Allow Remediation Code Reviews",
             "type": "boolean"
           },
+          "automatic_decision_reviews": {
+            "title": "Automatic Decision Reviews",
+            "type": "boolean"
+          },
           "code_review_optional_min_priority": {
             "maximum": 100.0,
             "minimum": 0.0,
@@ -12651,6 +12665,12 @@
             "maximum": 100.0,
             "minimum": 0.0,
             "title": "Code Review Required Min Priority",
+            "type": "integer"
+          },
+          "decision_review_priority": {
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Decision Review Priority",
             "type": "integer"
           },
           "expected_revision": {
@@ -12717,6 +12737,10 @@
             "title": "Allow Remediation Code Reviews",
             "type": "boolean"
           },
+          "automatic_decision_reviews": {
+            "title": "Automatic Decision Reviews",
+            "type": "boolean"
+          },
           "code_review_optional_min_priority": {
             "maximum": 100.0,
             "minimum": 0.0,
@@ -12727,6 +12751,12 @@
             "maximum": 100.0,
             "minimum": 0.0,
             "title": "Code Review Required Min Priority",
+            "type": "integer"
+          },
+          "decision_review_priority": {
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Decision Review Priority",
             "type": "integer"
           },
           "job_completion_report_prompt": {
@@ -12786,7 +12816,9 @@
           "revision",
           "code_review_required_min_priority",
           "code_review_optional_min_priority",
-          "allow_remediation_code_reviews"
+          "allow_remediation_code_reviews",
+          "automatic_decision_reviews",
+          "decision_review_priority"
         ],
         "title": "ProjectSettingsRead",
         "type": "object"
@@ -15160,6 +15192,18 @@
       "TaskSummary": {
         "additionalProperties": false,
         "properties": {
+          "decision_review_revision_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decision Review Revision Id"
+          },
           "id": {
             "format": "uuid",
             "title": "Id",
@@ -19247,6 +19291,11 @@
       "WorkItemPointer": {
         "additionalProperties": false,
         "properties": {
+          "decision_review_revision_id": {
+            "format": "uuid",
+            "title": "Decision Review Revision Id",
+            "type": "string"
+          },
           "external_references": {
             "items": {
               "$ref": "#/components/schemas/ExternalReference"
@@ -19304,6 +19353,12 @@
         "properties": {
           "created_at": {
             "title": "Created At",
+            "type": "string"
+          },
+          "decision_review_revision_id": {
+            "description": "Triggering decision revision for an ordinary decision impact review task.",
+            "format": "uuid",
+            "title": "Decision Review Revision Id",
             "type": "string"
           },
           "external_references": {
@@ -20611,6 +20666,12 @@
             "title": "Created At",
             "type": "string"
           },
+          "decision_review_revision_id": {
+            "description": "Triggering decision revision for an ordinary decision impact review task.",
+            "format": "uuid",
+            "title": "Decision Review Revision Id",
+            "type": "string"
+          },
           "external_references": {
             "items": {
               "$ref": "#/components/schemas/ExternalReference"
@@ -20723,7 +20784,7 @@
   "info": {
     "description": "Durable project-scoped work with immutable agent checkpoints.",
     "title": "Mnemonic API",
-    "version": "0.88.0"
+    "version": "0.89.0"
   },
   "openapi": "3.1.0",
   "paths": {

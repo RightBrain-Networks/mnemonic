@@ -46,6 +46,8 @@ def task_rows(project_id: UUID, now: datetime):
             identity.label("id"), literal(kind).label("kind"), WorkItem.project_id,
             WorkItem.id.label("work_item_id"), WorkItem.version.label("work_version"),
             WorkItem.title, WorkItem.summary,
+            (WorkItem.decision_review_revision_id if kind == "work_item" else literal(None))
+            .label("decision_review_revision_id"),
             status.label("status"), WorkItem.updated_at,
             (literal(None) if review_state is None else review_state).label("review_state"),
             case((active, WorkLease.work_item_id)).label("lease_work_id"),

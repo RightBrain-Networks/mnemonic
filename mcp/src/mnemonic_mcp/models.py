@@ -1938,6 +1938,9 @@ def _expected_display_state(readiness: Readiness) -> DisplayState:
 
 
 class WorkItemRead(CanonicalResponse):
+    decision_review_revision_id: UUID | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
     manual_review_request: ManualReviewRequest | SkipJsonSchema[None] = Field(
         default=None, exclude_if=lambda value: value is None,
     )
@@ -2516,6 +2519,9 @@ class HumanGatePage(CanonicalResponse):
 
 
 class WorkItemPointer(CanonicalResponse):
+    decision_review_revision_id: UUID | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
     external_references: ExternalReferences = Field(
         default_factory=list, exclude_if=lambda value: not value,
     )
@@ -2586,6 +2592,9 @@ class HierarchySummary(CanonicalResponse, SearchHitRanking):
 
 
 class CompactWorkHit(CanonicalResponse, WorkMatchEvidence, SearchHitRanking):
+    decision_review_revision_id: UUID | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
     dependency_issue: DependencyIssue | SkipJsonSchema[None] = Field(
         default=None, exclude_if=lambda value: value is None,
     )

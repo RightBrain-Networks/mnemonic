@@ -2,17 +2,21 @@
 
 import hashlib
 import io
+from contextlib import contextmanager
 from datetime import datetime
 from uuid import UUID, uuid4
 
 import pytest
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import text
+from sqlalchemy import event, text
 from sqlalchemy.exc import DBAPIError
+from sqlalchemy.orm import Session, defer
+from sqlalchemy.orm.attributes import set_committed_value
 
 from mnemonic_api.knowledge_integrity import KNOWLEDGE_FINDINGS
 from mnemonic_api.knowledge_schemas import KnowledgeDomainRead
+from mnemonic_api.models import ProjectSettings, WorkItem
 from mnemonic_api.product_decision_content import product_decision_content
 from mnemonic_api.services import knowledge, product_decisions
 from mnemonic_backup.archive import BackupError, restore_project
@@ -38,6 +42,7 @@ def migrate(engine, target, *, downgrade=False):
         (command.downgrade if downgrade else command.upgrade)(config, target)
 
 
+@contextmanager
 def _legacy_behavior(monkeypatch):
     # Exercise the existing 0055 gate protocol without calling the new document
     # service against tables that deliberately do not exist in the old schema.
@@ -51,6 +56,42 @@ def _legacy_behavior(monkeypatch):
             "id", "project_id", "name", "prefix", "version", "created_at", "updated_at",
         )}, decision_count=0,
     ))
+
+    with _historical_automatic_review_columns():
+        yield
+
+
+@contextmanager
+def _historical_automatic_review_columns():
+    missing = {
+        WorkItem: {"decision_review_revision_id": None},
+        ProjectSettings: {"automatic_decision_reviews": False, "decision_review_priority": 40},
+    }
+
+    def historical_columns(state):
+        if not state.is_select:
+            return
+        for model, fields in missing.items():
+            if any(item.get("expr") is model for item in state.statement.column_descriptions):
+                state.statement = state.statement.options(
+                    *(defer(getattr(model, name)) for name in fields)
+                )
+
+    def historical_defaults(record, *_args):
+        for name, value in missing[type(record)].items():
+            set_committed_value(record, name, value)
+
+    event.listen(Session, "do_orm_execute", historical_columns)
+    for model in missing:
+        event.listen(model, "load", historical_defaults)
+        event.listen(model, "refresh", historical_defaults)
+    try:
+        yield
+    finally:
+        for model in missing:
+            event.remove(model, "load", historical_defaults)
+            event.remove(model, "refresh", historical_defaults)
+        event.remove(Session, "do_orm_execute", historical_columns)
 
 
 def _knowledge_findings(engine):
@@ -67,8 +108,7 @@ def legacy_resolved_moved_gate(api, project, work_payload, postgres_engine, monk
     target = target.json()
     path = gate_path(project, work)
     migrate(postgres_engine, "0055_decision_provenance", downgrade=True)
-    with monkeypatch.context() as legacy:
-        _legacy_behavior(legacy)
+    with monkeypatch.context() as legacy, _legacy_behavior(legacy):
         requested = api.post(path, json=gate_request(operation_id=uuid4(),
             question="Should this relocated feature retain the original owner decision?"))
         assert requested.status_code == 201, requested.text
@@ -137,8 +177,7 @@ def test_backfill_retains_every_question_answer_actor_and_existing_pdr_ordinal(
     work = create_work(api, project, work_payload, title="Choose the release window")
     path = gate_path(project, work)
     migrate(postgres_engine, "0055_decision_provenance", downgrade=True)
-    with monkeypatch.context() as legacy:
-        _legacy_behavior(legacy)
+    with monkeypatch.context() as legacy, _legacy_behavior(legacy):
         response = api.post(f"/api/v1/projects/{project['id']}/knowledge/domains", json={
             "name": "Existing owner policies", "prefix": "PDR",
             "client_operation_id": str(uuid4()),
@@ -231,8 +270,7 @@ def test_default_domain_avoids_name_collision_and_empty_downgrade_keeps_adopted_
     api, project, postgres_engine, monkeypatch,
 ):
     migrate(postgres_engine, "0055_decision_provenance", downgrade=True)
-    with monkeypatch.context() as legacy:
-        _legacy_behavior(legacy)
+    with monkeypatch.context() as legacy, _legacy_behavior(legacy):
         domain = api.post(f"/api/v1/projects/{project['id']}/knowledge/domains", json={
             "name": "Product Decision Records", "prefix": "OLD",
             "client_operation_id": str(uuid4()),

@@ -12,6 +12,7 @@ export type Task = {
   id: string; kind: TaskKind; project_id: string; work_item_id: string; work_version: number;
   review_state: "requested" | "completed" | "superseded" | null;
   title: string; summary: string; status: TaskStatus; updated_at: string; lease: LeasePublic | null;
+  decision_review_revision_id?: string | null;
 };
 export type TaskCounts = { active: number; pending: number };
 export type TaskPage = {
@@ -43,7 +44,8 @@ export function decodeTaskPage(value: unknown, projectId: string, status: TaskSt
   const seen = new Set<string>();
   const items = page.items.map((value) => {
     const row = objectValue(value);
-    if (!row || !exactKeys(row, ["id", "kind", "project_id", "work_item_id", "work_version", "title", "summary", "status", "review_state", "updated_at", "lease"])
+    if (!row || !exactKeys(row, ["id", "kind", "project_id", "work_item_id", "work_version", "title", "summary", "status", "review_state", "updated_at", "lease", ...(Object.hasOwn(row, "decision_review_revision_id") ? ["decision_review_revision_id"] : [])])
+      || row.decision_review_revision_id != null && (!validUuid(row.decision_review_revision_id) || row.kind !== "work_item")
       || !finiteInteger(row.work_version, 1) || !validUuid(row.id) || !validUuid(row.work_item_id) || !sameUuid(row.project_id, projectId)
       || !["work_item", "code_review"].includes(String(row.kind)) || kind && row.kind !== kind
       || (row.kind === "work_item" ? row.review_state !== null : !["requested", "completed", "superseded"].includes(String(row.review_state)))

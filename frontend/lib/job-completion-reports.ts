@@ -5,6 +5,7 @@ import type {
   JobReportProvenancePage, JobReportSourceState, ProjectSettings, WorkItem
 } from "./types.ts";
 import { validLeaseDurations } from "./work-lease-settings.ts";
+import { validDecisionReviewPriority } from "./automatic-decision-reviews.ts";
 import { validReviewThreshold } from "./code-review-policy.ts";
 import {
   boundedText, exactKeys, finiteInteger, jsonEqual, nullableBoundedText, nullableUuid,
@@ -29,7 +30,7 @@ export const REPORT_FIELDS = [
   "fyi_items", "actor_client", "actor_session_id", "actor_model", "prompt_revision",
   "prompt_sha256", "created_at", "decision_provenance"
 ] as const;
-const PROJECT_SETTINGS_FIELDS = ["lease_default_minutes", "lease_minimum_minutes", "lease_maximum_minutes", "project_id", "recall_pointer_template", "job_completion_report_prompt", "revision", "code_review_required_min_priority", "code_review_optional_min_priority", "allow_remediation_code_reviews"] as const;
+const PROJECT_SETTINGS_FIELDS = ["lease_default_minutes", "lease_minimum_minutes", "lease_maximum_minutes", "project_id", "recall_pointer_template", "job_completion_report_prompt", "revision", "code_review_required_min_priority", "code_review_optional_min_priority", "allow_remediation_code_reviews", "automatic_decision_reviews", "decision_review_priority"] as const;
 const REPORT_ENVELOPE_FIELDS = ["report", "created_sequence", "human_dismissed", "human_dismissal", "source_work_state", "follow_up_count"] as const;
 const REPORT_PAGE_FIELDS = ["project_id", "stream_id", "dismissal", "work_item_id", "as_of_sequence", "items", "has_more", "next_cursor"] as const;
 const REPORT_COUNT_FIELDS = ["project_id", "undismissed_count", "as_of_sequence"] as const;
@@ -83,6 +84,8 @@ export function decodeProjectSettings(value: unknown, projectId: string): Projec
     || !validReviewThreshold(settings.code_review_required_min_priority)
     || !validReviewThreshold(settings.code_review_optional_min_priority)
     || typeof settings.allow_remediation_code_reviews !== "boolean"
+    || typeof settings.automatic_decision_reviews !== "boolean"
+    || !validDecisionReviewPriority(settings.decision_review_priority)
     || !decimalString(settings.revision, true)) {
     throw new Error("Mnemonic returned invalid project settings.");
   }
