@@ -2,13 +2,14 @@
 
 import Link from "@/components/dashboard-link";
 import type { MouseEvent } from "react";
+import { DecisionReviewBadge } from "@/components/work-item-card";
 import { formatDateTime } from "@/lib/display-time";
 import { taskPath, taskStatusLabels, TASK_PAGE_SIZE, type Task, type TaskPage } from "@/lib/tasks";
 
 export function TaskCard({ task, onNavigate }: { task: Task; onNavigate: (event: MouseEvent<HTMLAnchorElement>) => void }) {
   return <article className={`task-card task-card-${task.kind}`} aria-label={`${task.kind === "work_item" ? "Work item" : "Code review"}: ${task.title}`}>
     <div className="task-card-body">
-      <div className="task-card-meta"><span className="task-kind">{task.kind === "work_item" ? "Work item" : "Code review"}</span><span className={`status-badge status-${task.status}`}><span />{taskStatusLabels[task.status]}</span></div>
+      <div className="task-card-meta"><span className="task-kind">{task.kind === "work_item" ? "Work item" : "Code review"}</span><DecisionReviewBadge revisionId={task.decision_review_revision_id} /><span className={`status-badge status-${task.status}`}><span />{taskStatusLabels[task.status]}</span></div>
       <h3>{task.title}</h3>
       <p>{task.summary}</p>
       <div className="task-card-footnote">{task.lease ? <span>{task.lease.holder_client} · {task.lease.holder_session_id}</span> : <span>Updated {formatDateTime(task.updated_at)}</span>}</div>

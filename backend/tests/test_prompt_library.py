@@ -12,7 +12,7 @@ from mnemonic_api.services.prompts import expand_macros
 
 
 def test_catalog_has_one_markdown_file_per_prompt():
-    assert len(PROMPTS) == 8
+    assert len(PROMPTS) == 9
     for prompt_id in PROMPTS:
         assert default_prompt(prompt_id).strip()
 

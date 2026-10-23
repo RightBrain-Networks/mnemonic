@@ -101,6 +101,29 @@ async def call(settings, tool, args, document):
         assert len(requests) == 1
 
 
+@pytest.mark.parametrize("tool", ("search_work", "list_ready_work"))
+async def test_work_pages_retain_decision_review_origin(settings, pages, tool):
+    page = pages[tool]
+    item = page["items"][0]
+    work = item["summary"]["work_item"] if tool == "search_work" else item["work_item"]
+    work["decision_review_revision_id"] = OTHER_CHECKPOINT_ID
+    result = await call(settings, tool, arguments(tool), page)
+    retained = result["items"][0]
+    retained_work = (retained["summary"]["work_item"]
+                     if tool == "search_work" else retained["work_item"])
+    assert retained_work["decision_review_revision_id"] == OTHER_CHECKPOINT_ID
+
+
+@pytest.mark.parametrize("tool", ("search_work", "list_ready_work"))
+async def test_work_pages_reject_malformed_decision_review_origin(settings, pages, tool):
+    page = pages[tool]
+    item = page["items"][0]
+    work = item["summary"]["work_item"] if tool == "search_work" else item["work_item"]
+    work["decision_review_revision_id"] = "untrusted-invalid-decision-revision"
+    with pytest.raises(ToolError, match="unexpected response"):
+        await call(settings, tool, arguments(tool), page)
+
+
 def distinct_row(tool, row, index):
     """Keep oversized-page rows individually coherent and unique."""
     row = deepcopy(row)

@@ -498,6 +498,7 @@ def hierarchy_page(
                         CASE WHEN :compact THEN jsonb_build_object(
                             'id', page_rows.id, 'project_id', page_rows.project_id,
                             'title', page_rows.title, 'status', page_rows.status,
+                            'decision_review_revision_id', page_rows.decision_review_revision_id,
                             'priority', page_rows.priority, 'updated_at', page_rows.updated_at,
                             '_readiness', jsonb_build_object(
                                     'review_status', page_rows.review_status,
@@ -563,6 +564,8 @@ def hierarchy_page(
                                     'summary', page_rows.summary,
                                     'external_references', page_rows.external_references,
                                     'manual_review_request', page_rows.manual_review_request,
+                                    'decision_review_revision_id',
+                                        page_rows.decision_review_revision_id,
                                     'status', page_rows.status,
                                     'priority', page_rows.priority,
                                     'initial_checkpoint_id',

@@ -1062,6 +1062,26 @@ test("definitive prompt rendering validation releases a closeout while unavailab
   } })).type, "unresolved");
 });
 
+test("unfinished decision impact reviews reject closeout without retaining an uncertain mutation", async () => {
+  const spec = request("complete_work", "POST", `/projects/${project}/work-items/${work}/complete`, {
+    expected_version: 1, checkpoint: checkpointInput()
+  });
+  const detail = {
+    code: "decision_impact_review_incomplete",
+    message: "Complete the decision impact assessment ledger before marking this review Done.",
+    context: { missing_dispositions: 2, untracked_changes: 1 }
+  };
+  const result = await classify(spec, 409, { detail });
+  assert.equal(result.type, "rejected");
+  assert.equal(result.receiptChecked, true);
+  assert.equal(result.error.code, detail.code);
+  for (const invalid of [-1, 1.5, "2", true]) {
+    assert.equal((await classify(spec, 409, { detail: {
+      ...detail, context: { ...detail.context, missing_dispositions: invalid }
+    } })).type, "unresolved");
+  }
+});
+
 test("finite error envelopes distinguish rejection, safety conflict, and unknown outcome", async () => {
   const spec = request("delete_work", "POST", `/projects/${project}/work-items/${work}/delete`, {
     expected_version: 1,

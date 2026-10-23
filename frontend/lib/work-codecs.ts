@@ -15,7 +15,7 @@ import {
 
 const WORK_ITEM_FIELDS = [
   "id", "project_id", "title", "summary", "status", "priority", "initial_checkpoint_id",
-  "version", "created_at", "updated_at", "external_references", "manual_review_request"
+  "version", "created_at", "updated_at", "external_references", "manual_review_request", "decision_review_revision_id"
 ] as const;
 
 const WORK_STATUSES = new Set<WorkStatus>([
@@ -44,7 +44,8 @@ export function decodeWorkItem(
   if (
     !item
     || !validSparseReferences(item)
-    || !exactKeys(item, referenceKeys(item, WORK_ITEM_FIELDS.filter((key) => key !== "external_references" && (key !== "manual_review_request" || Object.hasOwn(item, key)))))
+    || !exactKeys(item, referenceKeys(item, WORK_ITEM_FIELDS.filter((key) => key !== "external_references" && (!["manual_review_request", "decision_review_revision_id"].includes(key) || Object.hasOwn(item, key)))))
+    || item.decision_review_revision_id !== undefined && item.decision_review_revision_id !== null && !validUuid(item.decision_review_revision_id)
     || !validUuid(item.id)
     || !sameUuid(item.project_id, projectId)
     || (workItemId !== undefined && !sameUuid(item.id, workItemId))

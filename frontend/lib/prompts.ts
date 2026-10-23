@@ -7,7 +7,7 @@ import {
 
 export const PROMPT_IDS = [
   "recall-pointer", "job-completion-report", "cold-code-review", "warm-code-review",
-  "review-remediation", "resume-work", "review-recommendation", "request-human-review"
+  "review-remediation", "resume-work", "review-recommendation", "request-human-review", "decision-impact-review"
 ] as const;
 export type PromptId = typeof PROMPT_IDS[number];
 export type PromptMetadata = {

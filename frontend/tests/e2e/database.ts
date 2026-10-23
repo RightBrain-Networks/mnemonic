@@ -93,7 +93,7 @@ function parseMigrationProof(serialized: string): Phase11MigrationProof {
   }
   const row = value as MigrationProofRow;
   if (
-    row.revision !== "0056_product_decisions"
+    row.revision !== "0057_automatic_decision_reviews"
     || typeof row.completion_event_id !== "string"
     || !/^[1-9][0-9]*$/.test(row.completion_event_id)
     || typeof row.completion_generation !== "string"

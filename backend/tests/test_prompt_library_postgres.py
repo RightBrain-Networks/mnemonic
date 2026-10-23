@@ -28,7 +28,7 @@ def test_library_metadata_conflicts_and_project_isolation(api, project):
     base = f"/api/v1/projects/{project['id']}"
     library = api.get(base + "/prompts")
     assert library.status_code == 200, library.text
-    assert len(library.json()["items"]) == 8
+    assert len(library.json()["items"]) == 9
     assert len(library.json()["macros"]) >= 8
     initial = api.get(base + "/prompts/recall-pointer").json()
     saved = save_prompt(api, base, "recall-pointer", "Recall $WORK_ITEM_ID 🧭")
@@ -270,7 +270,7 @@ def test_expanded_report_history_is_retained_and_prevents_lossy_downgrade(
     with postgres_engine.connect() as connection:
         assert (
             connection.scalar(text("SELECT version_num FROM alembic_version"))
-            == "0056_product_decisions"
+            == "0057_automatic_decision_reviews"
         )
 
 

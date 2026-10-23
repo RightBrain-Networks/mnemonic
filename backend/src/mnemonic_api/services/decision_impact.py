@@ -119,7 +119,7 @@ def _episode(
     trigger: str,
     extent: str | None = None,
     reason: str | None = None,
-) -> None:
+) -> DecisionImpactAssessment:
     from mnemonic_api.services import knowledge
 
     document = database.get(DecisionDocument, before.document_id)
@@ -131,20 +131,20 @@ def _episode(
     coverage.notes.append(
         "This immutable snapshot excludes later evidence; rerun live impact to refresh."
     )
-    database.add(
-        DecisionImpactAssessment(
-            project_id=before.project_id,
-            origin_revision_id=before.id,
-            replacement_revision_id=after.id,
-            trigger=trigger,
-            extent=extent,
-            reason=reason,
-            diff=_diff(database, before, after).model_dump(mode="json"),
-            candidates=[candidate(database, node).model_dump(mode="json") for node in nodes],
-            coverage=coverage.model_dump(mode="json"),
-            created_at=created_at,
-        )
+    assessment = DecisionImpactAssessment(
+        project_id=before.project_id,
+        origin_revision_id=before.id,
+        replacement_revision_id=after.id,
+        trigger=trigger,
+        extent=extent,
+        reason=reason,
+        diff=_diff(database, before, after).model_dump(mode="json"),
+        candidates=[candidate(database, node).model_dump(mode="json") for node in nodes],
+        coverage=coverage.model_dump(mode="json"),
+        created_at=created_at,
     )
+    database.add(assessment)
+    return assessment
 
 
 def create_assessments(
@@ -155,9 +155,10 @@ def create_assessments(
 ) -> None:
     from mnemonic_api.services import knowledge
 
+    episodes = []
     if revision.revision:
         before = knowledge.require_revision(database, document, revision.revision - 1)
-        _episode(database, before, revision, "revision")
+        episodes.append(_episode(database, before, revision, "revision"))
     details = {item.decision_id: item for item in payload.supersession_details}
     for identifier in superseded_ids(payload):
         target, _, _ = knowledge.require_document(database, document.project_id, identifier)
@@ -165,26 +166,27 @@ def create_assessments(
         before = knowledge.require_revision(
             database, target, None if detail is None else detail.revision
         )
-        _episode(
+        episodes.append(_episode(
             database,
             before,
             revision,
             "supersession",
             None if detail is None else detail.extent,
             None if detail is None else detail.reason,
-        )
+        ))
     database.flush()
+    from mnemonic_api.services.decision_reviews import create_decision_review
+    create_decision_review(database, document, revision, episodes)
 
 
 def require_assessment(
-    database: Session, project_id: UUID, assessment_id: UUID
+    database: Session, project_id: UUID, assessment_id: UUID, *, lock: bool = False,
 ) -> DecisionImpactAssessment:
-    row = database.scalar(
-        select(DecisionImpactAssessment).where(
-            DecisionImpactAssessment.id == assessment_id,
-            DecisionImpactAssessment.project_id == project_id,
-        )
+    query = select(DecisionImpactAssessment).where(
+        DecisionImpactAssessment.id == assessment_id,
+        DecisionImpactAssessment.project_id == project_id,
     )
+    row = database.scalar(query.with_for_update() if lock else query)
     if row is None:
         raise not_found("decision_assessment_not_found", "Decision impact assessment not found.")
     return row
@@ -338,7 +340,7 @@ def disposition_history(
 def append_disposition(
     database: Session, project_id: UUID, assessment_id: UUID, payload: ImpactDispositionRequest
 ) -> ImpactDispositionRead:
-    assessment = require_assessment(database, project_id, assessment_id)
+    assessment = require_assessment(database, project_id, assessment_id, lock=True)
     if payload.expected_version != _version(database, assessment_id):
         raise conflict(
             "decision_assessment_version_conflict", "Read the assessment before reassessing."

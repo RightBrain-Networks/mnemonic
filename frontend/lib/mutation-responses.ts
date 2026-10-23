@@ -143,7 +143,7 @@ const AMBIGUOUS_STATUSES = new Set([408, 425, 429, 502, 504]);
 const ERROR_ROOT_KEYS = new Set(["detail"]);
 const STRUCTURED_ERROR_KEYS = new Set(["code", "message", "context"]);
 const SAFE_CONTEXT_KEYS = new Set([
-  "holder_client", "expires_at", "fields", "canonical_work_item_id"
+  "holder_client", "expires_at", "fields", "canonical_work_item_id", "missing_dispositions", "untracked_changes"
 ]);
 const VALIDATION_KEYS = new Set(["type", "loc", "msg"]);
 const VALIDATION_LOCATION_ROOTS = new Set(["body", "query", "path", "header", "cookie"]);
@@ -163,6 +163,7 @@ const DEFINITIVE_APPLICATION_ERRORS = new Map<number, ReadonlySet<string>>([
     "code_review_not_requested", "code_review_superseded", "code_review_changed", "code_review_already_completed",
     "code_review_depth_forbidden", "code_review_remediation_disabled", "lease_purpose_mismatch",
     "code_review_obligation_outstanding", "code_review_provenance_merge_forbidden",
+    "decision_impact_review_incomplete",
     "version_conflict",
     "invalid_status_transition",
     "work_not_pending",
@@ -915,6 +916,10 @@ export function decodeMutationError(value: unknown): {
       && !validUuid(context.canonical_work_item_id)
   ) return null;
   if (context.child_work_item_id !== undefined && !validUuid(context.child_work_item_id)) return null;
+  for (const field of ["missing_dispositions", "untracked_changes"]) {
+    if (context[field] !== undefined && (detail.code !== "decision_impact_review_incomplete"
+      || !finiteInteger(context[field]))) return null;
+  }
   if (context.dependency_issue !== undefined) {
     if (!["relationship_cycle", "work_deadlocked"].includes(String(detail.code))) return null;
     try {

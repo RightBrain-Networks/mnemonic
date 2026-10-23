@@ -413,6 +413,7 @@ def assemble_work_context(
                     'title', w.title, 'summary', w.summary,
                     'external_references', w.external_references,
                     'manual_review_request', w.manual_review_request,
+                    'decision_review_revision_id', w.decision_review_revision_id,
                     'status', w.status, 'priority', w.priority,
                     'initial_checkpoint_id', w.initial_checkpoint_id,
                     'version', w.version, 'created_at', w.created_at, 'updated_at', w.updated_at

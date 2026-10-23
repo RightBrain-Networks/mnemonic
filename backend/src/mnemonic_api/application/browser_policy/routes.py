@@ -15,6 +15,7 @@ PROMPT_IDS = (
     "resume-work",
     "review-recommendation",
     "request-human-review",
+    "decision-impact-review",
 )
 PROMPT_DETAIL = re.compile(rf"{PROJECT}/prompts/({'|'.join(PROMPT_IDS)})")
 

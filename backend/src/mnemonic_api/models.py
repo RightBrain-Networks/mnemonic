@@ -103,6 +103,8 @@ class ProjectSettings(Base):
         CheckConstraint("recall_pointer_sha256 ~ '^[a-f0-9]{64}$'", name="recall_pointer_hash"),
         CheckConstraint("job_completion_report_prompt_sha256 ~ '^[a-f0-9]{64}$'",
                         name="report_prompt_hash"),
+        CheckConstraint("decision_review_priority BETWEEN 0 AND 100",
+                        name="decision_review_priority_range"),
     )
 
     project_id: Mapped[UUID] = mapped_column(
@@ -139,6 +141,10 @@ class ProjectSettings(Base):
         Boolean, default=False, server_default="false")
     code_review_policy_touched: Mapped[bool] = mapped_column(
         Boolean, default=False, server_default="false")
+    automatic_decision_reviews: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false")
+    decision_review_priority: Mapped[int] = mapped_column(
+        SmallInteger, default=40, server_default="40")
 
 
 class ClientOperation(Base):
@@ -320,6 +326,9 @@ class WorkItem(Base):
     completion_generation: Mapped[int] = mapped_column(BigInteger, default=0, server_default="0")
     remediation_depth: Mapped[int] = mapped_column(SmallInteger, default=0, server_default="0")
     remediation_id: Mapped[UUID | None] = mapped_column()
+    decision_review_revision_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("decision_revisions.id", ondelete="RESTRICT"), unique=True,
+    )
     completion_review_checkpoint_id: Mapped[UUID | None] = mapped_column()
     completion_review_policy_snapshot: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     manual_review_request: Mapped[dict[str, Any] | None] = mapped_column(

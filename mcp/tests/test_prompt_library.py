@@ -76,6 +76,7 @@ async def test_settings_return_only_policy_and_lease_values(settings):
         "lease_default_minutes": 15, "lease_minimum_minutes": 10, "lease_maximum_minutes": 120,
         "code_review_required_min_priority": 100, "code_review_optional_min_priority": 100,
         "allow_remediation_code_reviews": False,
+        "automatic_decision_reviews": False, "decision_review_priority": 40,
         "project_id": PROJECT_ID, "revision": "3", "recall_pointer_template": "Project instructions",
         "job_completion_report_prompt": "Custom report context: " + "x" * 9000,
     }

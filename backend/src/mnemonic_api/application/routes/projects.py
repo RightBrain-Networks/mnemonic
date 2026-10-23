@@ -149,6 +149,8 @@ def settings_read(settings: ProjectSettings) -> ProjectSettingsRead:
         code_review_required_min_priority=settings.code_review_required_min_priority,
         code_review_optional_min_priority=settings.code_review_optional_min_priority,
         allow_remediation_code_reviews=settings.allow_remediation_code_reviews,
+        automatic_decision_reviews=settings.automatic_decision_reviews,
+        decision_review_priority=settings.decision_review_priority,
     )
 
 

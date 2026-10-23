@@ -29,6 +29,8 @@ SETTING_FIELDS = (
     *THRESHOLD_FIELDS,
     *PROMPT_FIELDS,
     "allow_remediation_code_reviews",
+    "automatic_decision_reviews",
+    "decision_review_priority",
 )
 
 
@@ -83,6 +85,8 @@ def settings_patch(body: JsonObject) -> bool:
             for field in LEASE_FIELDS
         )
         and optional(body, "allow_remediation_code_reviews", lambda item: type(item) is bool)
+        and optional(body, "automatic_decision_reviews", lambda item: type(item) is bool)
+        and optional(body, "decision_review_priority", lambda item: integer(item, 0, 100))
         and optional(body, "recall_pointer_template", lambda item: nullable_text(item, 100_000))
         and optional(
             body, "job_completion_report_prompt", lambda item: item is None or report_prompt(item)

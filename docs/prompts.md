@@ -18,6 +18,7 @@ Each shipped task prompt has one source document in [`prompts/`](../prompts/):
 | Warm code review | [warm-code-review.md](../prompts/warm-code-review.md) | Dashboard review recall pointer |
 | Review recommendation | [review-recommendation.md](../prompts/review-recommendation.md) | Optional review follow-up after completion |
 | Review remediation | [review-remediation.md](../prompts/review-remediation.md) | Initial checkpoint for the one remediation created from a review |
+| Decision impact review | [decision-impact-review.md](../prompts/decision-impact-review.md) | Initial checkpoint for automatic decision-change investigations |
 | Resume work | [resume-work.md](../prompts/resume-work.md) | MCP `resume_work` prompt |
 | Request human review | [request-human-review.md](../prompts/request-human-review.md) | `get_prompt` before creating or revising a Needs Attention question |
 
@@ -36,7 +37,7 @@ In 0.83.0 the MCP tool `get_prompt` is the shared instruction read:
 `project_id` and `prompt_id` are required. Optional `work_item_id` provides work
 macros; optional `code_review_id` selects an exact review episode and its scope.
 Supplied IDs must belong to the project and to each other. The tool accepts the
-eight library IDs above plus `priority-rubric`, which reads the existing rubric
+nine library IDs above plus `priority-rubric`, which reads the existing rubric
 in Settings > Workspace, preserving its PostgreSQL storage and customizations.
 The former `get_priority_rubric` MCP tool is removed. Its human REST editor remains.
 
@@ -49,7 +50,7 @@ Report retrieval synchronizes external file edits and returns matching text and
 revision; stale fresh closeouts are rejected, while exact receipt retries retain
 their original text and revision.
 
-MCP `get_project_settings(project_id)` returns lease durations and review policy
+MCP `get_project_settings(project_id)` returns lease durations, code-review policy, and automatic decision-impact-review settings
 without authored text. The existing REST settings representation continues to
 serve dashboard editors. The MCP `resume_work` prompt uses the same fetch path as
 `get_prompt`, then appends bounded retained work context. The underlying safe
@@ -173,3 +174,13 @@ template changes invalidate stale fresh closeouts. Exact retries of a permanent
 receipt still replay the original result before current prompt checks. Retain
 all report fields, the revision, and operation UUID unchanged across uncertain
 closeout outcomes.
+
+## Automatic decision impact reviews (0.89.0)
+
+The `decision-impact-review` template is initialized for existing and new projects on first
+access. Editing it in Prompts changes future automatically created investigations.
+Each generated work item retains its rendered template, source hash, and exact
+decision/assessment references in the initial checkpoint. Later template edits do
+not rewrite existing investigations. The default instructs agents to investigate
+without changing code and to create separate standard work items for remediation
+or further investigation. See [automatic decision impact reviews](knowledge-graph.md#automatic-decision-impact-reviews).

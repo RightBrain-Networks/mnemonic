@@ -117,6 +117,7 @@ def _checkpoint(
 def create_work_records(
     database: Session, project_id: UUID, payload: WorkItemCreate, *,
     remediation_id: UUID | None = None, remediation_depth: int = 0,
+    decision_review_revision_id: UUID | None = None, work_item_id: UUID | None = None,
 ) -> tuple[WorkItem, Checkpoint, list[WorkRelationship]]:
     """Stage required work, context, and requested graph facts in one transaction."""
     require_work_summary_length(
@@ -136,7 +137,7 @@ def create_work_records(
     else:
         require_project(database, project_id)
         locked_work_items = {}
-    work_item_id = uuid4()
+    work_item_id = work_item_id or uuid4()
     initial_checkpoint_id = uuid4()
     work_item = WorkItem(
         id=work_item_id,
@@ -149,6 +150,7 @@ def create_work_records(
         initial_checkpoint_id=initial_checkpoint_id,
         remediation_id=remediation_id,
         remediation_depth=remediation_depth,
+        decision_review_revision_id=decision_review_revision_id,
     )
     checkpoint = Checkpoint(
         id=initial_checkpoint_id,
@@ -472,6 +474,9 @@ def complete_work_record(
     if work_item.status != "pending":
         raise conflict("work_not_pending", "Only pending work can be completed.")
     require_version(work_item, expected_version)
+    from mnemonic_api.services.decision_reviews import require_decision_impact_review_complete
+
+    require_decision_impact_review_complete(database, work_item)
     from mnemonic_api.services.job_completion_reports import (
         prepare_closeout_report,
         seal_closeout_report,

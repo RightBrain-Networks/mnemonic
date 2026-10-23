@@ -13,7 +13,7 @@ SAFE_ERROR_CONTEXT_KEYS = frozenset(
         "human_approval_required", "instructions",
         "holder_client", "holder_session_id", "expires_at", "purpose", "code_review_id", "mode",
         "canonical_work_item_id", "max_bytes", "max_chars", "cause", "attempt_not_committed",
-        "child_work_item_id",
+        "child_work_item_id", "missing_dispositions", "untracked_changes",
     }
 )
 SAFE_STORAGE_CAUSES = frozenset(
@@ -34,10 +34,18 @@ SAFE_ERROR_FIELD_LOCATIONS = frozenset(
 )
 
 
+def _sanitize_decision_review_counts(safe: dict[str, Any]) -> None:
+    for key in ("missing_dispositions", "untracked_changes"):
+        value = safe.get(key)
+        if type(value) is not int or value < 0:
+            safe.pop(key, None)
+
+
 def _safe_context(context: dict[str, Any] | None) -> dict[str, Any]:
     if not context:
         return {}
     safe = {key: value for key, value in context.items() if key in SAFE_ERROR_CONTEXT_KEYS}
+    _sanitize_decision_review_counts(safe)
     revision = safe.get("current_revision")
     if type(revision) is not int or revision < 1:
         safe.pop("current_revision", None)

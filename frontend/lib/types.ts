@@ -64,6 +64,8 @@ export interface ProjectSettings {
   code_review_required_min_priority: number;
   code_review_optional_min_priority: number;
   allow_remediation_code_reviews: boolean;
+  automatic_decision_reviews: boolean;
+  decision_review_priority: number;
 }
 
 export interface Page<T> {
@@ -76,6 +78,7 @@ export interface Page<T> {
 }
 
 export interface WorkItem {
+  decision_review_revision_id?: string | null;
   manual_review_request?: import("./manual-reviews.ts").ManualReviewRequest;
   external_references?: ExternalReference[];
   id: string;
