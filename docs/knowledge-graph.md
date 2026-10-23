@@ -1,8 +1,9 @@
 # Knowledge graph
 
-Release 0.90.0 and plugin 0.53.0 separate required causal impact from contextual
-references, expose revision authors and missing-commit warnings, and reuse exact
-scope citations at Done. The Alembic head remains `0057_automatic_decision_reviews`.
+Release 0.91.0 and plugin 0.54.0 require dispositions for incoming related
+citations alongside the origin and declared dependents, while preserving unknown
+causality and historical assessment requirements. The Alembic head remains
+`0057_automatic_decision_reviews`.
 
 Release 0.87.0, plugin 0.52.0 and migration `0056_product_decisions` make Needs
 Attention questions Product Decision Records (PDRs) and create a default Product
@@ -187,7 +188,14 @@ Legacy supersedes links without details retain unknown extent.
 `decision_impact` traces reverse dependencies from an exact decision revision.
 The default origin is current; retain the returned `origin_reference` for a
 repeatable investigation. `kind="code-impact"` is the default: it includes the
-origin decision and its reverse `depends_on` dependents. Candidates include historical and current revisions,
+origin decision, its reverse `depends_on` dependents, and records whose own
+related links cite a decision on that trace. Incoming citations retain
+`relationship="related-only"` and `related_direction="incoming"`: causality is
+unknown, but a disposition is required. Outward references carry
+`related_direction="outgoing"`. Explicit dependency paths take precedence, and
+incoming citations take precedence over optional context when both directions
+exist. Related links are one-hop leads; they do not extend transitive dependency
+traversal. Candidates include historical and current revisions,
 one deterministic shortest explanatory path, registered commit scope, and linked
 work/artifacts. Read `kind="context"` separately for outward
 `depends-on-prerequisite` and `related-only` records. These provide context for
@@ -223,7 +231,9 @@ the recorded review, not proof that unregistered downstream impacts are absent.
 `decision_assessment_get` pages captured code-impact candidates by default; use
 `kind="context"` to inspect contextual records and their optional dispositions.
 Context-only records do not require individual verdicts, including related-only
-records retained in old immutable snapshots. Existing verdict history remains.
+records retained in old immutable snapshots without captured direction. New
+snapshots retain direction; old snapshots are never reclassified from live links.
+Existing verdict history remains.
 `decision_assessment_history` pages every immutable disposition. The diff is
 bounded to 16 KiB with explicit truncation; read both exact decision revisions
 when the full text matters. Candidate pages retain the current assessment version
@@ -316,7 +326,8 @@ separate standard work with `create_work` for remediation or further research;
 the investigation itself must not change code. The default prompt first classifies
 the semantic change as rule, scope, references-only, or a combination, based on
 the full before/after documents. A heading such as "Related records" does not
-make a scope change reference-only. It then separates causal code-impact verdicts
+make a scope change reference-only. It then separates required code-impact verdicts
+(including incoming related citations)
 from optional brief contradiction checks of prerequisite and related records.
 
 When linked commits are missing, reviewers search local commit messages for the
@@ -334,9 +345,9 @@ for generated investigations. The marker is immutable and uniquely identifies
 the triggering decision revision; ordinary work has no marker. No new MCP
 tool or specialized work lifecycle is introduced.
 
-Deploy aligned API, worker, MCP, and dashboard 0.90.0 with migration
+Deploy aligned API, worker, MCP, and dashboard 0.91.0 with migration
 `0057_automatic_decision_reviews` after the normal authorized backup and
-migration procedure and plugin 0.53.0. The migration adds
+migration procedure and plugin 0.54.0. The migration adds
 default-off settings and the nullable work marker; it creates no historical
 investigations and preserves existing project prompts. Downgrade refuses
 when nondefault settings or generated investigations would be lost. No new

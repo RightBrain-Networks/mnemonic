@@ -58,6 +58,7 @@ def test_exact_dependency_pins_cross_domains_and_transitive_paths(api, project):
         first["reference"],
         second["reference"],
         third["reference"],
+        related["reference"],
     ]
     assert result["items"][2]["path"] == [
         first["reference"],
@@ -65,9 +66,10 @@ def test_exact_dependency_pins_cross_domains_and_transitive_paths(api, project):
         third["reference"],
     ]
     contextual = impact(api, project, first["reference"], kind="context")
-    assert [item["reference"] for item in contextual["items"]] == [related["reference"]]
-    assert contextual["items"][0]["relationship"] == "related-only"
-    assert result["candidate_count"] == 3 and result["context_count"] == 1
+    assert contextual["items"] == []
+    assert result["items"][3]["relationship"] == "related-only"
+    assert result["items"][3]["related_direction"] == "incoming"
+    assert result["candidate_count"] == 4 and result["context_count"] == 0
     assert result["coverage"]["related_semantics"] == "unknown"
     assert result["coverage"]["traversal_complete"]
     assert not result["coverage"]["provenance_complete"]

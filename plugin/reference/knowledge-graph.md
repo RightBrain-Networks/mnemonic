@@ -194,7 +194,11 @@ actual integration relationship. Never guess a mapping because diffs look alike.
 
 Before amending or reversing a decision, call `decision_impact` for its exact
 revision. With `kind="code-impact"` (the default), it returns the changed decision
-and records that depend on it through reverse declared dependencies. It retains
+and records that depend on it through reverse declared dependencies, plus records
+whose own related links cite a decision on that trace. These incoming citations
+remain `related-only` with `related_direction="incoming"`: causal relevance is
+unknown, but every captured candidate requires a disposition. Related links are
+one-hop investigation leads, not inferred transitive dependencies. It retains
 historical revision identity and one deterministic shortest explanatory path per
 candidate with registered commits, work links, and artifact links. Request
 `kind="context"` separately for outward `depends-on-prerequisite` and `related-only`
@@ -259,7 +263,9 @@ local matches are not proof that remote or unregistered implementation is absent
 
 The assessment's `kind="code-impact"` candidates require evidenced dispositions.
 `kind="context"` records do not each require a verdict, including related-only
-records retained in older episodes. A short truthful contradiction-check note is
+records retained in older episodes without captured direction. Their immutable
+completion requirements do not change; report fresh incoming candidates separately.
+A short truthful contradiction-check note is
 enough, such as "Mentioned by the changed decision; checked that the new text does
 not contradict it." Optional context dispositions remain available. Every recorded
 `change-required` result, including context, needs a distinct undeleted remediation

@@ -314,3 +314,49 @@ async def test_assessment_version_conflict_requires_a_read_before_new_intent(set
         )
     assert "private backend detail" not in str(caught.value)
     assert "operation may already have committed" not in str(caught.value)
+
+
+@pytest.mark.parametrize("direction", ["incoming", "outgoing", None])
+async def test_related_direction_controls_impact_and_assessment_pages(settings, direction):
+    related = candidate(decision_id="ADR-00002", reference="ADR-00002-0",
+                        relationship="related-only", path=["ADR-00001-0", "ADR-00002-0"])
+    if direction is not None:
+        related["related_direction"] = direction
+    required = direction == "incoming"
+    kind = "code-impact" if required else "context"
+    counts = {"candidate_count": int(required), "context_count": int(not required)}
+    responses = [
+        ("decision_impact", {"decision_id": "ADR-00001-0"},
+         impact(items=[related], kind=kind, **counts)),
+        ("decision_assessment_get", {"assessment_id": ASSESSMENT_ID},
+         assessment(kind=kind, total=1, candidates=[related], dispositions=[],
+                    disposition_history_total=0, limit=50, offset=0, next_offset=None,
+                    unassessed_count=int(required), status="pending" if required else "resolved",
+                    **counts)),
+    ]
+    for tool, tool_args, response in responses:
+        server = adapter(settings, lambda request, body=response: stream_json(body))
+        result = structured(await server.call_tool(tool, {
+            "project_id": PROJECT_ID, "kind": kind, **tool_args,
+        }))
+        assert result["kind"] == kind
+        wrong = "context" if required else "code-impact"
+        response["kind"] = wrong
+        response.update(candidate_count=int(not required), context_count=int(required))
+        if "unassessed_count" in response:
+            response.update(unassessed_count=0, status="resolved")
+        with pytest.raises(ToolError):
+            await server.call_tool(tool, {"project_id": PROJECT_ID, "kind": wrong, **tool_args})
+
+
+@pytest.mark.parametrize("relationship,direction", [
+    ("origin", "incoming"), ("depends-on", "outgoing"), ("related-only", "invalid"),
+])
+async def test_rejects_invalid_related_direction(settings, relationship, direction):
+    server = adapter(settings, lambda request: stream_json(impact(items=[
+        candidate(relationship=relationship, related_direction=direction),
+    ])))
+    with pytest.raises(ToolError):
+        await server.call_tool("decision_impact", {
+            "project_id": PROJECT_ID, "decision_id": "ADR-00001-0",
+        })

@@ -48,21 +48,24 @@ test("decision impact traces exact revisions and appends auditable dispositions 
     await expect(drawer.getByRole("complementary", { name: "Impact coverage" })).toContainText("Provenance is incomplete");
     await expect(drawer.getByRole("complementary", { name: "Impact coverage" })).toContainText(`${origin.reference} has no linked commits`);
     await expect(drawer).toContainText(dependent.title);
-    await expect(drawer).not.toContainText(related.title);
-    await expect(drawer).not.toContainText(prerequisite.title);
-    await drawer.getByRole("button", { name: "Related context (2)", exact: true }).click();
-    await expect(drawer.getByRole("button", { name: "Related context (2)", exact: true })).toHaveClass(/selected/);
-    await expect(drawer.getByRole("button", { name: "Code impact (2)", exact: true })).not.toHaveClass(/selected/);
     await expect(drawer).toContainText(related.title);
+    await expect(drawer).toContainText("Incoming related link · causality unknown · disposition required");
+    await expect(drawer).not.toContainText(prerequisite.title);
+    await drawer.getByRole("button", { name: "Related context (1)", exact: true }).click();
+    await expect(drawer.getByRole("button", { name: "Related context (1)", exact: true })).toHaveClass(/selected/);
+    await expect(drawer.getByRole("button", { name: "Code impact (3)", exact: true })).not.toHaveClass(/selected/);
+    await expect(drawer).not.toContainText(related.title);
     await expect(drawer).toContainText(prerequisite.title);
     await expect(drawer).not.toContainText(dependent.title);
     await expect(drawer).toContainText("Prerequisite used by this decision · context only");
     await expect(drawer).toContainText("Individual verdicts are optional");
-    await drawer.getByRole("button", { name: "Code impact (2)", exact: true }).click();
-    await expect(drawer.getByRole("button", { name: "Code impact (2)", exact: true })).toHaveClass(/selected/);
+    await drawer.getByRole("button", { name: "Code impact (3)", exact: true }).click();
+    await expect(drawer.getByRole("button", { name: "Code impact (3)", exact: true })).toHaveClass(/selected/);
     await expect(drawer.getByRole("list", { name: `Evidence path to ${dependent.reference}` })).toContainText(origin.reference);
     await drawer.getByRole("list", { name: `Evidence path to ${dependent.reference}` }).scrollIntoViewIfNeeded();
     await page.screenshot({ path: testInfo.outputPath("knowledge-impact-paths.png"), animations: "disabled" });
+    await drawer.getByText("Incoming related link · causality unknown · disposition required", { exact: true }).scrollIntoViewIfNeeded();
+    await page.screenshot({ path: testInfo.outputPath("incoming-related-impact.png"), animations: "disabled" });
     await drawer.getByRole("button", { name: "Assessments", exact: true }).click();
     await drawer.getByRole("button", { name: `${origin.reference} → ${current.reference}`, exact: true }).click();
     await expect(drawer.getByLabel("Decision revision diff")).toContainText("-Use local transport adapters.");
@@ -88,7 +91,7 @@ test("decision impact traces exact revisions and appends auditable dispositions 
     await expect(form.getByRole("textbox", { name: "Reason", exact: true })).toBeDisabled();
     await expect(drawer.getByRole("button", { name: "Close preview" })).toBeDisabled();
     await expect(drawer.getByRole("button", { name: "Document", exact: true })).toBeDisabled();
-    await expect(drawer.getByRole("button", { name: "Related context (2)", exact: true })).toBeDisabled();
+    await expect(drawer.getByRole("button", { name: "Related context (1)", exact: true })).toBeDisabled();
     await expect(page.getByRole("combobox", { name: "Select project" })).toBeDisabled();
     await page.keyboard.press("Escape"); await expect(drawer).toBeVisible();
     await form.getByRole("button", { name: "Retry pending disposition" }).click();
@@ -254,20 +257,20 @@ test("decision impact separates optional context and identifies the revision aut
     await expect(heldWork).toHaveAttribute("href", `/work-items?project=${project.id}&work=${authorWork.id}`);
     await expect(author).toContainText("Implementation · codex");
     await expect(author).toContainText("Commit provenance establishes which code used the decision");
-    await expect(drawer.locator(".impact-assessment-status")).toContainText("2 unassessed");
+    await expect(drawer.locator(".impact-assessment-status")).toContainText("3 unassessed");
     await expect(drawer.getByRole("complementary", { name: "Impact coverage" })).toContainText(`${origin.reference} has no linked commits`);
     await drawer.locator(".impact-diff > summary").click();
     await author.scrollIntoViewIfNeeded();
     await page.screenshot({ path: testInfo.outputPath(`decision-impact-feedback-author-${testInfo.project.name}.png`), animations: "disabled" });
-    await drawer.getByRole("button", { name: "Related context (2)", exact: true }).click();
+    await drawer.getByRole("button", { name: "Related context (1)", exact: true }).click();
     await expect(drawer).toContainText(prerequisite.title);
-    await expect(drawer).toContainText(related.title);
+    await expect(drawer).not.toContainText(related.title);
     await expect(drawer).not.toContainText(dependent.title);
-    await expect(drawer.getByText("Optional contradiction note; no disposition required.", { exact: true })).toHaveCount(2);
-    await drawer.getByRole("button", { name: "Related context (2)", exact: true }).scrollIntoViewIfNeeded();
+    await expect(drawer.getByText("Optional contradiction note; no disposition required.", { exact: true })).toHaveCount(1);
+    await drawer.getByRole("button", { name: "Related context (1)", exact: true }).scrollIntoViewIfNeeded();
     await page.screenshot({ path: testInfo.outputPath(`decision-impact-feedback-context-${testInfo.project.name}.png`), animations: "disabled" });
-    await drawer.getByRole("button", { name: "Code impact (2)", exact: true }).click();
-    for (const candidate of [origin, dependent]) {
+    await drawer.getByRole("button", { name: "Code impact (3)", exact: true }).click();
+    for (const candidate of [origin, dependent, related]) {
       await drawer.getByRole("button", { name: `Record disposition for ${candidate.reference}`, exact: true }).click();
       const form = drawer.getByRole("form", { name: `Disposition for ${candidate.reference}` });
       await form.getByRole("combobox", { name: "Disposition", exact: true }).selectOption("still-valid");
@@ -277,12 +280,12 @@ test("decision impact separates optional context and identifies the revision aut
     }
     await expect(drawer.locator(".impact-assessment-status")).toContainText("All candidates assessed");
     await expect(drawer.locator(".impact-assessment-status")).toContainText("0 unassessed");
-    await drawer.getByRole("button", { name: "Related context (2)", exact: true }).click();
-    await expect(drawer.getByText("Optional contradiction note; no disposition required.", { exact: true })).toHaveCount(2);
+    await drawer.getByRole("button", { name: "Related context (1)", exact: true }).click();
+    await expect(drawer.getByText("Optional contradiction note; no disposition required.", { exact: true })).toHaveCount(1);
     const episodes = await json(await api.get(`${path}/assessments?decision_id=${origin.decision_id}`));
     const episode = episodes.items.find((item: { before_reference: string }) => item.before_reference === origin.reference);
     const history = await json(await api.get(`${path}/assessments/${episode.id}/dispositions`));
-    expect(history.items.map((item: { candidate_reference: string }) => item.candidate_reference).sort()).toEqual([origin.reference, dependent.reference].sort());
+    expect(history.items.map((item: { candidate_reference: string }) => item.candidate_reference).sort()).toEqual([origin.reference, dependent.reference, related.reference].sort());
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   } finally { await api.dispose(); }
 });

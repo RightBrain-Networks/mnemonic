@@ -31,30 +31,33 @@ def test_reverse_impact_excludes_prerequisites_and_pages_context_separately(
                         related_decision_ids=[origin["decision_id"]])
     result = impact(api, project, origin["reference"])
     assert [item["reference"] for item in result["items"]] == [
-        origin["reference"], dependent["reference"], indirect["reference"],
+        origin["reference"], dependent["reference"], indirect["reference"], incoming["reference"],
     ]
     assert result["kind"] == "code-impact"
-    assert result["candidate_count"] == result["total"] == 3
-    assert result["context_count"] == 3
+    assert result["candidate_count"] == result["total"] == 4
+    assert result["context_count"] == 2
+    assert result["items"][-1]["relationship"] == "related-only"
+    assert result["items"][-1]["related_direction"] == "incoming"
     contexts = []
-    for offset in range(3):
+    for offset in range(2):
         page = impact(api, project, origin["reference"], kind="context", limit=1, offset=offset)
-        assert page["total"] == 3 and page["candidate_count"] == 3
-        assert page["next_offset"] == (offset + 1 if offset < 2 else None)
+        assert page["total"] == 2 and page["candidate_count"] == 4
+        assert page["next_offset"] == (offset + 1 if offset < 1 else None)
         contexts.extend(page["items"])
     assert {item["reference"] for item in contexts} == {
-        prerequisite["reference"], mentioned["reference"], incoming["reference"],
+        prerequisite["reference"], mentioned["reference"],
     }
     assert contexts[0]["relationship"] == "depends-on-prerequisite"
     assert contexts[0]["path"] == [origin["reference"], prerequisite["reference"]]
+    assert contexts[1]["related_direction"] == "outgoing"
     changed(api, project, target, origin)
     episode = assessments(api, project)[0]
     detail_path = path(project) + f"/assessments/{episode['id']}"
     detail = api.get(detail_path).json()
-    assert detail["candidate_count"] == detail["total"] == detail["unassessed_count"] == 3
-    assert detail["context_count"] == 3
+    assert detail["candidate_count"] == detail["total"] == detail["unassessed_count"] == 4
+    assert detail["context_count"] == 2
     page = api.get(detail_path, params={"kind": "context", "limit": 2}).json()
-    assert page["total"] == 3 and page["next_offset"] == 2
+    assert page["total"] == 2 and page["next_offset"] is None
     assert {item["relationship"] for item in page["candidates"]} <= {
         "depends-on-prerequisite", "related-only",
     }
@@ -156,3 +159,146 @@ def test_historical_coverage_without_warning_uses_retained_snapshot_not_live_sco
     retained = api.get(path(project) + f"/assessments/{episode['id']}").json()
     assert retained["coverage"]["warnings"][0]["reference"] == original["reference"]
     assert not retained["candidates"][0]["scopes"]
+
+
+
+def test_incoming_related_revisions_remain_distinct_and_declared_dependency_wins(api, project):
+    target = domain(api, project)
+    origin = decision(api, project, target, "Changed decision")
+    incoming = decision(api, project, target, "Citing record",
+                        related_decision_ids=[origin["decision_id"]])
+    newer = changed(api, project, target, incoming, "Declared consumer",
+                    related_decision_ids=[origin["decision_id"]], depends_on=[dependency(origin)])
+    result = impact(api, project, origin["reference"])
+    assert result["candidate_count"] == 3 and result["context_count"] == 0
+    rows = {item["reference"]: item for item in result["items"]}
+    assert rows[incoming["reference"]]["relationship"] == "related-only"
+    assert rows[incoming["reference"]]["related_direction"] == "incoming"
+    assert rows[newer["reference"]]["relationship"] == "depends-on"
+    assert "related_direction" not in rows[newer["reference"]]
+    assert result["coverage"]["related_semantics"] == "unknown"
+
+
+def test_incoming_reference_wins_over_outgoing_prerequisite_and_optional_result_limit(
+    api, project, monkeypatch,
+):
+    from mnemonic_api.services import decision_impact_graph
+
+    target = domain(api, project)
+    prerequisite = decision(api, project, target, "Prerequisite")
+    optional = decision(api, project, target, "Other reference")
+    origin = decision(api, project, target, "Origin", depends_on=[dependency(prerequisite)],
+                      related_decision_ids=[prerequisite["decision_id"]])
+    # Both link directions and a prerequisite pin must not hide the incoming citation.
+    citing = changed(api, project, target, prerequisite, "Citing prerequisite",
+                     related_decision_ids=[origin["decision_id"]])
+    origin = changed(api, project, target, origin, "Policy using the citing prerequisite",
+                     depends_on=[dependency(citing)],
+                     related_decision_ids=[citing["decision_id"], optional["decision_id"]])
+    monkeypatch.setattr(decision_impact_graph, "MAX_CANDIDATES", 2)
+    result = impact(api, project, origin["reference"])
+    assert [item["reference"] for item in result["items"]] == [
+        origin["reference"], citing["reference"],
+    ]
+    assert result["items"][1]["related_direction"] == "incoming"
+    assert "candidate_limit" in result["coverage"]["reasons"]
+
+
+def test_automatic_review_requires_incoming_related_disposition(api, project, checkpoint_fields):
+    settings(api, project, automatic_decision_reviews=True)
+    target = domain(api, project)
+    origin = decision(api, project, target, "Original policy")
+    citing = decision(api, project, target, "Consumer with related citation",
+                      related_decision_ids=[origin["decision_id"]])
+    changed(api, project, target, origin)
+    work_id = reviews(api, project)[0]["work_item_id"]
+    retained = context(api, project, work_id)
+    assessment_id = retained["initial_checkpoint"]["source_metadata"]["assessment_ids"][0]
+    assess(api, project, assessment_id, origin["reference"], "not-affected")
+    endpoint = path(project) + f"/assessments/{assessment_id}"
+    assert api.get(endpoint).json()["unassessed_count"] == 1
+    blocked = finish(api, project, retained["work_item"], checkpoint_fields)
+    assert blocked.status_code == 409, blocked.text
+    assert blocked.json()["detail"]["context"]["missing_dispositions"] == 1
+    assess(api, project, assessment_id, citing["reference"], "not-affected")
+    assert api.get(endpoint).json()["status"] == "resolved"
+    completed = finish(api, project, retained["work_item"], checkpoint_fields)
+    assert completed.status_code == 200, completed.text
+
+
+def test_historical_related_snapshot_stays_optional_despite_live_incoming_link(
+    api, project, postgres_engine, checkpoint_fields,
+):
+    settings(api, project, automatic_decision_reviews=True)
+    target = domain(api, project)
+    origin = decision(api, project, target, "Old policy")
+    citing = decision(api, project, target, "Old citation",
+                      related_decision_ids=[origin["decision_id"]])
+    changed(api, project, target, origin)
+    retained = context(api, project, reviews(api, project)[0]["work_item_id"])
+    assessment_id = retained["initial_checkpoint"]["source_metadata"]["assessment_ids"][0]
+    with postgres_engine.begin() as connection:
+        snapshot = connection.scalar(text(
+            "SELECT candidates FROM decision_impact_assessments WHERE id=:id"
+        ), {"id": assessment_id})
+        for item in snapshot:
+            item.pop("related_direction", None)
+        connection.execute(text(
+            "ALTER TABLE decision_impact_assessments DISABLE TRIGGER knowledge_immutable"
+        ))
+        connection.execute(text(
+            "UPDATE decision_impact_assessments SET candidates=CAST(:snapshot AS jsonb) "
+            "WHERE id=:id"
+        ), {"id": assessment_id, "snapshot": json.dumps(snapshot)})
+        connection.execute(text(
+            "ALTER TABLE decision_impact_assessments ENABLE TRIGGER knowledge_immutable"
+        ))
+    endpoint = path(project) + f"/assessments/{assessment_id}"
+    assert api.get(endpoint).json()["candidate_count"] == 1
+    historical = api.get(endpoint, params={"kind": "context"}).json()
+    assert [item["reference"] for item in historical["candidates"]] == [citing["reference"]]
+    assert impact(api, project, origin["reference"])["candidate_count"] == 2
+    assess(api, project, assessment_id, origin["reference"], "not-affected")
+    completed = finish(api, project, retained["work_item"], checkpoint_fields)
+    assert completed.status_code == 200, completed.text
+    with postgres_engine.begin() as connection:
+        assert connection.scalar(text(
+            "SELECT candidates FROM decision_impact_assessments WHERE id=:id"
+        ), {"id": assessment_id}) == snapshot
+        findings = {key: connection.scalar(text(sql)) for key, sql in IMPACT_FINDINGS.items()}
+        assert not any(findings.values()), findings
+
+
+
+def test_snapshot_audit_rejects_wrong_direction_but_accepts_historical_absence(
+    api, project, postgres_engine,
+):
+    target = domain(api, project)
+    origin = decision(api, project, target, "Origin")
+    citing = decision(api, project, target, "Only incoming",
+                      related_decision_ids=[origin["decision_id"]])
+    changed(api, project, target, origin)
+    episode = assessments(api, project)[0]
+    with postgres_engine.begin() as connection:
+        snapshot = connection.scalar(text(
+            "SELECT candidates FROM decision_impact_assessments WHERE id=:id"
+        ), {"id": episode["id"]})
+        item = next(item for item in snapshot if item["reference"] == citing["reference"])
+        item["related_direction"] = "outgoing"
+        connection.execute(text(
+            "ALTER TABLE decision_impact_assessments DISABLE TRIGGER knowledge_immutable"
+        ))
+        connection.execute(text(
+            "UPDATE decision_impact_assessments SET candidates=CAST(:snapshot AS jsonb) "
+            "WHERE id=:id"
+        ), {"id": episode["id"], "snapshot": json.dumps(snapshot)})
+        assert connection.scalar(text(IMPACT_FINDINGS["invalid_decision_impact_paths"])) == 1
+        item.pop("related_direction")
+        connection.execute(text(
+            "UPDATE decision_impact_assessments SET candidates=CAST(:snapshot AS jsonb) "
+            "WHERE id=:id"
+        ), {"id": episode["id"], "snapshot": json.dumps(snapshot)})
+        assert connection.scalar(text(IMPACT_FINDINGS["invalid_decision_impact_paths"])) == 0
+        connection.execute(text(
+            "ALTER TABLE decision_impact_assessments ENABLE TRIGGER knowledge_immutable"
+        ))

@@ -89,6 +89,9 @@ IMPACT_FINDINGS = {
           OR item->'path'->>-1 IS DISTINCT FROM item->>'reference'
           OR item->>'relationship' NOT IN (
               'origin','depends-on','depends-on-prerequisite','related-only')
+          OR (item ? 'related_direction' AND item->'related_direction'<>'null'::jsonb AND (
+              item->>'relationship'<>'related-only'
+              OR item->>'related_direction' NOT IN ('incoming','outgoing')))
     """,
     "invalid_decision_impact_dispositions": """
         SELECT count(*) FROM decision_impact_dispositions disposition

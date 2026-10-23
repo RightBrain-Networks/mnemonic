@@ -105,8 +105,8 @@ one-off ID needed before dispatch. Explicit IDs and REST receipts retain their
 contracts; prepared upload intents keep their helper-generated IDs. See
 `docs/automatic-uuids.md`. The tool idempotence hint is false for these calls.
 
-The current application/API/MCP/dashboard release is `0.90.0`, Claude plugin
-`0.53.0`, and Alembic head `0057_automatic_decision_reviews`. The catalog is exactly
+The current application/API/MCP/dashboard release is `0.91.0`, Claude plugin
+`0.54.0`, and Alembic head `0057_automatic_decision_reviews`. The catalog is exactly
 74 MCP tools, 23 receipt-protected MCP writes, 30 REST receipt kinds, 24 protected
 browser mutations, 24 work-event types, and three plugin skills. Project priority
 guidance is editable in Settings > Workspace; agents explicitly call
@@ -379,3 +379,8 @@ text changes as rule/scope/reference changes, inspect named missing-commit warni
 and use commit messages, decision-declared files and source-ID searches for gaps.
 Revision author metadata and timed active-work observations are evidence, not
 proof of historical ownership. See docs/knowledge-graph.md#automatic-decision-impact-reviews.
+
+Incoming related-only citations are required code-impact candidates with captured
+`related_direction="incoming"`, while causality remains unknown. Outward references
+and prerequisites stay context. Historical snapshots without direction retain
+their optional related-only disposition policy; never infer direction retroactively.

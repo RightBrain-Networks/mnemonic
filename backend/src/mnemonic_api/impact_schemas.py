@@ -19,6 +19,14 @@ Reason = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, m
 
 
 ImpactKind = Literal["code-impact", "context"]
+RelatedDirection = Literal["incoming", "outgoing"]
+
+
+def is_code_impact(relationship: str, related_direction: str | None = None) -> bool:
+    """Historical related-only snapshots without direction remain optional context."""
+    return relationship in {"origin", "depends-on"} or (
+        relationship == "related-only" and related_direction == "incoming"
+    )
 
 
 class ImpactPageQuery(APIModel):
@@ -55,6 +63,9 @@ class ImpactCandidate(APIModel):
     state: str
     is_current: bool
     relationship: Literal["origin", "depends-on", "depends-on-prerequisite", "related-only"]
+    related_direction: RelatedDirection | None = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
     path: list[str]
     rationale: str | None
     scopes: list[ImpactScopeEvidence]

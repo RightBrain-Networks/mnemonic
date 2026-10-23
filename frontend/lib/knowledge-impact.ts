@@ -9,6 +9,7 @@ export type ImpactScope = Omit<DecisionScope, "project_id" | "decision_id" | "cr
 export type ImpactCandidate = {
   decision_id: string; reference: string; revision: number; title: string; state: DecisionState;
   is_current: boolean; relationship: "origin" | "depends-on" | "depends-on-prerequisite" | "related-only"; path: string[];
+  related_direction?: "incoming" | "outgoing" | null;
   rationale: string | null; scopes: ImpactScope[]; related_work_item_ids: string[];
   related_artifact_ids: string[]; evidence_truncated: boolean;
 };
@@ -39,10 +40,14 @@ export type AssessmentDetail = ImpactAssessment & {
 function invalid(): never { throw new Error("Mnemonic returned invalid decision impact data. Refresh to try again."); }
 function strings(value: unknown): value is string[] { return Array.isArray(value) && value.every((item) => typeof item === "string"); }
 function reference(value: unknown): value is string { return typeof value === "string" && referencePattern.test(value); }
+function requiresDisposition(candidate: ImpactCandidate): boolean {
+  return ["origin", "depends-on"].includes(candidate.relationship)
+    || candidate.relationship === "related-only" && candidate.related_direction === "incoming";
+}
 function validKindPage(item: Record<string, unknown>, candidates: ImpactCandidate[]) {
   return ["code-impact", "context"].includes(String(item.kind)) && finiteInteger(item.candidate_count)
     && finiteInteger(item.context_count) && item.total === (item.kind === "code-impact" ? item.candidate_count : item.context_count)
-    && candidates.every((candidate) => ["origin", "depends-on"].includes(candidate.relationship) === (item.kind === "code-impact"));
+    && candidates.every((candidate) => requiresDisposition(candidate) === (item.kind === "code-impact"));
 }
 function decodeCoverage(value: unknown): ImpactCoverage {
   const item = objectValue(value);
@@ -63,6 +68,7 @@ export function decodeImpactCandidate(value: unknown): ImpactCandidate {
     || !finiteInteger(item.revision) || item.reference !== `${item.decision_id}-${item.revision}`
     || typeof item.title !== "string" || !decisionStates.includes(item.state as DecisionState)
     || typeof item.is_current !== "boolean" || !["origin", "depends-on", "depends-on-prerequisite", "related-only"].includes(String(item.relationship))
+    || !(item.related_direction == null || item.relationship === "related-only" && (item.related_direction === "incoming" || item.related_direction === "outgoing"))
     || !strings(item.path) || !item.path.length || !item.path.every(reference) || item.path.at(-1) !== item.reference
     || !(item.rationale === null || boundedText(item.rationale, 4000))
     || !Array.isArray(item.scopes) || !item.scopes.every((value) => {
