@@ -47,6 +47,17 @@ def seal_provenance(database: Session, report: JobCompletionReport) -> None:
             database, report.project_id, citation.decision_id
         )
         for commit in declaration.commits:
+            # The report retains this work/session's full declaration even when
+            # the implementation was registered at merge time by another session.
+            existing = database.scalar(select(DecisionScope.id).where(
+                DecisionScope.project_id == report.project_id,
+                DecisionScope.document_id == document.id,
+                DecisionScope.revision == citation.revision,
+                DecisionScope.repository == commit.repository,
+                DecisionScope.commit_hash == commit.commit_hash,
+            ).limit(1))
+            if existing is not None:
+                continue
             knowledge.append_scope(
                 database, report.project_id, document, domain,
                 DecisionScopeRequest(

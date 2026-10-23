@@ -17,7 +17,7 @@ from pydantic import (
 )
 
 from .impact_models import DecisionDependency, SupersessionDetail
-from .provenance_models import CommitHash, RepositoryIdentity
+from .provenance_models import CommitHash, RepositoryIdentity, ScopeCompletionCitation
 from .response_validation import validate_page_items
 
 
@@ -251,6 +251,10 @@ class DecisionScopeRead(KnowledgeModel):
     repository: RepositoryIdentity | None = Field(default=None, exclude_if=lambda v: v is None)
     completion_report_id: UUID | None = Field(default=None, exclude_if=lambda v: v is None)
     merged_commit_hashes: list[CommitHash] = Field(default=[], exclude_if=lambda v: not v)
+    completion_citations: list[ScopeCompletionCitation] = Field(
+        default=[], max_length=50, exclude_if=lambda v: not v
+    )
+    completion_citations_truncated: StrictBool = Field(default=False, exclude_if=lambda v: not v)
 
 
 class DecisionScopeResult(KnowledgeModel):

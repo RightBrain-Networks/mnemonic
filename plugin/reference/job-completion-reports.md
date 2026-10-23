@@ -41,7 +41,10 @@ Fresh Done closeouts in projects with knowledge domains also require
 `decision_provenance`: explicitly cite the exact decision revisions and resulting
 repository commits, or explain `no-applicable-decisions` or `not-code`. Scope is
 registered in the same transaction as the closeout, with its work and authoring
-session identity. Read [knowledge-graph.md](${CLAUDE_PLUGIN_ROOT}/reference/knowledge-graph.md)
+session identity. Commits registered as pull requests merged still belong in the
+complete Done declaration; exact decision/revision/repository/commit scope is
+reused while the report retains its own assertion. Read
+[knowledge-graph.md](${CLAUDE_PLUGIN_ROOT}/reference/knowledge-graph.md)
 for the declaration shape, local Git verification, merge reconciliation, and
 coverage limits. A decision read does not imply causal use; omitted historical
 declarations mean unknown provenance, not a proven absence of decisions.

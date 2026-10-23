@@ -58,14 +58,16 @@ def test_exact_dependency_pins_cross_domains_and_transitive_paths(api, project):
         first["reference"],
         second["reference"],
         third["reference"],
-        related["reference"],
     ]
     assert result["items"][2]["path"] == [
         first["reference"],
         second["reference"],
         third["reference"],
     ]
-    assert result["items"][3]["relationship"] == "related-only"
+    contextual = impact(api, project, first["reference"], kind="context")
+    assert [item["reference"] for item in contextual["items"]] == [related["reference"]]
+    assert contextual["items"][0]["relationship"] == "related-only"
+    assert result["candidate_count"] == 3 and result["context_count"] == 1
     assert result["coverage"]["related_semantics"] == "unknown"
     assert result["coverage"]["traversal_complete"]
     assert not result["coverage"]["provenance_complete"]
@@ -222,7 +224,11 @@ def test_assessment_snapshot_retains_before_after_and_does_not_change_with_later
         },
     )
     assert scope.status_code == 200, scope.text
-    assert api.get(endpoint).json() == original
+    retained = api.get(endpoint).json()
+    for key in ("before_author", "after_author"):
+        retained[key].pop("work_observed_at")
+        original[key].pop("work_observed_at")
+    assert retained == original
     live = impact(api, project, first["reference"])
     assert live["items"][1]["scopes"][0]["commit_hash"] == "a" * 40
     assert live["items"][1]["scopes"][0]["repository"] == "github.com/acme/project"
@@ -351,7 +357,8 @@ def test_outgoing_related_links_use_the_selected_source_revision(api, project):
     first = decision(api, project, target, "Old", related_decision_ids=[other["decision_id"]])
     changed(api, project, target, first)
     assert impact(api, project, first["decision_id"])["total"] == 1
-    assert impact(api, project, first["reference"])["total"] == 2
+    assert impact(api, project, first["reference"])["total"] == 1
+    assert impact(api, project, first["reference"], kind="context")["total"] == 1
 
 
 def test_document_level_dependency_cycle_still_follows_finite_revision_pins(api, project):

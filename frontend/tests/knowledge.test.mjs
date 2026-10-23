@@ -47,6 +47,17 @@ test("scope references preserve revision zero and require complete Git object ID
   assert.throws(() => decodeScope(scope, project, "ADR-00195"));
 });
 
+test("scope reads retain original attribution alongside bounded closeout citations", () => {
+  const citation = { report_id: id, work_item_id: domainId, actor_client: "codex", actor_session_id: "closeout-session", actor_model: null, created_at: timestamp };
+  const scope = { id, project_id: project, decision_id: "ADR-00194", revision: 0, commit_hash: "a".repeat(40), agent_session_id: "merge-session", work_item_id: null, created_at: timestamp, completion_citations: [citation], completion_citations_truncated: false };
+  assert.deepEqual(decodeScope(scope, project), scope);
+  for (const change of [{ report_id: "bad" }, { work_item_id: null }, { actor_session_id: 1 }, { created_at: "invalid" }]) {
+    assert.throws(() => decodeScope({ ...scope, completion_citations: [{ ...citation, ...change }] }, project));
+  }
+  assert.throws(() => decodeScope({ ...scope, completion_citations: [citation, citation] }, project));
+  assert.throws(() => decodeScope({ ...scope, completion_citations_truncated: "false" }, project));
+});
+
 test("decision links retain revision zero and resolve both stable and revision-qualified identifiers", () => {
   assert.equal(knowledgeLibraryPath(project, "ADR-00194", 0), `/knowledge?project=${project}&decision=ADR-00194&revision=0`);
   assert.deepEqual(selectedDecision("decision=ADR-00194&revision=0"), { id: "ADR-00194", revision: 0 });

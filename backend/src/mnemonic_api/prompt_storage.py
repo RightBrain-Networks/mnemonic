@@ -32,6 +32,11 @@ PROMPTS = {
 MAX_BYTES = 400_000
 _DIRECTORY_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
 _READ_FLAGS = os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK
+_REPLACED_DEFAULTS = {
+    "decision-impact-review": {
+        "dea47728c7926adc63863ed17138e6742270d321cfc85be76962c996f58e3935",
+    },
+}
 
 
 def defaults_directory() -> Path:
@@ -169,11 +174,27 @@ class PromptStorage:
     def read(self, project_id: UUID, prompt_id: str) -> PromptFile:
         require_prompt(prompt_id)
         try:
-            return self._read_prompt(project_id, prompt_id)
+            current = self._read_prompt(project_id, prompt_id)
+            return self._refresh_shipped_default(project_id, prompt_id, current)
         except OSError, UnicodeError, ValueError:
             raise ApplicationError(
                 503, "prompt_unavailable", "Prompt content is unavailable."
             ) from None
+
+    def _refresh_shipped_default(
+        self, project_id: UUID, prompt_id: str, current: PromptFile,
+    ) -> PromptFile:
+        replaced = _REPLACED_DEFAULTS.get(prompt_id, set())
+        if current.revision not in replaced:
+            return current
+        with self.lock(project_id):
+            current = self._read_prompt(project_id, prompt_id)
+            if current.revision not in replaced:
+                return current
+            content = validate_prompt(prompt_id, default_prompt(prompt_id))
+            with self._directory("projects", str(UUID(str(project_id)))) as directory:
+                self._publish(directory, f"{prompt_id}.md", content.encode(), exclusive=False)
+            return self._read_prompt(project_id, prompt_id)
 
     def _read_prompt(self, project_id: UUID, prompt_id: str) -> PromptFile:
         with self._directory("projects", str(UUID(str(project_id)))) as directory:
@@ -231,15 +252,16 @@ class PromptStorage:
         validate_prompt(prompt_id, content)
         try:
             with self.lock(project_id):
-                current = self.read(project_id, prompt_id)
+                # An explicit version-checked edit already holds the file lock.
+                current = self._read_prompt(project_id, prompt_id)
                 if current.revision != revision:
                     raise conflict("prompt_changed", "Prompt changed. Reload it before saving.")
                 if current.content == content:
                     return current
                 with self._directory("projects", str(UUID(str(project_id)))) as directory:
                     self._publish(directory, f"{prompt_id}.md", content.encode(), exclusive=False)
-                return self.read(project_id, prompt_id)
-        except OSError:
+                return self._read_prompt(project_id, prompt_id)
+        except OSError, UnicodeError, ValueError:
             raise ApplicationError(
                 503, "prompt_unavailable", "Prompt could not be saved."
             ) from None

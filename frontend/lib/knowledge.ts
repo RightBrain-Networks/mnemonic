@@ -23,10 +23,15 @@ export type Decision = {
 export type DecisionDependency = { decision_id: string; revision: number; rationale: string };
 export type SupersessionDetail = { decision_id: string; revision: number; extent: "full" | "partial"; reason: string };
 export type DecisionContent = Decision & { content: string; total_lines: number; line_start: number; line_end: number };
+export type ScopeCompletionCitation = {
+  report_id: string; work_item_id: string; actor_client: string;
+  actor_session_id: string | null; actor_model: string | null; created_at: string;
+};
 export type DecisionScope = {
   id: string; project_id: string; decision_id: string; revision: number; commit_hash: string;
   agent_session_id: string | null; work_item_id: string | null; created_at: string;
   repository?: string | null; completion_report_id?: string | null; merged_commit_hashes?: string[];
+  completion_citations?: ScopeCompletionCitation[]; completion_citations_truncated?: boolean;
 };
 export type KnowledgePage<T> = { items: T[]; total: number; limit: number; offset: number; next_offset?: number | null };
 
@@ -181,8 +186,20 @@ export function validDecisionEdge(value: unknown, reason: "reason" | "rationale"
 export function validCommitHash(value: unknown): value is string {
   return typeof value === "string" && /^(?:[a-fA-F0-9]{40}|[a-fA-F0-9]{64})$/.test(value);
 }
-export function validScopeProvenance(item: Record<string, unknown>) {
+function validCompletionCitation(value: unknown) {
+  const citation = objectValue(value);
+  return Boolean(citation && validUuid(citation.report_id) && validUuid(citation.work_item_id)
+    && typeof citation.actor_client === "string" && citation.actor_client.trim()
+    && (citation.actor_session_id === null || typeof citation.actor_session_id === "string" && citation.actor_session_id.trim())
+    && (citation.actor_model === null || typeof citation.actor_model === "string" && citation.actor_model.trim())
+    && typeof citation.created_at === "string" && Number.isFinite(Date.parse(citation.created_at)));
+}
+export function validScopeProvenance(item: Record<string, unknown>, citationLimit = 50) {
   return (item.repository === undefined || item.repository === null || typeof item.repository === "string" && Boolean(item.repository.trim()))
     && (item.completion_report_id === undefined || item.completion_report_id === null || validUuid(item.completion_report_id))
-    && (item.merged_commit_hashes === undefined || Array.isArray(item.merged_commit_hashes) && item.merged_commit_hashes.every(validCommitHash));
+    && (item.merged_commit_hashes === undefined || Array.isArray(item.merged_commit_hashes) && item.merged_commit_hashes.every(validCommitHash))
+    && (item.completion_citations === undefined || Array.isArray(item.completion_citations)
+      && item.completion_citations.length <= citationLimit && item.completion_citations.every(validCompletionCitation)
+      && new Set(item.completion_citations.map((citation) => citation.report_id.toLowerCase())).size === item.completion_citations.length)
+    && (item.completion_citations_truncated === undefined || typeof item.completion_citations_truncated === "boolean");
 }

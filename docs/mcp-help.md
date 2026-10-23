@@ -22,7 +22,7 @@ Pass an optional `topic` string. Each successive word selects a child page:
 | `help({"topic":"complete_work completion_evidence schema"})` | Only that field's schema and its transitively referenced definitions |
 | `help({"topic":"claim_work force"})` | Lost-token recovery, checks for another active session, and exact force-claim retries |
 | `help({"topic":"decision_put depends_on"})` | Exact dependency revision pins and causal rationale |
-| `help({"topic":"decision_impact usage"})` | Dependency traversal, related-only uncertainty, and coverage limits |
+| `help({"topic":"decision_impact usage"})` | Causal impact versus reference context, missing commits, and coverage limits |
 | `help({"topic":"complete_work job_completion_report decision_provenance"})` | Explicit decision use or explained uncited completion |
 | `help({"topic":"decision_scope_reconcile usage"})` | Original-to-merged commit lineage and local verification |
 | `help({"topic":"decision_assessment_append usage"})` | Immutable candidate reassessment, actor and version requirements |

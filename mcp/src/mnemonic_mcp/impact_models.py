@@ -15,8 +15,9 @@ from pydantic import (
     model_validator,
 )
 
-from .provenance_models import CommitHash, RepositoryIdentity, nonblank
+from .provenance_models import CommitHash, RepositoryIdentity, ScopeCompletionCitation, nonblank
 from .response_validation import validate_page_items
+from .revision_author_models import RevisionAuthorContext
 
 
 class ImpactModel(BaseModel):
@@ -54,7 +55,11 @@ class SupersessionDetail(ImpactModel):
         return DecisionDependency.valid_reason(value)
 
 
+ImpactKind = Literal["code-impact", "context"]
+
+
 class ImpactQuery(ImpactModel):
+    kind: ImpactKind = "code-impact"
     revision: Annotated[int | None, Field(ge=0)] = None
     max_depth: Annotated[int, Field(ge=1, le=16)] = 8
     limit: Annotated[int, Field(ge=1, le=100)] = 50
@@ -70,6 +75,10 @@ class ImpactScopeEvidence(ImpactModel):
     repository: RepositoryIdentity | None = None
     completion_report_id: UUID | None = None
     merged_commit_hashes: list[CommitHash] = []
+    completion_citations: list[ScopeCompletionCitation] = Field(
+        default=[], max_length=10, exclude_if=lambda v: not v
+    )
+    completion_citations_truncated: StrictBool = Field(default=False, exclude_if=lambda v: not v)
 
 
 class ImpactCandidate(ImpactModel):
@@ -79,7 +88,7 @@ class ImpactCandidate(ImpactModel):
     title: str
     state: Literal["proposed", "rejected", "accepted", "superseded", "partially-superseded"]
     is_current: StrictBool
-    relationship: Literal["origin", "depends-on", "related-only"]
+    relationship: Literal["origin", "depends-on", "depends-on-prerequisite", "related-only"]
     path: list[Reference]
     rationale: str | None
     scopes: list[ImpactScopeEvidence]
@@ -100,6 +109,12 @@ class ImpactCandidate(ImpactModel):
         return self
 
 
+class ImpactWarning(ImpactModel):
+    code: Literal["origin_has_no_linked_commits"]
+    reference: Reference
+    message: str
+
+
 class ImpactCoverage(ImpactModel):
     traversal_complete: StrictBool
     provenance_complete: Literal[False] = False
@@ -107,6 +122,7 @@ class ImpactCoverage(ImpactModel):
     candidate_limit: Annotated[StrictInt, Field(ge=1)]
     visited_revisions: Annotated[StrictInt, Field(ge=0)]
     reasons: list[str]
+    warnings: list[ImpactWarning] = []
     related_semantics: Literal["unknown"] = "unknown"
     snapshot_at: datetime | None = None
     notes: list[str] = [
@@ -121,7 +137,11 @@ class ImpactCoverage(ImpactModel):
 class ImpactRead(ImpactModel):
     project_id: UUID
     origin_reference: Reference
+    origin_author: RevisionAuthorContext
     items: list[ImpactCandidate]
+    kind: ImpactKind
+    candidate_count: Annotated[StrictInt, Field(ge=0)]
+    context_count: Annotated[StrictInt, Field(ge=0)]
     total: Annotated[StrictInt, Field(ge=0)]
     limit: Annotated[StrictInt, Field(ge=1)]
     offset: Annotated[StrictInt, Field(ge=0)]
@@ -130,6 +150,16 @@ class ImpactRead(ImpactModel):
 
     @model_validator(mode="after")
     def coherent_page(self) -> Self:
+        if self.origin_author.reference != self.origin_reference:
+            raise ValueError("Author context must identify the pinned origin")
+        if any(item.reference != self.origin_reference for item in self.coverage.warnings):
+            raise ValueError("Coverage warnings must identify the pinned origin")
+        expected_total = self.candidate_count if self.kind == "code-impact" else self.context_count
+        if self.total != expected_total or any(
+            (item.relationship in ("origin", "depends-on")) != (self.kind == "code-impact")
+            for item in self.items
+        ):
+            raise ValueError("Impact page must match its selected kind")
         validate_page_items(self.items, total=self.total, limit=self.limit,
                             offset=self.offset, key=lambda item: item.reference)
         expected = self.offset + len(self.items) if self.offset + len(self.items) < self.total else None
@@ -201,10 +231,13 @@ class ImpactAssessmentRead(ImpactModel):
     trigger: Literal["revision", "supersession"]
     before_reference: Reference
     after_reference: Reference
+    before_author: RevisionAuthorContext
+    after_author: RevisionAuthorContext
     extent: Literal["full", "partial"] | None
     reason: str | None
     diff: ImpactDiff
     candidate_count: Annotated[StrictInt, Field(ge=0)]
+    context_count: Annotated[StrictInt, Field(ge=0)]
     coverage: ImpactCoverage
     created_at: datetime
     version: Annotated[StrictInt, Field(ge=0)]
@@ -214,7 +247,16 @@ class ImpactAssessmentRead(ImpactModel):
 
     @model_validator(mode="after")
     def coherent_status(self) -> Self:
-        if self.unassessed_count + self.change_required_count > self.candidate_count:
+        if (self.before_author.reference, self.after_author.reference) != (
+            self.before_reference, self.after_reference,
+        ):
+            raise ValueError("Revision authors must identify the assessment transition")
+        if any(item.reference != self.before_reference for item in self.coverage.warnings):
+            raise ValueError("Assessment warnings must identify the captured origin")
+        if self.unassessed_count > self.candidate_count or (
+            self.unassessed_count + self.change_required_count
+            > self.candidate_count + self.context_count
+        ):
             raise ValueError("Assessment summary counts exceed captured candidates")
         expected = (
             "change-required" if self.change_required_count
@@ -226,6 +268,8 @@ class ImpactAssessmentRead(ImpactModel):
 
 
 class ImpactAssessmentDetail(ImpactAssessmentRead):
+    kind: ImpactKind
+    total: Annotated[StrictInt, Field(ge=0)]
     candidates: list[ImpactCandidate]
     dispositions: list[ImpactDispositionRead]
     disposition_history_total: Annotated[StrictInt, Field(ge=0)]
@@ -235,7 +279,13 @@ class ImpactAssessmentDetail(ImpactAssessmentRead):
 
     @model_validator(mode="after")
     def coherent_candidates(self) -> Self:
-        validate_page_items(self.candidates, total=self.candidate_count, limit=self.limit,
+        expected_total = self.candidate_count if self.kind == "code-impact" else self.context_count
+        if self.total != expected_total or any(
+            (item.relationship in ("origin", "depends-on")) != (self.kind == "code-impact")
+            for item in self.candidates
+        ):
+            raise ValueError("Assessment page must match its selected kind")
+        validate_page_items(self.candidates, total=self.total, limit=self.limit,
                             offset=self.offset, key=lambda item: item.reference)
         refs = {item.reference for item in self.candidates}
         if any(item.project_id != self.project_id or item.assessment_id != self.id
@@ -245,7 +295,7 @@ class ImpactAssessmentDetail(ImpactAssessmentRead):
         if len({item.candidate_reference for item in self.dispositions}) != len(self.dispositions):
             raise ValueError("Candidate page must contain only the latest disposition")
         next_offset = self.offset + len(self.candidates)
-        expected = next_offset if next_offset < self.candidate_count else None
+        expected = next_offset if next_offset < self.total else None
         if self.next_offset != expected:
             raise ValueError("Assessment continuation does not match its candidate page")
         return self

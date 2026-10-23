@@ -13,9 +13,11 @@ from mnemonic_api.impact_schemas import (
     ImpactAssessmentQuery,
     ImpactAssessmentRead,
     ImpactCandidate,
+    ImpactCoverage,
     ImpactDiff,
     ImpactDispositionRead,
     ImpactDispositionRequest,
+    ImpactPageQuery,
     ImpactQuery,
     ImpactRead,
 )
@@ -28,7 +30,14 @@ from mnemonic_api.models import (
     KnowledgeDomain,
 )
 from mnemonic_api.services.decision_dependencies import superseded_ids
-from mnemonic_api.services.decision_impact_graph import candidate, reference, traverse
+from mnemonic_api.services.decision_impact_graph import (
+    CAUSAL_RELATIONSHIPS,
+    candidate,
+    no_linked_commits_warning,
+    reference,
+    traverse,
+)
+from mnemonic_api.services.revision_authors import revision_author_context
 from mnemonic_api.services.work_items import require_project, require_work_item
 
 
@@ -44,6 +53,10 @@ def read_impact(
         database, document, pinned if pinned is not None else filters.revision
     )
     nodes, coverage = traverse(database, document, revision, domain, filters.max_depth)
+    candidate_count = sum(node.relationship in CAUSAL_RELATIONSHIPS for node in nodes)
+    context_count = len(nodes) - candidate_count
+    nodes = [node for node in nodes
+             if (node.relationship in CAUSAL_RELATIONSHIPS) == (filters.kind == "code-impact")]
     items = [
         candidate(database, node) for node in nodes[filters.offset : filters.offset + filters.limit]
     ]
@@ -51,7 +64,11 @@ def read_impact(
     return ImpactRead(
         project_id=project_id,
         origin_reference=reference(document, revision, domain),
+        origin_author=revision_author_context(database, revision),
         items=items,
+        kind=filters.kind,
+        candidate_count=candidate_count,
+        context_count=context_count,
         total=len(nodes),
         limit=filters.limit,
         offset=filters.offset,
@@ -214,6 +231,9 @@ def _version(database: Session, assessment_id: UUID) -> int:
 
 
 def assessment_read(database: Session, row: DecisionImpactAssessment) -> ImpactAssessmentRead:
+    before = database.get(DecisionRevision, row.origin_revision_id)
+    after = database.get(DecisionRevision, row.replacement_revision_id)
+    assert before is not None and after is not None
     latest = database.scalars(
         select(DecisionImpactDisposition)
         .where(DecisionImpactDisposition.assessment_id == row.id)
@@ -222,7 +242,9 @@ def assessment_read(database: Session, row: DecisionImpactAssessment) -> ImpactA
             DecisionImpactDisposition.candidate_reference, DecisionImpactDisposition.version.desc()
         )
     ).all()
-    unassessed = len(row.candidates) - len(latest)
+    required = {item["reference"] for item in row.candidates
+                if item["relationship"] in CAUSAL_RELATIONSHIPS}
+    unassessed = len(required - {item.candidate_reference for item in latest})
     changes = sum(item.disposition == "change-required" for item in latest)
     return ImpactAssessmentRead.model_validate(
         {
@@ -231,11 +253,14 @@ def assessment_read(database: Session, row: DecisionImpactAssessment) -> ImpactA
             "trigger": row.trigger,
             "before_reference": _revision_reference(database, row.origin_revision_id),
             "after_reference": _revision_reference(database, row.replacement_revision_id),
+            "before_author": revision_author_context(database, before),
+            "after_author": revision_author_context(database, after),
             "extent": row.extent,
             "reason": row.reason,
             "diff": row.diff,
-            "candidate_count": len(row.candidates),
-            "coverage": row.coverage,
+            "candidate_count": len(required),
+            "context_count": len(row.candidates) - len(required),
+            "coverage": _assessment_coverage(row),
             "created_at": row.created_at,
             "version": _version(database, row.id),
             "unassessed_count": unassessed,
@@ -243,6 +268,15 @@ def assessment_read(database: Session, row: DecisionImpactAssessment) -> ImpactA
             "status": "change-required" if changes else "pending" if unassessed else "resolved",
         }
     )
+
+
+def _assessment_coverage(row: DecisionImpactAssessment) -> ImpactCoverage:
+    coverage = ImpactCoverage.model_validate(row.coverage)
+    if "warnings" not in row.coverage:
+        origin = next((item for item in row.candidates if item["relationship"] == "origin"), None)
+        if origin is not None and not origin["scopes"] and not origin["evidence_truncated"]:
+            coverage.warnings.append(no_linked_commits_warning(origin["reference"]))
+    return coverage
 
 
 def list_assessments(
@@ -285,13 +319,16 @@ def disposition_read(row: DecisionImpactDisposition) -> ImpactDispositionRead:
 
 
 def assessment_detail(
-    database: Session, project_id: UUID, assessment_id: UUID, filters: KnowledgePagination
+    database: Session, project_id: UUID, assessment_id: UUID, filters: ImpactPageQuery
 ) -> ImpactAssessmentDetail:
     row = require_assessment(database, project_id, assessment_id)
     value = assessment_read(database, row)
+    selected = [item for item in row.candidates
+                if (item["relationship"] in CAUSAL_RELATIONSHIPS)
+                == (filters.kind == "code-impact")]
     candidates = [
         ImpactCandidate.model_validate(item)
-        for item in row.candidates[filters.offset : filters.offset + filters.limit]
+        for item in selected[filters.offset : filters.offset + filters.limit]
     ]
     latest = database.scalars(
         select(DecisionImpactDisposition)
@@ -309,12 +346,14 @@ def assessment_detail(
     end = filters.offset + len(candidates)
     return ImpactAssessmentDetail(
         **value.model_dump(),
+        kind=filters.kind,
+        total=len(selected),
         candidates=candidates,
         dispositions=[disposition_read(item) for item in latest],
         disposition_history_total=value.version,
         limit=filters.limit,
         offset=filters.offset,
-        next_offset=end if end < len(row.candidates) else None,
+        next_offset=end if end < len(selected) else None,
     )
 
 

@@ -14,12 +14,17 @@ project. Humans edit library templates in Settings > Prompts. The
 | Retrieve session instructions | `recall-pointer` or `resume-work` | Exact `work_item_id` |
 | Prepare a warm or cold review | `warm-code-review` or `cold-code-review` | Exact work and review IDs |
 | Inspect current review recommendation or remediation instructions | `review-recommendation` or `review-remediation` | Relevant work/review IDs |
+| Inspect the template for future automatic decision investigations | `decision-impact-review` | Work ID when relevant; assigned reviews retain their initial snapshot |
 
 Fetch only the prompt needed for the current task. A cold reviewer already given
 a pinned prompt must not retrieve authored context or another prompt before
 findings freeze. Recorded follow-up questions, remediation checkpoints, and
 report prompt snapshots remain immutable evidence; a current template does not
 rewrite those records or change which question an originating session answers.
+The untouched original shipped decision-impact template refreshes on a later
+read; customized templates and existing investigation checkpoints remain intact.
+Use the assigned transition and retained checkpoint when reviewing an existing
+investigation, with the current API's separate code-impact/context contract.
 
 Project macros expand automatically. Work and review macros use the supplied
 IDs, which must belong to the project and to each other. Substitutions happen

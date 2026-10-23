@@ -5,13 +5,14 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "@/components/dashboard-link";
 import { DecisionStateBadge, KnowledgePagination, KnowledgeReadError } from "@/components/knowledge-shared";
 import { ScopeEvidence } from "@/components/knowledge-scope";
+import { RevisionAuthor } from "@/components/revision-author";
 import { dashboardSessionId } from "@/lib/dashboard-session";
 import { dashboardMutationActor } from "@/lib/work-events";
 import { ApiError, errorMessage } from "@/lib/api";
 import { artifactLibraryPath } from "@/lib/artifacts";
 import { formatDateTime } from "@/lib/display-time";
 import { knowledgeJson, knowledgePath } from "@/lib/knowledge";
-import { decodeDisposition, impactDispositions, type AssessmentDetail, type ImpactAssessment, type ImpactCandidate, type ImpactCoverage, type ImpactDisposition, type ImpactDispositionName } from "@/lib/knowledge-impact";
+import { decodeDisposition, impactDispositions, type AssessmentDetail, type ImpactAssessment, type ImpactCandidate, type ImpactCoverage, type ImpactDisposition, type ImpactDispositionName, type ImpactKind } from "@/lib/knowledge-impact";
 import { assessmentOptions, assessmentsOptions, decisionImpactOptions, dispositionHistoryOptions, knowledgeKeys } from "@/lib/knowledge-queries";
 import { validUuid } from "@/lib/wire-guards";
 
@@ -24,6 +25,7 @@ export function CoverageNotice({ coverage }: { coverage: ImpactCoverage }) {
     <strong>{coverage.traversal_complete ? "Recorded graph traversal complete" : "Recorded graph traversal incomplete"}</strong>
     {coverage.snapshot_at && <p>Evidence snapshot: {formatDateTime(coverage.snapshot_at)}. Later graph changes and citations are not included.</p>}
     <p>Provenance is incomplete. Related links do not establish dependencies; Git history is not verified.</p>
+    {!!coverage.warnings?.length && <ul className="error-notice">{coverage.warnings.map((warning) => <li key={`${warning.code}-${warning.reference}`}>{warning.message}</li>)}</ul>}
     <details><summary>Coverage limits and notes</summary>
       <p>{coverage.visited_revisions} revisions visited · depth limit {coverage.max_depth} · candidate limit {coverage.candidate_limit}. One deterministic shortest path per revision is shown.</p>
       {!!coverage.notes?.length && <ul>{coverage.notes.map((note, index) => <li key={index}>{note}</li>)}</ul>}
@@ -35,7 +37,7 @@ function CandidateEvidence({ candidate, projectId, onDecision, disabled = false,
   return <>
     <div className="impact-candidate-heading"><button type="button" className="text-button" disabled={disabled} onClick={() => onDecision(candidate.reference)}>{candidate.reference}</button><DecisionStateBadge state={candidate.state} /><span>{candidate.is_current ? snapshot ? "Current at assessment" : "Current revision" : snapshot ? "Historical at assessment" : "Historical revision"}</span></div>
     <strong>{candidate.title}</strong>
-    <p>{candidate.relationship === "origin" ? "Starting decision" : candidate.relationship === "depends-on" ? "Recorded dependency" : "Related only · dependency meaning unknown"}</p>
+    <p>{candidate.relationship === "origin" ? "Starting decision" : candidate.relationship === "depends-on" ? "Depends on the changed decision" : candidate.relationship === "depends-on-prerequisite" ? "Prerequisite used by this decision · context only" : "Related record · context only"}</p>
     <ol className="impact-path" aria-label={`Evidence path to ${candidate.reference}`}>{candidate.path.map((reference, index) => <li key={`${index}-${reference}`}><button type="button" className="text-button" disabled={disabled} onClick={() => onDecision(reference)}>{reference}</button></li>)}</ol>
     {candidate.rationale && <p className="impact-rationale">{candidate.rationale}</p>}
     <details><summary>Registered evidence · {candidate.scopes.length} {candidate.scopes.length === 1 ? "commit" : "commits"}</summary>
@@ -49,12 +51,24 @@ function CandidateEvidence({ candidate, projectId, onDecision, disabled = false,
 }
 export function DecisionImpactView({ projectId, decisionId, revision, onDecision }: { projectId: string; decisionId: string; revision: number; onDecision: (reference: string) => void }) {
   const [offset, setOffset] = useState(0);
-  const result = useQuery(decisionImpactOptions(projectId, decisionId, revision, offset));
+  const [kind, setKind] = useState<ImpactKind>("code-impact");
+  const result = useQuery(decisionImpactOptions(projectId, decisionId, revision, offset, kind));
   return result.isError ? <KnowledgeReadError error={result.error} retry={() => void result.refetch()} /> : result.isPending ? <p role="status">Following recorded dependencies…</p> : <>
     <CoverageNotice coverage={result.data.coverage} />
+    <RevisionAuthor author={result.data.origin_author} projectId={projectId} label="Revision author" />
+    <ImpactKindPicker kind={kind} candidates={result.data.candidate_count} context={result.data.context_count} onChange={(value) => { setKind(value); setOffset(0); }} />
     <ol className="impact-candidates">{result.data.items.map((candidate) => <li key={candidate.reference}><CandidateEvidence candidate={candidate} projectId={projectId} onDecision={onDecision} /></li>)}</ol>
     {!result.data.items.length && <p>No candidates on this page.</p>}
     <KnowledgePagination page={result.data} noun="impact candidates" busy={result.isFetching} onOffset={setOffset} />
+  </>;
+}
+function ImpactKindPicker({ kind, candidates, context, disabled = false, onChange }: { kind: ImpactKind; candidates: number; context: number; disabled?: boolean; onChange: (value: ImpactKind) => void }) {
+  return <>
+    <div className="status-filters impact-kind-picker" role="group" aria-label="Impact list">
+      <button type="button" className={`filter-button ${kind === "code-impact" ? "selected" : ""}`} aria-pressed={kind === "code-impact"} disabled={disabled} onClick={() => onChange("code-impact")}>Code impact ({candidates})</button>
+      <button type="button" className={`filter-button ${kind === "context" ? "selected" : ""}`} aria-pressed={kind === "context"} disabled={disabled} onClick={() => onChange("context")}>Related context ({context})</button>
+    </div>
+    <p className="field-hint">{kind === "code-impact" ? "The changed decision and records that depend on it need a disposition." : "Prerequisites and related records provide context for a contradiction check. Individual verdicts are optional; a brief note is sufficient when supported by your review."}</p>
   </>;
 }
 export function DecisionAssessments({ projectId, decisionId, onDecision, onPendingChange }: { projectId: string; decisionId: string; onDecision: (reference: string) => void; onPendingChange: (pending: boolean) => void }) {
@@ -76,11 +90,12 @@ function DispositionRecord({ entry, projectId }: { entry: ImpactDisposition; pro
 }
 function AssessmentView({ projectId, id, onDecision, onPendingChange }: { projectId: string; id: string; onDecision: (reference: string) => void; onPendingChange: (pending: boolean) => void }) {
   const [offset, setOffset] = useState(0);
+  const [kind, setKind] = useState<ImpactKind>("code-impact");
   const [historyOffset, setHistoryOffset] = useState(0);
   const [showHistory, setShowHistory] = useState(false);
   const [candidate, setCandidate] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
-  const result = useQuery({ ...assessmentOptions(projectId, id, offset), enabled: !pending });
+  const result = useQuery({ ...assessmentOptions(projectId, id, offset, kind), enabled: !pending });
   const history = useQuery(dispositionHistoryOptions(projectId, id, historyOffset, showHistory));
   const changePending = (value: boolean) => { setPending(value); onPendingChange(value); };
   if (result.isError && !result.data) return <KnowledgeReadError error={result.error} retry={() => void result.refetch()} />;
@@ -90,6 +105,8 @@ function AssessmentView({ projectId, id, onDecision, onPendingChange }: { projec
     {result.isError && !pending && <KnowledgeReadError error={result.error} retry={() => void result.refetch()} />}
     <h3>{detail.before_reference} → {detail.after_reference}</h3>
     <AssessmentStatus assessment={detail} />
+    <RevisionAuthor author={detail.after_author} projectId={projectId} label="Changed revision author" />
+    <RevisionAuthor author={detail.before_author} projectId={projectId} label="Previous revision author" />
     <p>{detail.trigger === "revision" ? "Revision change" : `${detail.extent ?? "Unknown extent"} supersession`}{detail.reason && ` · ${detail.reason}`}</p>
     <div className="settings-actions"><button className="text-button" disabled={pending} onClick={() => onDecision(detail.before_reference)}>Read before</button><button className="text-button" disabled={pending} onClick={() => onDecision(detail.after_reference)}>Read after</button></div>
     <details className="impact-diff" open><summary>Before / after diff · {detail.diff.changed_fields.join(", ") || "No changed fields"}</summary>
@@ -98,13 +115,14 @@ function AssessmentView({ projectId, id, onDecision, onPendingChange }: { projec
       <dl><dt>Before SHA-256</dt><dd className="mono break-all">{detail.diff.before_sha256}</dd><dt>After SHA-256</dt><dd className="mono break-all">{detail.diff.after_sha256}</dd></dl>
     </details>
     <CoverageNotice coverage={detail.coverage} />
+    <ImpactKindPicker kind={kind} candidates={detail.candidate_count} context={detail.context_count} disabled={pending} onChange={(value) => { setKind(value); setOffset(0); setCandidate(null); }} />
     <ol className="impact-candidates">{detail.candidates.map((item) => { const latest = detail.dispositions.find((entry) => entry.candidate_reference === item.reference); return <li key={item.reference}>
       <CandidateEvidence candidate={item} projectId={projectId} onDecision={onDecision} disabled={pending} snapshot />
-      {latest ? <DispositionRecord entry={latest} projectId={projectId} /> : <p className="field-hint">No disposition recorded.</p>}
+      {latest ? <DispositionRecord entry={latest} projectId={projectId} /> : <p className="field-hint">{kind === "context" ? "Optional contradiction note; no disposition required." : "No disposition recorded."}</p>}
       {candidate === item.reference ? <DispositionForm key={item.reference} detail={detail} reference={item.reference} onPendingChange={changePending} onClose={() => setCandidate(null)} />
         : <button type="button" className="button button-secondary" disabled={pending} onClick={() => setCandidate(item.reference)}>Record disposition for {item.reference}</button>}
     </li>; })}</ol>
-    <KnowledgePagination page={{ items: detail.candidates, total: detail.candidate_count, limit: detail.limit, offset: detail.offset, next_offset: detail.next_offset }} noun="candidates" busy={pending || result.isFetching} onOffset={(value) => { setCandidate(null); setOffset(value); }} />
+    <KnowledgePagination page={{ items: detail.candidates, total: detail.total, limit: detail.limit, offset: detail.offset, next_offset: detail.next_offset }} noun={kind === "context" ? "context records" : "candidates"} busy={pending || result.isFetching} onOffset={(value) => { setCandidate(null); setOffset(value); }} />
     <details onToggle={(event) => setShowHistory(event.currentTarget.open)}><summary>Disposition history · {detail.disposition_history_total} records</summary>
       <p className="field-hint">Every submitted disposition remains available, including earlier conclusions.</p>
       {history.isError ? <KnowledgeReadError error={history.error} retry={() => void history.refetch()} /> : history.isPending ? <p role="status">Loading disposition history…</p> : <><ol className="decision-history">{history.data.items.map((entry) => <li key={entry.id}><code>{entry.candidate_reference}</code><DispositionRecord entry={entry} projectId={projectId} /></li>)}</ol><KnowledgePagination page={history.data} noun="dispositions" busy={pending || history.isFetching} onOffset={setHistoryOffset} /></>}

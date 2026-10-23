@@ -178,9 +178,16 @@ closeout outcomes.
 ## Automatic decision impact reviews (0.89.0)
 
 The `decision-impact-review` template is initialized for existing and new projects on first
-access. Editing it in Prompts changes future automatically created investigations.
+access. An exact untouched copy of the original shipped template is refreshed to
+the improved default on its next read, under the existing prompt lock. Customized
+bytes, including whitespace changes, are preserved. Its creation time remains;
+the new content has a new SHA-256 revision, so stale saves must reload.
+Editing it in Prompts changes future automatically created investigations.
 Each generated work item retains its rendered template, source hash, and exact
 decision/assessment references in the initial checkpoint. Later template edits do
 not rewrite existing investigations. The default instructs agents to investigate
 without changing code and to create separate standard work items for remediation
-or further investigation. See [automatic decision impact reviews](knowledge-graph.md#automatic-decision-impact-reviews).
+or further investigation. It classifies rule/scope/reference changes before
+candidate review, separates required causal-impact verdicts from contextual
+contradiction notes, and gives fallback repository searches for missing commits.
+See [automatic decision impact reviews](knowledge-graph.md#automatic-decision-impact-reviews).

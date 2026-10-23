@@ -35,6 +35,7 @@ from mnemonic_api.models import (
     DecisionRevision,
     DecisionScope,
     DecisionWorkLink,
+    JobCompletionReport,
     KnowledgeDomain,
     ProductDecisionRequest,
     ProjectProductDecisionDomain,
@@ -47,6 +48,7 @@ from mnemonic_api.services.decision_dependencies import (
     same_annotations,
     superseded_ids,
 )
+from mnemonic_api.services.decision_scope_citations import completion_citations
 from mnemonic_api.services.work_items import require_project, require_work_item
 
 
@@ -634,6 +636,10 @@ def scope_read(
         .where(DecisionCommitMapping.scope_id == scope.id)
         .order_by(DecisionCommitMapping.merged_commit_hash)
     ))
+    citations, truncated = ([], False) if database is None else completion_citations(
+        database, scope.project_id, decision_identifier(domain, document), scope.revision,
+        scope.repository, scope.commit_hash,
+    )
     return DecisionScopeRead(
         id=scope.id,
         project_id=scope.project_id,
@@ -644,6 +650,8 @@ def scope_read(
         repository=scope.repository,
         completion_report_id=scope.completion_report_id,
         merged_commit_hashes=merged,
+        completion_citations=citations,
+        completion_citations_truncated=truncated,
         work_item_id=scope.work_item_id,
         agent_session_id=scope.agent_session_id,
         created_at=scope.created_at,
@@ -738,6 +746,13 @@ def require_no_knowledge_links(database: Session, work_item: WorkItem) -> None:
             DecisionImpactDisposition.remediation_work_item_id == work_item.id,
         )
         .limit(1)
+    )
+    linked = linked or database.scalar(
+        select(JobCompletionReport.id)
+        .where(
+            JobCompletionReport.work_item_id == work_item.id,
+            JobCompletionReport.decision_provenance["disposition"].astext == "cited",
+        ).limit(1)
     )
     linked = linked or database.scalar(
         select(ProductDecisionRequest.gate_id)

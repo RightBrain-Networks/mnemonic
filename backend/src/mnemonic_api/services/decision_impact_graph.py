@@ -6,7 +6,12 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.orm import Session, aliased
 
-from mnemonic_api.impact_schemas import ImpactCandidate, ImpactCoverage, ImpactScopeEvidence
+from mnemonic_api.impact_schemas import (
+    ImpactCandidate,
+    ImpactCoverage,
+    ImpactScopeEvidence,
+    ImpactWarning,
+)
 from mnemonic_api.models import (
     DecisionArtifactLink,
     DecisionCommitMapping,
@@ -18,10 +23,12 @@ from mnemonic_api.models import (
     DecisionWorkLink,
     KnowledgeDomain,
 )
+from mnemonic_api.services.decision_scope_citations import completion_citations
 
 MAX_CANDIDATES = 500
 MAX_EDGES = 5000
 _EVIDENCE_LIMIT = 20
+CAUSAL_RELATIONSHIPS = frozenset({"origin", "depends-on"})
 
 
 def reference(
@@ -140,11 +147,37 @@ def _related_rows(
     ).all()
 
 
+def _prerequisites(database: Session, traversal: Traversal) -> dict[UUID, Node]:
+    rows = database.execute(
+        select(DecisionDependency, DecisionRevision, DecisionDocument, KnowledgeDomain)
+        .join(DecisionRevision, DecisionRevision.id == DecisionDependency.target_revision_id)
+        .join(DecisionDocument, DecisionDocument.id == DecisionRevision.document_id)
+        .join(KnowledgeDomain, KnowledgeDomain.id == DecisionDocument.domain_id)
+        .where(DecisionDependency.revision_id.in_(traversal.nodes))
+        .order_by(KnowledgeDomain.prefix, DecisionDocument.ordinal, DecisionRevision.revision,
+                  DecisionDependency.revision_id)
+        .limit(MAX_EDGES + 1)
+    ).all()
+    if len(rows) > MAX_EDGES:
+        traversal.reasons.add("context_edge_limit")
+    proposed: dict[UUID, Node] = {}
+    for edge, revision, document, domain in rows[:MAX_EDGES]:
+        if revision.id in traversal.nodes:
+            continue
+        path = [*traversal.nodes[edge.revision_id].path, reference(document, revision, domain)]
+        prior = proposed.get(revision.id)
+        if prior is None or (len(path), path) < (len(prior.path), prior.path):
+            proposed[revision.id] = Node(
+                document, revision, domain, path, "depends-on-prerequisite", edge.rationale,
+            )
+    return proposed
+
+
 def _related(database: Session, traversal: Traversal) -> None:
     documents: dict[UUID, Node] = {}
     for node in sorted(traversal.nodes.values(), key=lambda item: (len(item.path), item.path)):
         documents.setdefault(node.document.id, node)
-    proposed: dict[UUID, Node] = {}
+    proposed = _prerequisites(database, traversal)
     for incoming in (True, False):
         rows = _related_rows(database, list(documents), list(traversal.nodes), incoming=incoming)
         if len(rows) > MAX_CANDIDATES:
@@ -155,7 +188,10 @@ def _related(database: Session, traversal: Traversal) -> None:
             parent = documents[target] if incoming else traversal.nodes[source]
             path = [*parent.path, reference(document, revision, domain)]
             prior = proposed.get(revision.id)
-            if prior is None or (len(path), path) < (len(prior.path), prior.path):
+            if prior is None or (
+                prior.relationship == "related-only"
+                and (len(path), path) < (len(prior.path), prior.path)
+            ):
                 proposed[revision.id] = Node(document, revision, domain, path, "related-only")
     for key, node in sorted(proposed.items(), key=lambda item: (len(item[1].path), item[1].path)):
         if len(traversal.nodes) >= MAX_CANDIDATES:
@@ -176,13 +212,18 @@ def _evidence(database: Session, node: Node) -> dict:
     ).all()
     result: dict = {"scopes": [], "evidence_truncated": len(scopes) > 10}
     for scope in scopes[:10]:
+        citations, citations_truncated = completion_citations(
+            database, node.document.project_id,
+            f"{node.domain.prefix}-{node.document.ordinal:05d}", node.revision.revision,
+            scope.repository, scope.commit_hash, limit=10,
+        )
         merged = database.scalars(
             select(DecisionCommitMapping.merged_commit_hash)
             .where(DecisionCommitMapping.scope_id == scope.id)
             .order_by(DecisionCommitMapping.merged_commit_hash)
             .limit(11)
         ).all()
-        result["evidence_truncated"] |= len(merged) > 10
+        result["evidence_truncated"] |= len(merged) > 10 or citations_truncated
         result["scopes"].append(
             ImpactScopeEvidence(
                 id=scope.id,
@@ -193,6 +234,8 @@ def _evidence(database: Session, node: Node) -> dict:
                 repository=scope.repository,
                 completion_report_id=scope.completion_report_id,
                 merged_commit_hashes=list(merged[:10]),
+                completion_citations=citations,
+                completion_citations_truncated=citations_truncated,
             )
         )
     for model, column, field_name in (
@@ -235,6 +278,15 @@ def candidate(database: Session, node: Node) -> ImpactCandidate:
     return value
 
 
+def no_linked_commits_warning(origin: str) -> ImpactWarning:
+    return ImpactWarning(
+        code="origin_has_no_linked_commits", reference=origin,
+        message=f"{origin} has no linked commits. Its affected code is not identified by "
+                "recorded provenance; inspect repository history, document file references, "
+                "and code references to the decision before concluding there is no impact.",
+    )
+
+
 def traverse(
     database: Session,
     document: DecisionDocument,
@@ -250,15 +302,20 @@ def traverse(
     nodes = sorted(
         traversal.nodes.values(),
         key=lambda item: (
-            {"origin": 0, "depends-on": 1, "related-only": 2}[item.relationship],
+            {"origin": 0, "depends-on": 1, "depends-on-prerequisite": 2,
+             "related-only": 3}[item.relationship],
             len(item.path),
             item.path,
         ),
     )
+    has_scope = database.scalar(select(DecisionScope.id).where(
+        DecisionScope.document_id == document.id, DecisionScope.revision == revision.revision,
+    ).limit(1)) is not None
     return nodes, ImpactCoverage(
         traversal_complete=not traversal.reasons,
         max_depth=max_depth,
         candidate_limit=MAX_CANDIDATES,
         visited_revisions=visited,
         reasons=sorted(traversal.reasons),
+        warnings=[] if has_scope else [no_linked_commits_warning(origin)],
     )

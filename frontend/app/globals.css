@@ -204,6 +204,7 @@
 .decision-history code { font-size: 12px; }
 .decision-metadata-body .artifact-pagination { padding: 8px 0; }
 .decision-metadata-body .metadata-grid { margin-top: 0; }
+.impact-kind-picker { flex: none; }
 @media (max-width: 700px) {
   .artifact-preview-drawer.decision-preview-drawer { width: 100vw; }
   .knowledge-domain-bar { flex-wrap: wrap; }

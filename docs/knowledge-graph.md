@@ -1,5 +1,9 @@
 # Knowledge graph
 
+Release 0.90.0 and plugin 0.53.0 separate required causal impact from contextual
+references, expose revision authors and missing-commit warnings, and reuse exact
+scope citations at Done. The Alembic head remains `0057_automatic_decision_reviews`.
+
 Release 0.87.0, plugin 0.52.0 and migration `0056_product_decisions` make Needs
 Attention questions Product Decision Records (PDRs) and create a default Product
 Decision Records domain for every project.
@@ -99,9 +103,13 @@ When code is implemented using a decision, the implementing agent **must record
 its resulting commit hash and the exact decision revision consulted**. Do this
 for every decision that informed the implementation. Supply the associated
 Mnemonic work item ID and native agent session ID whenever available.
-Prefer the atomic closeout declaration described below when completing work;
-otherwise use `decision_scope_append`. Do not manually duplicate an already
-registered closeout declaration.
+Use `decision_scope_append` as each pull request merges, even when the larger
+work item is still open. Include the complete actual citations and commits in
+the atomic Done declaration as well. Closeout reuses an existing scope with the
+same project, decision, revision, repository, and commit instead of counting it
+twice. Original scope authorship and work links remain immutable; the new report
+retains its own declaration. Manual repeated appends retain their existing full
+metadata identity rules. No historical scope rows are rewritten or removed.
 
 `decision_scope_append` accepts a full Git commit hash (40 hexadecimal characters
 for SHA-1, or 64 for SHA-256), a mandatory revision, and optional work/session IDs.
@@ -115,10 +123,17 @@ Scope also accepts a credential-free `repository` identity. Use the same stable
 identity for writes and reverse lookup. `decision_commit_lookup` finds registered
 citations by repository and full original or reconciled merged hash. Historical
 scopes without repository identity remain readable but cannot prove which
-repository contained a commit. After a verified squash/rebase/merge,
+repository contained a commit or match an explicit repository during closeout.
+After a verified squash/rebase/merge,
 `decision_scope_reconcile` appends an original-to-merged hash mapping; it never
 rewrites the original scope record. Finding both objects alone does not prove an
 integration relationship: inspect actual merge evidence first.
+
+Scope and commit-lookup results expose `completion_citations` for later Done
+reports that cited the same exact scope, including report/work IDs, author client,
+session/model, and timestamp. Up to 50 are returned on ordinary scope reads and
+10 in impact evidence; `completion_citations_truncated` marks additional reports.
+The original scope's work/session fields keep their original meaning.
 
 Fresh Done closeouts in projects with knowledge domains require a nested
 `job_completion_report.decision_provenance` declaration:
@@ -140,8 +155,9 @@ that no decisions were used or that no code was produced.
 
 `cited` requires nonempty exact citations and commits, with every citation
 applying to every listed commit. At most 100 citations, 100 commits, and 500
-pairs are accepted. The closeout transaction appends scope with the work, session,
-and completion report identity. `no-applicable-decisions` requires a concrete
+pairs are accepted. The closeout transaction adds missing scope with the work,
+session, and completion report identity and reuses exact existing citations.
+`no-applicable-decisions` requires a concrete
 reason and no citations; commits may be supplied. `not-code` requires a reason
 and neither citations nor commits. A read does not imply use. Missing historical
 declarations mean unknown provenance, and structural completeness never proves
@@ -170,15 +186,23 @@ Legacy supersedes links without details retain unknown extent.
 
 `decision_impact` traces reverse dependencies from an exact decision revision.
 The default origin is current; retain the returned `origin_reference` for a
-repeatable investigation. Candidates include historical and current revisions,
+repeatable investigation. `kind="code-impact"` is the default: it includes the
+origin decision and its reverse `depends_on` dependents. Candidates include historical and current revisions,
 one deterministic shortest explanatory path, registered commit scope, and linked
-work/artifacts. `related-only` candidates expose uncertain associations without
-asserting causal reliance. Follow `next_offset`; inspect coverage and every
+work/artifacts. Read `kind="context"` separately for outward
+`depends-on-prerequisite` and `related-only` records. These provide context for
+checking whether the replacement contradicts another decision; they do not
+establish downstream code impact. `candidate_count` and `context_count` count
+these groups separately. `total` and `next_offset` apply to the requested kind.
+Follow each kind's pages; inspect coverage and every
 `evidence_truncated` flag. Traversal is bounded to 500 candidates and defaults
 to depth 8 (maximum 16). Candidate evidence is bounded to 10 scopes, 20 work links,
 and 20 artifact links. Retrieve the exact decision and paginated scope to inspect
 omitted evidence. `provenance_complete` remains false because unregistered
-influences cannot be discovered from an explicit graph.
+influences cannot be discovered from an explicit graph. Structured warnings name
+the exact origin revision when it has no linked commits. Revision author/session/model
+and observed active-work information let reviewers identify author/implementation
+overlap without treating it as proof of a defect or implementation ownership.
 
 ## Reassessment after changes
 
@@ -193,10 +217,13 @@ query to inspect newer evidence.
 
 `decision_assessments` lists episodes, optionally for a decision.
 The decision filter matches origin, replacement, or captured candidates. Summary
-counts distinguish unassessed candidates from those requiring changes, with a
+counts distinguish unassessed code-impact candidates from those requiring changes, with a
 derived `pending`, `change-required`, or `resolved` status. Resolved describes
 the recorded review, not proof that unregistered downstream impacts are absent.
-`decision_assessment_get` pages captured candidates and their latest dispositions.
+`decision_assessment_get` pages captured code-impact candidates by default; use
+`kind="context"` to inspect contextual records and their optional dispositions.
+Context-only records do not require individual verdicts, including related-only
+records retained in old immutable snapshots. Existing verdict history remains.
 `decision_assessment_history` pages every immutable disposition. The diff is
 bounded to 16 KiB with explicit truncation; read both exact decision revisions
 when the full text matters. Candidate pages retain the current assessment version
@@ -225,10 +252,11 @@ before a new operation; uncertain retries preserve the original full intent.
    use a revision-qualified reference, to pin history. Optional `line_start` and
    `line_end` are inclusive, one-based bounds. `decision_history` lists revisions.
 4. Author using `decision_put`, or implement code using the consulted decisions.
-5. After committing implementation, include the explicit decision provenance
-   declaration in the work closeout report so scope is registered atomically.
-   Outside a closeout, call `decision_scope_append` against each consulted
-   revision. Preserve the exact mutation intent and operation ID for retries.
+5. Register each implemented commit with `decision_scope_append` as its pull
+   request merges, using the exact consulted revision and explicit repository.
+   Include complete actual citations and commits in the Done report; closeout
+   registers missing scope and reuses exact existing citations. Preserve the
+   exact mutation intent and operation ID for retries.
 
 Unified search includes decisions by default. Multi-term queries continue to omit
 transcripts unless explicitly selected. Decision hits expose a revision UUID,
@@ -285,8 +313,18 @@ prompt from Settings > Prompts. Investigations use ordinary work claims,
 checkpoints, gates, priorities, and closeout rules. They are separate from the
 specialized code-review queue. Agents investigate downstream code and create
 separate standard work with `create_work` for remediation or further research;
-the investigation itself must not change code. The default prompt requires
-paging impact/provenance results and explicitly reporting missing coverage.
+the investigation itself must not change code. The default prompt first classifies
+the semantic change as rule, scope, references-only, or a combination, based on
+the full before/after documents. A heading such as "Related records" does not
+make a scope change reference-only. It then separates causal code-impact verdicts
+from optional brief contradiction checks of prerequisite and related records.
+
+When linked commits are missing, reviewers search local commit messages for the
+stable decision ID (for example, `git log --all --fixed-strings --grep='BDR-00039'`),
+inspect files named by the decision, and search source text for its ID with
+`rg -n -F -- 'BDR-00039' .`. Matching mentions are leads to inspect, not automatic
+proof of decision use; absent local matches do not prove remote or unregistered
+implementation is absent. The report retains search and provenance limitations.
 
 REST project settings and MCP `get_project_settings` expose
 `automatic_decision_reviews` and `decision_review_priority`. Updates use the
@@ -296,9 +334,9 @@ for generated investigations. The marker is immutable and uniquely identifies
 the triggering decision revision; ordinary work has no marker. No new MCP
 tool or specialized work lifecycle is introduced.
 
-Deploy aligned API, worker, MCP, and dashboard 0.89.0 with migration
+Deploy aligned API, worker, MCP, and dashboard 0.90.0 with migration
 `0057_automatic_decision_reviews` after the normal authorized backup and
-migration procedure. Plugin 0.52.0 remains compatible. The migration adds
+migration procedure and plugin 0.53.0. The migration adds
 default-off settings and the nullable work marker; it creates no historical
 investigations and preserves existing project prompts. Downgrade refuses
 when nondefault settings or generated investigations would be lost. No new
@@ -307,8 +345,9 @@ service or environment variable is required.
 Each investigation drives its existing impact-assessment episodes. Start with
 `decision_assessment_get` for the retained diff and candidate pages; the task
 stores references rather than a second diff or disposition ledger. Done returns
-409 `decision_impact_review_incomplete` until every pinned candidate has an
-assessment disposition and each `change-required` candidate has linked, distinct,
+409 `decision_impact_review_incomplete` until every pinned code-impact candidate has an
+assessment disposition and each `change-required` candidate, including optional
+context dispositions, has linked, distinct,
 undeleted remediation work. This does not require remediation to be finished
 before the investigation closes. Additional evidence found by a fresh impact
 trace is reported explicitly; it cannot rewrite an immutable episode snapshot.

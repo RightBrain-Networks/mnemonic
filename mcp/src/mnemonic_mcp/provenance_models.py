@@ -1,6 +1,8 @@
 """Explicit declarations of decision use; reading a document does not imply use."""
 
+from datetime import datetime
 from typing import Annotated, Literal, Self
+from uuid import UUID
 
 from pydantic import (
     AfterValidator,
@@ -40,6 +42,15 @@ CommitHash = Annotated[
 
 class ProvenanceModel(BaseModel):
     model_config = ConfigDict(extra="forbid", from_attributes=True, allow_inf_nan=False)
+
+
+class ScopeCompletionCitation(ProvenanceModel):
+    report_id: UUID
+    work_item_id: UUID
+    actor_client: Annotated[str, StringConstraints(min_length=1, max_length=80)]
+    actor_session_id: Annotated[str | None, Field(min_length=1, max_length=200)]
+    actor_model: Annotated[str | None, Field(min_length=1, max_length=120)]
+    created_at: datetime
 
 
 class DecisionCitation(ProvenanceModel):

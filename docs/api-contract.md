@@ -14,7 +14,7 @@ previous bundled rubric. Edits are retained in PostgreSQL and project backups.
 Use [unified search](search.md) to retrieve work, artifacts, transcripts, and decisions in one
 ranked, filtered, paginated read through REST or MCP.
 
-This is application/API/MCP/dashboard `0.89.0`, plugin `0.52.0`, and migration
+This is application/API/MCP/dashboard `0.90.0`, plugin `0.53.0`, and migration
 `0057_automatic_decision_reviews`. See [knowledge graph](knowledge-graph.md) for retained
 decision revisions and commit provenance, and [dependency cycles](dependency-cycles.md) for explicit
 parent closure requirements, cycle refusal, and honest deadlock display. The catalog has exactly 74 MCP tools, 23
@@ -2152,6 +2152,35 @@ PATCH controls them. The managed prompt ID is `decision-impact-review`.
 Generated ordinary work exposes an immutable optional `decision_review_revision_id`.
 One investigation per triggering revision shares the existing impact-assessment
 ledger. Done fails with 409 `decision_impact_review_incomplete` while pinned
-candidates lack dispositions or change-required findings lack separate remediation
+code-impact candidates lack dispositions or change-required findings lack separate remediation
 work; error context reports `missing_dispositions` and `untracked_changes` counts.
 See [decision impact reviews](knowledge-graph.md#automatic-decision-impact-reviews).
+
+Impact and assessment-detail GETs accept `kind=code-impact|context`, defaulting to
+`code-impact`. Code-impact candidates are the origin and reverse `depends_on`
+dependents; context contains outward `depends-on-prerequisite` and `related-only`
+records. `candidate_count` counts code-impact records and `context_count` counts
+context; `total`, `offset`, `limit`, and `next_offset` apply to the requested kind.
+Context dispositions are optional, including retained historical related-only
+records, but every recorded `change-required` result still needs remediation.
+Existing assessment snapshots, dispositions, and receipts remain immutable.
+
+Coverage exposes `warnings` with `code=origin_has_no_linked_commits`, the exact
+origin `reference`, and an explanatory `message`. Live impact includes
+`origin_author`; assessments include `before_author` and `after_author`. Each
+author context identifies `reference`, `author_kind`, `agent_session_id`,
+`model_id`, and `authored_at`. Separately timed `work_observed_at`, bounded
+`active_work_items`, and `active_work_items_truncated` describe currently held
+work, not historical ownership at authorship. Each work pointer includes ID,
+title, holder client, lease purpose, and expiry. Generated investigations retain
+the author/work observation made when their initial checkpoint was created.
+
+Done provenance reuses a scope matching project, decision, exact revision,
+repository identity, and full commit hash, regardless of the original work or
+session. Missing repository identity never matches an explicit repository. The
+existing scope remains immutable; the new report retains its own declaration.
+Scope reads expose bounded `completion_citations` and
+`completion_citations_truncated` when reports subsequently cite that scope.
+This does not change manual append's metadata identity or delete old duplicate
+rows. Agents may register each merged pull request before closing a larger work
+item and must still declare its complete actual provenance at Done.

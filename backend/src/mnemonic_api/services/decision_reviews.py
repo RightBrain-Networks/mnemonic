@@ -16,8 +16,9 @@ from mnemonic_api.models import (
 )
 from mnemonic_api.schemas import InitialCheckpointCreate, WorkItemCreate
 from mnemonic_api.services import knowledge
-from mnemonic_api.services.decision_impact_graph import reference
+from mnemonic_api.services.decision_impact_graph import CAUSAL_RELATIONSHIPS, reference
 from mnemonic_api.services.prompts import render_prompt, storage_for
+from mnemonic_api.services.revision_authors import revision_author_note
 from mnemonic_api.services.work_items import create_work_records
 from mnemonic_api.summary_limits import DEFAULT_WORK_SUMMARY_MAX_CHARS
 
@@ -89,7 +90,8 @@ def create_decision_review(
     template = storage_for(database).read(document.project_id, "decision-impact-review")
     prompt = _prompt(
         database, document.project_id, work_id, title, summary, settings.decision_review_priority,
-        template.content, _scope(database, episodes, replacement),
+        template.content, _scope(database, episodes, replacement)
+        + "\n\n" + revision_author_note(database, revision),
     )
     create_work_records(
         database, document.project_id,
@@ -122,7 +124,8 @@ def require_decision_impact_review_complete(database: Session, work: WorkItem) -
         DecisionImpactAssessment.replacement_revision_id == work.decision_review_revision_id,
     ).order_by(DecisionImpactAssessment.id).with_for_update()).all()
     candidates = {(episode.id, candidate["reference"])
-                  for episode in episodes for candidate in episode.candidates}
+                  for episode in episodes for candidate in episode.candidates
+                  if candidate["relationship"] in CAUSAL_RELATIONSHIPS}
     latest = database.scalars(select(DecisionImpactDisposition).where(
         DecisionImpactDisposition.assessment_id.in_([episode.id for episode in episodes]),
     ).distinct(
@@ -146,7 +149,7 @@ def require_decision_impact_review_complete(database: Session, work: WorkItem) -
         raise conflict(
             "decision_impact_review_incomplete",
             "Complete the decision impact assessment ledger before marking this review Done: "
-            "assess every pinned candidate and link separate remediation work for "
+            "assess every pinned code-impact candidate and link separate remediation work for "
             "change-required findings.",
             context={"missing_dispositions": missing, "untracked_changes": untracked},
         )
