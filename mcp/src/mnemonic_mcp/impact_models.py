@@ -89,6 +89,9 @@ class ImpactCandidate(ImpactModel):
     state: Literal["proposed", "rejected", "accepted", "superseded", "partially-superseded"]
     is_current: StrictBool
     relationship: Literal["origin", "depends-on", "depends-on-prerequisite", "related-only"]
+    related_direction: Literal["incoming", "outgoing"] | None = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
     path: list[Reference]
     rationale: str | None
     scopes: list[ImpactScopeEvidence]
@@ -98,6 +101,8 @@ class ImpactCandidate(ImpactModel):
 
     @model_validator(mode="after")
     def coherent_identity(self) -> Self:
+        if self.related_direction is not None and self.relationship != "related-only":
+            raise ValueError("Only related-only candidates can carry a related direction")
         if self.reference != f"{self.decision_id}-{self.revision}":
             raise ValueError("Candidate revision identity disagrees")
         if not self.path or self.path[-1] != self.reference:
@@ -107,6 +112,12 @@ class ImpactCandidate(ImpactModel):
         if any(scope.revision != self.revision for scope in self.scopes):
             raise ValueError("Candidate scope cites a different revision")
         return self
+
+    @property
+    def requires_disposition(self) -> bool:
+        return self.relationship in ("origin", "depends-on") or (
+            self.relationship == "related-only" and self.related_direction == "incoming"
+        )
 
 
 class ImpactWarning(ImpactModel):
@@ -156,7 +167,7 @@ class ImpactRead(ImpactModel):
             raise ValueError("Coverage warnings must identify the pinned origin")
         expected_total = self.candidate_count if self.kind == "code-impact" else self.context_count
         if self.total != expected_total or any(
-            (item.relationship in ("origin", "depends-on")) != (self.kind == "code-impact")
+            item.requires_disposition != (self.kind == "code-impact")
             for item in self.items
         ):
             raise ValueError("Impact page must match its selected kind")
@@ -281,7 +292,7 @@ class ImpactAssessmentDetail(ImpactAssessmentRead):
     def coherent_candidates(self) -> Self:
         expected_total = self.candidate_count if self.kind == "code-impact" else self.context_count
         if self.total != expected_total or any(
-            (item.relationship in ("origin", "depends-on")) != (self.kind == "code-impact")
+            item.requires_disposition != (self.kind == "code-impact")
             for item in self.candidates
         ):
             raise ValueError("Assessment page must match its selected kind")

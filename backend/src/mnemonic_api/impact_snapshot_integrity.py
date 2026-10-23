@@ -50,9 +50,11 @@ SNAPSHOT_FINDINGS = {
                         (candidate->>'relationship'='related-only'
                          AND hop.number=jsonb_array_length({_PATH}) AND EXISTS (
                             SELECT 1 FROM decision_relationships edge WHERE edge.kind='related'
-                            AND ((edge.revision_id=previous.id
+                            AND ((candidate->>'related_direction' IS DISTINCT FROM 'incoming'
+                                  AND edge.revision_id=previous.id
                                   AND edge.target_document_id=current.document_id)
-                              OR (edge.revision_id=current.id
+                              OR (candidate->>'related_direction' IS DISTINCT FROM 'outgoing'
+                                  AND edge.revision_id=current.id
                                   AND edge.target_document_id=previous.document_id))))
                         OR (candidate->>'relationship'='depends-on-prerequisite'
                          AND hop.number=jsonb_array_length({_PATH}) AND EXISTS (

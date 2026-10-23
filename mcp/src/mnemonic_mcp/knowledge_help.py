@@ -64,8 +64,9 @@ KNOWLEDGE_GUIDES: dict[str, tuple[str, str, str]] = {
     "decision_impact": (
         "Knowledge", "Trace exact revision dependencies and recorded implementation impact.",
         ("Pin revision or use a revision-qualified ID; current is the default. Follow next_offset. "
-        "kind=code-impact (default) returns the origin and reverse depends_on dependents. "
-        "kind=context separately returns prerequisites and related-only records for contradiction "
+        "kind=code-impact returns the origin, reverse depends_on dependents, and incoming "
+        "related-only citations (related_direction=incoming, causality unknown). "
+        "kind=context returns prerequisites and outward references for contradiction "
         "checks; they are not downstream code. Each result explains its path and registered scope. "
         "Page each kind independently. Inspect missing-code warnings, authorship/current active-work "
         "context, coverage and evidence_truncated. No linked commits means unknown implementation: "
@@ -83,9 +84,11 @@ KNOWLEDGE_GUIDES: dict[str, tuple[str, str, str]] = {
         ("Follow next_offset and retain the assessment version. Check diff.truncated and candidate "
         "evidence_truncated; retrieve exact revisions/scope for omitted evidence. Snapshots do not "
         "include later registrations: use decision_impact for current evidence. kind=code-impact "
-        "is the default required ledger; kind=context pages optional contradiction-check records. "
+        "is the required ledger, including captured incoming related-only citations of unknown "
+        "causality; kind=context pages optional contradiction-check records. "
         "candidate_count and context_count are separate. Context-only verdicts are optional, "
-        "including historical related-only candidates. Read immutable earlier dispositions with "
+        "including historical related-only candidates without captured direction. Read earlier "
+        "dispositions with "
         "decision_assessment_history. Compare full before/after text and classify rule, scope, "
         "or references-only changes before evaluating candidates; headings do not determine scope."),
     ),

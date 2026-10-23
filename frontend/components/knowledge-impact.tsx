@@ -37,7 +37,7 @@ function CandidateEvidence({ candidate, projectId, onDecision, disabled = false,
   return <>
     <div className="impact-candidate-heading"><button type="button" className="text-button" disabled={disabled} onClick={() => onDecision(candidate.reference)}>{candidate.reference}</button><DecisionStateBadge state={candidate.state} /><span>{candidate.is_current ? snapshot ? "Current at assessment" : "Current revision" : snapshot ? "Historical at assessment" : "Historical revision"}</span></div>
     <strong>{candidate.title}</strong>
-    <p>{candidate.relationship === "origin" ? "Starting decision" : candidate.relationship === "depends-on" ? "Depends on the changed decision" : candidate.relationship === "depends-on-prerequisite" ? "Prerequisite used by this decision · context only" : "Related record · context only"}</p>
+    <p>{candidate.relationship === "origin" ? "Starting decision" : candidate.relationship === "depends-on" ? "Depends on the changed decision" : candidate.relationship === "depends-on-prerequisite" ? "Prerequisite used by this decision · context only" : candidate.related_direction === "incoming" ? "Incoming related link · causality unknown · disposition required" : "Related record · context only"}</p>
     <ol className="impact-path" aria-label={`Evidence path to ${candidate.reference}`}>{candidate.path.map((reference, index) => <li key={`${index}-${reference}`}><button type="button" className="text-button" disabled={disabled} onClick={() => onDecision(reference)}>{reference}</button></li>)}</ol>
     {candidate.rationale && <p className="impact-rationale">{candidate.rationale}</p>}
     <details><summary>Registered evidence · {candidate.scopes.length} {candidate.scopes.length === 1 ? "commit" : "commits"}</summary>
@@ -68,7 +68,7 @@ function ImpactKindPicker({ kind, candidates, context, disabled = false, onChang
       <button type="button" className={`filter-button ${kind === "code-impact" ? "selected" : ""}`} aria-pressed={kind === "code-impact"} disabled={disabled} onClick={() => onChange("code-impact")}>Code impact ({candidates})</button>
       <button type="button" className={`filter-button ${kind === "context" ? "selected" : ""}`} aria-pressed={kind === "context"} disabled={disabled} onClick={() => onChange("context")}>Related context ({context})</button>
     </div>
-    <p className="field-hint">{kind === "code-impact" ? "The changed decision and records that depend on it need a disposition." : "Prerequisites and related records provide context for a contradiction check. Individual verdicts are optional; a brief note is sufficient when supported by your review."}</p>
+    <p className="field-hint">{kind === "code-impact" ? "The changed decision, declared dependents, and records with incoming related links need a disposition. Related links do not prove the code is affected." : "Prerequisites and outward references provide context for a contradiction check. Individual verdicts are optional, including older related records captured without link direction."}</p>
   </>;
 }
 export function DecisionAssessments({ projectId, decisionId, onDecision, onPendingChange }: { projectId: string; decisionId: string; onDecision: (reference: string) => void; onPendingChange: (pending: boolean) => void }) {

@@ -20,6 +20,7 @@ from mnemonic_api.impact_schemas import (
     ImpactPageQuery,
     ImpactQuery,
     ImpactRead,
+    is_code_impact,
 )
 from mnemonic_api.knowledge_schemas import DecisionPutRequest, KnowledgePage, KnowledgePagination
 from mnemonic_api.models import (
@@ -31,7 +32,6 @@ from mnemonic_api.models import (
 )
 from mnemonic_api.services.decision_dependencies import superseded_ids
 from mnemonic_api.services.decision_impact_graph import (
-    CAUSAL_RELATIONSHIPS,
     candidate,
     no_linked_commits_warning,
     reference,
@@ -53,10 +53,13 @@ def read_impact(
         database, document, pinned if pinned is not None else filters.revision
     )
     nodes, coverage = traverse(database, document, revision, domain, filters.max_depth)
-    candidate_count = sum(node.relationship in CAUSAL_RELATIONSHIPS for node in nodes)
+    candidate_count = sum(
+        is_code_impact(node.relationship, node.related_direction) for node in nodes
+    )
     context_count = len(nodes) - candidate_count
     nodes = [node for node in nodes
-             if (node.relationship in CAUSAL_RELATIONSHIPS) == (filters.kind == "code-impact")]
+             if is_code_impact(node.relationship, node.related_direction)
+             == (filters.kind == "code-impact")]
     items = [
         candidate(database, node) for node in nodes[filters.offset : filters.offset + filters.limit]
     ]
@@ -243,7 +246,7 @@ def assessment_read(database: Session, row: DecisionImpactAssessment) -> ImpactA
         )
     ).all()
     required = {item["reference"] for item in row.candidates
-                if item["relationship"] in CAUSAL_RELATIONSHIPS}
+                if is_code_impact(item["relationship"], item.get("related_direction"))}
     unassessed = len(required - {item.candidate_reference for item in latest})
     changes = sum(item.disposition == "change-required" for item in latest)
     return ImpactAssessmentRead.model_validate(
@@ -324,7 +327,7 @@ def assessment_detail(
     row = require_assessment(database, project_id, assessment_id)
     value = assessment_read(database, row)
     selected = [item for item in row.candidates
-                if (item["relationship"] in CAUSAL_RELATIONSHIPS)
+                if is_code_impact(item["relationship"], item.get("related_direction"))
                 == (filters.kind == "code-impact")]
     candidates = [
         ImpactCandidate.model_validate(item)

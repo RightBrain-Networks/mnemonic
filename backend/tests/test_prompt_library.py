@@ -101,8 +101,9 @@ def test_storage_rejects_non_uuid_project_paths(tmp_path):
     assert not (tmp_path / "outside").exists()
 
 
-def _old_impact_prompt():
-    return (Path(__file__).parent / "fixtures" / "decision-impact-review-v1.md").read_bytes()
+def _old_impact_prompt(version="v1"):
+    return (Path(__file__).parent / "fixtures"
+            / f"decision-impact-review-{version}.md").read_bytes()
 
 
 def _install_impact_prompt(storage, project, content):
@@ -112,10 +113,11 @@ def _install_impact_prompt(storage, project, content):
     return original, path
 
 
-def test_impact_default_upgrade_preserves_creation_time_and_is_stable(tmp_path):
+@pytest.mark.parametrize("version", ["v1", "v2"])
+def test_impact_default_upgrade_preserves_creation_time_and_is_stable(tmp_path, version):
     storage = PromptStorage(tmp_path)
     project = uuid4()
-    original, path = _install_impact_prompt(storage, project, _old_impact_prompt())
+    original, path = _install_impact_prompt(storage, project, _old_impact_prompt(version))
     before = storage._read_prompt(project, "decision-impact-review")
     refreshed = storage.read(project, "decision-impact-review")
     assert refreshed.content == default_prompt("decision-impact-review")
@@ -128,7 +130,8 @@ def test_impact_default_upgrade_preserves_creation_time_and_is_stable(tmp_path):
     assert error.value.detail["code"] == "prompt_changed"
 
 
-@pytest.mark.parametrize("content", [b"My review instructions", _old_impact_prompt() + b"\n"])
+@pytest.mark.parametrize("content", [b"My review instructions", _old_impact_prompt() + b"\n",
+                                     _old_impact_prompt("v2") + b"\n"])
 def test_impact_default_upgrade_preserves_customized_bytes(tmp_path, content):
     storage = PromptStorage(tmp_path)
     project = uuid4()

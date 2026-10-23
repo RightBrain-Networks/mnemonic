@@ -68,3 +68,21 @@ test("missing-code warnings retain their exact revision identity", () => {
   assert.throws(() => decodeAssessmentDetail({ ...page, coverage: { ...coverage, warnings: [{ ...warning, reference: "ADR-00001" }] } }, project, id));
   assert.throws(() => decodeAssessmentDetail({ ...page, coverage: { ...coverage, warnings: [{ ...warning, reference: "ADR-00001-9" }] } }, project, id));
 });
+
+
+test("incoming related links require dispositions without asserting causal dependence", () => {
+  const incoming = { ...candidate, relationship: "related-only", related_direction: "incoming", rationale: null };
+  const assessment = { ...detail, candidates: [incoming] };
+  assert.equal(decodeAssessmentDetail(assessment, project, id).candidates[0].relationship, "related-only");
+  const page = { kind: "code-impact", candidate_count: 1, context_count: 0, origin_author: author("ADR-00001-0"), project_id: project, origin_reference: "ADR-00001-0", items: [incoming], total: 1, limit: 25, offset: 0, next_offset: null, coverage };
+  assert.equal(decodeImpact(page, project).items[0].related_direction, "incoming");
+  assert.throws(() => decodeImpact({ ...page, kind: "context", candidate_count: 0, context_count: 1 }, project, undefined, "context"));
+  for (const related_direction of [undefined, null, "outgoing"]) {
+    const contextual = { ...incoming, related_direction };
+    assert.throws(() => decodeAssessmentDetail({ ...assessment, candidates: [contextual] }, project, id));
+    assert.equal(decodeAssessmentDetail({ ...assessment, kind: "context", candidate_count: 0, context_count: 1, candidates: [contextual] }, project, id, "context").context_count, 1);
+  }
+  for (const malformed of [{ ...incoming, related_direction: "invalid" }, { ...incoming, related_direction: ["incoming"] }, { ...candidate, related_direction: "incoming" }]) {
+    assert.throws(() => decodeAssessmentDetail({ ...assessment, candidates: [malformed] }, project, id));
+  }
+});

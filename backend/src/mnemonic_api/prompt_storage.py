@@ -35,6 +35,7 @@ _READ_FLAGS = os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK
 _REPLACED_DEFAULTS = {
     "decision-impact-review": {
         "dea47728c7926adc63863ed17138e6742270d321cfc85be76962c996f58e3935",
+        "eb645d7711318d80f5f00fb0779d7cb3ae292afbeccb593143c739ed2b769e11",
     },
 }
 

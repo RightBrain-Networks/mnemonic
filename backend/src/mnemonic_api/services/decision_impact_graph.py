@@ -11,6 +11,8 @@ from mnemonic_api.impact_schemas import (
     ImpactCoverage,
     ImpactScopeEvidence,
     ImpactWarning,
+    RelatedDirection,
+    is_code_impact,
 )
 from mnemonic_api.models import (
     DecisionArtifactLink,
@@ -28,7 +30,6 @@ from mnemonic_api.services.decision_scope_citations import completion_citations
 MAX_CANDIDATES = 500
 MAX_EDGES = 5000
 _EVIDENCE_LIMIT = 20
-CAUSAL_RELATIONSHIPS = frozenset({"origin", "depends-on"})
 
 
 def reference(
@@ -45,6 +46,7 @@ class Node:
     path: list[str]
     relationship: str
     rationale: str | None = None
+    related_direction: RelatedDirection | None = None
 
 
 @dataclass
@@ -173,6 +175,12 @@ def _prerequisites(database: Session, traversal: Traversal) -> dict[UUID, Node]:
     return proposed
 
 
+def _related_order(node: Node) -> tuple[bool, bool, int, list[str]]:
+    # Required incoming citations take precedence over optional prerequisites/references.
+    return (not is_code_impact(node.relationship, node.related_direction),
+            node.relationship == "related-only", len(node.path), node.path)
+
+
 def _related(database: Session, traversal: Traversal) -> None:
     documents: dict[UUID, Node] = {}
     for node in sorted(traversal.nodes.values(), key=lambda item: (len(item.path), item.path)):
@@ -187,13 +195,12 @@ def _related(database: Session, traversal: Traversal) -> None:
                 continue
             parent = documents[target] if incoming else traversal.nodes[source]
             path = [*parent.path, reference(document, revision, domain)]
+            node = Node(document, revision, domain, path, "related-only",
+                        related_direction="incoming" if incoming else "outgoing")
             prior = proposed.get(revision.id)
-            if prior is None or (
-                prior.relationship == "related-only"
-                and (len(path), path) < (len(prior.path), prior.path)
-            ):
-                proposed[revision.id] = Node(document, revision, domain, path, "related-only")
-    for key, node in sorted(proposed.items(), key=lambda item: (len(item[1].path), item[1].path)):
+            if prior is None or _related_order(node) < _related_order(prior):
+                proposed[revision.id] = node
+    for key, node in sorted(proposed.items(), key=lambda item: _related_order(item[1])):
         if len(traversal.nodes) >= MAX_CANDIDATES:
             traversal.reasons.add("candidate_limit")
             return
@@ -263,6 +270,7 @@ def candidate(database: Session, node: Node) -> ImpactCandidate:
             "state": node.revision.state,
             "is_current": node.revision.revision == node.document.current_revision,
             "relationship": node.relationship,
+            "related_direction": node.related_direction,
             "path": node.path,
             "rationale": node.rationale,
             **_evidence(database, node),

@@ -6,6 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from mnemonic_api.errors import conflict
+from mnemonic_api.impact_schemas import is_code_impact
 from mnemonic_api.models import (
     DecisionDocument,
     DecisionImpactAssessment,
@@ -16,7 +17,7 @@ from mnemonic_api.models import (
 )
 from mnemonic_api.schemas import InitialCheckpointCreate, WorkItemCreate
 from mnemonic_api.services import knowledge
-from mnemonic_api.services.decision_impact_graph import CAUSAL_RELATIONSHIPS, reference
+from mnemonic_api.services.decision_impact_graph import reference
 from mnemonic_api.services.prompts import render_prompt, storage_for
 from mnemonic_api.services.revision_authors import revision_author_note
 from mnemonic_api.services.work_items import create_work_records
@@ -125,7 +126,7 @@ def require_decision_impact_review_complete(database: Session, work: WorkItem) -
     ).order_by(DecisionImpactAssessment.id).with_for_update()).all()
     candidates = {(episode.id, candidate["reference"])
                   for episode in episodes for candidate in episode.candidates
-                  if candidate["relationship"] in CAUSAL_RELATIONSHIPS}
+                  if is_code_impact(candidate["relationship"], candidate.get("related_direction"))}
     latest = database.scalars(select(DecisionImpactDisposition).where(
         DecisionImpactDisposition.assessment_id.in_([episode.id for episode in episodes]),
     ).distinct(

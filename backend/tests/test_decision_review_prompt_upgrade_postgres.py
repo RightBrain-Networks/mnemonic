@@ -14,13 +14,16 @@ from .test_knowledge_postgres import domain
 pytestmark = pytest.mark.postgres
 
 
-def test_untouched_prompt_upgrade_preserves_generated_review_history(api, project, monkeypatch):
+@pytest.mark.parametrize("previous_version", ["v1", "v2"])
+def test_untouched_prompt_upgrade_preserves_generated_review_history(
+    api, project, monkeypatch, previous_version,
+):
     settings(api, project, automatic_decision_reviews=True)
     endpoint = f"/api/v1/projects/{project['id']}/prompts/decision-impact-review"
     response = api.get(endpoint)
     assert response.status_code == 200, response.text
     old_content = (
-        Path(__file__).parent / "fixtures" / "decision-impact-review-v1.md"
+        Path(__file__).parent / "fixtures" / f"decision-impact-review-{previous_version}.md"
     ).read_bytes()
     path = (
         Path(api.app.state.settings.prompt_root)
