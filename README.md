@@ -24,11 +24,11 @@ Tested with Claude Code, OpenAI Codex, and OpenCode. Probably works with any sim
 
 ### Why it might **not** be right for you
 
-- **The human is the harness** `mnemonic` requires an attentive human operator. Work is delegated out to agents by manually copying and pasting pre-written prompts into your MCP client/IDE and you have to be willing to be a part of the decision loop. If vibe coding is more your speed, where you're comfortable with nearly all decisions being made by the clankers, then `mnemonic` is going to feel like a lot of work. **The upside though, is that you understand what's being built and why** and you use your existing Claude Code/Codex/OpenCode, et al UI/TUI rather than an unobservable, headless harness.
+- **The human is the harness.** `mnemonic` requires an attentive human operator. Work is delegated out to agents by manually copying and pasting pre-written prompts into your MCP client/IDE and you have to be willing to be a part of the decision loop. If vibe coding is more your speed, where you're comfortable with nearly all decisions being made by the clankers, then `mnemonic` is going to feel like a lot of work. **The upside though, is that you understand what's being built and why** and you use your existing Claude Code/Codex/OpenCode, et al UI/TUI rather than an unobservable, headless harness.
 
-- **It's not exactly lightweight** `mnemonic` imports, normalizes, and indexes agent transcripts and creates embeddings of the text. This doesn't require a GPU, but it's not likely to run well on a Raspberry Pi and can consume quite a bit (tens of GB) of diskspace. Plus the Docker Compose stack is 6-7 containers (depending on your config). And: the dashboard UX take a while fully master and there are over 60+ MCP tools. **`mnemonic` was designed to help bring engineering rigor to AI-enabled development workflows** but doesn't pretend that cost is free. It's a tool for experienced developers.
+- **It's not exactly lightweight.** `mnemonic` imports, normalizes, and indexes agent transcripts and creates embeddings of the text. This doesn't require a GPU, but it's not likely to run well on a Raspberry Pi and can consume quite a bit (tens of GB) of diskspace. Plus the Docker Compose stack is 6-7 containers (depending on your config). And: the dashboard UX take a while fully master and there are over 60+ MCP tools. **`mnemonic` was designed to help bring engineering rigor to AI-enabled development workflows** but doesn't pretend that cost is free. It's a tool for experienced developers.
 
-- **`mnemonic` is overkill if you only run one session at a time**. The platform was designed (and has been tested) to juggle 3 to 15 concurrent agents. It will **dramatically** accelerate work throughput at that scale. However, the operational overhead of the MCP tool calls will nerf efficiency gains if you routinely use it with only one or two simultaneous sessions.
+- **`mnemonic` is overkill if you only run one session at a time.** The platform was designed (and has been tested) to juggle 3 to 15 concurrent agents. It will **dramatically** accelerate work throughput at that scale. However, the operational overhead of the MCP tool calls will nerf efficiency gains if you routinely use it with only one or two simultaneous sessions.
 
 ## Basic concepts
 
@@ -57,7 +57,7 @@ For non-blocking FYIs, the *"Summaries"* list contain simplified, plain-language
    - *"What information did the agent rely upon to decide to implement X instead of Y here?"* 
    - *"If I were to change my mind and decide this app needed to support multiple users, what downstream parts of the architecture needs to be revisited?"*
 
-   This feature is especially handy when trying to determine the blast radius of unwinding an architecture design mistake made by an agent.
+   This feature is especially handy to determine the precise the blast radius of a mistake made dozens of PRs or weeks earlier.
 
  - **Code review hand-offs** -- Projects can also require or invite an adversarial code review at configurable priority thresholds (both default to Never). Reviewers lease the original *Done* item and perform either a warm or cold code review. See [code reviews](docs/code-reviews.md) for the complete workflow.
 
