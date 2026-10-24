@@ -116,7 +116,15 @@ class ImpactScopeSummary(ImpactModel):
         return self
 
 
+class CitationExcerpts(ImpactModel):
+    source_sha256: Annotated[str, StringConstraints(pattern=r"^[a-f0-9]{64}$")]
+    excerpts: Annotated[list[Annotated[str, StringConstraints(min_length=1, max_length=400)]],
+                        Field(max_length=3)]
+    truncated: StrictBool
+
+
 class ImpactCandidateRead(ImpactModel):
+    citation_excerpts: CitationExcerpts | MISSING = MISSING
     decision_id: Identifier
     reference: Reference
     revision: Revision
