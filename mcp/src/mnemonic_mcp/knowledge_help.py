@@ -54,13 +54,12 @@ KNOWLEDGE_GUIDES: dict[str, tuple[str, str, str]] = {
         "Knowledge", "Create a decision or retain a new immutable revision.",
         ("Send domain, title, content, media_type, state and actual session/model. Declare "
         "source_work_item_id (session origin or external null). Revise with decision_id and "
-        "expected_revision; supply all desired links. change defaults substantive; record-existing "
+        "expected_revision and all desired links. change defaults substantive; record-existing "
         "needs change_id, exact governing_reference and reason; maintenance needs reason. "
-        "Closed lineage needs dashboard admission. Optional "
-        "change.unchanged_supersessions declares exact target_reference, governing_reference "
-        "and reason; reuse requires unchanged ruling and captured evidence. "
-        "Managed PDRs use request_human_input. "
-        "extended_review reports expanded scope and the observed holder."),
+        "Closed lineage needs dashboard admission. "
+        "change.unchanged_supersessions needs target_reference, governing_reference "
+        "and reason; reuse requires unchanged ruling/evidence. "
+        "Managed PDRs use request_human_input. extended_review identifies expanded scope/holder."),
     ),
     "decision_scope_append": (
         "Knowledge", "Record the commit implementing a cited decision revision.",

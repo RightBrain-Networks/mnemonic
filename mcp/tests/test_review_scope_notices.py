@@ -11,6 +11,37 @@ from test_tools import adapter, structured
 from mnemonic_mcp.models import ClaimReceipt
 from mnemonic_mcp.review_scope_models import ReviewScopeChanged
 
+
+@pytest.mark.parametrize("kind", ["single", "batch"])
+@pytest.mark.parametrize("with_token", [False, True])
+async def test_disposition_notice_requires_progress_token(settings, kind, with_token):
+    from test_assessment_batch_tools import arguments as batch_arguments
+    from test_assessment_batch_tools import response as batch_response
+    from test_knowledge_impact_tools import disposition, disposition_arguments
+
+    args = batch_arguments() if kind == "batch" else disposition_arguments()
+    result = batch_response() if kind == "batch" else disposition()
+    result["review_scope_changed"] = NOTICE
+    name = "decision_assessment_append" + ("_batch" if kind == "batch" else "")
+    server = adapter(settings, lambda request: httpx.Response(201, json=result))
+    if with_token:
+        args["lease_token"] = LEASE_TOKEN
+        assert structured(await server.call_tool(name, args)) == result
+    else:
+        with pytest.raises(ToolError, match="operation may already have committed"):
+            await server.call_tool(name, args)
+
+
+async def test_batch_rejects_notice_repeated_inside_disposition_items(settings):
+    from test_assessment_batch_tools import arguments, response
+
+    result = response()
+    result["items"][0]["review_scope_changed"] = NOTICE
+    with pytest.raises(ToolError, match="operation may already have committed"):
+        await adapter(settings, lambda request: httpx.Response(201, json=result)).call_tool(
+            "decision_assessment_append_batch", {**arguments(), "lease_token": LEASE_TOKEN},
+        )
+
 CHANGE_ID = "d3fd15e5-c09e-41ce-8ecd-2a3110667aa4"
 NOTICE = {
     "change_id": CHANGE_ID, "project_id": PROJECT_ID, "review_work_item_id": WORK_ID,

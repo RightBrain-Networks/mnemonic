@@ -21,6 +21,7 @@ def disposition_matches(
         result.project_id == project_id
         and str(result.assessment_id) == target.get("assessment_id")
         and result.version == request.expected_version + 1
+        and (result.review_scope_changed is None or request.lease_token is not None)
         and all(
             getattr(result, field) == getattr(request, field)
             for field in (
@@ -43,6 +44,7 @@ def disposition_batch_matches(
         result.project_id == project_id
         and str(result.assessment_id) == target.get("assessment_id")
         and result.version == request.expected_version + len(request.items)
+        and (result.review_scope_changed is None or request.lease_token is not None)
         and len(result.items) == len(request.items)
         and len({item.id for item in result.items}) == len(result.items)
         and all(disposition_matches(project_id, target, ImpactDispositionRequest(

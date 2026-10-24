@@ -1,5 +1,13 @@
 # Operating Mnemonic
 
+Release 0.97.0 and plugin 0.60.0 add persistent review-scope growth notices and
+readable scope-extension checkpoints. Migration `0062_review_scope_notices`
+records the exact order of newly attached episodes; historical unknown boundaries
+remain explicit. Downgrade refuses to discard recorded attachment versions.
+Fresh token-bearing disposition writes also return notices; receipt replays retain
+their original response. No new configuration is required. Deploy aligned services
+only after separately authorized backup and migration.
+
 Use [unified search](search.md) to retrieve work, artifacts, and transcripts in one
 ranked, filtered, paginated read through REST or MCP.
 

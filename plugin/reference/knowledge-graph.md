@@ -353,8 +353,10 @@ expected_scope_version=..., lease_token=...)` with actual actor_client/session/m
 Scope growth invalidates acknowledgement. Done checks acknowledgement and every
 attached episode; acknowledging never substitutes for candidate dispositions.
 A `review_scope_changed` notice on status, implementation renewal, or a fresh
-token-bearing checkpoint/event means the scope still needs acknowledgement.
-Read the rich growth checkpoint and page the current assessments; its counts
+token-bearing checkpoint/event or single/batch disposition write means the scope
+still needs acknowledgement. Batch responses include the notice once at the top
+level, never on each disposition; token-free writes and disposition-history reads
+omit it. Read the rich growth checkpoint and page the current assessments; its counts
 separate candidate occurrences, distinct revision references, and distinct stable
 decision IDs. Distinct identities among added rows may repeat earlier identities.
 Unknown historical attachment boundaries produce null added-row counts rather than

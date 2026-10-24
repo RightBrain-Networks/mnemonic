@@ -522,7 +522,8 @@ Reused episodes count once per change binding; repeated adoption adds no obligat
 
 A pending `review_scope_changed` notice appears on `get_work(status_only=true)`,
 implementation claims/renewals, and fresh token-bearing `add_checkpoint` and
-`append_event` responses. It contains coordination IDs, old/new scope versions,
+`append_event` responses, plus token-bearing single/batch disposition responses.
+Batch responses contain one top-level notice. It contains coordination IDs, old/new scope versions,
 episodes added, and the three added-row counts; it contains no revision text,
 author context, or findings. Code-review leases never receive it. Status reads can
 still show a pending notice when no lease is active. Inspect the current scope and
@@ -550,9 +551,10 @@ expose `admit`. REST uses one receipt-protected
 `GET /projects/{project_id}/knowledge/changes/{change_id}` for reads.
 
 Deploy aligned API, worker, MCP and dashboard with migration
-`0061_batch_dispositions`. It preserves historical assessments, dispositions and
+`0062_review_scope_notices`. It preserves historical assessments, dispositions and
 terminal work without creating a review backlog. No new service or environment
-variable is required. Downgrade is refused after any batch receipt is retained.
+variable is required. Downgrade is refused once exact attachment versions exist;
+the earlier batch migration also refuses to discard retained batch receipts.
 
 Each investigation drives its existing impact-assessment episodes. Start with
 `decision_assessment_get` for the retained diff and candidate pages; the task

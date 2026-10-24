@@ -6,10 +6,12 @@ from uuid import UUID
 
 from pydantic import Field, StrictInt, StringConstraints, field_validator
 from pydantic.experimental.missing_sentinel import MISSING
+from pydantic.json_schema import SkipJsonSchema
 
 from mnemonic_api.decision_link_schemas import DecisionDependency as DecisionDependency
 from mnemonic_api.decision_link_schemas import SupersessionDetail as SupersessionDetail
 from mnemonic_api.decision_scope_schemas import ScopeCompletionCitation
+from mnemonic_api.review_scope_schemas import ReviewScopeChanged
 from mnemonic_api.revision_author_schemas import RevisionAuthorWork
 from mnemonic_api.schemas import APIModel, LeaseToken, MutationActor
 
@@ -202,6 +204,9 @@ class ImpactDispositionRead(APIModel):
     remediation_work_item_id: UUID | None
     actor: MutationActor
     created_at: datetime
+    review_scope_changed: ReviewScopeChanged | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
 
 
 class ImpactDispositionBatchRequest(APIModel):
@@ -229,6 +234,9 @@ class ImpactDispositionBatchRead(APIModel):
     assessment_id: UUID
     version: Annotated[StrictInt, Field(ge=1)]
     items: Annotated[list[ImpactDispositionRead], Field(min_length=1, max_length=100)]
+    review_scope_changed: ReviewScopeChanged | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
 
 
 class ImpactDiff(APIModel):
