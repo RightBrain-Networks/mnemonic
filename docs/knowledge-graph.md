@@ -590,7 +590,8 @@ reviews and their evidence remain intact.
 payloads and compact-read budgets. Each candidate then includes `citation_excerpts`
 with the exact revision's `source_sha256`, up to three literal `excerpts` of at
 most 400 Unicode characters each, and `truncated`. Matches use stable decision IDs
-on the candidate's explanatory path, excluding its final self-reference. Each
+on the candidate's explanatory path, excluding the candidate's own stable ID
+even when an earlier revision of that document occurs on the path. Each
 match includes a neighboring sentence where the cap permits; Markdown line breaks
 also delimit sentences. Long context is clipped around the citation, and omitted
 matches or clipped context set `truncated=true`.

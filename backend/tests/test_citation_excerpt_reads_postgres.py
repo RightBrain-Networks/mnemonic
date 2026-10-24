@@ -3,7 +3,7 @@
 import pytest
 from sqlalchemy import text
 
-from .test_decision_impact_postgres import assessments, changed, decision, impact
+from .test_decision_impact_postgres import assessments, changed, decision, dependency, impact
 from .test_knowledge_postgres import domain, path
 
 pytestmark = pytest.mark.postgres
@@ -56,3 +56,17 @@ def test_live_excerpts_are_optional_and_follow_candidate_pagination(api, project
     }
     assert enriched["candidate_count"] == 2
     assert enriched["items"][0]["related_direction"] == "incoming"
+
+
+def test_dependency_path_revisiting_document_does_not_match_its_own_heading(api, project):
+    target = domain(api, project)
+    before = decision(api, project, target, "Foundational rule")
+    dependent = decision(api, project, target, "Dependent rule", depends_on=[dependency(before)])
+    content = f"# {before['decision_id']}-1\nThe newer text omits the prerequisite identifier."
+    after = changed(api, project, target, before, content, depends_on=[dependency(dependent)])
+    result = impact(api, project, before["reference"], include_citation_excerpts=True)
+    candidate = next(item for item in result["items"] if item["reference"] == after["reference"])
+    assert candidate["path"] == [before["reference"], dependent["reference"], after["reference"]]
+    assert candidate["citation_excerpts"] == {
+        "source_sha256": after["sha256"], "excerpts": [], "truncated": False,
+    }

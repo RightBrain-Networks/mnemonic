@@ -52,3 +52,9 @@ def test_nearby_citations_share_one_excerpt_and_absence_is_not_a_verdict():
     content = "Before. BDR-00042 and ADR-02779 both apply. After."
     assert citation_excerpts(content, PATH) == ([content], False)
     assert citation_excerpts("The rule still applies without spelling its ID.", PATH) == ([], False)
+
+
+def test_revisited_document_does_not_turn_its_own_heading_into_citation_evidence():
+    path = ["ADR-00001-0", "BDR-00001-0", "ADR-00001-1"]
+    content = "# ADR-00001-1\nThe newer text does not spell out the prerequisite."
+    assert citation_excerpts(content, path) == ([], False)

@@ -22,11 +22,15 @@ def citation_excerpts(content: str, path: list[str]) -> tuple[list[str], bool]:
     source slices; the flag covers clipped context and additional omitted matches.
     Markdown lines are sentence boundaries so metadata citations remain useful.
     """
-    identifiers = sorted({value.rsplit("-", 1)[0] for value in path[:-1]})
+    identifiers = {value.rsplit("-", 1)[0] for value in path[:-1]}
+    if path:
+        # Revision-pinned paths can revisit a document (A-0 -> B-0 -> A-1).
+        # Its own stable ID must not make the candidate's heading look like a citation.
+        identifiers.discard(path[-1].rsplit("-", 1)[0])
     if not identifiers:
         return [], False
     pattern = re.compile(
-        r"(?<![A-Za-z0-9_-])(?:" + "|".join(map(re.escape, identifiers))
+        r"(?<![A-Za-z0-9_-])(?:" + "|".join(map(re.escape, sorted(identifiers)))
         + r")(?:-[0-9]{1,10})?(?![A-Za-z0-9_-])"
     )
     boundaries = [0, *(match.end() for match in _SENTENCE_END.finditer(content))]
