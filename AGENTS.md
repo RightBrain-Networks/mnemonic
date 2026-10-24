@@ -105,8 +105,8 @@ one-off ID needed before dispatch. Explicit IDs and REST receipts retain their
 contracts; prepared upload intents keep their helper-generated IDs. See
 `docs/automatic-uuids.md`. The tool idempotence hint is false for these calls.
 
-The current application/API/MCP/dashboard release is `0.100.0`, Claude plugin
-`0.63.0`, and Alembic head `0062_review_scope_notices`. The catalog is exactly
+The current application/API/MCP/dashboard release is `0.101.0`, Claude plugin
+`0.64.0`, and Alembic head `0062_review_scope_notices`. The catalog is exactly
 78 MCP tools, 25 receipt-protected MCP writes, 32 REST receipt kinds, 25 protected
 browser mutations, 24 work-event types, and three plugin skills. Project priority
 guidance is editable in Settings > Workspace; agents explicitly call
@@ -362,7 +362,10 @@ citations and repository/commit identities, or an explicit reason for
 `no-applicable-decisions`/`not-code`. Register actual scope as pull requests merge;
 Done still declares complete actual citations and reuses exact existing
 decision/revision/repository/commit scope. Missing repository remains unknown,
-not a match for an explicit identity. Preserve original commit records and use
+not a match for an explicit identity. Fresh writes canonicalize supported GitHub
+slugs and HTTP(S) URLs; historical rows and exact retry arguments keep their
+original spelling. Lookup accepts supported aliases, while reconciliation requires
+the exact stored spelling returned by lookup. Preserve original commit records and use
 `decision_scope_reconcile` only for an inspected integration mapping. Historical
 missing provenance remains unknown. The bundled decision_provenance.py helper
 verifies local commit existence and prepares declarations without network or writes.

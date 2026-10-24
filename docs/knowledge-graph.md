@@ -1,5 +1,11 @@
 # Knowledge graph
 
+Release 0.101.0 and plugin 0.64.0 canonicalize explicit GitHub repository identities
+on fresh scope appends and completion reports. Supported aliases match during
+commit lookup; historical evidence and attribution remain unchanged. See
+[code provenance](#code-provenance) for exact retry and reconciliation rules.
+The migration head remains `0062_review_scope_notices`.
+
 Release 0.99.0 and plugin 0.62.0 add a read-only grouped view of required decision
 impact candidates. It distinguishes stable documents, captured revisions and
 per-episode obligations, with bounded pagination and a coherent scope snapshot.
