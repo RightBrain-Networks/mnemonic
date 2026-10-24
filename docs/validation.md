@@ -17,6 +17,12 @@ and a batch carries the notice only at its top level. Token-free writes and
 disposition history remain sparse. All 64 focused MCP help, notice and batch
 checks pass, including rejection of malformed or unsolicited notice metadata.
 
+A final acceptance audit strengthened the extension checkpoint's instructions:
+every added episode requires fresh code-impact pagination/comparison and relevant
+context contradiction checks. Extra live candidates retain separately evidenced
+conclusions without fabricated snapshot rows. All seven scope-notice PostgreSQL
+checks pass with this explicit restatement.
+
 Using Python 3.14, Node 24 and isolated PostgreSQL/RabbitMQ, the final full backend
 run passed all 5,449 tests with six workers. Its initial run exposed two historical
 fixture assumptions: an 0019 checkpoint shape followed the current read model,
