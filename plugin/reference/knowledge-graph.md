@@ -309,6 +309,35 @@ and exact receipt replays do not renew. Unrelated and code-review capabilities
 are refused. Never put tokens in a reason or actor field. Use `renew_claim` when
 your remaining-time estimate changes.
 
+`decision_change_candidates(project_id, change_id)` provides a read-only grouped
+view of the change's required code-impact candidates. `decision_count` counts
+stable documents, `revision_count` counts distinct captured revision references,
+and `occurrence_count` counts each candidate in each assessment episode. For example, 191
+required occurrences across six episodes, 71 distinct revisions and 50 documents
+remain 191 separate review obligations.
+`unassessed_count` and `change_required_count` also count required occurrences;
+optional context candidates are excluded from this navigation view. Existing
+completion rules, including remediation for recorded contextual findings, remain.
+
+Each group retains compact occurrences with assessment ID/version, exact
+before/after and candidate references, captured relationship/direction, and latest
+disposition ID/version/result/remediation link. Read the assessment or history for
+the actual evidence, actor and reason. No judgment is copied, inherited or applied
+to another episode. Historical related-only candidates without captured incoming
+direction remain context; live links never reclassify captured scope.
+
+All counts, groups and occurrences in a response share a coherent database
+snapshot and exact `scope_version`/`acknowledged_scope_version`. Whole-change totals
+remain global when filtering `decision_id`; `total` counts selected groups.
+Default pagination is 20 groups and 10 occurrences per group. Both limits accept
+1–100, with `limit * occurrence_limit <= 200`. Follow `next_offset` for groups;
+use a group's stable `decision_id`, `limit=1`, and `next_occurrence_offset` to reach
+its remaining occurrences. `captured_references` derives only from the returned
+occurrence page; `references_complete` and the full `revision_count` explicitly
+show whether more references remain. Reads do not acknowledge scope or change
+Done requirements. REST exposes the same projection at
+`GET /projects/{project_id}/knowledge/changes/{change_id}/candidates`.
+
 ## Investigate an assigned decision impact review
 
 Read `decision_review_change_id` from the work. If present, call

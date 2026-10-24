@@ -1,5 +1,10 @@
 # Operating Mnemonic
 
+Release 0.99.0 and plugin 0.62.0 add a read-only grouped view of required decision
+impact candidates. It distinguishes stable documents, captured revisions and
+per-episode obligations, with bounded pagination and a coherent scope snapshot.
+No new configuration or migration is required beyond `0062_review_scope_notices`.
+
 Release 0.98.0 and plugin 0.61.0 add opt-in citation excerpts to impact candidate
 reads. Excerpts use exact pinned text and compose with compact projections;
 stored snapshots and default response shapes are unchanged. No new configuration
@@ -249,7 +254,7 @@ Migration `0041_artifact_passages` adds rebuildable artifact passage caches; fol
 [semantic artifact upgrade and backfill](artifact-semantic-search.md#coordinated-upgrade).
 Explicit [multi-project search](multi-project-search.md) shares one bounded corpus
 and reports coverage for every selected project.
-Inventory exactly 77 MCP tools,
+Inventory exactly 78 MCP tools,
 25 protected MCP writes, 32 REST receipt kinds, 25 protected browser mutations,
 and 24 work-event types. Keep older writers stopped: fresh closeouts still
 require a report and operation UUID, fresh work starts Pending, settings use
