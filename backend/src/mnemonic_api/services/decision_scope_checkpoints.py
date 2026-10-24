@@ -56,8 +56,13 @@ def growth_checkpoint(
     lines.extend([
         "", "For every added episode, read both pinned revisions, classify its text/rule/scope/"
         "reference changes, page every code-impact candidate and inspect its captured evidence "
-        "and coverage. Refresh live impact separately when needed; preserve the episode's "
-        "frozen scope. Record a disposition for each required episode/reference pair, even when "
+        'and coverage. Call decision_impact(kind="code-impact") on each episode\'s prior pinned '
+        "reference, page every fresh result, and compare it with that episode's captured "
+        'assessment ledger. Separately call decision_impact(kind="context") and read the relevant '
+        "text to check whether the replacement contradicts prerequisites or related records. "
+        "Record extra live candidates and their evidenced conclusions separately; preserve the "
+        "episode's frozen scope and do not fabricate ledger entries. Record a disposition for "
+        "each required episode/reference pair, even when "
         "that reference appears in another episode. Every change-required result needs separate "
         "tracked remediation. Context-only candidates do not require verdicts.",
         "Read decision_change_get and page decision_assessments with this change_id, then use "

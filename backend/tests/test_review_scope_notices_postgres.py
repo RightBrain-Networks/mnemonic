@@ -89,6 +89,13 @@ def test_holder_notices_persist_until_acknowledged_and_receipts_remain_exact(
     assert changed["decision"]["reference"] in growth["prompt"]
     assert "Previous scope: 1 episodes" in growth["prompt"]
     assert "Current scope: 2 episodes" in growth["prompt"]
+    assert ('decision_impact(kind="code-impact") on each episode\'s prior pinned reference'
+            in growth["prompt"])
+    assert "page every fresh result, and compare it" in growth["prompt"]
+    assert 'decision_impact(kind="context")' in growth["prompt"]
+    assert "contradicts prerequisites or related records" in growth["prompt"]
+    assert "extra live candidates and their evidenced conclusions separately" in growth["prompt"]
+    assert "episode's frozen scope and do not fabricate ledger entries" in growth["prompt"]
     assert "episode/reference pair" in growth["prompt"]
     acknowledge(api, project, change_id, 2, token)
     assert "review_scope_changed" not in api.get(base, params={"status_only": True}).json()
