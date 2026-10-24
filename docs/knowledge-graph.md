@@ -513,6 +513,34 @@ ordinary pending `work_item_id`, `expected_work_version`, and 1–100 unique
 merges historical work or changes dispositions. Both use receipt-protected
 operation IDs and exact uncertain retries.
 
+Each fresh scope-growth checkpoint names the causing revision and recorded author
+session, every newly bound assessment, and old/new captured scope totals. It keeps
+three separate counts: code-impact candidate occurrences across episodes, distinct
+revision references, and distinct stable decision IDs. The checkpoint restates
+per-episode inspection, disposition, remediation, paging, and acknowledgement steps.
+Reused episodes count once per change binding; repeated adoption adds no obligation.
+
+A pending `review_scope_changed` notice appears on `get_work(status_only=true)`,
+implementation claims/renewals, and fresh token-bearing `add_checkpoint` and
+`append_event` responses. It contains coordination IDs, old/new scope versions,
+episodes added, and the three added-row counts; it contains no revision text,
+author context, or findings. Code-review leases never receive it. Status reads can
+still show a pending notice when no lease is active. Inspect the current scope and
+use the existing version-checked acknowledgement action to clear it. Acknowledging
+is not a verdict or permission to implement. A receipt replay returns its original
+notice, even after acknowledgement; read status again for current coordination.
+
+A fresh `decision_put` that extends an existing open driver returns
+`extended_review`, including that write's scope delta and the observed active
+implementation holder (or null). Distinct identities in added rows may already
+occur in earlier episodes: these counts are not net-new identities or a claim of
+exhaustive real-world impact. Migration `0062_review_scope_notices` records an
+immutable per-change `attachment_scope_version` for fresh bindings. Historical
+bindings remain null. When an acknowledgement-relative boundary cannot be
+established, all three added-row counts are null; the exact version/episode delta
+still appears. There is no guessed ordering or historical backfill. Backup audits
+check uniqueness and the known suffix after any historical unknown bindings.
+
 The Work details scope panel shows current episodes, allows acknowledgement and
 explicit adoption, and offers the human-only successor admission action for closed
 drivers and driverless held changes, including inherited changes from another

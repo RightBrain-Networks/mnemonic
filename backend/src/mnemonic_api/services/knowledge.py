@@ -628,9 +628,10 @@ def put_decision(
     add_pinned_links(database, document, revision, payload)
     database.flush()
     from mnemonic_api.services.decision_impact import create_assessments
-    create_assessments(database, document, revision, payload)
+    extension = create_assessments(database, document, revision, payload)
     return DecisionPutResult(
-        decision=decision_read(database, document, revision, domain), created=True
+        decision=decision_read(database, document, revision, domain), created=True,
+        extended_review=extension
     )
 
 

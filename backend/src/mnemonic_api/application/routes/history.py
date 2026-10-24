@@ -29,6 +29,7 @@ from mnemonic_api.schemas import (
     WorkEventPage,
     WorkEventRead,
 )
+from mnemonic_api.services.decision_scope_notices import pending_scope_notice
 from mnemonic_api.services.work_context import checkpoint_read
 from mnemonic_api.services.work_events import append_progress_event, list_work_events
 from mnemonic_api.services.work_items import append_checkpoint_record, require_work_item
@@ -86,7 +87,10 @@ def add_checkpoint(
             database, work_item, domain_payload,
         )
         database.refresh(checkpoint)
-        return checkpoint_read(checkpoint)
+        result = checkpoint_read(checkpoint)
+        if domain_payload.lease_token is not None:
+            result.review_scope_changed = pending_scope_notice(database, work_item_id)
+        return result
 
     return run_registered_mutation(
         "add_checkpoint",
@@ -125,13 +129,16 @@ def append_event(
     database: Database,
 ) -> JSONResponse:
     def execute(domain_payload: ProgressEventCreate) -> WorkEventRead:
-        return append_progress_event(
+        result = append_progress_event(
             database,
             project_id,
             work_item_id,
             domain_payload,
             bearer_key=api_key_of(request),
         )
+        if domain_payload.lease_token is not None:
+            result.review_scope_changed = pending_scope_notice(database, work_item_id)
+        return result
 
     return run_registered_mutation(
         "append_event",

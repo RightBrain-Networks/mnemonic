@@ -1,3 +1,4 @@
+import type { ReviewScopeChanged } from "./review-scope-notices.ts";
 import type { DependencyIssue } from "./dependency-cycles.ts";
 import type { HitRanking, SemanticDisposition } from "./search-ranking.ts";
 import type { WorkEvidence } from "./search-evidence.ts";
@@ -113,6 +114,7 @@ export interface CheckpointPointer {
 }
 
 export interface Checkpoint extends CheckpointPointer {
+  review_scope_changed?: ReviewScopeChanged;
   prompt: string;
   source_session_url: string | null;
   source_metadata: Record<string, unknown>;
@@ -322,6 +324,7 @@ export type WorkEventMetadata =
   | Record<string, unknown>;
 
 export interface WorkEventRead {
+  review_scope_changed?: ReviewScopeChanged;
   code_review_id?: string;
   work_follow_up_id?: string;
   work_follow_up_answer_id?: string;

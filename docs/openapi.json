@@ -2449,6 +2449,10 @@
             ],
             "title": "Repository Branch"
           },
+          "review_scope_changed": {
+            "$ref": "#/components/schemas/ReviewScopeChanged",
+            "title": "Review Scope Changed"
+          },
           "source_client": {
             "title": "Source Client",
             "type": "string"
@@ -2614,6 +2618,10 @@
           "renewed_at": {
             "title": "Renewed At",
             "type": "string"
+          },
+          "review_scope_changed": {
+            "$ref": "#/components/schemas/ReviewScopeChanged",
+            "title": "Review Scope Changed"
           },
           "scope_sha256": {
             "pattern": "^[0-9a-f]{64}$",
@@ -5204,6 +5212,10 @@
             ],
             "title": "Repository Branch"
           },
+          "review_scope_changed": {
+            "$ref": "#/components/schemas/ReviewScopeChanged",
+            "title": "Review Scope Changed"
+          },
           "source_client": {
             "title": "Source Client",
             "type": "string"
@@ -7110,6 +7122,16 @@
           },
           "decision": {
             "$ref": "#/components/schemas/DecisionRead"
+          },
+          "extended_review": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ExtendedDecisionReview"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -8570,6 +8592,30 @@
         "additionalProperties": false,
         "properties": {},
         "title": "EmptyEventMetadata",
+        "type": "object"
+      },
+      "ExtendedDecisionReview": {
+        "additionalProperties": false,
+        "properties": {
+          "holder": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReviewScopeHolder"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "review_scope_changed": {
+            "$ref": "#/components/schemas/ReviewScopeChanged"
+          }
+        },
+        "required": [
+          "review_scope_changed",
+          "holder"
+        ],
+        "title": "ExtendedDecisionReview",
         "type": "object"
       },
       "ExternalCandidateReference": {
@@ -15152,6 +15198,119 @@
         "title": "ReviewQueueRow",
         "type": "object"
       },
+      "ReviewScopeChanged": {
+        "additionalProperties": false,
+        "properties": {
+          "captured_code_impact_rows_added": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Captured Code Impact Rows Added"
+          },
+          "change_id": {
+            "format": "uuid",
+            "title": "Change Id",
+            "type": "string"
+          },
+          "distinct_decisions_in_added_rows": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Distinct Decisions In Added Rows"
+          },
+          "distinct_references_in_added_rows": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Distinct References In Added Rows"
+          },
+          "episodes_added": {
+            "minimum": 0.0,
+            "title": "Episodes Added",
+            "type": "integer"
+          },
+          "new_scope_version": {
+            "minimum": 0.0,
+            "title": "New Scope Version",
+            "type": "integer"
+          },
+          "old_scope_version": {
+            "minimum": 0.0,
+            "title": "Old Scope Version",
+            "type": "integer"
+          },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "review_work_item_id": {
+            "format": "uuid",
+            "title": "Review Work Item Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "change_id",
+          "project_id",
+          "review_work_item_id",
+          "old_scope_version",
+          "new_scope_version",
+          "episodes_added",
+          "captured_code_impact_rows_added",
+          "distinct_references_in_added_rows",
+          "distinct_decisions_in_added_rows"
+        ],
+        "title": "ReviewScopeChanged",
+        "type": "object"
+      },
+      "ReviewScopeHolder": {
+        "additionalProperties": false,
+        "properties": {
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "holder_client": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Holder Client",
+            "type": "string"
+          },
+          "holder_session_id": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Holder Session Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "holder_client",
+          "holder_session_id",
+          "expires_at"
+        ],
+        "title": "ReviewScopeHolder",
+        "type": "object"
+      },
       "ReviewSourceState": {
         "additionalProperties": false,
         "properties": {
@@ -19605,6 +19764,10 @@
             ],
             "title": "Relationship Target Work Item Id"
           },
+          "review_scope_changed": {
+            "$ref": "#/components/schemas/ReviewScopeChanged",
+            "title": "Review Scope Changed"
+          },
           "work_follow_up_answer_id": {
             "format": "uuid",
             "title": "Work Follow Up Answer Id",
@@ -21643,6 +21806,10 @@
           },
           "readiness": {
             "$ref": "#/components/schemas/Readiness"
+          },
+          "review_scope_changed": {
+            "$ref": "#/components/schemas/ReviewScopeChanged",
+            "title": "Review Scope Changed"
           },
           "status": {
             "enum": [

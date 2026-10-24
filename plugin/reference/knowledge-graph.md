@@ -352,6 +352,16 @@ work. Call `decision_change_update(action="acknowledge", change_id=...,
 expected_scope_version=..., lease_token=...)` with actual actor_client/session/model.
 Scope growth invalidates acknowledgement. Done checks acknowledgement and every
 attached episode; acknowledging never substitutes for candidate dispositions.
+A `review_scope_changed` notice on status, implementation renewal, or a fresh
+token-bearing checkpoint/event means the scope still needs acknowledgement.
+Read the rich growth checkpoint and page the current assessments; its counts
+separate candidate occurrences, distinct revision references, and distinct stable
+decision IDs. Distinct identities among added rows may repeat earlier identities.
+Unknown historical attachment boundaries produce null added-row counts rather than
+inferred history. Status notices contain no decision prose or author context, and
+code-review leases never receive them. An exact receipt replay retains its original
+notice; use a fresh status read for current state. A fresh decision write can return
+`extended_review` identifying the affected review and observed implementation holder.
 Closed changes need a human-admitted successor before new obligations. Agents
 cannot admit successors, and an accepted PDR alone is not that dashboard action.
 Managed answers remain durable: `change.requires_admission` identifies a retained

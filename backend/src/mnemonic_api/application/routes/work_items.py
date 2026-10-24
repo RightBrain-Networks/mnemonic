@@ -129,10 +129,12 @@ def get_work(
     begin_coherent_read(database)
     work_item = require_work_item(database, project_id, work_item_id)
     if status_only:
+        from mnemonic_api.services.decision_scope_notices import pending_scope_notice
         from mnemonic_api.services.lease_settings import lease_settings
         from mnemonic_api.services.readiness import work_readiness
 
         return WorkStatusRead(
+            review_scope_changed=pending_scope_notice(database, work_item.id),
             work_item_id=work_item.id, project_id=work_item.project_id,
             status=work_item.status, version=work_item.version,
             readiness=work_readiness(database, work_item),

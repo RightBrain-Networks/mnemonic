@@ -1226,3 +1226,14 @@ test("human review decisions require an exact resource, revision, actor and repo
     })).type, "unresolved");
   }
 });
+
+test("checkpoint and event notices retain metadata without changing requested content", () => {
+  const notice = { change_id: operation, project_id: project, review_work_item_id: work,
+    old_scope_version: 4, new_scope_version: 9, episodes_added: 5,
+    captured_code_impact_rows_added: 189, distinct_references_in_added_rows: 71,
+    distinct_decisions_in_added_rows: 50 };
+  const row = { ...checkpoint("progress"), review_scope_changed: notice };
+  assert.deepEqual(decodeCheckpoint(row, work).review_scope_changed, notice);
+  assert.throws(() => decodeCheckpoint({ ...row, review_scope_changed: { ...notice, review_work_item_id: counterpart } }, work));
+  assert.throws(() => decodeCheckpoint({ ...row, review_scope_changed: { ...notice, episodes_added: 4 } }, work));
+});

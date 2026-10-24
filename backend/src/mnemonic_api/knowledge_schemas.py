@@ -16,6 +16,7 @@ from mnemonic_api.decision_scope_schemas import ScopeCompletionCitation
 from mnemonic_api.impact_schemas import DecisionDependency, SupersessionDetail
 from mnemonic_api.product_decision_schemas import DecisionHumanGateRead
 from mnemonic_api.provenance_schemas import RepositoryIdentity
+from mnemonic_api.review_scope_schemas import ExtendedDecisionReview
 from mnemonic_api.schemas import APIModel
 
 DecisionState = Literal["proposed", "rejected", "accepted", "superseded", "partially-superseded"]
@@ -211,8 +212,22 @@ class DecisionTextRead(DecisionRead):
 
 
 class DecisionPutResult(APIModel):
+    extended_review: ExtendedDecisionReview | None = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
     decision: DecisionRead
     created: bool
+
+
+    @model_validator(mode="after")
+    def extension_matches_change(self) -> Self:
+        if self.extended_review is not None and (
+            not self.created or self.decision.change is None
+            or self.extended_review.review_scope_changed.project_id != self.decision.project_id
+            or self.extended_review.review_scope_changed.change_id != self.decision.change.change_id
+        ):
+            raise ValueError("An extended review must belong to this fresh decision change")
+        return self
 
 
 class DecisionListQuery(KnowledgePagination):

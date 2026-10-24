@@ -516,3 +516,13 @@ test("retained work events accept summaries beyond the current default limit", (
       status: "pending", priority: 0, version: 1 } } });
   assert.equal(decodeWorkEvent(created).metadata.initial.summary, changes.summary.before);
 });
+
+test("progress notices validate exact work and expose only scope coordination", () => {
+  const notice = { change_id: counterpart, project_id: project, review_work_item_id: work,
+    old_scope_version: 4, new_scope_version: 9, episodes_added: 5,
+    captured_code_impact_rows_added: 189, distinct_references_in_added_rows: 71,
+    distinct_decisions_in_added_rows: 50 };
+  assert.deepEqual(decodeWorkEvent(event({ review_scope_changed: notice })).review_scope_changed, notice);
+  assert.throws(() => decodeWorkEvent(event({ review_scope_changed: { ...notice, review_work_item_id: counterpart } })));
+  assert.throws(() => decodeWorkEvent(event({ review_scope_changed: { ...notice, author_session: "unexpected-context" } })));
+});

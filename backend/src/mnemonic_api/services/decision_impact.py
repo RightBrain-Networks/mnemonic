@@ -37,6 +37,7 @@ from mnemonic_api.models import (
     DecisionSupersessionReuse,
     KnowledgeDomain,
 )
+from mnemonic_api.review_scope_schemas import ExtendedDecisionReview
 from mnemonic_api.services.assessment_progress import renew_assessment_progress
 from mnemonic_api.services.decision_dependencies import superseded_ids
 from mnemonic_api.services.decision_impact_graph import (
@@ -45,6 +46,7 @@ from mnemonic_api.services.decision_impact_graph import (
     reference,
     traverse,
 )
+from mnemonic_api.services.decision_scope_notices import extended_review
 from mnemonic_api.services.decision_supersession_reuse import reusable_supersession, same_evidence
 from mnemonic_api.services.impact_read_projections import (
     author_read,
@@ -189,7 +191,7 @@ def create_assessments(
     revision: DecisionRevision,
     payload: DecisionPutRequest,
     *, hold_closed: bool = False, admitted_change: DecisionChange | None = None,
-) -> None:
+) -> ExtendedDecisionReview | None:
     from mnemonic_api.services import knowledge
     from mnemonic_api.services.decision_change_classification import classify_revision
     from mnemonic_api.services.decision_changes import attach_assessments, require_open
@@ -239,9 +241,10 @@ def create_assessments(
         ))
     episodes = _reuse_identical_assessments(database, change.id, episodes, revision)
     database.flush()
-    attach_assessments(database, change, episodes)
+    notice = attach_assessments(database, change, episodes, causing_revision=revision)
     from mnemonic_api.services.decision_reviews import create_decision_review
     create_decision_review(database, document, revision, episodes, change=change)
+    return extended_review(database, notice) if notice is not None else None
 
 
 def _reuse_identical_assessments(

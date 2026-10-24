@@ -92,6 +92,10 @@ def claim_receipt(lease: WorkLease, database: Session | None = None) -> ClaimRec
         fields = {"purpose": "code_review", "code_review_id": review.id, "mode": lease.mode,
                   "lease_generation_id": lease.lease_generation_id,
                   "code_review_version": review.version, "scope_sha256": review.scope_sha256}
+    if database is not None and lease.purpose == "implementation":
+        from mnemonic_api.services.decision_scope_notices import pending_scope_notice
+
+        fields["review_scope_changed"] = pending_scope_notice(database, lease.work_item_id)
     return ClaimReceipt(
         **fields,
         work_item_id=lease.work_item_id,
