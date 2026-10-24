@@ -18,6 +18,13 @@ and grouped reads, legacy receipt restoration, forged metadata rejection and
 private-token echo refusal without renewal. Another 102 focused backend checks
 cover migration/restore catalogs, schema parity, prompts and finding storage.
 
+CI exposed a three-second completion timeout in an existing external-reference
+downgrade race test after its required lock wait had been observed. The original
+test passed in isolation; the post-writer allowance now permits ten seconds for
+the full migration chain and rollback. The lock, expected refusal, schema head
+and retained-reference assertions are unchanged. All 81 external-reference
+PostgreSQL tests pass with the correction.
+
 The dashboard passes 639 tests, types and build. Eight desktop/narrow impact
 scenarios and both focused screenshot scenarios pass, including an interrupted
 save with frozen finding/target fields and byte-identical retry. The isolated
