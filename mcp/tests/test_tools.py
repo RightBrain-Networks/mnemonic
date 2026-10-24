@@ -687,7 +687,7 @@ async def test_tool_catalog_schemas_and_annotations(settings):
         "decision_impact", "decision_assessments", "decision_assessment_get",
         "decision_assessment_history", "decision_assessment_append", "decision_assessment_append_batch",
         "decision_commit_lookup", "decision_scope_reconcile",
-        "decision_change_get", "decision_change_update",
+        "decision_change_get", "decision_change_candidates", "decision_change_update",
         "help", "generate_uuid", "search",
         "list_transcripts", "search_transcript_contents", "get_transcript",
         "get_transcript_text", "download_transcript",
@@ -809,7 +809,7 @@ async def test_tool_catalog_schemas_and_annotations(settings):
         "remove_relationship",
         "merge_work",
     }
-    assert len(tools) == 77
+    assert len(tools) == 78
     for name in mutating:
         assert tools[name].annotations.idempotentHint is False
     for name in tools.keys() - mutating - {"authorize_artifact_download", "generate_uuid"}:

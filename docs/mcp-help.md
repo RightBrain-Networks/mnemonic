@@ -25,6 +25,7 @@ Pass an optional `topic` string. Each successive word selects a child page:
 | `help({"topic":"decision_impact usage"})` | Causal impact versus reference context, missing commits, and coverage limits |
 | `help({"topic":"complete_work job_completion_report decision_provenance"})` | Explicit decision use or explained uncited completion |
 | `help({"topic":"decision_scope_reconcile usage"})` | Original-to-merged commit lineage and local verification |
+| `help({"topic":"decision_change_candidates usage"})` | Grouped required candidates with separate episode occurrences and two pagination levels |
 | `help({"topic":"decision_assessment_append usage"})` | Immutable candidate reassessment, actor and version requirements |
 | `help({"topic":"decision_assessment_append_batch usage"})` | Atomic single-episode batches, exact retries, and optional review lease renewal |
 | `help({"topic":"request_human_input decision_metadata"})` | PDR title, cross-references, exact dependencies and sparse metadata updates |

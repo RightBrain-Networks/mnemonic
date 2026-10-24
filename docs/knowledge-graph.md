@@ -1,5 +1,10 @@
 # Knowledge graph
 
+Release 0.99.0 and plugin 0.62.0 add a read-only grouped view of required decision
+impact candidates. It distinguishes stable documents, captured revisions and
+per-episode obligations, with bounded pagination and a coherent scope snapshot.
+No new configuration or migration is required beyond `0062_review_scope_notices`.
+
 Release 0.96.0 and plugin 0.59.0 add atomic batches of 1–100 dispositions for one
 assessment and optional progress renewal through its associated review's active
 implementation lease. Migration `0061_batch_dispositions` adds the batch receipt
@@ -334,6 +339,35 @@ registered as a dashboard mutation. Migration `0061_batch_dispositions` admits
 the new receipt kind. Backup integrity checks bind every retained disposition to
 exactly one single or batch receipt and validate batch membership, order and
 consecutive versions. Downgrade refuses to discard existing batch receipts.
+
+`decision_change_candidates(project_id, change_id)` provides a read-only grouped
+view of the change's required code-impact candidates. `decision_count` counts
+stable documents, `revision_count` counts distinct captured revision references,
+and `occurrence_count` counts each candidate in each assessment episode. For example, 191
+required occurrences across six episodes, 71 distinct revisions and 50 documents
+remain 191 separate review obligations.
+`unassessed_count` and `change_required_count` also count required occurrences;
+optional context candidates are excluded from this navigation view. Existing
+completion rules, including remediation for recorded contextual findings, remain.
+
+Each group retains compact occurrences with assessment ID/version, exact
+before/after and candidate references, captured relationship/direction, and latest
+disposition ID/version/result/remediation link. Read the assessment or history for
+the actual evidence, actor and reason. No judgment is copied, inherited or applied
+to another episode. Historical related-only candidates without captured incoming
+direction remain context; live links never reclassify captured scope.
+
+All counts, groups and occurrences in a response share a coherent database
+snapshot and exact `scope_version`/`acknowledged_scope_version`. Whole-change totals
+remain global when filtering `decision_id`; `total` counts selected groups.
+Default pagination is 20 groups and 10 occurrences per group. Both limits accept
+1–100, with `limit * occurrence_limit <= 200`. Follow `next_offset` for groups;
+use a group's stable `decision_id`, `limit=1`, and `next_occurrence_offset` to reach
+its remaining occurrences. `captured_references` derives only from the returned
+occurrence page; `references_complete` and the full `revision_count` explicitly
+show whether more references remain. Reads do not acknowledge scope or change
+Done requirements. REST exposes the same projection at
+`GET /projects/{project_id}/knowledge/changes/{change_id}/candidates`.
 
 ## MCP workflow
 

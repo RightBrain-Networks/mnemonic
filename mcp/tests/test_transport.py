@@ -43,7 +43,7 @@ CANONICAL_TOOL_NAMES = {
     "decision_impact", "decision_assessments", "decision_assessment_get",
     "decision_assessment_history", "decision_assessment_append", "decision_assessment_append_batch",
     "decision_commit_lookup", "decision_scope_reconcile",
-        "decision_change_get", "decision_change_update",
+        "decision_change_get", "decision_change_candidates", "decision_change_update",
     "generate_uuid",
     "help",
     "authorize_artifact_download",
@@ -175,7 +175,7 @@ def test_http_protocol_initialize_list_and_call(settings, work_context):
         initialized = client.post("/mcp", json=INITIALIZE, headers=JSON_HEADERS)
         assert initialized.status_code == 200
         assert initialized.json()["result"]["serverInfo"]["name"] == "Mnemonic"
-        assert initialized.json()["result"]["serverInfo"]["version"] == "0.98.0"
+        assert initialized.json()["result"]["serverInfo"]["version"] == "0.99.0"
         instructions = initialized.json()["result"]["instructions"]
         # Clients truncate this block, so it must stay short and lead with the
         # trigger condition. Per-tool doctrine lives in the tool descriptions.
@@ -204,7 +204,7 @@ def test_http_protocol_initialize_list_and_call(settings, work_context):
         listed = client.post("/mcp", json={"jsonrpc": "2.0", "id": 2, "method": "tools/list"}, headers=JSON_HEADERS)
         assert listed.status_code == 200
         listed_tools = listed.json()["result"]["tools"]
-        assert len(listed_tools) == 77
+        assert len(listed_tools) == 78
         assert_serialized_tool_contract(listed_tools)
         assert all(
             tool["inputSchema"].get("additionalProperties") is False
@@ -471,12 +471,12 @@ async def test_stdio_transport_handshake_and_catalog():
         ):
             initialized = await session.initialize()
             assert initialized.serverInfo.name == "Mnemonic"
-            assert initialized.serverInfo.version == "0.98.0"
+            assert initialized.serverInfo.version == "0.99.0"
             assert initialized.instructions is not None
             assert len(initialized.instructions) <= 1200
             assert "unimplemented" not in initialized.instructions.casefold()
             result = await session.list_tools()
-            assert len(result.tools) == 77
+            assert len(result.tools) == 78
             assert all(tool.outputSchema is not None for tool in result.tools if tool.name != "help")
             assert next(tool for tool in result.tools if tool.name == "help").outputSchema is None
             assert all(

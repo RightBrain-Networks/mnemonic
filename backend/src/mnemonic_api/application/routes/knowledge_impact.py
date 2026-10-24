@@ -8,6 +8,10 @@ from fastapi.responses import JSONResponse
 
 from mnemonic_api.application.mutations import run_registered_mutation
 from mnemonic_api.database import Database, begin_coherent_read
+from mnemonic_api.decision_candidate_schemas import (
+    DecisionChangeCandidatesQuery,
+    DecisionChangeCandidatesRead,
+)
 from mnemonic_api.decision_change_schemas import DecisionChangeRead, DecisionChangeUpdate
 from mnemonic_api.errors import ApplicationError
 from mnemonic_api.impact_schemas import (
@@ -37,6 +41,19 @@ def get_decision_change(
 
     begin_coherent_read(database)
     return read_change(database, require_change(database, project_id, change_id))
+
+
+@router.get(
+    _PREFIX + "/changes/{change_id}/candidates", response_model=DecisionChangeCandidatesRead,
+)
+def get_decision_change_candidates(
+    project_id: UUID, change_id: UUID, database: Database,
+    filters: Annotated[DecisionChangeCandidatesQuery, Query()],
+) -> DecisionChangeCandidatesRead:
+    from mnemonic_api.services.decision_candidates import read_change_candidates
+
+    begin_coherent_read(database)
+    return read_change_candidates(database, project_id, change_id, filters)
 
 
 @router.post(_PREFIX + "/changes", response_model=DecisionChangeRead)

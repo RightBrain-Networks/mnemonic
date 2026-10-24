@@ -1083,6 +1083,13 @@
     {"args":["projects/e36a7e53-938f-4c8a-b75a-af9c7331711a/knowledge/assessments/e36a7e53-938f-4c8a-b75a-af9c7331711a/dispositions/batch","PUT"],"result":null},
     {"args":["projects/e36a7e53-938f-4c8a-b75a-af9c7331711a/knowledge/assessments/e36a7e53-938f-4c8a-b75a-af9c7331711a/dispositions/batch","DELETE"],"result":null},
     {"args":["projects/e36a7e53-938f-4c8a-b75a-af9c7331711a/knowledge/assessments/e36a7e53-938f-4c8a-b75a-af9c7331711a/dispositions/batch","HEAD"],"result":null},
-    {"args":["projects/e36a7e53-938f-4c8a-b75a-af9c7331711a/knowledge/assessments/e36a7e53-938f-4c8a-b75a-af9c7331711a/dispositions/batch","OPTIONS"],"result":null}
+    {"args":["projects/e36a7e53-938f-4c8a-b75a-af9c7331711a/knowledge/assessments/e36a7e53-938f-4c8a-b75a-af9c7331711a/dispositions/batch","OPTIONS"],"result":null},
+    {"args":["projects/e36a7e53-938f-4c8a-b75a-af9c7331711a/knowledge/changes/e36a7e53-938f-4c8a-b75a-af9c7331711a/candidates","GET"],"result":null},
+    {"args":["projects/e36a7e53-938f-4c8a-b75a-af9c7331711a/knowledge/changes/e36a7e53-938f-4c8a-b75a-af9c7331711a/candidates","POST"],"result":null},
+    {"args":["projects/e36a7e53-938f-4c8a-b75a-af9c7331711a/knowledge/changes/e36a7e53-938f-4c8a-b75a-af9c7331711a/candidates","PATCH"],"result":null},
+    {"args":["projects/e36a7e53-938f-4c8a-b75a-af9c7331711a/knowledge/changes/e36a7e53-938f-4c8a-b75a-af9c7331711a/candidates","PUT"],"result":null},
+    {"args":["projects/e36a7e53-938f-4c8a-b75a-af9c7331711a/knowledge/changes/e36a7e53-938f-4c8a-b75a-af9c7331711a/candidates","DELETE"],"result":null},
+    {"args":["projects/e36a7e53-938f-4c8a-b75a-af9c7331711a/knowledge/changes/e36a7e53-938f-4c8a-b75a-af9c7331711a/candidates","HEAD"],"result":null},
+    {"args":["projects/e36a7e53-938f-4c8a-b75a-af9c7331711a/knowledge/changes/e36a7e53-938f-4c8a-b75a-af9c7331711a/candidates","OPTIONS"],"result":null}
   ]
 }
