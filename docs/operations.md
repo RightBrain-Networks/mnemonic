@@ -3,6 +3,15 @@
 Use [unified search](search.md) to retrieve work, artifacts, and transcripts in one
 ranked, filtered, paginated read through REST or MCP.
 
+Release 0.96.0 and plugin 0.59.0 add atomic assessment disposition batches and
+optional renewal of the associated review's active implementation lease during
+fresh disposition writes. Deploy aligned API, worker, MCP and dashboard after
+an authorized backup and migration to `0061_batch_dispositions`. The migration
+extends the receipt-kind constraint; it does not rewrite existing dispositions
+or receipts. Downgrade is refused once batch receipts exist. No new service or
+configuration is required. Token-free writes and exact replays do not renew
+leases. Production deployment remains a separately authorized operation.
+
 Release 0.95.0 and plugin 0.58.0 add opt-in compact decision impact reads. No new
 migration or configuration is required beyond `0060_supersession_reuse`. Existing
 read defaults and stored evidence remain unchanged. Untouched default review
@@ -227,8 +236,8 @@ Migration `0041_artifact_passages` adds rebuildable artifact passage caches; fol
 [semantic artifact upgrade and backfill](artifact-semantic-search.md#coordinated-upgrade).
 Explicit [multi-project search](multi-project-search.md) shares one bounded corpus
 and reports coverage for every selected project.
-Inventory exactly 76 MCP tools,
-24 protected MCP writes, 31 REST receipt kinds, 25 protected browser mutations,
+Inventory exactly 77 MCP tools,
+25 protected MCP writes, 32 REST receipt kinds, 25 protected browser mutations,
 and 24 work-event types. Keep older writers stopped: fresh closeouts still
 require a report and operation UUID, fresh work starts Pending, settings use
 revision checks, and relationship endpoint identity, adjacency, graph guards,

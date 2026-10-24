@@ -1,5 +1,10 @@
 # Knowledge graph
 
+Release 0.96.0 and plugin 0.59.0 add atomic batches of 1–100 dispositions for one
+assessment and optional progress renewal through its associated review's active
+implementation lease. Migration `0061_batch_dispositions` adds the batch receipt
+kind; existing singleton requests and historical receipts retain their behavior.
+
 Release 0.95.0 and plugin 0.58.0 add opt-in compact impact and assessment reads.
 Full defaults and immutable snapshots remain unchanged; the schema stays at
 `0060_supersession_reuse`.
@@ -517,9 +522,9 @@ expose `admit`. REST uses one receipt-protected
 `GET /projects/{project_id}/knowledge/changes/{change_id}` for reads.
 
 Deploy aligned API, worker, MCP and dashboard with migration
-`0060_supersession_reuse`. It preserves historical assessments, dispositions and
+`0061_batch_dispositions`. It preserves historical assessments, dispositions and
 terminal work without creating a review backlog. No new service or environment
-variable is required.
+variable is required. Downgrade is refused after any batch receipt is retained.
 
 Each investigation drives its existing impact-assessment episodes. Start with
 `decision_assessment_get` for the retained diff and candidate pages; the task

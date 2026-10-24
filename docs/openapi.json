@@ -10668,6 +10668,91 @@
         "title": "ImpactDiffRead",
         "type": "object"
       },
+      "ImpactDispositionBatchCreate": {
+        "additionalProperties": false,
+        "properties": {
+          "actor": {
+            "$ref": "#/components/schemas/MutationActor"
+          },
+          "client_operation_id": {
+            "format": "uuid",
+            "title": "Client Operation Id",
+            "type": "string"
+          },
+          "expected_version": {
+            "minimum": 0.0,
+            "title": "Expected Version",
+            "type": "integer"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ImpactDispositionItem"
+            },
+            "maxItems": 100,
+            "minItems": 1,
+            "title": "Items",
+            "type": "array"
+          },
+          "lease_token": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lease Token"
+          }
+        },
+        "required": [
+          "expected_version",
+          "items",
+          "actor",
+          "client_operation_id"
+        ],
+        "title": "ImpactDispositionBatchCreate",
+        "type": "object"
+      },
+      "ImpactDispositionBatchRead": {
+        "additionalProperties": false,
+        "properties": {
+          "assessment_id": {
+            "format": "uuid",
+            "title": "Assessment Id",
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ImpactDispositionRead"
+            },
+            "maxItems": 100,
+            "minItems": 1,
+            "title": "Items",
+            "type": "array"
+          },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "version": {
+            "minimum": 1.0,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "project_id",
+          "assessment_id",
+          "version",
+          "items"
+        ],
+        "title": "ImpactDispositionBatchRead",
+        "type": "object"
+      },
       "ImpactDispositionCreate": {
         "additionalProperties": false,
         "properties": {
@@ -10699,6 +10784,19 @@
             "title": "Expected Version",
             "type": "integer"
           },
+          "lease_token": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lease Token"
+          },
           "reason": {
             "maxLength": 4000,
             "minLength": 1,
@@ -10720,13 +10818,58 @@
         },
         "required": [
           "candidate_reference",
-          "expected_version",
           "disposition",
           "reason",
+          "expected_version",
           "actor",
           "client_operation_id"
         ],
         "title": "ImpactDispositionCreate",
+        "type": "object"
+      },
+      "ImpactDispositionItem": {
+        "additionalProperties": false,
+        "properties": {
+          "candidate_reference": {
+            "pattern": "^[A-Z]{1,5}-[0-9]{5,19}-[0-9]{1,10}$",
+            "title": "Candidate Reference",
+            "type": "string"
+          },
+          "disposition": {
+            "enum": [
+              "still-valid",
+              "change-required",
+              "not-affected",
+              "resolved"
+            ],
+            "title": "Disposition",
+            "type": "string"
+          },
+          "reason": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          },
+          "remediation_work_item_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Remediation Work Item Id"
+          }
+        },
+        "required": [
+          "candidate_reference",
+          "disposition",
+          "reason"
+        ],
+        "title": "ImpactDispositionItem",
         "type": "object"
       },
       "ImpactDispositionProjection": {
@@ -21890,7 +22033,7 @@
   "info": {
     "description": "Durable project-scoped work with immutable agent checkpoints.",
     "title": "Mnemonic API",
-    "version": "0.95.0"
+    "version": "0.96.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -24446,6 +24589,71 @@
           }
         ],
         "summary": "Assess Decision Impact"
+      }
+    },
+    "/api/v1/projects/{project_id}/knowledge/assessments/{assessment_id}/dispositions/batch": {
+      "post": {
+        "operationId": "assess_decision_impact_batch_api_v1_projects__project_id__knowledge_assessments__assessment_id__dispositions_batch_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "assessment_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Assessment Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImpactDispositionBatchCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImpactDispositionBatchRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Assess Decision Impact Batch"
       }
     },
     "/api/v1/projects/{project_id}/knowledge/changes": {

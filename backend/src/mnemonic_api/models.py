@@ -189,8 +189,8 @@ class ClientOperation(Base):
             "'dismiss_job_completion_report', 'create_job_completion_report_follow_up', "
             "'respond_to_work_follow_up', 'complete_code_review', 'create_knowledge_domain', "
             "'rename_knowledge_domain', 'put_decision', 'append_decision_scope', "
-            "'assess_decision_impact', 'assess_decision_impact_batch', "
-            "'reconcile_decision_scope', 'update_decision_change')",
+            "'assess_decision_impact', 'reconcile_decision_scope', 'update_decision_change', "
+            "'assess_decision_impact_batch')",
             name="operation_kind_valid",
         ),
         CheckConstraint(
