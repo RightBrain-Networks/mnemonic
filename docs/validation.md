@@ -1,5 +1,32 @@
 # Mnemonic validation record
 
+## Shared impact findings and remediation targets (0.102.0)
+
+Optional finding IDs group explicitly established causes across candidate rows
+and episodes. Change-required dispositions can identify code, decision records,
+or both as their remediation target. Summaries retain separate named-finding,
+unlabelled-row and total-row counts; every candidate obligation remains intact.
+Migration `0063_impact_findings` adds nullable metadata without rewriting legacy
+receipts and refuses downgrade when authored metadata would be lost.
+
+The full backend run passed 5,572 tests with one inherited reset-fixture failure:
+it reconciled a repository using the pre-normalized spelling. After using the
+stored identity, all 80 reset/audit checks passed. The full MCP suite passed
+2,573 tests. Integration regressions passed 106 backend and 111 MCP cases,
+covering batch metadata, ordered versions, exact retry, atomic rollback, compact
+and grouped reads, legacy receipt restoration, forged metadata rejection and
+private-token echo refusal without renewal. Another 102 focused backend checks
+cover migration/restore catalogs, schema parity, prompts and finding storage.
+
+The dashboard passes 639 tests, types and build. Eight desktop/narrow impact
+scenarios and both focused screenshot scenarios pass, including an interrupted
+save with frozen finding/target fields and byte-identical retry. The isolated
+stack's backup fault/recovery checks also pass. Reviewed screenshots are linked
+from the knowledge documentation. Backend/MCP Ruff and types, OpenAPI, 71 plugin
+tests (one optional external CLI check skipped) and gitleaks pass. Fresh and
+restored database catalogs report zero integrity findings. No production
+services changed.
+
 ## Explicit GitHub repository identities (0.101.0)
 
 Release 0.101.0 and plugin 0.64.0 canonicalize supported GitHub slugs and HTTP(S)
