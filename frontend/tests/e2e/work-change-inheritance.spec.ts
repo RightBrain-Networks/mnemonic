@@ -17,7 +17,7 @@ test("declared-origin inheritance exclusions remain readable after refresh and c
     } });
     expect(checkpointResponse.ok(), await checkpointResponse.text()).toBe(true);
     const checkpoint = await checkpointResponse.json();
-    const reason = "Independent follow-up <script>window.inheritanceInjected = true</script>\nKeep discovery evidence.";
+    const reason = "Independent follow-up <script>window.inheritanceInjected = true</script>\nKeep discovery evidence.\nReference: " + "f".repeat(100);
     const intent = {
       title: "Independent tooling follow-up", summary: "Improve review tooling while retaining its discovery source.",
       discovered_from_work_item_id: origin.id, inherit_decision_change: false,
@@ -44,6 +44,8 @@ test("declared-origin inheritance exclusions remain readable after refresh and c
       await expect(panel.locator("code").filter({ hasText: origin.id })).toBeVisible();
       await expect(panel.locator("code").filter({ hasText: checkpoint.id })).toBeVisible();
       await expect(panel.locator(".preserve-whitespace")).toHaveText(reason);
+      await expect(panel.locator(".preserve-whitespace")).toHaveCSS("white-space", "pre-wrap");
+      await expect(panel.locator(".preserve-whitespace")).toHaveCSS("overflow-wrap", "anywhere");
       await expect(panel.getByText("Other discovery paths and explicit adoption still apply.")).toBeVisible();
       expect(await page.evaluate(() => "inheritanceInjected" in window)).toBe(false);
     }

@@ -614,6 +614,10 @@ receipt/edge seal are introduced by migration `0064_work_change_inheritance`,
 without backfill. Exclusions follow their child work in project backups; restore
 checks retain the original receipt, selected checkpoint and reason.
 
+The dashboard retains this explanation after refresh and completion. These
+isolated acceptance fixtures show literal text, preserved newlines and wrapping
+of long references: [desktop](images/work-change-inheritance/desktop.png) and
+[narrow](images/work-change-inheritance/narrow.png).
 
 The task card displays **DECISION IMPACT REVIEW**. Its initial checkpoint records the
 exact previous and replacement revision references, source project, impact
