@@ -345,7 +345,7 @@ for generated investigations. The marker is immutable and uniquely identifies
 the triggering decision revision; ordinary work has no marker. No new MCP
 tool or specialized work lifecycle is introduced.
 
-Deploy aligned API, worker, MCP, and dashboard 0.91.0 with migration
+Deploy aligned API, worker, MCP, and dashboard 0.91.1 with migration
 `0057_automatic_decision_reviews` after the normal authorized backup and
 migration procedure and plugin 0.54.0. The migration adds
 default-off settings and the nullable work marker; it creates no historical

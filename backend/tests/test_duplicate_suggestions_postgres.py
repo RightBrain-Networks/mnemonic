@@ -912,6 +912,48 @@ def test_ten_thousand_cached_members_find_dense_only_candidate_beyond_lexical_ca
         ) == 10_000
 
 
+def test_large_lexical_selection_avoids_quadratic_row_comparisons(
+    api, project, postgres_engine
+):
+    population = 10_001
+    bulk_save(
+        postgres_engine,
+        project["id"],
+        count=population,
+        title_prefix="Oversize lexical candidate",
+    )
+    with postgres_engine.connect() as connection:
+        plan = connection.scalar(
+            text(
+                "EXPLAIN (ANALYZE, FORMAT JSON, TIMING OFF) "
+                + suggestion_service._LEXICAL_GROUPS_SQL
+            ),
+            {
+                "project_id": UUID(project["id"]),
+                "title": "oversize lexical",
+                "excluded_root_id": None,
+                "shortlist_limit": 200,
+                "body_chars": suggestion_service.EMBED_BODY_CHARS,
+                "tail_chars": suggestion_service.EMBED_COMMENT_CHARS,
+                "tag_limit": suggestion_service.SUGGESTION_TAG_LIMIT,
+                "query_text": "oversize lexical",
+                "rank_normalization": suggestion_service.TS_RANK_NORMALIZATION,
+            },
+        )[0]["Plan"]
+    assert plan["Actual Rows"] == 200
+    # Check actual row work, not elapsed time or a particular join strategy. The
+    # regression compared every matching root with every group (100M+ pairs).
+    pending = [plan]
+    while pending:
+        node = pending.pop()
+        examined = sum(
+            node.get(key, 0)
+            for key in ("Actual Rows", "Rows Removed by Filter", "Rows Removed by Join Filter")
+        ) * node["Actual Loops"]
+        assert examined < population * 50, node
+        pending.extend(node.get("Plans", []))
+
+
 def test_project_above_full_ceiling_uses_sql_bounded_shortlist(
     api, project, postgres_engine, monkeypatch
 ):
@@ -1031,7 +1073,12 @@ def test_alias_heavy_exact_members_group_before_public_limit(
 ):
     root = save(api, project, work_payload, title="Shared exact candidate")
     aliases = [
-        save(api, project, work_payload, title="Shared exact candidate")
+        save(
+            api,
+            project,
+            work_payload,
+            title="Shared exact candidate" if _index < 6 else "Orthogonal record",
+        )
         for _index in range(12)
     ]
     standalone = [

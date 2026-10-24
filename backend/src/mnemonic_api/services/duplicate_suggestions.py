@@ -136,6 +136,8 @@ WHERE work.id = ANY(CAST(:work_item_ids AS uuid[]))
   AND work.deleted_at IS NULL
 """
 
+# Carry group sizes with each member so ranking cannot rejoin all candidate roots
+# to all group counts when PostgreSQL underestimates the number of matches.
 _ROOT_MAP_CTES = """
 visible_ids AS MATERIALIZED (
     SELECT id
@@ -155,7 +157,12 @@ visible_ids AS MATERIALIZED (
       ON destination.id = duplicate.destination_work_item_id
     WHERE walk.depth < 50
 ), root_map AS MATERIALIZED (
-    SELECT walk.member_id, walk.current_id AS root_id
+    SELECT walk.member_id,
+           walk.current_id AS root_id,
+           CAST(
+               pg_catalog.count(*) OVER (PARTITION BY walk.current_id) - 1
+               AS integer
+           ) AS duplicate_member_count
     FROM canonical_walk AS walk
     WHERE NOT EXISTS (
         SELECT 1
@@ -163,10 +170,6 @@ visible_ids AS MATERIALIZED (
         WHERE outgoing.project_id = CAST(:project_id AS uuid)
           AND outgoing.source_work_item_id = walk.current_id
     )
-), group_counts AS MATERIALIZED (
-    SELECT root_id, CAST(pg_catalog.count(*) - 1 AS integer) AS duplicate_member_count
-    FROM root_map
-    GROUP BY root_id
 )
 """
 
@@ -187,6 +190,7 @@ exact_visible AS MATERIALIZED (
 ), ranked_exact AS (
     SELECT roots.root_id,
            exact_visible.id AS matched_member_id,
+           roots.duplicate_member_count,
            pg_catalog.row_number() OVER (
                PARTITION BY roots.root_id
                ORDER BY exact_visible.updated_at DESC, exact_visible.id ASC
@@ -196,7 +200,7 @@ exact_visible AS MATERIALIZED (
     WHERE CAST(:excluded_root_id AS uuid) IS NULL
        OR roots.root_id <> CAST(:excluded_root_id AS uuid)
 ), exact_groups AS MATERIALIZED (
-    SELECT root_id, matched_member_id
+    SELECT root_id, matched_member_id, duplicate_member_count
     FROM ranked_exact
     WHERE member_rank = 1
 ), totals AS (
@@ -214,15 +218,16 @@ FROM totals
 LEFT JOIN LATERAL (
     SELECT exact_groups.root_id,
            exact_groups.matched_member_id,
-           group_counts.duplicate_member_count
+           exact_groups.duplicate_member_count
     FROM exact_groups
-    JOIN group_counts ON group_counts.root_id = exact_groups.root_id
     JOIN work_items AS root ON root.id = exact_groups.root_id
     ORDER BY root.updated_at DESC, root.id ASC
     LIMIT CAST(:public_limit AS integer)
 ) AS candidate ON true
 """
 
+# Materialize composed documents before ranking: inlining their correlated
+# checkpoint reads can make a low match estimate produce quadratic member joins.
 _LEXICAL_GROUPS_SQL = f"""
 WITH RECURSIVE {_ROOT_MAP_CTES},
 exact_visible AS MATERIALIZED (
@@ -238,7 +243,7 @@ exact_visible AS MATERIALIZED (
     JOIN root_map AS roots ON roots.member_id = exact_visible.id
 ), bounded AS (
     {_PROJECT_BOUNDED_TEXT_SQL}
-), documents AS (
+), documents AS MATERIALIZED (
     SELECT work.id,
            work.updated_at,
            pg_catalog.setweight(
@@ -282,6 +287,7 @@ exact_visible AS MATERIALIZED (
 ), scored AS (
     SELECT roots.root_id,
            documents.id AS matched_member_id,
+           roots.duplicate_member_count,
            documents.updated_at AS matched_updated_at,
            pg_catalog.ts_rank_cd(
                documents.document,
@@ -311,9 +317,8 @@ exact_visible AS MATERIALIZED (
 )
 SELECT ranked.root_id,
        ranked.matched_member_id,
-       group_counts.duplicate_member_count
+       ranked.duplicate_member_count
 FROM ranked
-JOIN group_counts ON group_counts.root_id = ranked.root_id
 JOIN work_items AS root ON root.id = ranked.root_id
 WHERE ranked.member_rank = 1
 ORDER BY ranked.score DESC, root.updated_at DESC, root.id ASC
