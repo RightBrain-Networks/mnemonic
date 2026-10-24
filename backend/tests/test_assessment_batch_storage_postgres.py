@@ -5,7 +5,9 @@ from copy import deepcopy
 from uuid import UUID
 
 import pytest
+from sqlalchemy import event
 
+from mnemonic_api.models import DecisionChangeAssessment
 from mnemonic_backup.archive import BackupError, restore_project
 
 from .test_assessment_batch_postgres import audit_dispositions, batch_body, endpoint, episode
@@ -27,7 +29,16 @@ def saved_batch(api, project):
 def test_batch_backup_roundtrip_retains_exact_replay_and_blocks_lossy_downgrade(
     api, project, postgres_engine,
 ):
-    url, body, response = saved_batch(api, project)
+    # Preserve pre-0062 unknown attachment ordinals so this exercises the batch
+    # receipt guard, rather than the newer scope-order loss guard tested separately.
+    def historical_attachment(_mapper, _connection, attachment):
+        attachment.attachment_scope_version = None
+
+    event.listen(DecisionChangeAssessment, "before_insert", historical_attachment)
+    try:
+        url, body, response = saved_batch(api, project)
+    finally:
+        event.remove(DecisionChangeAssessment, "before_insert", historical_attachment)
     archive = _export(postgres_engine, project)
     restore_project(postgres_engine, UUID(project["id"]), io.BytesIO(archive))
     audit_dispositions(postgres_engine)

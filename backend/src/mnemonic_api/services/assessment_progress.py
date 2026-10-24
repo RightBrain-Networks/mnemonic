@@ -15,7 +15,7 @@ from mnemonic_api.services.work_items import require_work_item
 
 def renew_assessment_progress(
     database: Session, assessment_id: UUID, lease_token: str | None,
-) -> None:
+) -> UUID | None:
     if lease_token is None:
         return
     # The mutation's discovered project/topology fences protect all current drivers,
@@ -34,5 +34,5 @@ def renew_assessment_progress(
             require_canonical_work_item(database, work)
             if work.status != "pending":
                 raise conflict("decision_change_closed", "The associated review is not active.")
-            return
+            return work.id
     raise conflict("lease_token_mismatch", "Supply the associated review's active capability.")

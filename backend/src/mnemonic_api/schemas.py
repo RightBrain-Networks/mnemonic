@@ -68,6 +68,7 @@ from mnemonic_api.product_decision_schemas import (
     HumanGateDecisionRead,
     validate_gate_decision,
 )
+from mnemonic_api.review_scope_schemas import ReviewScopeChanged
 from mnemonic_api.search_diagnostics import TermDiagnostics
 from mnemonic_api.search_disclosure import SearchDisclosure
 from mnemonic_api.search_exploration_schemas import SearchOptions
@@ -2217,6 +2218,9 @@ class WorkMoveRead(APIModel):
 
 
 class CheckpointRead(APIModel):
+    review_scope_changed: ReviewScopeChanged | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
     id: UUID
     work_item_id: UUID
     kind: CheckpointKind
@@ -2247,6 +2251,13 @@ class CheckpointRead(APIModel):
     @field_serializer("created_at")
     def utc_time(self, value: datetime) -> str:
         return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
+
+    @model_validator(mode="after")
+    def notice_matches_work(self) -> Self:
+        if (self.review_scope_changed is not None
+                and self.review_scope_changed.review_work_item_id != self.work_item_id):
+            raise ValueError("A scope notice must identify this implementation review work")
+        return self
 
 
 class CompletionCheckpointRead(CheckpointRead):
@@ -2619,6 +2630,9 @@ class DashboardLeaseObservation(APIModel):
 
 
 class ClaimReceipt(LeasePublic):
+    review_scope_changed: ReviewScopeChanged | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
     work_item_id: UUID
     claim_request_id: str
     lease_token: str = Field(repr=False)
@@ -2639,6 +2653,14 @@ class ClaimReceipt(LeasePublic):
             raise ValueError("Review claim requires generation, revision and scope hash")
         if self.purpose == "implementation" and any(value is not None for value in fields):
             raise ValueError("Implementation claim cannot carry review capability fields")
+        return self
+
+    @model_validator(mode="after")
+    def notice_matches_work(self) -> Self:
+        if (self.review_scope_changed is not None
+                and (self.review_scope_changed.review_work_item_id != self.work_item_id
+                     or self.purpose == "code_review")):
+            raise ValueError("A scope notice must identify this implementation review work")
         return self
 
 
@@ -2733,12 +2755,27 @@ class CanonicalWorkProjection(APIModel):
 
 
 class WorkStatusRead(APIModel):
+    review_scope_changed: ReviewScopeChanged | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
     work_item_id: UUID
     project_id: UUID
     status: Status
     version: Annotated[StrictInt, Field(ge=1)]
     readiness: Readiness
     lease_settings: LeaseSettingsRead
+
+    @model_validator(mode="after")
+    def notice_matches_work(self) -> Self:
+        lease = self.readiness.active_lease
+        if self.review_scope_changed is not None and lease is not None and (
+            lease.purpose == "code_review"
+        ):
+            raise ValueError("Code-review status cannot expose decision-review notices")
+        if (self.review_scope_changed is not None
+                and self.review_scope_changed.review_work_item_id != self.work_item_id):
+            raise ValueError("A scope notice must identify this implementation review work")
+        return self
 
 
 class WorkItemDetailRead(APIModel):
@@ -3572,6 +3609,9 @@ def _work_released_metadata(
 
 
 class WorkEventRead(APIModel):
+    review_scope_changed: ReviewScopeChanged | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
     code_review_id: UUID | SkipJsonSchema[None] = Field(
         default=None, exclude_if=lambda value: value is None,
     )
@@ -3814,6 +3854,13 @@ class WorkEventRead(APIModel):
     @field_serializer("created_at")
     def utc_time(self, value: datetime) -> str:
         return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
+
+    @model_validator(mode="after")
+    def notice_matches_work(self) -> Self:
+        if (self.review_scope_changed is not None
+                and self.review_scope_changed.review_work_item_id != self.work_item_id):
+            raise ValueError("A scope notice must identify this implementation review work")
+        return self
 
 
 class WorkEventPage(APIModel):

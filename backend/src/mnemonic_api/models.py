@@ -2562,10 +2562,12 @@ class DecisionSupersessionReuse(Base):
 
 class DecisionChangeAssessment(Base):
     __table__ = Table("decision_change_assessments", Base.metadata,
-                      *decision_changes.assessment_elements())
+                      *decision_changes.assessment_elements(),
+                      *decision_changes.scope_attachment_elements())
 
     change_id: Mapped[UUID]
     assessment_id: Mapped[UUID]
+    attachment_scope_version: Mapped[int | None]
     created_at: Mapped[datetime]
 
 

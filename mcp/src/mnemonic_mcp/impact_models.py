@@ -15,9 +15,11 @@ from pydantic import (
     model_validator,
 )
 from pydantic.experimental.missing_sentinel import MISSING
+from pydantic.json_schema import SkipJsonSchema
 
 from .provenance_models import CommitHash, RepositoryIdentity, ScopeCompletionCitation, nonblank
 from .response_validation import validate_page_items
+from .review_scope_models import ReviewScopeChanged
 from .revision_author_models import RevisionAuthorContext, RevisionAuthorWork
 
 
@@ -311,6 +313,9 @@ class ImpactDispositionRead(ImpactModel):
     remediation_work_item_id: UUID | None
     actor: ImpactActor
     created_at: datetime
+    review_scope_changed: ReviewScopeChanged | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
 
 
 class ImpactDispositionBatchRequest(ImpactModel):
@@ -336,9 +341,14 @@ class ImpactDispositionBatchRead(ImpactModel):
     assessment_id: UUID
     version: Annotated[StrictInt, Field(ge=1)]
     items: Annotated[list[ImpactDispositionRead], Field(min_length=1, max_length=100)]
+    review_scope_changed: ReviewScopeChanged | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
 
     @model_validator(mode="after")
     def coherent_items(self) -> Self:
+        if any(item.review_scope_changed is not None for item in self.items):
+            raise ValueError("Batch scope notices belong only to the top-level result")
         if len({item.id for item in self.items}) != len(self.items) or len({
             item.candidate_reference for item in self.items
         }) != len(self.items):

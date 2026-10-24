@@ -166,6 +166,7 @@ def _register_assessment_writes(server: FastMCP, api: MnemonicAPI) -> None:
             lambda item: (item.project_id, item.assessment_id, item.version)
             == (project_id, assessment_id, expected_version + 1)
             and item.actor == intent.actor
+            and (item.review_scope_changed is None or lease_token is not None)
             and all(getattr(item, key) == value for key, value in intent.model_dump(
                 exclude={"client_operation_id", "expected_version", "actor", "lease_token"},
             ).items()),
@@ -181,6 +182,7 @@ def _batch_matches(
         (result.project_id, result.assessment_id, result.version)
         == (project_id, assessment_id, intent.expected_version + len(intent.items))
         and len(result.items) == len(intent.items)
+        and (result.review_scope_changed is None or intent.lease_token is not None)
         and all(actual.actor == intent.actor and all(
             getattr(actual, key) == getattr(expected, key)
             for key in ("candidate_reference", "disposition", "reason", "remediation_work_item_id")

@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 from typing import Literal, cast
 from uuid import UUID
 
+from pydantic import JsonValue
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
@@ -14,10 +15,12 @@ from mnemonic_api.models import (
     DecisionChangeAssessment,
     DecisionChangeWork,
     DecisionImpactAssessment,
+    DecisionRevision,
     DecisionRevisionChange,
     WorkDuplicateMerge,
     WorkItem,
 )
+from mnemonic_api.review_scope_schemas import ReviewScopeChanged
 
 
 def require_change(database: Session, project_id: UUID, change_id: UUID) -> DecisionChange:
@@ -154,7 +157,10 @@ def bind_work(database: Session, work_id: UUID, change_id: UUID) -> None:
                                    "decision_review_project_id", "decision_change_projects"])
 
 
-def scope_checkpoint(database: Session, change: DecisionChange, message: str) -> None:
+def scope_checkpoint(
+    database: Session, change: DecisionChange, message: str,
+    *, metadata: dict[str, JsonValue] | None = None,
+) -> None:
     if change.review_work_item_id is None:
         return
     from mnemonic_api.schemas import CheckpointCreate
@@ -167,30 +173,31 @@ def scope_checkpoint(database: Session, change: DecisionChange, message: str) ->
         source_client="mnemonic", source_session_id=f"decision-change:{change.id}",
         tags=["decision-impact-review"],
         source_metadata={"decision_change_id": str(change.id),
-                         "scope_version": change.scope_version},
+                         "scope_version": change.scope_version, **(metadata or {})},
     ))
 
 
 def attach_assessments(
     database: Session, change: DecisionChange, episodes: list[DecisionImpactAssessment],
-) -> None:
-    additions = [row for row in episodes
-                 if database.get(DecisionChangeAssessment, (change.id, row.id)) is None]
+    *, causing_revision: DecisionRevision | None = None,
+) -> ReviewScopeChanged | None:
+    previous_ids = list(database.scalars(select(DecisionChangeAssessment.assessment_id).where(
+        DecisionChangeAssessment.change_id == change.id,
+    )))
+    additions = list({row.id: row for row in episodes if row.id not in set(previous_ids)}.values())
     if not additions:
-        return
+        return None
     require_open(database, change)
-    for row in additions:
-        database.add(DecisionChangeAssessment(change_id=change.id, assessment_id=row.id))
+    for index, row in enumerate(additions, start=change.scope_version + 1):
+        database.add(DecisionChangeAssessment(
+            change_id=change.id, assessment_id=row.id, attachment_scope_version=index,
+        ))
     change.scope_version += len(additions)
     change.updated_at = datetime.now(UTC)
-    scope_checkpoint(
-        database, change,
-        f"Decision change {change.id} scope extended to version {change.scope_version}. "
-        "Read decision_change_get, page decision_assessments with this change_id, and "
-        "acknowledge this scope version before completing. Added assessments: "
-        + ", ".join(str(row.id) for row in additions),
-    )
     database.flush()
+    from mnemonic_api.services.decision_scope_checkpoints import growth_checkpoint
+
+    return growth_checkpoint(database, change, additions, previous_ids, causing_revision)
 
 
 def require_merge_scope_adopted(database: Session, source: WorkItem, destination: WorkItem) -> None:

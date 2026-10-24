@@ -892,6 +892,7 @@ async def test_tool_catalog_operation_and_claim_schemas(settings):
         assert "lease_token" not in properties
 
     receipt_fields = {
+        "review_scope_changed",
         "purpose", "code_review_id", "mode", "lease_generation_id", "code_review_version",
         "scope_sha256",
         "work_item_id",

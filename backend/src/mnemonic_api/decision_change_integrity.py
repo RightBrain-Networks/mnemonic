@@ -4,6 +4,19 @@ from mnemonic_api.supersession_reuse_integrity import SUPERSESSION_REUSE_FINDING
 
 DECISION_CHANGE_FINDINGS = {
     **SUPERSESSION_REUSE_FINDINGS,
+
+    "invalid_decision_scope_attachment_versions": """
+        SELECT count(*) FROM (
+            SELECT change_id, count(*) total,
+                   count(*) FILTER (WHERE attachment_scope_version IS NULL) unknown,
+                   min(attachment_scope_version) first_known,
+                   max(attachment_scope_version) last_known,
+                   count(attachment_scope_version) known,
+                   count(DISTINCT attachment_scope_version) distinct_known
+            FROM decision_change_assessments GROUP BY change_id
+        ) bindings WHERE known <> distinct_known
+          OR (known > 0 AND (first_known <> unknown + 1 OR last_known <> total))
+    """,
     "unadmitted_held_decision_assessments": """
         SELECT count(*) FROM decision_impact_assessments assessment
         JOIN decision_revision_changes classification

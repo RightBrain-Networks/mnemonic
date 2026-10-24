@@ -1,3 +1,4 @@
+import { validReviewScopeNotice } from "./review-scope-notices.ts";
 import type { Checkpoint, CheckpointPointer, Page } from "./types.ts";
 import { validAffectedPaths } from "./affected-paths.ts";
 import {
@@ -24,10 +25,10 @@ const CHECKPOINT_POINTER_FIELDS = [
 const CHECKPOINT_RESPONSE_FIELDS = [
   "id", "work_item_id", "kind", "prompt", "source_client", "source_session_id",
   "source_model", "source_session_url", "repository_branch", "verified_against", "tags",
-  "affected_paths", "source_metadata", "migration_origin", "legacy_record_id", "created_at"
+  "affected_paths", "source_metadata", "migration_origin", "legacy_record_id", "created_at", "review_scope_changed"
 ] as const;
 const CHECKPOINT_REQUIRED_RESPONSE_FIELDS = CHECKPOINT_RESPONSE_FIELDS.filter(
-  (field) => field !== "affected_paths"
+  (field) => field !== "affected_paths" && field !== "review_scope_changed"
 );
 
 export const CHECKPOINT_DECODER_FIELDS = {
@@ -78,10 +79,12 @@ export function decodeCheckpoint(
     !checkpoint
     || !exactKeys(
       checkpoint,
-      hasAffectedPaths ? CHECKPOINT_RESPONSE_FIELDS : CHECKPOINT_REQUIRED_RESPONSE_FIELDS
+      [...CHECKPOINT_REQUIRED_RESPONSE_FIELDS, ...(hasAffectedPaths ? ["affected_paths"] : []),
+        ...(Object.hasOwn(checkpoint, "review_scope_changed") ? ["review_scope_changed"] : [])]
     )
     || !validUuid(checkpoint.id)
     || !sameUuid(checkpoint.work_item_id, workItemId)
+    || Object.hasOwn(checkpoint, "review_scope_changed") && !validReviewScopeNotice(checkpoint.review_scope_changed, workItemId)
     || typeof checkpoint.kind !== "string"
     || !CHECKPOINT_KINDS.has(checkpoint.kind)
     || (expectedKind !== undefined && checkpoint.kind !== expectedKind)

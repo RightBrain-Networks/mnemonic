@@ -37,6 +37,7 @@ from mnemonic_api.models import (
     DecisionSupersessionReuse,
     KnowledgeDomain,
 )
+from mnemonic_api.review_scope_schemas import ExtendedDecisionReview
 from mnemonic_api.services.assessment_progress import renew_assessment_progress
 from mnemonic_api.services.decision_dependencies import superseded_ids
 from mnemonic_api.services.decision_impact_graph import (
@@ -45,6 +46,7 @@ from mnemonic_api.services.decision_impact_graph import (
     reference,
     traverse,
 )
+from mnemonic_api.services.decision_scope_notices import extended_review, pending_scope_notice
 from mnemonic_api.services.decision_supersession_reuse import reusable_supersession, same_evidence
 from mnemonic_api.services.impact_read_projections import (
     author_read,
@@ -189,7 +191,7 @@ def create_assessments(
     revision: DecisionRevision,
     payload: DecisionPutRequest,
     *, hold_closed: bool = False, admitted_change: DecisionChange | None = None,
-) -> None:
+) -> ExtendedDecisionReview | None:
     from mnemonic_api.services import knowledge
     from mnemonic_api.services.decision_change_classification import classify_revision
     from mnemonic_api.services.decision_changes import attach_assessments, require_open
@@ -239,9 +241,10 @@ def create_assessments(
         ))
     episodes = _reuse_identical_assessments(database, change.id, episodes, revision)
     database.flush()
-    attach_assessments(database, change, episodes)
+    notice = attach_assessments(database, change, episodes, causing_revision=revision)
     from mnemonic_api.services.decision_reviews import create_decision_review
     create_decision_review(database, document, revision, episodes, change=change)
+    return extended_review(database, notice) if notice is not None else None
 
 
 def _reuse_identical_assessments(
@@ -480,15 +483,18 @@ def disposition_history(
 def append_disposition(
     database: Session, project_id: UUID, assessment_id: UUID, payload: ImpactDispositionRequest
 ) -> ImpactDispositionRead:
-    renew_assessment_progress(database, assessment_id, payload.lease_token)
-    return _append_disposition(database, project_id, assessment_id, payload)
+    work_id = renew_assessment_progress(database, assessment_id, payload.lease_token)
+    result = _append_disposition(database, project_id, assessment_id, payload)
+    if work_id is not None:
+        result.review_scope_changed = pending_scope_notice(database, work_id)
+    return result
 
 
 def append_disposition_batch(
     database: Session, project_id: UUID, assessment_id: UUID,
     payload: ImpactDispositionBatchRequest,
 ) -> ImpactDispositionBatchRead:
-    renew_assessment_progress(database, assessment_id, payload.lease_token)
+    work_id = renew_assessment_progress(database, assessment_id, payload.lease_token)
     items = [_append_disposition(database, project_id, assessment_id, ImpactDispositionRequest(
         **item.model_dump(), actor=payload.actor,
         expected_version=payload.expected_version + offset,
@@ -496,6 +502,8 @@ def append_disposition_batch(
     return ImpactDispositionBatchRead(
         project_id=project_id, assessment_id=assessment_id,
         version=payload.expected_version + len(items), items=items,
+        review_scope_changed=(pending_scope_notice(database, work_id)
+                              if work_id is not None else None),
     )
 
 

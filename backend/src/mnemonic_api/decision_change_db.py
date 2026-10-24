@@ -125,3 +125,12 @@ def supersession_reuse_elements() -> list:
             ondelete="RESTRICT", name=f"fk_{table}_{name}",
         ))
     return elements
+
+def scope_attachment_elements() -> list:
+    """Added in 0062; keep 0058's original table definition unchanged."""
+    return [
+        sa.Column("attachment_scope_version", sa.Integer, nullable=True),
+        sa.CheckConstraint("attachment_scope_version > 0", name="attachment_scope_version"),
+        sa.UniqueConstraint("change_id", "attachment_scope_version",
+                            name="uq_decision_change_attachment_scope_version"),
+    ]

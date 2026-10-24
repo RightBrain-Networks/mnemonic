@@ -21,6 +21,7 @@ from .decision_change_models import DecisionChangeInput, DecisionRevisionChange
 from .impact_models import DecisionDependency, SupersessionDetail
 from .provenance_models import CommitHash, RepositoryIdentity, ScopeCompletionCitation
 from .response_validation import validate_page_items
+from .review_scope_models import ExtendedDecisionReview
 
 
 class KnowledgeModel(BaseModel):
@@ -217,8 +218,22 @@ class DecisionTextRead(DecisionRead):
 
 
 class DecisionPutResult(KnowledgeModel):
+    extended_review: ExtendedDecisionReview | None = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
     decision: DecisionRead
     created: StrictBool
+
+
+    @model_validator(mode="after")
+    def extension_matches_change(self) -> Self:
+        if self.extended_review is not None and (
+            not self.created or self.decision.change is None
+            or self.extended_review.review_scope_changed.project_id != self.decision.project_id
+            or self.extended_review.review_scope_changed.change_id != self.decision.change.change_id
+        ):
+            raise ValueError("An extended review must belong to this fresh decision change")
+        return self
 
 
 class DecisionListQuery(KnowledgePagination):

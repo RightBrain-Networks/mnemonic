@@ -64,6 +64,7 @@ from .pdr_models import HumanGateDecisionMetadata, product_decision_hash
 from .phase12_models import JobCompletionReportRead, reject_null_report
 from .precedence_models import DependencyIssue
 from .response_validation import validate_page_bounds, validate_page_items
+from .review_scope_models import ReviewScopeChanged
 from .search_diagnostics import TermDiagnostics
 from .search_disclosure import SearchDetail, SearchDisclosure
 from .search_pagination import SearchPagination
@@ -1239,6 +1240,9 @@ class CheckpointInput(BaseModel):
 
 
 class CheckpointRead(CanonicalResponse):
+    review_scope_changed: ReviewScopeChanged | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
     id: UUID
     work_item_id: UUID
     kind: CheckpointKind
@@ -1270,6 +1274,13 @@ class CheckpointRead(CanonicalResponse):
     def require_baseline_for_scope(self) -> Self:
         if self.affected_paths and self.verified_against is None:
             raise ValueError("Affected paths require a verified_against commit declaration.")
+        return self
+
+    @model_validator(mode="after")
+    def notice_matches_work(self) -> Self:
+        if (self.review_scope_changed is not None
+                and self.review_scope_changed.review_work_item_id != self.work_item_id):
+            raise ValueError("A scope notice must identify this implementation review work")
         return self
 
 
@@ -2155,6 +2166,10 @@ class CanonicalWorkProjection(CanonicalResponse):
 class WorkStatusRead(CanonicalResponse):
     """Coordination metadata safe to read before an independent cold review."""
 
+    review_scope_changed: ReviewScopeChanged | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
+
     work_item_id: UUID
     project_id: UUID
     status: Status
@@ -2170,6 +2185,18 @@ class WorkStatusRead(CanonicalResponse):
             self.readiness.canonical_work_item_id != self.work_item_id
         ):
             raise ValueError("Canonical readiness must identify the selected work item.")
+        return self
+
+    @model_validator(mode="after")
+    def notice_matches_work(self) -> Self:
+        lease = self.readiness.active_lease
+        if self.review_scope_changed is not None and lease is not None and (
+            lease.purpose == "code_review"
+        ):
+            raise ValueError("Code-review status cannot expose decision-review notices")
+        if (self.review_scope_changed is not None
+                and self.review_scope_changed.review_work_item_id != self.work_item_id):
+            raise ValueError("A scope notice must identify this implementation review work")
         return self
 
 
@@ -2783,6 +2810,9 @@ class DuplicateMergeEligibility(CanonicalResponse):
 
 
 class WorkEventRead(CanonicalResponse):
+    review_scope_changed: ReviewScopeChanged | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
     """Strict event wire model with event-type/origin-specific metadata validation."""
 
     code_review_id: UUID | SkipJsonSchema[None] = Field(
@@ -3167,6 +3197,13 @@ def _validated_event_metadata(event: WorkEventRead) -> WorkEventMetadata:
         return _validated_moved_metadata(event, payload)
     return _validated_other_event_metadata(event, payload)
 
+    @model_validator(mode="after")
+    def notice_matches_work(self) -> Self:
+        if (self.review_scope_changed is not None
+                and self.review_scope_changed.review_work_item_id != self.work_item_id):
+            raise ValueError("A scope notice must identify this implementation review work")
+        return self
+
 
 class WorkEventPage(CanonicalResponse):
     items: list[WorkEventRead]
@@ -3446,6 +3483,10 @@ def _relationship_projection(
 class ClaimReceipt(CanonicalResponse):
     """Capability-bearing lease receipt returned only by claim and renew operations."""
 
+    review_scope_changed: ReviewScopeChanged | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
+
     purpose: Literal["implementation", "code_review"] = Field(
         default="implementation", exclude_if=lambda value: value == "implementation",
     )
@@ -3487,6 +3528,14 @@ class ClaimReceipt(CanonicalResponse):
             raise ValueError("Implementation claim cannot contain review coordination fields.")
         if self.renewed_at < self.acquired_at or self.expires_at <= self.renewed_at:
             raise ValueError("Claim receipt timestamps are incoherent.")
+        return self
+
+    @model_validator(mode="after")
+    def notice_matches_work(self) -> Self:
+        if (self.review_scope_changed is not None
+                and (self.review_scope_changed.review_work_item_id != self.work_item_id
+                     or self.purpose == "code_review")):
+            raise ValueError("A scope notice must identify this implementation review work")
         return self
 
 

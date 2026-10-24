@@ -1,3 +1,4 @@
+import { validReviewScopeNotice } from "./review-scope-notices.ts";
 import { validExternalReferences, validSparseReferences, referenceKeys } from "./external-references.ts";
 import type {
   EventWorkStatus,
@@ -115,7 +116,7 @@ const REVIEW_EVENT_REFS: Partial<Record<WorkEventType, readonly string[]>> = {
   code_review_requested: ["code_review_id"], code_review_superseded: ["code_review_id"],
   code_review_completed: ["code_review_id", "code_review_result_id"]
 };
-const EVENT_FIELD_SET = new Set<string>([...EVENT_FIELDS, ...REVIEW_REFERENCE_FIELDS]);
+const EVENT_FIELD_SET = new Set<string>([...EVENT_FIELDS, ...REVIEW_REFERENCE_FIELDS, "review_scope_changed"]);
 const EVENT_PAGE_FIELDS = [
   "items",
   "total",
@@ -125,7 +126,7 @@ const EVENT_PAGE_FIELDS = [
 ] as const;
 
 export const WORK_EVENT_DECODER_FIELDS = {
-  EVENT_FIELDS: [...EVENT_FIELDS, ...REVIEW_REFERENCE_FIELDS],
+  EVENT_FIELDS: [...EVENT_FIELDS, ...REVIEW_REFERENCE_FIELDS, "review_scope_changed"],
   decodeWorkEventPage: EVENT_PAGE_FIELDS
 } as const;
 const EVENT_SECRET_KEYS = new Set([
@@ -482,7 +483,7 @@ export function decodeWorkEvent(value: unknown): WorkEventRead {
   if (
     !event
     || Object.keys(event).some((key) => !EVENT_FIELD_SET.has(key))
-    || !exactKeys(event, [...EVENT_FIELDS, ...REVIEW_REFERENCE_FIELDS.filter((key) => Object.hasOwn(event, key))])
+    || !exactKeys(event, [...EVENT_FIELDS, ...REVIEW_REFERENCE_FIELDS.filter((key) => Object.hasOwn(event, key)), ...(Object.hasOwn(event, "review_scope_changed") ? ["review_scope_changed"] : [])])
   ) {
     return invalidEventResponse();
   }
@@ -490,6 +491,7 @@ export function decodeWorkEvent(value: unknown): WorkEventRead {
     !finiteInteger(event.id, 1)
     || !validUuid(event.project_id)
     || !validUuid(event.work_item_id)
+    || Object.hasOwn(event, "review_scope_changed") && !validReviewScopeNotice(event.review_scope_changed, String(event.work_item_id))
     || typeof event.event_type !== "string"
     || !EVENT_TYPE_SET.has(event.event_type as WorkEventType)
     || (event.actor_kind !== "client" && event.actor_kind !== "unattributed")

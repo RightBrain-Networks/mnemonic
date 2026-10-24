@@ -513,6 +513,35 @@ ordinary pending `work_item_id`, `expected_work_version`, and 1–100 unique
 merges historical work or changes dispositions. Both use receipt-protected
 operation IDs and exact uncertain retries.
 
+Each fresh scope-growth checkpoint names the causing revision and recorded author
+session, every newly bound assessment, and old/new captured scope totals. It keeps
+three separate counts: code-impact candidate occurrences across episodes, distinct
+revision references, and distinct stable decision IDs. The checkpoint restates
+per-episode inspection, disposition, remediation, paging, and acknowledgement steps.
+Reused episodes count once per change binding; repeated adoption adds no obligation.
+
+A pending `review_scope_changed` notice appears on `get_work(status_only=true)`,
+implementation claims/renewals, and fresh token-bearing `add_checkpoint` and
+`append_event` responses, plus token-bearing single/batch disposition responses.
+Batch responses contain one top-level notice. It contains coordination IDs, old/new scope versions,
+episodes added, and the three added-row counts; it contains no revision text,
+author context, or findings. Code-review leases never receive it. Status reads can
+still show a pending notice when no lease is active. Inspect the current scope and
+use the existing version-checked acknowledgement action to clear it. Acknowledging
+is not a verdict or permission to implement. A receipt replay returns its original
+notice, even after acknowledgement; read status again for current coordination.
+
+A fresh `decision_put` that extends an existing open driver returns
+`extended_review`, including that write's scope delta and the observed active
+implementation holder (or null). Distinct identities in added rows may already
+occur in earlier episodes: these counts are not net-new identities or a claim of
+exhaustive real-world impact. Migration `0062_review_scope_notices` records an
+immutable per-change `attachment_scope_version` for fresh bindings. Historical
+bindings remain null. When an acknowledgement-relative boundary cannot be
+established, all three added-row counts are null; the exact version/episode delta
+still appears. There is no guessed ordering or historical backfill. Backup audits
+check uniqueness and the known suffix after any historical unknown bindings.
+
 The Work details scope panel shows current episodes, allows acknowledgement and
 explicit adoption, and offers the human-only successor admission action for closed
 drivers and driverless held changes, including inherited changes from another
@@ -522,9 +551,10 @@ expose `admit`. REST uses one receipt-protected
 `GET /projects/{project_id}/knowledge/changes/{change_id}` for reads.
 
 Deploy aligned API, worker, MCP and dashboard with migration
-`0061_batch_dispositions`. It preserves historical assessments, dispositions and
+`0062_review_scope_notices`. It preserves historical assessments, dispositions and
 terminal work without creating a review backlog. No new service or environment
-variable is required. Downgrade is refused after any batch receipt is retained.
+variable is required. Downgrade is refused once exact attachment versions exist;
+the earlier batch migration also refuses to discard retained batch receipts.
 
 Each investigation drives its existing impact-assessment episodes. Start with
 `decision_assessment_get` for the retained diff and candidate pages; the task

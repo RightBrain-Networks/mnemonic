@@ -30,14 +30,14 @@ const DEFAULTED_RESPONSE_FIELDS = {
   "frontend/lib/human-gates.ts:GATE_FIELDS": ["question_version", "previous_questions", "decision"],
   "frontend/lib/readiness-codecs.ts:decodeLease": ["purpose", "code_review_id", "mode"],
   "frontend/lib/duplicate-handling.ts:decodeWorkItemDetail": ["code_review_context", "transcripts"],
-  "frontend/lib/work-events.ts:EVENT_FIELDS": ["code_review_id", "code_review_result_id", "work_follow_up_id", "work_follow_up_answer_id"],
+  "frontend/lib/work-events.ts:EVENT_FIELDS": ["review_scope_changed", "code_review_id", "code_review_result_id", "work_follow_up_id", "work_follow_up_answer_id"],
   "frontend/lib/external-references.ts:decodeExternalReference": ["label", "state_observed_at"],
   "frontend/lib/work-codecs.ts:decodeWorkItem": ["external_references", "manual_review_request", "decision_review_revision_id", "decision_review_change_id", "decision_change_ids", "decision_review_project_id", "decision_change_projects"],
   "frontend/lib/duplicate-handling.ts:decodeWorkPointer": ["external_references"],
   "frontend/lib/duplicate-suggestions.ts:decodeDuplicateCandidateSummary": ["external_references"],
   "frontend/lib/duplicate-suggestions.ts:decodeDuplicateSuggestionPage": ["semantic", "external_items", "external_candidate_count", "external_scope"],
   "frontend/lib/checkpoint-codecs.ts:decodeCheckpoint": [
-    "affected_paths"
+    "affected_paths", "review_scope_changed"
   ],
   "frontend/lib/mutation-responses.ts:decodeMutationResult:complete_work": [
     "completion_evidence", "job_completion_report", "review_policy_decision", "code_review_request", "agent_follow_ups", "code_review_handoff"
