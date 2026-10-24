@@ -474,3 +474,14 @@ revision, or change a reason while reusing the operation ID. A new intent needs
 a new ID. See [authority-and-provenance.md](${CLAUDE_PLUGIN_ROOT}/reference/authority-and-provenance.md)
 and [transcripts.md](${CLAUDE_PLUGIN_ROOT}/reference/transcripts.md) for existing
 authority, native session identity, transcript, and lease requirements.
+
+### Independent work discovered during a change review
+
+Fresh `create_work` may set `inherit_decision_change=false` with a nonblank
+`decision_change_inheritance_reason` (1–4,000 characters) and the real non-null
+`discovered_from_work_item_id`. The discovery edge and caller-selected origin
+checkpoint remain provenance. Only that exact edge is excluded from current and
+future change inheritance; other paths and explicit adoption still apply. This
+cannot detach existing memberships or revise an existing work item. Default true
+keeps inheritance. Full work reads expose the immutable exclusion; preserve all
+creation arguments and the operation UUID for receipt replay.

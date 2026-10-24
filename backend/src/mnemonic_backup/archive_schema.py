@@ -30,6 +30,7 @@ IDENTITY_COLUMNS = tuple(
     if column.identity is not None
 )
 CHILD_OWNERS = {
+    "work_change_inheritance_exclusions": ("work_item_id", "work_items", "id"),
     "decision_revision_changes": ("revision_id", "decision_revisions", "id"),
     "decision_change_assessments": ("change_id", "decision_changes", "id"),
     "decision_change_work": ("change_id", "decision_changes", "id"),

@@ -163,6 +163,9 @@ def create_work_records(
     database.add(checkpoint)
     database.flush()
 
+    from mnemonic_api.services.work_inheritance import stage_inheritance_exclusion
+
+    stage_inheritance_exclusion(database, work_item, payload, locked_work_items)
     relationships: list[WorkRelationship] = []
     initial_relationships = creation_relationships(payload, locked_work_items)
     if initial_relationships:

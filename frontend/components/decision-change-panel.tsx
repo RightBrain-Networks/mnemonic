@@ -129,9 +129,15 @@ export default function DecisionChangePanel({ work, disabled, sourceProjectId }:
   }
 
   const canAdopt = work.status === "pending" && !work.decision_review_change_id;
-  if (!ids.length && !canAdopt) return null;
+  if (!ids.length && !canAdopt && !work.decision_change_inheritance_exclusion) return null;
   return <details className="decision-change-panel" open={ids.length > 0}>
     <summary>Decision impact review scope</summary>
+    {work.decision_change_inheritance_exclusion && <div>
+      <p>Decision changes do not inherit through the declared origin discovery edge.</p>
+      <p>Origin: <code>{work.decision_change_inheritance_exclusion.origin_work_item_id}</code>; checkpoint: <code>{work.decision_change_inheritance_exclusion.origin_context_checkpoint_id}</code></p>
+      <p className="preserve-whitespace">{work.decision_change_inheritance_exclusion.reason}</p>
+      <p>Other discovery paths and explicit adoption still apply.</p>
+    </div>}
     {work.decision_review_change_id && <ChangeScope key={work.decision_review_change_id} work={work} projectId={work.decision_change_projects?.[work.decision_review_change_id] ?? projectId} changeId={work.decision_review_change_id} disabled={disabled || blocked || busy} execute={execute} />}
     {inherited.length > 0 && <details onToggle={(event) => setShowLineage(event.currentTarget.open)}>
       <summary>Inherited change lineage ({inherited.length})</summary>

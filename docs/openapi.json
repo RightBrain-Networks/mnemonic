@@ -6863,6 +6863,39 @@
         "title": "DecisionChangeDeclaration",
         "type": "object"
       },
+      "DecisionChangeInheritanceExclusion": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "origin_context_checkpoint_id": {
+            "format": "uuid",
+            "title": "Origin Context Checkpoint Id",
+            "type": "string"
+          },
+          "origin_work_item_id": {
+            "format": "uuid",
+            "title": "Origin Work Item Id",
+            "type": "string"
+          },
+          "reason": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "origin_work_item_id",
+          "origin_context_checkpoint_id",
+          "reason",
+          "created_at"
+        ],
+        "title": "DecisionChangeInheritanceExclusion",
+        "type": "object"
+      },
       "DecisionChangeRead": {
         "additionalProperties": false,
         "properties": {
@@ -21115,6 +21148,13 @@
             "description": "Optional caller-generated UUID for durable replay of this mutation. Reuse it only with the exact same operation and semantic arguments after an unknown outcome.",
             "title": "Client Operation Id"
           },
+          "decision_change_inheritance_reason": {
+            "description": "Required with inherit_decision_change=false; retained unchanged for audit.",
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Decision Change Inheritance Reason",
+            "type": "string"
+          },
           "discovered_from_work_item_id": {
             "anyOf": [
               {
@@ -21135,6 +21175,12 @@
             "maxItems": 10,
             "title": "External References",
             "type": "array"
+          },
+          "inherit_decision_change": {
+            "default": true,
+            "description": "False excludes only the new work's declared origin discovery edge from current and future decision-change inheritance. Other paths and explicit adoption remain.",
+            "title": "Inherit Decision Change",
+            "type": "boolean"
           },
           "initial_checkpoint": {
             "$ref": "#/components/schemas/InitialCheckpointCreate"
@@ -21497,6 +21543,10 @@
             },
             "title": "Decision Change Ids",
             "type": "array"
+          },
+          "decision_change_inheritance_exclusion": {
+            "$ref": "#/components/schemas/DecisionChangeInheritanceExclusion",
+            "title": "Decision Change Inheritance Exclusion"
           },
           "decision_change_projects": {
             "additionalProperties": {
@@ -22845,6 +22895,10 @@
             },
             "title": "Decision Change Ids",
             "type": "array"
+          },
+          "decision_change_inheritance_exclusion": {
+            "$ref": "#/components/schemas/DecisionChangeInheritanceExclusion",
+            "title": "Decision Change Inheritance Exclusion"
           },
           "decision_change_projects": {
             "additionalProperties": {

@@ -71,6 +71,7 @@ from .search_pagination import SearchPagination
 from .search_query import WorkMatchEvidence
 from .search_ranking import SearchHitRanking, SearchRanking, SemanticDisposition
 from .transcript_work_models import WorkTranscriptLinks
+from .work_inheritance_schemas import DecisionChangeInheritanceExclusion
 
 Status = Literal["pending", "deferred", "done", "wont-do", "promoted"]
 EventStatus = Literal["open", "pending", "deferred", "done", "wont-do", "promoted"]
@@ -1949,6 +1950,10 @@ def _expected_display_state(readiness: Readiness) -> DisplayState:
 
 
 class WorkItemRead(CanonicalResponse):
+    decision_change_inheritance_exclusion: DecisionChangeInheritanceExclusion | SkipJsonSchema[
+        None
+    ] = Field(default=None, exclude_if=lambda value: value is None)
+
     decision_change_projects: dict[UUID, UUID] = Field(
         default_factory=dict, exclude_if=lambda value: not value,
     )
@@ -1979,6 +1984,16 @@ class WorkItemRead(CanonicalResponse):
     version: int
     created_at: datetime
     updated_at: datetime
+
+    @model_validator(mode="after")
+    def inheritance_exclusion_coherence(self) -> Self:
+        exclusion = self.decision_change_inheritance_exclusion
+        if exclusion is not None and (
+            exclusion.origin_work_item_id == self.id or exclusion.created_at != self.created_at
+        ):
+            raise ValueError("Inheritance exclusion disagrees with its work creation identity")
+        return self
+
 
 class WorkUpdateRead(WorkItemRead):
     review_decision: HumanReviewDecisionRead | SkipJsonSchema[None] = Field(

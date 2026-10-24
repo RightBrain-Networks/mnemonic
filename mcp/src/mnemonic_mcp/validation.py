@@ -142,6 +142,8 @@ VALIDATION_FIELDS = frozenset(
         "initial_checkpoint",
         "initial_relationships",
         "discovered_from_work_item_id",
+        "inherit_decision_change",
+        "decision_change_inheritance_reason",
         "checkpoint",
         "completion_evidence",
         "job_completion_report",

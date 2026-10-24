@@ -79,6 +79,12 @@ export interface Page<T> {
 }
 
 export interface WorkItem {
+  decision_change_inheritance_exclusion?: {
+    origin_work_item_id: string;
+    origin_context_checkpoint_id: string;
+    reason: string;
+    created_at: string;
+  };
   decision_change_projects?: Record<string, string>;
   decision_review_revision_id?: string | null;
   decision_review_project_id?: string | null;
@@ -669,6 +675,9 @@ export interface DuplicateSuggestionPage {
 }
 
 export interface WorkCreateInput extends ClientOperationInput {
+  discovered_from_work_item_id?: string | null;
+  inherit_decision_change?: boolean;
+  decision_change_inheritance_reason?: string;
   external_references?: ExternalReference[];
   title: string;
   summary: string;

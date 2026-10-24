@@ -1036,6 +1036,18 @@ def _create_work_matches(
         )
     ):
         return False
+    exclusion = work.decision_change_inheritance_exclusion
+    if request.inherit_decision_change:
+        if exclusion is not None or request.decision_change_inheritance_reason is not None:
+            return False
+    elif (exclusion is None or exclusion.origin_work_item_id != request.discovered_from_work_item_id
+          or exclusion.reason != request.decision_change_inheritance_reason
+          or exclusion.created_at != work.created_at
+          or not any(edge.target_work_item_id == exclusion.origin_work_item_id
+                     and edge.relationship_type == "discovered-from"
+                     and edge.context_checkpoint_id == exclusion.origin_context_checkpoint_id
+                     for edge in result.initial_relationships)):
+        return False
     return _initial_relationships_match(project_id, request, result)
 
 

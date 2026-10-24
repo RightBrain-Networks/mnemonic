@@ -78,6 +78,10 @@ from mnemonic_api.search_ranking import SearchHitRanking, SearchRanking, Semanti
 from mnemonic_api.transcript_locations import TranscriptLocation, TranscriptSources
 from mnemonic_api.transcript_work_schemas import WorkTranscriptLinks
 from mnemonic_api.validation_rules import validation_rule
+from mnemonic_api.work_inheritance_schemas import (
+    DecisionChangeInheritanceExclusion,
+    InheritanceReason,
+)
 from mnemonic_api.work_search_fields import WORK_FIELDS, WorkField, WorkFields
 
 AFFECTED_PATH_MAX_COUNT = 64
@@ -1496,6 +1500,16 @@ class InitialRelationshipCreate(APIModel):
 
 
 class WorkItemCreate(APIModel):
+    inherit_decision_change: StrictBool = Field(
+        default=True, exclude_if=lambda value: value,
+        description="False excludes only the new work's declared origin discovery edge from "
+        "current and future decision-change inheritance. Other paths and explicit adoption remain.",
+    )
+    decision_change_inheritance_reason: InheritanceReason | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None,
+        description="Required with inherit_decision_change=false; retained unchanged for audit.",
+    )
+
     discovered_from_work_item_id: UUID | None | MISSING = Field(
         default=MISSING,
         description="Required for fresh agent creation: the work item that initiated this "
@@ -2141,6 +2155,10 @@ class HumanGateRead(APIModel):
 
 
 class WorkItemRead(Timestamps):
+    decision_change_inheritance_exclusion: DecisionChangeInheritanceExclusion | SkipJsonSchema[
+        None
+    ] = Field(default=None, exclude_if=lambda value: value is None)
+
     decision_change_projects: dict[UUID, UUID] = Field(
         default_factory=dict, exclude_if=lambda value: not value,
         description="Source project for each inherited decision-change identity.",
@@ -2175,6 +2193,15 @@ class WorkItemRead(Timestamps):
     priority: int
     initial_checkpoint_id: UUID
     version: int
+
+    @model_validator(mode="after")
+    def inheritance_exclusion_coherence(self) -> Self:
+        exclusion = self.decision_change_inheritance_exclusion
+        if exclusion is not None and (
+            exclusion.origin_work_item_id == self.id or exclusion.created_at != self.created_at
+        ):
+            raise ValueError("Inheritance exclusion disagrees with its work creation identity")
+        return self
 
 
 class WorkUpdateRead(WorkItemRead):

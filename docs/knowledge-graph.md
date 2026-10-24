@@ -586,6 +586,35 @@ while retaining the original project's lineage. That driverless held change also
 requires explicit admission. Agents cannot admit a successor or evade lineage
 through an unrelated root or false external origin.
 
+Fresh creation can set `inherit_decision_change=false` with a nonblank
+`decision_change_inheritance_reason` (at most 4,000 Unicode characters) for an
+independent work item. The declared `discovered_from_work_item_id` must remain the
+actual, non-null session origin. The server retains the discovery edge and its
+selected origin-owned checkpoint, and seals an immutable exclusion for that exact
+child-to-origin edge. The default automatic edge uses the origin's initial
+checkpoint; a supplied edge retains the caller-selected checkpoint.
+
+This is an edge-specific creation choice. It skips current and future propagation
+through that edge only. Other initial discovery edges and alternate paths still
+inherit; explicit adoption or a new change originating on the child still binds
+the child and its ordinary descendants. Already recorded memberships and existing
+work are never detached. Removing/re-adding the same discovery edge preserves its
+exclusion; relationship deletion does not delete provenance from the sealed
+creation receipt. No project-based heuristic changes lineage.
+
+Full work reads expose `decision_change_inheritance_exclusion` with
+`origin_work_item_id`, `origin_context_checkpoint_id`, the exact `reason`, and
+`created_at`. Compact/status-only reads do not include its prose. REST false
+creation requires `client_operation_id`; MCP supplies an omitted fresh operation
+UUID normally. False without a declared origin/reason and a reason with true
+return `invalid_decision_change_inheritance` (422). Keep the whole frozen intent
+unchanged on retries. Explicit/default true and absent reason preserve historical
+fingerprints, and old responses remain sparse. The creation-only table and its
+receipt/edge seal are introduced by migration `0064_work_change_inheritance`,
+without backfill. Exclusions follow their child work in project backups; restore
+checks retain the original receipt, selected checkpoint and reason.
+
+
 The task card displays **DECISION IMPACT REVIEW**. Its initial checkpoint records the
 exact previous and replacement revision references, source project, impact
 assessment IDs, and a rendered snapshot of the editable `decision-impact-review`

@@ -53,7 +53,9 @@ GUIDES: dict[str, tuple[str, str, str]] = {
     "create_work": ("Work", "Save a new work item and initial checkpoint.",
                     ("Supply title, summary, and initial_checkpoint. "
                     "Use get_prompt with priority-rubric unless the user supplied a score. "
-                    "Fresh work starts pending. Attribute checkpoint context to its actual author.")),
+                    "Fresh work starts pending. Attribute checkpoint context to its actual author. "
+                    "Optional inherit_decision_change=false requires the declared origin and reason; "
+                    "it excludes that edge only and preserves discovery provenance.")),
     "update_work": ("Work", "Update mutable identity or lifecycle fields.",
                     ("Read the current version first. Use get_prompt with priority-rubric for an authorized "
                     "priority reassessment. Put edits in changes. Fresh wont-do/promoted "

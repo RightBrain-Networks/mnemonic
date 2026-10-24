@@ -56,6 +56,9 @@ def work_creation(body: JsonObject) -> bool:
                 "status",
                 "initial_checkpoint",
                 "initial_relationships",
+                "discovered_from_work_item_id",
+                "inherit_decision_change",
+                "decision_change_inheritance_reason",
                 "external_references",
                 OPERATION,
             ],
@@ -75,6 +78,10 @@ def work_creation(body: JsonObject) -> bool:
             ),
         )
         and optional(body, "external_references", external_references)
+        and optional(body, "discovered_from_work_item_id",
+                     lambda value: value is None or uuid(value))
+        and optional(body, "inherit_decision_change", lambda value: isinstance(value, bool))
+        and optional(body, "decision_change_inheritance_reason", lambda value: text(value, 4000))
     )
 
 

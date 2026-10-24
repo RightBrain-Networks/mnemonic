@@ -1246,3 +1246,35 @@ test("duplicate canonical commit aliases definitively reject a closeout", async 
   assert.equal((await classify(spec, 422, { detail })).type, "rejected");
   assert.equal((await classify(spec, 503, { detail })).type, "unresolved");
 });
+
+test("create receipts bind edge-specific inheritance exclusions and generated origin edges", async () => {
+  const payload = {
+    title: "Durable objective", summary: "Keep this context", priority: 5, status: "pending",
+    initial_checkpoint: checkpointInput(), discovered_from_work_item_id: counterpart,
+    inherit_decision_change: false, decision_change_inheritance_reason: "Independent follow-up."
+  };
+  const exclusion = {
+    origin_work_item_id: counterpart, origin_context_checkpoint_id: destinationCheckpointId,
+    reason: payload.decision_change_inheritance_reason, created_at: createdAt
+  };
+  const result = {
+    work_item: workItem({ decision_change_inheritance_exclusion: exclusion }),
+    initial_checkpoint: checkpoint("context"),
+    initial_relationships: [relationship({ relationship_type: "discovered-from",
+      context_checkpoint_id: destinationCheckpointId, context_checkpoint_work_item_id: counterpart })]
+  };
+  const spec = request("create_work", "POST", `/projects/${project}/work-items`, payload);
+  assert.equal((await classify(spec, 201, result)).type, "success");
+  for (const changed of [null, { ...exclusion, reason: "Changed" },
+    { ...exclusion, origin_work_item_id: work }, { ...exclusion, origin_context_checkpoint_id: checkpointId },
+    { ...exclusion, created_at: "2020-01-01T00:00:00Z" }, { ...exclusion, reason: " " }]) {
+    assert.equal((await classify(spec, 201, { ...result,
+      work_item: workItem({ decision_change_inheritance_exclusion: changed }) })).type, "unresolved");
+  }
+  assert.equal((await classify(spec, 201, { ...result, work_item: workItem() })).type, "unresolved");
+  const defaults = { ...payload, inherit_decision_change: true };
+  delete defaults.decision_change_inheritance_reason;
+  const defaultSpec = request("create_work", "POST", `/projects/${project}/work-items`, defaults);
+  assert.equal((await classify(defaultSpec, 201, result)).type, "unresolved");
+  assert.equal((await classify(defaultSpec, 201, { ...result, work_item: workItem() })).type, "success");
+});

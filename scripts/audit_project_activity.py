@@ -25,6 +25,7 @@ from mnemonic_api.decision_review_integrity import (
 from mnemonic_api.knowledge_integrity import DOMAIN_REVIEW_FINDINGS, KNOWLEDGE_FINDINGS
 from mnemonic_api.supersession_reuse_integrity import SUPERSESSION_REUSE_FINDINGS
 from mnemonic_api.transcript_recovery_db import RECOVERY_FINDINGS
+from mnemonic_api.work_inheritance_db import INHERITANCE_FINDINGS
 from sqlalchemy import Connection, create_engine, text
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -1007,6 +1008,8 @@ def _head_findings(
     if expected_head in REVIEW_HEADS:
         checks.update(_review_checks(expected_head))
     checks.update(_knowledge_checks(expected_head))
+    if expected_head == "0064_work_change_inheritance":
+        checks.update(INHERITANCE_FINDINGS)
     findings.update({key: connection.scalar(text(sql)) for key, sql in checks.items()})
     return findings
 
