@@ -1,5 +1,34 @@
 # Mnemonic validation record
 
+## Atomic disposition batches and review progress renewal (0.96.0)
+
+Release 0.96.0, plugin 0.59.0 and migration `0061_batch_dispositions` add one
+receipt-protected batch of 1–100 dispositions for a single immutable assessment.
+Regression coverage verifies ordered consecutive versions, per-item validation,
+whole-batch rollback, exact replay, receipt/row integrity and downgrade refusal.
+Optional tokens renew only an associated current review's active implementation
+lease on fresh success, including moved and multiply associated drivers. Tests
+cover duration clamping, expired or unrelated capabilities, review-purpose leases,
+concurrent topology changes and token secrecy. Token-free writes and replays do
+not renew leases. Candidate and review Done requirements remain intact.
+
+Using Python 3.14, Node 24 and isolated PostgreSQL/RabbitMQ, the final full backend
+run passed all 5,437 tests with six workers. Initial release checks caught an ORM
+constraint-order mismatch and missing machine-only route-inventory entries;
+both were corrected before that clean run. The batch endpoint remains excluded
+from the browser boundary, which retains 25 protected mutations. Fresh and
+pg_dump/restored catalogs pass the aggregate integrity audit, including ACL and
+historical prompt-hash variants. The previous 0060 catalog also passes, with
+supersession-reuse integrity checks retained at both supported heads.
+
+The full MCP run passed 2,420 tests with one compact-help size failure. After
+shortening the singleton and batch usage pages, all 56 focused help, batch and
+stack-contract checks passed. The dashboard passes 596 tests, type checking and
+production build. Plugin checks pass 71 tests with one optional external CLI
+check skipped. Backend/MCP Ruff and type checks and the gitleaks hook pass.
+OpenAPI and the 77-tool, 25-protected-write, 32-REST-receipt catalog are current.
+No production services were changed.
+
 ## Opt-in compact impact reads (0.95.0)
 
 Existing full-response defaults remain unchanged. Callers can select compact

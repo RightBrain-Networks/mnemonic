@@ -40,7 +40,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
-HEAD = "0060_supersession_reuse"
+HEAD = "0061_batch_dispositions"
 MAX_MANIFEST_BYTES = 8 * 1024 * 1024
 
 

@@ -278,18 +278,22 @@ class ImpactActor(ImpactModel):
         return nonblank(value) if value is not None else None
 
 
-class ImpactDispositionRequest(ImpactModel):
+class ImpactDispositionItem(ImpactModel):
     candidate_reference: Reference
-    expected_version: Annotated[StrictInt, Field(ge=0)]
     disposition: Disposition
     reason: Reason
     remediation_work_item_id: UUID | None = None
-    actor: ImpactActor
 
     @field_validator("reason")
     @classmethod
     def valid_reason(cls, value: str) -> str:
         return DecisionDependency.valid_reason(value)
+
+
+class ImpactDispositionRequest(ImpactDispositionItem):
+    expected_version: Annotated[StrictInt, Field(ge=0)]
+    actor: ImpactActor
+    lease_token: str | None = Field(default=None, repr=False, exclude_if=lambda value: value is None)
 
 
 class ImpactDispositionCreate(ImpactDispositionRequest):
@@ -307,6 +311,44 @@ class ImpactDispositionRead(ImpactModel):
     remediation_work_item_id: UUID | None
     actor: ImpactActor
     created_at: datetime
+
+
+class ImpactDispositionBatchRequest(ImpactModel):
+    expected_version: Annotated[StrictInt, Field(ge=0)]
+    items: Annotated[list[ImpactDispositionItem], Field(min_length=1, max_length=100)]
+    actor: ImpactActor
+    lease_token: str | None = Field(default=None, repr=False, exclude_if=lambda value: value is None)
+
+    @field_validator("items")
+    @classmethod
+    def unique_candidates(cls, items: list[ImpactDispositionItem]) -> list[ImpactDispositionItem]:
+        if len({item.candidate_reference for item in items}) != len(items):
+            raise ValueError("A batch must name each candidate at most once")
+        return items
+
+
+class ImpactDispositionBatchCreate(ImpactDispositionBatchRequest):
+    client_operation_id: UUID
+
+
+class ImpactDispositionBatchRead(ImpactModel):
+    project_id: UUID
+    assessment_id: UUID
+    version: Annotated[StrictInt, Field(ge=1)]
+    items: Annotated[list[ImpactDispositionRead], Field(min_length=1, max_length=100)]
+
+    @model_validator(mode="after")
+    def coherent_items(self) -> Self:
+        if len({item.id for item in self.items}) != len(self.items) or len({
+            item.candidate_reference for item in self.items
+        }) != len(self.items):
+            raise ValueError("Batch dispositions must have unique identities and candidates")
+        start = self.version - len(self.items) + 1
+        if any((item.project_id, item.assessment_id, item.version) != (
+            self.project_id, self.assessment_id, start + offset,
+        ) for offset, item in enumerate(self.items)):
+            raise ValueError("Batch dispositions must belong to one episode in consecutive order")
+        return self
 
 
 class ImpactDiff(ImpactModel):

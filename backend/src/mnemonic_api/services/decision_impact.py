@@ -15,6 +15,8 @@ from mnemonic_api.impact_schemas import (
     ImpactCandidate,
     ImpactCoverage,
     ImpactDiff,
+    ImpactDispositionBatchRead,
+    ImpactDispositionBatchRequest,
     ImpactDispositionRead,
     ImpactDispositionRequest,
     ImpactPageQuery,
@@ -35,6 +37,7 @@ from mnemonic_api.models import (
     DecisionSupersessionReuse,
     KnowledgeDomain,
 )
+from mnemonic_api.services.assessment_progress import renew_assessment_progress
 from mnemonic_api.services.decision_dependencies import superseded_ids
 from mnemonic_api.services.decision_impact_graph import (
     candidate,
@@ -476,6 +479,28 @@ def disposition_history(
 
 def append_disposition(
     database: Session, project_id: UUID, assessment_id: UUID, payload: ImpactDispositionRequest
+) -> ImpactDispositionRead:
+    renew_assessment_progress(database, assessment_id, payload.lease_token)
+    return _append_disposition(database, project_id, assessment_id, payload)
+
+
+def append_disposition_batch(
+    database: Session, project_id: UUID, assessment_id: UUID,
+    payload: ImpactDispositionBatchRequest,
+) -> ImpactDispositionBatchRead:
+    renew_assessment_progress(database, assessment_id, payload.lease_token)
+    items = [_append_disposition(database, project_id, assessment_id, ImpactDispositionRequest(
+        **item.model_dump(), actor=payload.actor,
+        expected_version=payload.expected_version + offset,
+    )) for offset, item in enumerate(payload.items)]
+    return ImpactDispositionBatchRead(
+        project_id=project_id, assessment_id=assessment_id,
+        version=payload.expected_version + len(items), items=items,
+    )
+
+
+def _append_disposition(
+    database: Session, project_id: UUID, assessment_id: UUID, payload: ImpactDispositionRequest,
 ) -> ImpactDispositionRead:
     assessment = require_assessment(database, project_id, assessment_id, lock=True)
     if payload.expected_version != _version(database, assessment_id):

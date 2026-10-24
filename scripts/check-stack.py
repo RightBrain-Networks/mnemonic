@@ -46,7 +46,7 @@ CANONICAL_TOOLS = {
     "decision_get", "decision_put", "decision_scope_append", "decision_history", "decision_scope",
     "decision_change_get", "decision_change_update",
     "decision_impact", "decision_assessments", "decision_assessment_get",
-    "decision_assessment_history", "decision_assessment_append",
+    "decision_assessment_history", "decision_assessment_append", "decision_assessment_append_batch",
     "decision_commit_lookup", "decision_scope_reconcile",
     "generate_uuid",
     "help",
@@ -96,7 +96,8 @@ CANONICAL_TOOLS = {
 }
 PROTECTED_MUTATION_TOOLS = {
     "create_knowledge_domain", "rename_knowledge_domain", "decision_put", "decision_scope_append",
-    "decision_change_update", "decision_assessment_append", "decision_scope_reconcile",
+    "decision_change_update", "decision_assessment_append", "decision_assessment_append_batch",
+    "decision_scope_reconcile",
     "upload_artifact", "replace_artifact", "delete_artifact", "update_artifact",
     "respond_to_work_follow_up", "complete_code_review",
     "create_work",
@@ -1143,7 +1144,7 @@ async def phase12_human_report_flow(
 def validate_rest_contract(document: Any) -> None:
     """Reject a healthy but contract-incompatible pre-Phase-12 API."""
     try:
-        require(document["info"]["version"] == "0.95.0", "Unexpected REST API version.")
+        require(document["info"]["version"] == "0.96.0", "Unexpected REST API version.")
         schemas = document["components"]["schemas"]
         unified_search = document["paths"]["/api/v1/projects/{project_id}/search"]["post"]
         require(
@@ -1412,9 +1413,9 @@ def validate_mcp_catalog(catalog: Any) -> None:
     """Require the exact tool set, annotations, and operation-ID boundaries."""
     tools_by_name = {entry.name: entry for entry in catalog.tools}
     require(
-        len(catalog.tools) == 76
-        and len(tools_by_name) == 76
-        and len(PROTECTED_MUTATION_TOOLS) == 24
+        len(catalog.tools) == 77
+        and len(tools_by_name) == 77
+        and len(PROTECTED_MUTATION_TOOLS) == 25
         and set(tools_by_name) == CANONICAL_TOOLS,
         "Unexpected MCP tool catalog.",
     )
@@ -1686,15 +1687,15 @@ async def check(args: argparse.Namespace, key: str) -> None:
                 initialized = await session.initialize()
                 require(
                     initialized.serverInfo.name == "Mnemonic"
-                    and initialized.serverInfo.version == "0.95.0",
+                    and initialized.serverInfo.version == "0.96.0",
                     "Unexpected MCP server identity or version.",
                 )
                 catalog = await session.list_tools()
                 validate_mcp_catalog(catalog)
                 await tool(session, "list_projects", {})
                 print(
-                    "PASS: REST 0.95.0 cross-project relationship contract shape, work-move, "
-                    "code-review contract, real MCP initialization, 76-tool catalog, "
+                    "PASS: REST 0.96.0 cross-project relationship contract shape, work-move, "
+                    "code-review contract, real MCP initialization, 77-tool catalog, "
                     "exact twenty-three protected mutation "
                     "schemas/annotations, and REST-backed project listing"
                 )

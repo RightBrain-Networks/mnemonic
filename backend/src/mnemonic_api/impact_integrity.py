@@ -1,5 +1,9 @@
 """Restore-time checks for dependency pins and immutable reassessment evidence."""
 
+from mnemonic_api.impact_disposition_integrity import (
+    BATCH_DISPOSITION_FINDINGS,
+    DISPOSITION_RECEIPT_ROWS,
+)
 from mnemonic_api.impact_snapshot_integrity import SNAPSHOT_FINDINGS
 
 _IDENTIFIER = (
@@ -93,7 +97,8 @@ IMPACT_FINDINGS = {
               item->>'relationship'<>'related-only'
               OR item->>'related_direction' NOT IN ('incoming','outgoing')))
     """,
-    "invalid_decision_impact_dispositions": """
+    "invalid_decision_impact_dispositions": f"""
+        WITH receipt_rows AS ({DISPOSITION_RECEIPT_ROWS})
         SELECT count(*) FROM decision_impact_dispositions disposition
         JOIN decision_impact_assessments assessment ON assessment.id=disposition.assessment_id
         WHERE NOT EXISTS (SELECT 1 FROM jsonb_array_elements(assessment.candidates) candidate
@@ -101,11 +106,10 @@ IMPACT_FINDINGS = {
         OR disposition.version<>(SELECT count(*) FROM decision_impact_dispositions previous
             WHERE previous.assessment_id=disposition.assessment_id
             AND previous.version<=disposition.version)
-        OR NOT EXISTS (SELECT 1 FROM client_operations receipt
+        OR 1<>(SELECT count(*) FROM receipt_rows receipt
             WHERE receipt.project_id=disposition.project_id
-            AND receipt.operation_kind='assess_decision_impact' AND receipt.state='completed'
             AND receipt.response_status=201 AND receipt.mutation_applied
-            AND receipt.response_body @> (to_jsonb(disposition.*)-'created_at'))
+            AND receipt.item @> (to_jsonb(disposition.*)-'created_at'))
     """,
     "invalid_decision_impact_disposition_receipts": """
         SELECT count(*) FROM client_operations receipt
@@ -118,3 +122,4 @@ IMPACT_FINDINGS = {
 }
 
 IMPACT_FINDINGS.update(SNAPSHOT_FINDINGS)
+IMPACT_FINDINGS.update(BATCH_DISPOSITION_FINDINGS)
