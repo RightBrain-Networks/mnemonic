@@ -81,7 +81,7 @@ test("decision impact traces exact revisions and appends auditable dispositions 
     await form.getByRole("textbox", { name: "Remediation work item ID (optional)", exact: true }).fill(remediation.id);
     await form.getByRole("textbox", { name: "Finding ID (optional)", exact: true }).fill("remote-registration");
     await form.getByRole("combobox", { name: "Remediation target (optional)", exact: true }).selectOption("both");
-    await page.screenshot({ path: testInfo.outputPath("impact-finding-form.png"), animations: "disabled" });
+    await form.screenshot({ path: testInfo.outputPath("impact-finding-form.png"), animations: "disabled" });
     const bodies: string[] = [];
     await page.route(`**/api/mnemonic/projects/${project.id}/knowledge/assessments/*/dispositions`, async (route) => {
       if (route.request().method() !== "POST") return route.continue();
@@ -109,7 +109,8 @@ test("decision impact traces exact revisions and appends auditable dispositions 
     await expect(drawer.locator(".impact-assessment-status")).toContainText("Changes required");
     await expect(drawer.locator(".impact-assessment-status")).toContainText("1 named finding");
     await expect(drawer).toContainText("Remediation target: both");
-    await page.screenshot({ path: testInfo.outputPath("impact-finding-summary.png"), animations: "disabled" });
+    await drawer.locator(".impact-assessment-status").screenshot({ path: testInfo.outputPath("impact-finding-summary.png"), animations: "disabled" });
+    await drawer.locator(".impact-disposition").filter({ hasText: "remote-registration" }).screenshot({ path: testInfo.outputPath("impact-finding-record.png"), animations: "disabled" });
     await drawer.getByRole("button", { name: `Record disposition for ${dependent.reference}`, exact: true }).click();
     await form.getByRole("combobox", { name: "Disposition", exact: true }).selectOption("resolved");
     await form.getByRole("textbox", { name: "Reason", exact: true }).fill("The linked remediation updated the gateway and passed its transport tests.");

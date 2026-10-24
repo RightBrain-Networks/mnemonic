@@ -441,6 +441,15 @@ Historical rows and receipt bodies keep their original shape, with absent
 finding metadata remaining unknown. The dashboard shows the same distinction
 and offers optional finding and remediation-target fields when recording a verdict.
 
+The [narrow finding-entry form](images/impact-finding-form-narrow.png) shows the
+optional fields and save controls. Browser acceptance captures also show the
+separate finding and candidate counts and retained disposition metadata:
+
+| View | Desktop | Narrow |
+| --- | --- | --- |
+| Assessment counts | [Summary](images/impact-finding-summary-desktop.png) | [Summary](images/impact-finding-summary-narrow.png) |
+| Recorded finding | [Disposition](images/impact-finding-record-desktop.png) | [Disposition](images/impact-finding-record-narrow.png) |
+
 ## MCP workflow
 
 1. Call `list_knowledge_domains` and select a domain. Create one with
