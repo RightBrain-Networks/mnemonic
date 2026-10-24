@@ -91,14 +91,15 @@ def lookup_commit(
     if len(aliases) == 1:
         statement = _matching_scopes(project_id, repository, commit_hash)
     else:
+        # GitHub aliases are ASCII; locale folding must not absorb unknown Unicode identities.
         mapped = select(DecisionCommitMapping.scope_id).where(
             DecisionCommitMapping.project_id == project_id,
-            func.lower(DecisionCommitMapping.repository).in_(aliases),
+            func.lower(DecisionCommitMapping.repository.collate("C")).in_(aliases),
             DecisionCommitMapping.merged_commit_hash == commit_hash,
         )
         statement = select(DecisionScope).where(
             DecisionScope.project_id == project_id,
-            func.lower(DecisionScope.repository).in_(aliases),
+            func.lower(DecisionScope.repository.collate("C")).in_(aliases),
             or_(DecisionScope.commit_hash == commit_hash, DecisionScope.id.in_(mapped)),
         )
     total = database.scalar(select(func.count()).select_from(statement.subquery())) or 0

@@ -171,7 +171,8 @@ a new closeout intent after that definitive rejection.
 
 `decision_commit_lookup` accepts supported GitHub aliases case-insensitively for
 original or reconciled hashes and returns every matching scope with its **stored
-repository spelling**. Other repository identities match exactly. Existing scope,
+repository spelling**. Alias case folding is ASCII-only; unsupported Unicode
+spellings and other repository identities match exactly. Existing scope,
 report, assessment snapshots and receipts retain their original values; historical
 cleanup requires a separate audited backfill. Exact retries preserve the original
 operation ID and every request argument, including repository spelling, even when

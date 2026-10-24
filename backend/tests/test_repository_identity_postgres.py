@@ -107,6 +107,39 @@ def test_fresh_completion_reuses_canonical_scope_and_retains_raw_intent(
     check_integrity(postgres_engine)
 
 
+@pytest.mark.parametrize("unsupported, supported", [
+    ("Team/K", "team/k"), ("Team/İ", "team/i"),
+    ("https://gİthub.com/Team/Repo", "team/repo"),
+    ("HTTP://GİtHub.com/TKam/Repo.git/", "tkam/repo"),
+    ("github.com/Keam/Repo", "keam/repo"),
+])
+def test_lookup_does_not_fold_unknown_unicode_into_github_aliases(
+    api, project, unsupported, supported,
+):
+    decision = put(api, project, put_body(domain(api, project)))["decision"]
+    _, _, known = registered(api, project, decision, repository=supported)
+    _, _, unknown = registered(api, project, decision, repository=unsupported)
+    assert unknown["scope"]["repository"] == unsupported
+    endpoint = path(project) + "/commits"
+    original = api.get(endpoint, params={
+        "repository": supported.upper(), "commit_hash": ORIGINAL,
+    }).json()
+    assert original["total"] == 1 and original["items"][0]["id"] == known["scope"]["id"]
+    mapping = api.post(endpoint + "/reconcile", json={
+        "repository": unsupported, "original_commit_hash": ORIGINAL,
+        "merged_commit_hash": "b" * 40, "client_operation_id": str(uuid4()),
+    })
+    assert mapping.status_code == 200, mapping.text
+    assert api.get(endpoint, params={
+        "repository": supported, "commit_hash": "b" * 40,
+    }).json()["total"] == 0
+    for commit in (ORIGINAL, "b" * 40):
+        exact = api.get(endpoint, params={
+            "repository": unsupported, "commit_hash": commit,
+        }).json()
+        assert exact["total"] == 1 and exact["items"][0]["id"] == unknown["scope"]["id"]
+
+
 def test_duplicate_canonical_pairs_fail_atomically_but_historical_receipts_replay(
     api, project, work_payload, checkpoint_fields, monkeypatch, postgres_engine,
 ):

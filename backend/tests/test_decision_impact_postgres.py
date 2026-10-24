@@ -233,7 +233,7 @@ def test_assessment_snapshot_retains_before_after_and_does_not_change_with_later
     assert retained == original
     live = impact(api, project, first["reference"])
     assert live["items"][1]["scopes"][0]["commit_hash"] == "a" * 40
-    assert live["items"][1]["scopes"][0]["repository"] == "github.com/acme/project"
+    assert live["items"][1]["scopes"][0]["repository"] == "https://github.com/acme/project"
 
 
 def test_dispositions_are_versioned_receipted_and_keep_human_provenance(

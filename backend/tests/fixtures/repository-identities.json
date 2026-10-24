@@ -98,5 +98,25 @@
   [
     "Team/Repo\n",
     "Team/Repo\n"
+  ],
+  [
+    "Team/K",
+    "Team/K"
+  ],
+  [
+    "https://github.com/Team/İ",
+    "https://github.com/Team/İ"
+  ],
+  [
+    "https://gİthub.com/Team/Repo",
+    "https://gİthub.com/Team/Repo"
+  ],
+  [
+    "HTTP://GİtHub.com/TKam/Repo.git/",
+    "HTTP://GİtHub.com/TKam/Repo.git/"
+  ],
+  [
+    "github.com/Keam/Repo",
+    "github.com/Keam/Repo"
   ]
 ]
