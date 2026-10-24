@@ -1,5 +1,12 @@
 # Operating Mnemonic
 
+Release 0.103.0 and plugin 0.66.0 let newly created work exclude its declared
+discovery edge from future decision-change inheritance with an explicit reason.
+Migration `0064_work_change_inheritance` adds an immutable declaration table and
+creation-receipt guards. Existing discovery edges and memberships remain intact;
+alternate discovery paths and explicit adoption still apply. No backfill or new
+configuration is required. Downgrade refuses retained exclusions.
+
 Release 0.102.0 and plugin 0.65.0 retain optional shared finding IDs and explicit
 remediation targets in assessment dispositions. Migration `0063_impact_findings`
 adds nullable columns and constraints without rewriting historical receipts.
