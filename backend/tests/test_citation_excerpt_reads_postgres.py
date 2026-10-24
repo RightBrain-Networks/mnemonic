@@ -9,7 +9,12 @@ from .test_knowledge_postgres import domain, path
 pytestmark = pytest.mark.postgres
 
 
-def test_excerpts_pin_captured_revision_without_mutating_snapshot(api, project, postgres_engine):
+@pytest.mark.parametrize("options", [{}, {
+    "detail": "compact", "include_diff": False, "include_scopes": "summary",
+}])
+def test_excerpts_pin_captured_revision_without_mutating_snapshot(
+    api, project, postgres_engine, options,
+):
     target = domain(api, project)
     origin = decision(api, project, target, "Foundational rule")
     citation = f"Related (2026-10-23): Superseded in part by {origin['decision_id']}."
@@ -24,9 +29,9 @@ def test_excerpts_pin_captured_revision_without_mutating_snapshot(api, project, 
         before = connection.execute(text(
             "SELECT candidates FROM decision_impact_assessments WHERE id=:id"
         ), {"id": episode["id"]}).scalar_one()
-    default = api.get(endpoint).json()
+    default = api.get(endpoint, params=options).json()
     assert all("citation_excerpts" not in item for item in default["candidates"])
-    enriched = api.get(endpoint, params={"include_citation_excerpts": True})
+    enriched = api.get(endpoint, params={**options, "include_citation_excerpts": True})
     assert enriched.status_code == 200, enriched.text
     result = enriched.json()
     evidence = next(item["citation_excerpts"] for item in result["candidates"]
@@ -41,15 +46,18 @@ def test_excerpts_pin_captured_revision_without_mutating_snapshot(api, project, 
         ), {"id": episode["id"]}).scalar_one() == before
 
 
-def test_live_excerpts_are_optional_and_follow_candidate_pagination(api, project):
+@pytest.mark.parametrize("options", [{}, {
+    "detail": "compact", "include_diff": False, "include_scopes": "none",
+}])
+def test_live_excerpts_are_optional_and_follow_candidate_pagination(api, project, options):
     target = domain(api, project)
     origin = decision(api, project, target, "Root")
     citing = decision(api, project, target, "Text without an identifier.",
                       related_decision_ids=[origin["decision_id"]])
-    default = impact(api, project, origin["reference"], limit=1, offset=1)
+    default = impact(api, project, origin["reference"], limit=1, offset=1, **options)
     assert "citation_excerpts" not in default["items"][0]
     enriched = impact(api, project, origin["reference"], limit=1, offset=1,
-                      include_citation_excerpts=True)
+                      include_citation_excerpts=True, **options)
     assert enriched["items"][0]["reference"] == citing["reference"]
     assert enriched["items"][0]["citation_excerpts"] == {
         "source_sha256": citing["sha256"], "excerpts": [], "truncated": False,
