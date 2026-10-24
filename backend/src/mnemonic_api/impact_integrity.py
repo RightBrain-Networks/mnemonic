@@ -4,6 +4,7 @@ from mnemonic_api.impact_disposition_integrity import (
     BATCH_DISPOSITION_FINDINGS,
     DISPOSITION_RECEIPT_ROWS,
 )
+from mnemonic_api.impact_finding_integrity import disposition_receipt_contains
 from mnemonic_api.impact_snapshot_integrity import SNAPSHOT_FINDINGS
 
 _IDENTIFIER = (
@@ -109,14 +110,14 @@ IMPACT_FINDINGS = {
         OR 1<>(SELECT count(*) FROM receipt_rows receipt
             WHERE receipt.project_id=disposition.project_id
             AND receipt.response_status=201 AND receipt.mutation_applied
-            AND receipt.item @> (to_jsonb(disposition.*)-'created_at'))
+            AND {disposition_receipt_contains('receipt.item')})
     """,
-    "invalid_decision_impact_disposition_receipts": """
+    "invalid_decision_impact_disposition_receipts": f"""
         SELECT count(*) FROM client_operations receipt
         WHERE receipt.operation_kind='assess_decision_impact' AND receipt.state='completed'
         AND NOT EXISTS (SELECT 1 FROM decision_impact_dispositions disposition
             WHERE disposition.project_id=receipt.project_id
-              AND receipt.response_body @> (to_jsonb(disposition.*)-'created_at')
+              AND {disposition_receipt_contains('receipt.response_body')}
               AND receipt.response_status=201 AND receipt.mutation_applied)
     """,
 }

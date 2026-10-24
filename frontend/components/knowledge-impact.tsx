@@ -15,10 +15,11 @@ import { knowledgeJson, knowledgePath } from "@/lib/knowledge";
 import { decodeDisposition, impactDispositions, type AssessmentDetail, type ImpactAssessment, type ImpactCandidate, type ImpactCoverage, type ImpactDisposition, type ImpactDispositionName, type ImpactKind } from "@/lib/knowledge-impact";
 import { assessmentOptions, assessmentsOptions, decisionImpactOptions, dispositionHistoryOptions, knowledgeKeys } from "@/lib/knowledge-queries";
 import { validUuid } from "@/lib/wire-guards";
+import { findingIdPattern, findingSummaryLabel, type RemediationTarget } from "@/lib/impact-findings";
 
 function AssessmentStatus({ assessment }: { assessment: ImpactAssessment }) {
   if (assessment.status === undefined) return <p className="field-hint">Assessment progress not recorded.</p>;
-  return <p className={`impact-assessment-status impact-assessment-${assessment.status}`}><strong>{assessment.status === "resolved" ? "All candidates assessed" : assessment.status === "change-required" ? "Changes required" : "Assessment pending"}</strong> · {assessment.unassessed_count} unassessed · {assessment.change_required_count} require changes</p>;
+  return <p className={`impact-assessment-status impact-assessment-${assessment.status}`}><strong>{assessment.status === "resolved" ? "All candidates assessed" : assessment.status === "change-required" ? "Changes required" : "Assessment pending"}</strong> · {assessment.unassessed_count} unassessed · {assessment.change_required_count} require changes{assessment.finding_summary && <> · {findingSummaryLabel(assessment.finding_summary)}</>}</p>;
 }
 export function CoverageNotice({ coverage }: { coverage: ImpactCoverage }) {
   return <aside className="impact-coverage" aria-label="Impact coverage">
@@ -86,7 +87,7 @@ export function DecisionAssessments({ projectId, decisionId, onDecision, onPendi
   </>;
 }
 function DispositionRecord({ entry, projectId }: { entry: ImpactDisposition; projectId: string }) {
-  return <div className="impact-disposition"><strong>{entry.disposition.replaceAll("-", " ")}</strong><p>{entry.reason}</p>{entry.remediation_work_item_id && <Link href={`/work-items?project=${projectId}&work=${entry.remediation_work_item_id}`}>Remediation work {entry.remediation_work_item_id}</Link>}<span>Record {entry.version} · {formatDateTime(entry.created_at)} · {entry.actor.actor_client} · {entry.actor.actor_session_id}{entry.actor.actor_model ? ` · ${entry.actor.actor_model}` : ""}</span></div>;
+  return <div className="impact-disposition"><strong>{entry.disposition.replaceAll("-", " ")}</strong><p>{entry.reason}</p>{entry.finding_id && <p>Finding: <code>{entry.finding_id}</code></p>}{entry.remediation_target && <p>Remediation target: {entry.remediation_target.replaceAll("-", " ")}</p>}{entry.remediation_work_item_id && <Link href={`/work-items?project=${projectId}&work=${entry.remediation_work_item_id}`}>Remediation work {entry.remediation_work_item_id}</Link>}<span>Record {entry.version} · {formatDateTime(entry.created_at)} · {entry.actor.actor_client} · {entry.actor.actor_session_id}{entry.actor.actor_model ? ` · ${entry.actor.actor_model}` : ""}</span></div>;
 }
 export function AssessmentView({ projectId, id, onDecision, onPendingChange }: { projectId: string; id: string; onDecision: (reference: string) => void; onPendingChange: (pending: boolean) => void }) {
   const [offset, setOffset] = useState(0);
@@ -129,7 +130,7 @@ export function AssessmentView({ projectId, id, onDecision, onPendingChange }: {
     </details>
   </div>;
 }
-type Intent = { actor: { actor_client: string; actor_session_id: string; actor_model?: string | null }; body: string; candidate_reference: string; expected_version: number; disposition: ImpactDispositionName; reason: string; remediation_work_item_id: string | null };
+type Intent = { actor: { actor_client: string; actor_session_id: string; actor_model?: string | null }; body: string; candidate_reference: string; expected_version: number; disposition: ImpactDispositionName; reason: string; remediation_work_item_id: string | null; finding_id?: string; remediation_target?: RemediationTarget };
 function DispositionForm({ detail, reference, onPendingChange, onClose }: { detail: AssessmentDetail; reference: string; onPendingChange: (pending: boolean) => void; onClose: () => void }) {
   const client = useQueryClient();
   const [expectedVersion, setExpectedVersion] = useState(detail.version);
@@ -138,6 +139,8 @@ function DispositionForm({ detail, reference, onPendingChange, onClose }: { deta
   const [disposition, setDisposition] = useState<ImpactDispositionName | "">("");
   const [reason, setReason] = useState("");
   const [work, setWork] = useState("");
+  const [findingId, setFindingId] = useState("");
+  const [remediationTarget, setRemediationTarget] = useState<RemediationTarget | "">("");
   const [pending, setPending] = useState<Intent | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -149,6 +152,7 @@ function DispositionForm({ detail, reference, onPendingChange, onClose }: { deta
       const saved = decodeDisposition(await knowledgeJson(knowledgePath(detail.project_id, `/assessments/${detail.id}/dispositions`), { method: "POST", body: intent.body }), detail.project_id, detail.id);
       if (saved.candidate_reference !== intent.candidate_reference || saved.version !== intent.expected_version + 1
         || saved.disposition !== intent.disposition || saved.reason !== intent.reason || saved.remediation_work_item_id !== intent.remediation_work_item_id
+        || (saved.finding_id ?? null) !== (intent.finding_id ?? null) || (saved.remediation_target ?? null) !== (intent.remediation_target ?? null)
         || saved.actor.actor_client !== intent.actor.actor_client || saved.actor.actor_session_id !== intent.actor.actor_session_id
         || (saved.actor.actor_model ?? null) !== (intent.actor.actor_model ?? null)) throw new Error("The returned disposition does not match this action. Retry the saved action.");
       setPending(null); onPendingChange(false);
@@ -169,7 +173,8 @@ function DispositionForm({ detail, reference, onPendingChange, onClose }: { deta
     if (pending) return;
     if (stale || reviewRequired) { setError("Review the newer assessment dispositions before saving this draft."); return; }
     if (!disposition || !reason.trim() || reason.includes("\0") || work.trim() && !validUuid(work.trim())) { setError("Choose a disposition, give a reason, and use a valid work item UUID if linking remediation."); return; }
-    const value = { candidate_reference: reference, expected_version: expectedVersion, disposition, reason: reason.trim(), remediation_work_item_id: work.trim() || null, client_operation_id: crypto.randomUUID(), actor: dashboardMutationActor(dashboardSessionId()) };
+    if (findingId.trim() && !findingIdPattern.test(findingId.trim())) { setError("Use up to 100 letters, numbers, dots, colons, underscores or hyphens for the finding ID."); return; }
+    const value = { candidate_reference: reference, expected_version: expectedVersion, disposition, reason: reason.trim(), remediation_work_item_id: work.trim() || null, client_operation_id: crypto.randomUUID(), actor: dashboardMutationActor(dashboardSessionId()), ...(findingId.trim() ? { finding_id: findingId.trim() } : {}), ...(disposition === "change-required" && remediationTarget ? { remediation_target: remediationTarget } : {}) };
     void execute({ ...value, body: JSON.stringify(value) });
   }
   return <form className="form-stack impact-disposition-form" onSubmit={submit} aria-label={`Disposition for ${reference}`}>
@@ -181,6 +186,9 @@ function DispositionForm({ detail, reference, onPendingChange, onClose }: { deta
       <label className="field">Disposition<select value={disposition} required onChange={(event) => setDisposition(event.target.value as ImpactDispositionName)}><option value="">Choose a conclusion</option>{impactDispositions.map((value) => <option value={value} key={value}>{value.replaceAll("-", " ")}</option>)}</select></label>
       <label className="field">Reason<textarea rows={3} maxLength={4000} required value={reason} onChange={(event) => setReason(event.target.value)} /></label>
       <label className="field">Remediation work item ID (optional)<input value={work} onChange={(event) => setWork(event.target.value)} placeholder="Work item UUID" /></label>
+      <label className="field">Finding ID (optional)<input value={findingId} maxLength={100} onChange={(event) => setFindingId(event.target.value)} /></label>
+      <p className="field-hint">Use the same ID for the same finding across this review’s assessments.</p>
+      {disposition === "change-required" && <label className="field">Remediation target (optional)<select value={remediationTarget} onChange={(event) => setRemediationTarget(event.target.value as RemediationTarget | "")}><option value="">Unspecified</option><option value="code">Code</option><option value="decision-record">Decision record</option><option value="both">Both</option></select></label>}
     </fieldset>
     {error && <div className="error-notice" role="alert"><p>{error}</p>{pending && <><p>The outcome is unconfirmed. Retry this saved action before leaving.</p><button type="button" className="button button-secondary" disabled={busy} onClick={() => void execute(pending)}>Retry pending disposition</button></>}</div>}
     <div className="settings-actions"><button type="button" className="button button-secondary" disabled={Boolean(pending)} onClick={onClose}>Cancel disposition</button><button type="submit" className="button button-primary" disabled={Boolean(pending) || stale || reviewRequired}>{busy ? "Saving…" : "Save disposition"}</button></div>

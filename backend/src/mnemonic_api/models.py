@@ -48,6 +48,7 @@ from mnemonic_api.artifact_passage_db import (
 )
 from mnemonic_api.background_job_db import job_elements
 from mnemonic_api.duplicate_embedding_db import refresh_elements
+from mnemonic_api.impact_finding_db import finding_elements
 from mnemonic_api.priority_rubric import PRIORITY_RUBRIC_CHECK, PRIORITY_RUBRIC_DEFAULT_SQL
 from mnemonic_api.transcript_health_db import diagnostic_columns, worker_health_elements
 from mnemonic_api.transcript_metadata_db import metadata_columns
@@ -2504,7 +2505,8 @@ class DecisionImpactAssessment(Base):
 
 
 class DecisionImpactDisposition(Base):
-    __table__ = Table("decision_impact_dispositions", Base.metadata, *impact.disposition_elements())
+    __table__ = Table("decision_impact_dispositions", Base.metadata,
+                      *impact.disposition_elements(), *finding_elements())
 
     id: Mapped[UUID]
     project_id: Mapped[UUID]
@@ -2516,6 +2518,8 @@ class DecisionImpactDisposition(Base):
     remediation_work_item_id: Mapped[UUID | None]
     actor: Mapped[dict]
     created_at: Mapped[datetime]
+    finding_id: Mapped[str | None]
+    remediation_target: Mapped[str | None]
 
 
 class DecisionChange(Base):

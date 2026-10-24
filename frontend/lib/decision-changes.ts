@@ -1,4 +1,5 @@
 import { exactKeys, finiteInteger, objectValue, sameUuid, validUtcDateTime, validUuid } from "./wire-guards.ts";
+import { validFindingSummary, type FindingSummary } from "./impact-findings.ts";
 
 export type DecisionRevisionChange = {
   change_id: string | null; kind: "substantive" | "record-existing" | "maintenance";
@@ -7,6 +8,7 @@ export type DecisionRevisionChange = {
   unchanged_supersessions?: { target_reference: string; governing_reference: string; reason: string }[];
 };
 export type DecisionChange = {
+  finding_summary?: FindingSummary | null;
   id: string; project_id: string; origin_reference: string | null;
   review_work_item_id: string | null; parent_change_id: string | null;
   review_work_project_id: string | null; review_closed: boolean; successor_change_id: string | null;
@@ -57,7 +59,9 @@ export function decodeDecisionChange(value: unknown, projectId: string, changeId
   const row = objectValue(value);
   if (!row || !exactKeys(row, ["id", "project_id", "origin_reference", "review_work_item_id", "parent_change_id",
     "review_work_project_id", "review_closed", "successor_change_id",
-    "scope_version", "acknowledged_scope_version", "assessment_count", "revision_count", "pending_revision_count", "created_at", "updated_at"])
+    "scope_version", "acknowledged_scope_version", "assessment_count", "revision_count", "pending_revision_count", "created_at", "updated_at",
+    ...(Object.hasOwn(row, "finding_summary") ? ["finding_summary"] : [])])
+    || row.finding_summary != null && !validFindingSummary(row.finding_summary)
     || !validUuid(row.id) || !sameUuid(row.project_id, projectId) || changeId !== undefined && !sameUuid(row.id, changeId)
     || !nullableReference(row.origin_reference) || !nullableUuid(row.review_work_item_id) || !nullableUuid(row.parent_change_id)
     || !nullableUuid(row.review_work_project_id) || typeof row.review_closed !== "boolean" || !nullableUuid(row.successor_change_id)

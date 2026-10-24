@@ -48,7 +48,8 @@ _OCCURRENCES = """
             candidate->>'related_direction' AS related_direction,
             CASE WHEN latest.id IS NULL THEN NULL ELSE jsonb_build_object(
                 'id',latest.id,'version',latest.version,'disposition',latest.disposition,
-                'remediation_work_item_id',latest.remediation_work_item_id)
+                'remediation_work_item_id',latest.remediation_work_item_id,
+                    'finding_id',latest.finding_id, 'remediation_target',latest.remediation_target)
                 END AS latest_disposition
         FROM episodes CROSS JOIN LATERAL jsonb_array_elements(episodes.candidates) candidate
         LEFT JOIN latest ON latest.assessment_id=episodes.id

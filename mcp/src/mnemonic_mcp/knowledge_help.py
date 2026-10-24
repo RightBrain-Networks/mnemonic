@@ -138,18 +138,20 @@ KNOWLEDGE_GUIDES: dict[str, tuple[str, str, str]] = {
     ),
     "decision_assessment_append": (
         "Knowledge", "Record an evidenced disposition for one affected revision.",
-        ("Read current version and exact candidate_reference. Supply an evidenced verdict, reason "
-        "and optional remediation work ID. Context verdicts are optional; change-required still "
-        "needs remediation before Done. Record resolved only after verifying completed remediation. "
-        "Optional lease_token must identify an associated current review's active implementation "
-        "lease; fresh success renews its last duration within project bounds. Token-free writes "
-        "and exact replays never renew. Reread after a version conflict. No execution authority."),
+        ("Read version and exact candidate_reference; supply an evidenced verdict and reason. "
+        "Context verdicts are optional; every change-required result needs remediation before Done. "
+        "Record resolved only after checking remediation. Optional finding_id groups the same "
+        "evidenced finding; remediation_target (code, decision-record, both) applies only to "
+        "change-required. Unlabelled grouping stays unknown. Optional lease_token renews an "
+        "associated current review's implementation lease on fresh success within project bounds. "
+        "Token-free writes/replays never renew. Reread stale versions. No execution authority."),
     ),
     "decision_assessment_append_batch": (
         "Knowledge", "Atomically record 1–100 evidenced dispositions for one assessment episode.",
         ("Supply expected_version, shared actor and 1–100 ordered items: unique candidate_reference, "
-        "disposition, reason and optional remediation_work_item_id. Singleton validation and "
-        "consecutive versions apply; any invalid item rolls back rows and lease renewal. Preserve "
+        "disposition, reason and optional remediation_work_item_id, finding_id and remediation_target. "
+        "Singleton rules and consecutive versions apply; invalid items roll back rows and renewal. "
+        "Preserve "
         "order on retries; reread after a version conflict. Optional lease_token must identify an "
         "associated current review's active implementation lease; fresh success renews its last "
         "duration within project bounds. Token-free writes and exact replays never renew. Done "

@@ -34,6 +34,16 @@ test("change reads bind project identity and keep acknowledgement within scope",
     reason: null, governing_reference: null, source_work_item_id: work }));
 });
 
+test("change summaries distinguish named findings from unknown unlabelled rows", () => {
+  const summary = { named_finding_count: 1, unlabelled_change_required_count: 2, change_required_row_count: 21 };
+  const value = { ...change, finding_summary: summary };
+  assert.deepEqual(decodeDecisionChange(value, project, changeId), value);
+  for (const changed of [{ named_finding_count: 20 }, { unlabelled_change_required_count: 22 },
+    { change_required_row_count: "21" }, { named_finding_count: 0 }, { extra: true }]) {
+    assert.throws(() => decodeDecisionChange({ ...value, finding_summary: { ...summary, ...changed } }, project));
+  }
+});
+
 test("adoption, acknowledgement and human admission bind distinct result identities", () => {
   assert.equal(matchDecisionChangeMutation(change, project, { action: "adopt", work_item_id: work,
     expected_work_version: 1, assessment_ids: [assessment] }).id, changeId);

@@ -1,5 +1,12 @@
 # Operating Mnemonic
 
+Release 0.102.0 and plugin 0.65.0 retain optional shared finding IDs and explicit
+remediation targets in assessment dispositions. Migration `0063_impact_findings`
+adds nullable columns and constraints without rewriting historical receipts.
+Downgrade refuses to discard authored metadata. Review summaries distinguish
+named findings from unlabelled rows; every candidate obligation remains intact.
+No new configuration is required.
+
 Release 0.101.0 and plugin 0.64.0 canonicalize explicit GitHub repository identities
 on fresh scope appends and completion reports. Lookup accepts supported aliases
 while returning the stored spelling; reconciliation still requires that exact

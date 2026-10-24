@@ -418,6 +418,38 @@ historical episodes, diffs, coverage snapshots and dispositions remain immutable
 Compact reads may omit section text and diff prose while retaining identity,
 structured details, bounds and coverage metadata.
 
+Dispositions may include `finding_id`, an authored, case-sensitive key of 1–100
+ASCII letters, digits, dots, colons, underscores or hyphens, beginning with a letter
+or digit. Reuse a key only when the evidence establishes the same finding across
+candidates or episodes in the selected change. It is an opaque grouping key, not a
+work ID or inferred equivalence. On `change-required` dispositions,
+`remediation_target` may be `code`, `decision-record`, or `both`. A decision-record
+target distinguishes a wording correction from a code change; it does not grant
+authority to make either change or remove the remediation requirement.
+
+Assessment and change reads expose `finding_summary`. `named_finding_count`
+counts distinct explicit IDs among the latest change-required dispositions;
+`unlabelled_change_required_count` counts rows without an ID whose relationship
+to other findings is unknown; `change_required_row_count` retains the total
+number of those rows. Thus 19 rows naming one finding plus two unlabelled rows
+report one named finding, two unlabelled rows and 21 change-required rows.
+Unlabelled rows are never deduplicated by shared remediation work, similar reasons
+or candidates. These summaries do not change candidate counts, required verdicts
+or review Done checks. Corrections append new version-checked dispositions;
+summaries use their latest values and history retains the previous metadata.
+Historical rows and receipt bodies keep their original shape, with absent
+finding metadata remaining unknown. The dashboard shows the same distinction
+and offers optional finding and remediation-target fields when recording a verdict.
+
+The [narrow finding-entry form](images/impact-finding-form-narrow.png) shows the
+optional fields and save controls. Browser acceptance captures also show the
+separate finding and candidate counts and retained disposition metadata:
+
+| View | Desktop | Narrow |
+| --- | --- | --- |
+| Assessment counts | [Summary](images/impact-finding-summary-desktop.png) | [Summary](images/impact-finding-summary-narrow.png) |
+| Recorded finding | [Disposition](images/impact-finding-record-desktop.png) | [Disposition](images/impact-finding-record-narrow.png) |
+
 ## MCP workflow
 
 1. Call `list_knowledge_domains` and select a domain. Create one with
@@ -634,10 +666,11 @@ expose `admit`. REST uses one receipt-protected
 `GET /projects/{project_id}/knowledge/changes/{change_id}` for reads.
 
 Deploy aligned API, worker, MCP and dashboard with migration
-`0062_review_scope_notices`. It preserves historical assessments, dispositions and
+`0063_impact_findings`. It preserves historical assessments, dispositions and
 terminal work without creating a review backlog. No new service or environment
-variable is required. Downgrade is refused once exact attachment versions exist;
-the earlier batch migration also refuses to discard retained batch receipts.
+variable is required. Migration 0063 refuses downgrade while dispositions retain
+finding IDs or remediation targets. Earlier migrations also refuse to discard
+exact attachment versions or retained batch receipts.
 
 Each investigation drives its existing impact-assessment episodes. Start with
 `decision_assessment_get` for the retained diff and candidate pages; the task

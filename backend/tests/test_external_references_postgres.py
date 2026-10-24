@@ -539,10 +539,11 @@ def test_downgrade_waits_for_writer_before_checking_reference_history(
                 sleep(0.01)
             assert waiting, "Downgrade must wait for the existing writer"
         with pytest.raises(RuntimeError, match="Cannot downgrade"):
-            result.result(timeout=3)
+            # Finish the full migration chain and rollback after the writer releases its lock.
+            result.result(timeout=10)
     with postgres_engine.connect() as connection:
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
-            "0062_review_scope_notices"
+            "0063_impact_findings"
         )
         assert connection.scalar(
             text("SELECT external_references FROM work_items WHERE id=:id"), {"id": work["id"]}

@@ -10,6 +10,7 @@ from pydantic.experimental.missing_sentinel import MISSING
 from .api import MnemonicAPI
 from .impact_models import (
     Disposition,
+    FindingIdentifier,
     ImpactActor,
     ImpactAssessmentDetail,
     ImpactAssessmentRead,
@@ -26,6 +27,7 @@ from .impact_models import (
     ImpactScopes,
     Reason,
     Reference,
+    RemediationTarget,
     effective_projection,
 )
 from .knowledge_models import DecisionIdentifier, DecisionReference, KnowledgePage, RevisionNumber
@@ -160,13 +162,16 @@ def _register_assessment_writes(server: FastMCP, api: MnemonicAPI) -> None:
         expected_version: Annotated[StrictInt, Field(ge=0)], disposition: Disposition,
         reason: Reason, actor: ImpactActor, client_operation_id: UUID,
         remediation_work_item_id: UUID | None = None,
+        finding_id: FindingIdentifier | None = None,
+        remediation_target: RemediationTarget | None = None,
         lease_token: LeaseTokenInput | None = None,
     ) -> ImpactDispositionRead:
-        """Append an evidenced assessment for one exact captured candidate revision: still-valid, change-required, not-affected, or resolved. Supply the current assessment expected_version, a concrete reason, and remediation work ID when applicable. Context-only verdicts are optional and may use a short truthful contradiction note; every recorded change-required result still requires tracked remediation before review Done. Inspect evidence before deciding; resolved must reflect completed authorized remediation. This never changes document lifecycle, completes work, resolves a human gate, or grants authority. Optionally supply an active implementation lease_token belonging to a current review driver associated with this episode; fresh success renews its last granted duration within current project lease bounds. Token-free writes and exact receipt replays do not renew. Unrelated and code-review capabilities are refused. Retain the operation ID and every argument for an exact uncertain retry. A definitive version conflict requires rereading before a new intent."""
+        """Append an evidenced assessment for one exact captured candidate revision: still-valid, change-required, not-affected, or resolved. Supply the current assessment expected_version, a concrete reason, and remediation work ID when applicable. Context-only verdicts are optional and may use a short truthful contradiction note; every recorded change-required result still requires tracked remediation before review Done. Optional finding_id groups the same evidenced finding using a case-sensitive ASCII key of 1–100 letters, digits, dots, colons, underscores or hyphens, starting with a letter or digit. Optional remediation_target is code, decision-record or both, only for change-required. Unlabelled rows remain unknown; finding summaries never change obligations. Inspect evidence before deciding; resolved must reflect completed authorized remediation. This never changes document lifecycle, completes work, resolves a human gate, or grants authority. Optionally supply an active implementation lease_token belonging to a current review driver associated with this episode; fresh success renews its last granted duration within current project lease bounds. Token-free writes and exact receipt replays do not renew. Unrelated and code-review capabilities are refused. Retain the operation ID and every argument for an exact uncertain retry. A definitive version conflict requires rereading before a new intent."""
         intent = _validated(ImpactDispositionCreate, {
             "candidate_reference": candidate_reference, "expected_version": expected_version,
             "disposition": disposition, "reason": reason,
             "remediation_work_item_id": remediation_work_item_id,
+            "finding_id": finding_id, "remediation_target": remediation_target,
             "actor": actor,
             "client_operation_id": client_operation_id,
             "lease_token": lease_token.get_secret_value() if lease_token is not None else None,
@@ -177,6 +182,7 @@ def _register_assessment_writes(server: FastMCP, api: MnemonicAPI) -> None:
             lambda item: (item.project_id, item.assessment_id, item.version)
             == (project_id, assessment_id, expected_version + 1)
             and item.actor == intent.actor
+            and (item.finding_id, item.remediation_target) == (finding_id, remediation_target)
             and (item.review_scope_changed is None or lease_token is not None)
             and all(getattr(item, key) == value for key, value in intent.model_dump(
                 exclude={"client_operation_id", "expected_version", "actor", "lease_token"},
@@ -196,7 +202,8 @@ def _batch_matches(
         and (result.review_scope_changed is None or intent.lease_token is not None)
         and all(actual.actor == intent.actor and all(
             getattr(actual, key) == getattr(expected, key)
-            for key in ("candidate_reference", "disposition", "reason", "remediation_work_item_id")
+            for key in ("candidate_reference", "disposition", "reason", "remediation_work_item_id",
+                        "finding_id", "remediation_target")
         ) for expected, actual in zip(intent.items, result.items, strict=True))
     )
 
@@ -210,7 +217,7 @@ def _register_assessment_batch(server: FastMCP, api: MnemonicAPI) -> None:
         actor: ImpactActor, client_operation_id: UUID,
         lease_token: LeaseTokenInput | None = None,
     ) -> ImpactDispositionBatchRead:
-        """Atomically append 1–100 evidenced dispositions to one assessment episode. Each item names a unique exact candidate_reference, disposition, concrete reason, and optional remediation_work_item_id; actor and expected_version apply to the whole batch. Versions advance consecutively in input order. An invalid item rolls back every item and any lease renewal. Done requirements remain per candidate and episode. Optionally supply an active implementation lease_token for a current review driver associated with this episode, including an adopted or moved driver; a fresh successful write renews its last granted duration clamped to current project bounds. No token and exact receipt replays never renew ownership; unrelated and code-review capabilities are refused. Retain the one operation UUID and all arguments, including item order, for an exact uncertain retry. A definitive version conflict requires reading decision_assessment_get before preparing a new intent. Never copy verdicts between episodes or infer authorization from this operation."""
+        """Atomically append 1–100 evidenced dispositions to one assessment episode. Each item names a unique exact candidate_reference, disposition, concrete reason, and optional remediation_work_item_id; actor and expected_version apply to the whole batch. Items may include finding_id and remediation_target under the singleton rules; metadata stays exact per item. Versions advance consecutively in input order. An invalid item rolls back every item and any lease renewal. Done requirements remain per candidate and episode. Optionally supply an active implementation lease_token for a current review driver associated with this episode, including an adopted or moved driver; a fresh successful write renews its last granted duration clamped to current project bounds. No token and exact receipt replays never renew ownership; unrelated and code-review capabilities are refused. Retain the one operation UUID and all arguments, including item order, for an exact uncertain retry. A definitive version conflict requires reading decision_assessment_get before preparing a new intent. Never copy verdicts between episodes or infer authorization from this operation."""
         intent = _validated(ImpactDispositionBatchCreate, {
             "expected_version": expected_version, "items": items, "actor": actor,
             "client_operation_id": client_operation_id,
