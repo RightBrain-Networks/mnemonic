@@ -6,7 +6,12 @@ from typing import Annotated, Literal, Self
 from uuid import UUID
 
 from pydantic import Field, StrictInt, StringConstraints, field_validator, model_validator
+from pydantic.experimental.missing_sentinel import MISSING
 
+from mnemonic_api.decision_change_schemas import (
+    DecisionChangeDeclaration,
+    DecisionRevisionChangeRead,
+)
 from mnemonic_api.decision_scope_schemas import ScopeCompletionCitation
 from mnemonic_api.impact_schemas import DecisionDependency, SupersessionDetail
 from mnemonic_api.product_decision_schemas import DecisionHumanGateRead
@@ -94,6 +99,8 @@ class KnowledgeDomainRead(APIModel):
 
 
 class DecisionPutRequest(APIModel):
+    source_work_item_id: UUID | None | MISSING = MISSING
+    change: DecisionChangeDeclaration | None = Field(default=None, exclude_if=lambda v: v is None)
     domain_id: UUID
     title: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=500)]
     content: Annotated[str, Field(max_length=MAX_DECISION_BYTES)]
@@ -145,6 +152,7 @@ class DecisionPut(DecisionPutRequest):
 
 
 class DecisionRead(APIModel):
+    change: DecisionRevisionChangeRead | None = Field(default=None, exclude_if=lambda v: v is None)
     human_gate: DecisionHumanGateRead | None = Field(
         default=None, exclude_if=lambda value: value is None
     )

@@ -303,6 +303,10 @@ def stage_relationship_locked(
     )
     database.add(relationship)
     database.flush()
+    if relationship_type == "discovered-from":
+        from mnemonic_api.services.decision_changes import inherit_changes
+
+        inherit_changes(database, source_work_item_id, target_work_item_id)
     return relationship, True
 
 

@@ -22,6 +22,11 @@ from sqlalchemy.exc import TimeoutError as SQLAlchemyTimeoutError
 from sqlalchemy.orm import Session
 
 from mnemonic_api.database import database_sqlstate
+from mnemonic_api.decision_change_schemas import (
+    DecisionChangeRead,
+    DecisionChangeUpdate,
+    DecisionChangeUpdateRequest,
+)
 from mnemonic_api.errors import (
     client_operation_conflict,
     client_operation_secret_echo,
@@ -98,6 +103,7 @@ from mnemonic_api.schemas import (
     WorkMoveRead,
     WorkUpdateRead,
 )
+from mnemonic_api.services.decision_change_receipts import change_matches
 from mnemonic_api.services.decision_provenance import reconciled_scope_matches
 from mnemonic_api.services.impact_receipts import disposition_matches
 from mnemonic_api.services.knowledge_receipts import (
@@ -108,7 +114,7 @@ from mnemonic_api.services.knowledge_receipts import (
 )
 
 type OperationKind = Literal[
-    "assess_decision_impact", "reconcile_decision_scope",
+    "update_decision_change", "assess_decision_impact", "reconcile_decision_scope",
     "create_knowledge_domain", "rename_knowledge_domain", "put_decision", "append_decision_scope",
     "create_work",
     "add_checkpoint",
@@ -129,7 +135,7 @@ type OperationKind = Literal[
     "respond_to_work_follow_up", "complete_code_review",
 ]
 REGISTERED_OPERATION_KINDS: tuple[OperationKind, ...] = (
-    "assess_decision_impact", "reconcile_decision_scope",
+    "update_decision_change", "assess_decision_impact", "reconcile_decision_scope",
     "create_knowledge_domain", "rename_knowledge_domain", "put_decision", "append_decision_scope",
     "respond_to_work_follow_up", "complete_code_review",
     "create_work",
@@ -231,6 +237,10 @@ def _spec(
 
 
 _REGISTRY: dict[OperationKind, OperationSpec] = {
+    "update_decision_change": _spec(
+        "update_decision_change", DecisionChangeUpdate, DecisionChangeRead, 200,
+        domain_model=DecisionChangeUpdateRequest,
+    ),
     "assess_decision_impact": _spec(
         "assess_decision_impact", ImpactDispositionCreate, ImpactDispositionRead, 201,
         "assessment_id", domain_model=ImpactDispositionRequest,
@@ -1445,6 +1455,7 @@ def _follow_up_matches(project_id: UUID, target: Mapping[str, str],
 
 _RESPONSE_MATCHERS: Mapping[OperationKind, ResponseMatcher] = MappingProxyType(
     {
+        "update_decision_change": change_matches,
         "assess_decision_impact": disposition_matches,
         "reconcile_decision_scope": reconciled_scope_matches,
         "create_knowledge_domain": created_domain_matches,

@@ -48,8 +48,8 @@ function StatusBadge({ status, readiness, workItem = false }: { status: WorkStat
   return <span className={`status-badge status-${effective}`}><span />{cardStatusLabels[effective]}</span>;
 }
 
-function DecisionReviewBadge({ revisionId }: { revisionId?: string | null }) {
-  return revisionId ? <span className="queue-chip decision-review-chip" title="Investigate code affected by a changed decision">DECISION IMPACT REVIEW</span> : null;
+function DecisionReviewBadge({ revisionId, changeId }: { revisionId?: string | null; changeId?: string | null }) {
+  return revisionId || changeId ? <span className="queue-chip decision-review-chip" title="Investigate code affected by a changed decision">DECISION IMPACT REVIEW</span> : null;
 }
 
 function OperationalBadge({ readiness }: { readiness: Readiness }) {

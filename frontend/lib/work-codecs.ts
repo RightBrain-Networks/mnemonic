@@ -15,7 +15,7 @@ import {
 
 const WORK_ITEM_FIELDS = [
   "id", "project_id", "title", "summary", "status", "priority", "initial_checkpoint_id",
-  "version", "created_at", "updated_at", "external_references", "manual_review_request", "decision_review_revision_id"
+  "version", "created_at", "updated_at", "external_references", "manual_review_request", "decision_review_revision_id", "decision_review_change_id", "decision_change_ids", "decision_review_project_id", "decision_change_projects"
 ] as const;
 
 const WORK_STATUSES = new Set<WorkStatus>([
@@ -41,10 +41,16 @@ export function decodeWorkItem(
   errorMessage = "Mnemonic returned an invalid mutation response."
 ): WorkItem {
   const item = objectValue(value);
+  const changeProjects = objectValue(item?.decision_change_projects);
   if (
     !item
     || !validSparseReferences(item)
-    || !exactKeys(item, referenceKeys(item, WORK_ITEM_FIELDS.filter((key) => key !== "external_references" && (!["manual_review_request", "decision_review_revision_id"].includes(key) || Object.hasOwn(item, key)))))
+    || !exactKeys(item, referenceKeys(item, WORK_ITEM_FIELDS.filter((key) => key !== "external_references" && (!["manual_review_request", "decision_review_revision_id", "decision_review_change_id", "decision_change_ids", "decision_review_project_id", "decision_change_projects"].includes(key) || Object.hasOwn(item, key)))))
+    || item.decision_change_projects !== undefined && (!changeProjects
+      || !Object.entries(changeProjects).every(([id, project]) => validUuid(id) && validUuid(project)))
+    || item.decision_review_project_id != null && !validUuid(item.decision_review_project_id)
+    || item.decision_review_change_id != null && !validUuid(item.decision_review_change_id)
+    || item.decision_change_ids !== undefined && (!Array.isArray(item.decision_change_ids) || !item.decision_change_ids.every(validUuid) || new Set(item.decision_change_ids).size !== item.decision_change_ids.length)
     || item.decision_review_revision_id !== undefined && item.decision_review_revision_id !== null && !validUuid(item.decision_review_revision_id)
     || !validUuid(item.id)
     || !sameUuid(item.project_id, projectId)

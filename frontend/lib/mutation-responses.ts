@@ -1,3 +1,4 @@
+import { matchDecisionChangeMutation, type DecisionChange } from "./decision-changes.ts";
 import { cycleDescription, decodeDependencyIssue } from "./dependency-cycles.ts";
 import { decodeHumanReviewDecision } from "./code-reviews.ts";
 import { sameExternalReferences } from "./external-references.ts";
@@ -62,6 +63,7 @@ import { decodeCodeReview, decodeReviewPolicy, decodeWorkFollowUp, decodeFollowU
 import type { MutationActor } from "./types.ts";
 
 export const MUTATION_KINDS = [
+  "decision_change_update",
   "create_work",
   "add_checkpoint",
   "append_event",
@@ -82,6 +84,7 @@ export const MUTATION_KINDS = [
 export type MutationKind = typeof MUTATION_KINDS[number];
 
 export interface MutationResultByKind {
+  decision_change_update: DecisionChange;
   create_work: WorkCreation;
   add_checkpoint: Checkpoint;
   append_event: WorkEventRead;
@@ -123,6 +126,7 @@ export const MUTATION_RESPONSE_DECODER_FIELDS = {
   "decodeMutationResult:complete_work": WORK_COMPLETION_RESPONSE_FIELDS
 } as const;
 const EXPECTED_STATUS: Record<MutationKind, number> = {
+  decision_change_update: 200,
   create_work: 201,
   add_checkpoint: 201,
   append_event: 201,
@@ -143,12 +147,14 @@ const AMBIGUOUS_STATUSES = new Set([408, 425, 429, 502, 504]);
 const ERROR_ROOT_KEYS = new Set(["detail"]);
 const STRUCTURED_ERROR_KEYS = new Set(["code", "message", "context"]);
 const SAFE_CONTEXT_KEYS = new Set([
-  "holder_client", "expires_at", "fields", "canonical_work_item_id", "missing_dispositions", "untracked_changes"
+  "holder_client", "expires_at", "fields", "canonical_work_item_id", "missing_dispositions", "untracked_changes", "change_id", "scope_version"
 ]);
 const VALIDATION_KEYS = new Set(["type", "loc", "msg"]);
 const VALIDATION_LOCATION_ROOTS = new Set(["body", "query", "path", "header", "cookie"]);
 const DEFINITIVE_APPLICATION_ERRORS = new Map<number, ReadonlySet<string>>([
+  [403, new Set(["decision_change_human_admission_required"])],
   [404, new Set([
+    "decision_change_not_found",
     "project_not_found",
     "work_item_not_found",
     "checkpoint_not_found",
@@ -156,6 +162,8 @@ const DEFINITIVE_APPLICATION_ERRORS = new Map<number, ReadonlySet<string>>([
     "gate_not_found", "job_completion_report_not_found", "code_review_not_found", "work_follow_up_not_found"
   ])],
   [409, new Set([
+    "decision_change_closed", "decision_change_scope_conflict", "decision_change_scope_unacknowledged",
+    "decision_change_lineage_conflict", "decision_change_adoption_conflict",
     "job_report_prompt_changed", "project_settings_changed",
     "work_follow_up_changed", "work_follow_up_superseded", "work_follow_up_origin_mismatch", "work_follow_up_already_answered",
     "review_decision_requires_human", "review_decision_invalid", "review_decision_unchanged",
@@ -200,6 +208,7 @@ const DEFINITIVE_APPLICATION_ERRORS = new Map<number, ReadonlySet<string>>([
     "duplicate_relationship_frozen"
   ])],
   [422, new Set([
+    "decision_change_governance_invalid", "decision_change_source_required",
     "prompt_render_too_large", "invalid_prompt",
     "event_secret_echo", "client_operation_secret_echo", "gate_secret_echo",
     "code_review_handoff_required", "code_review_handoff_not_applicable", "work_follow_up_answer_invalid", "code_review_scope_mismatch", "code_review_coverage_incomplete",
@@ -455,6 +464,11 @@ function decodeSuccess<K extends MutationKind>(
 ): MutationResultByKind[K] {
   const body = requestBody(request);
   let decoded: MutationResultByKind[MutationKind];
+  if (request.kind === "decision_change_update") {
+    const path = parsePath(request.path, "/knowledge/changes");
+    if (!path || request.method !== "POST") throw new Error("The frozen mutation request is invalid.");
+    return matchDecisionChangeMutation(value, path.projectId, body) as MutationResultByKind[K];
+  }
   if (request.kind === "create_work") {
     const path = parsePath(request.path, "/work-items");
     const creation = objectValue(value);
@@ -916,6 +930,8 @@ export function decodeMutationError(value: unknown): {
       && !validUuid(context.canonical_work_item_id)
   ) return null;
   if (context.child_work_item_id !== undefined && !validUuid(context.child_work_item_id)) return null;
+  if (context.scope_version !== undefined && !finiteInteger(context.scope_version)) return null;
+  if (context.change_id !== undefined && !validUuid(context.change_id)) return null;
   for (const field of ["missing_dispositions", "untracked_changes"]) {
     if (context[field] !== undefined && (detail.code !== "decision_impact_review_incomplete"
       || !finiteInteger(context[field]))) return null;

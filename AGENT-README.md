@@ -538,10 +538,10 @@ startup/investigation and estimate remaining session time for later lease reques
 within the current project bounds. Preserve exact `lease_minutes` arguments on
 uncertain claim retries.
 
-Application/API/MCP/dashboard 0.91.1, plugin 0.54.0 and Alembic
-`0057_automatic_decision_reviews` ship together: 74 MCP tools, 23
+Application/API/MCP/dashboard 0.92.0, plugin 0.55.0 and Alembic
+`0058_decision_changes` ship together: 76 MCP tools, 24
 receipt-protected MCP writes,
-30 REST receipt kinds, 24 protected browser mutations, 24 event types and three
+31 REST receipt kinds, 25 protected browser mutations, 24 event types and three
 plugin skills. Existing projects default to Never/Never/off review settings;
 do not infer historical review requests. `search_work(status="to-review")` finds
 Done implementation with a requested review or pending recommendation; `done`
@@ -669,7 +669,14 @@ retain original attribution. See [knowledge graph](docs/knowledge-graph.md) and 
 coverage limits, exact retries, and the local Git helper.
 
 Automatic decision impact reviews are opt-in per project in Settings > Workspace,
-default off with priority 40. Actual decision changes create ordinary pending
-work with an immutable decision_review_revision_id marker and a snapshot of
-the editable decision-impact-review prompt. Investigate only; create separate work
-for remediation. See docs/knowledge-graph.md#automatic-decision-impact-reviews.
+default off with priority 40. Explicit decision changes own one ordinary review;
+related revisions extend its immutable assessment membership and invalidate scope
+acknowledgement. Use decision_change_get and page decision_assessments(change_id=...),
+then acknowledge the current scope before Done. Fresh agent decision_put declares
+source_work_item_id (or explicit null for an external trigger) and defaults to a
+substantive change. Record-existing names its governing change and exact revision;
+maintenance requires a reason. Follow-ups inherit lineage; a closed cycle requires
+explicit dashboard admission before new obligations. Managed owner answers are
+retained while awaiting admission. Explicit adoption binds named episodes into
+ordinary combined investigations. Investigate only; create separate remediation
+work. See docs/knowledge-graph.md#automatic-decision-impact-reviews.

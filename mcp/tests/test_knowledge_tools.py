@@ -20,7 +20,7 @@ SCOPE_UUID = "de9b9890-bb69-4752-bfb7-673eea40885f"
 CONTENT = "# Decision\nUse café queues.\n"
 WRITES = {
     "create_knowledge_domain", "rename_knowledge_domain", "decision_put", "decision_scope_append",
-        "decision_assessment_append", "decision_scope_reconcile",
+        "decision_assessment_append", "decision_scope_reconcile", "decision_change_update",
 }
 
 
@@ -228,7 +228,7 @@ async def test_knowledge_help_and_catalog_explain_revision_scope_obligation(sett
         lambda request: pytest.fail("Help must be local"),
     )))
     catalog = {tool.name: tool for tool in await server.list_tools()}
-    assert len(catalog) == 74
+    assert len(catalog) == 76
     for name in WRITES:
         tool = catalog[name]
         assert tool.annotations.readOnlyHint is False

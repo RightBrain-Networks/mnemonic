@@ -26,6 +26,7 @@ from mnemonic_api.application.browser_policy.transport import (
     trusted_request,
 )
 from mnemonic_api.application.browser_policy.values import JsonObject, checkpoint, uuid
+from mnemonic_api.decision_change_schemas import DecisionChangeUpdate
 from mnemonic_api.impact_schemas import ImpactDispositionCreate
 from mnemonic_api.knowledge_schemas import DomainCreate, DomainRename
 
@@ -105,6 +106,17 @@ def _control_error(name: str | None, method: str, body: JsonObject) -> str | Non
     return None
 
 
+def _change_error(body: JsonObject) -> str | None:
+    try:
+        parsed = DecisionChangeUpdate.model_validate(body)
+        if (parsed.actor_client != "dashboard" or parsed.actor_model is not None
+                or parsed.lease_token is not None):
+            return "Dashboard scope changes must use the current human session."
+    except ValueError:
+        return "Provide an action and the current work or review scope version."
+    return None
+
+
 def _special_error(name: str | None, path: str, method: str, body: JsonObject) -> str | None:
     if name == "knowledge_dispositions":
         try:
@@ -135,6 +147,8 @@ def invalid_mutation_body(path: str, method: str, body: Any) -> str | None:
         return DEFINITIVE_PROXY_ERRORS["jsonObjectRequired"].detail
     name = route_name(path, method)
     if error := _control_error(name, method, body):
+        return error
+    if name == "knowledge_changes" and (error := _change_error(body)):
         return error
     if error := _special_error(name, path, method, body):
         return error

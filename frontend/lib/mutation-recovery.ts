@@ -7,6 +7,7 @@ import {
 } from "./mutation-intent.ts";
 
 export const mutationLabels: Record<MutationIntentSummary["kind"], string> = {
+  decision_change_update: "Update decision review scope",
   create_work: "Create work",
   add_checkpoint: "Add checkpoint",
   append_event: "Append progress",

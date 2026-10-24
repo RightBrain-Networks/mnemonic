@@ -21,6 +21,8 @@ PROMPT_DETAIL = re.compile(rf"{PROJECT}/prompts/({'|'.join(PROMPT_IDS)})")
 
 # Each entry names one browser contract and its exact method/query surface.
 _ROUTES = (
+    ("knowledge_changes", rf"{PROJECT}/knowledge/changes", {"POST": ""}),
+    ("knowledge_change", rf"{PROJECT}/knowledge/changes/{UUID}", {"GET": ""}),
     ("knowledge_commits", rf"{PROJECT}/knowledge/commits",
      {"GET": "repository commit_hash limit offset"}),
     ("knowledge_domains", rf"{PROJECT}/knowledge/domains", {"GET": "limit offset", "POST": ""}),
@@ -36,7 +38,7 @@ _ROUTES = (
     ("knowledge_impact", rf"{DECISION}(?:-[0-9]{{1,10}})?/impact",
      {"GET": "revision max_depth limit offset kind"}),
     ("knowledge_assessments", rf"{PROJECT}/knowledge/assessments",
-     {"GET": "decision_id limit offset"}),
+     {"GET": "decision_id change_id limit offset"}),
     ("knowledge_assessment", rf"{PROJECT}/knowledge/assessments/{UUID}",
      {"GET": "limit offset kind"}),
     ("knowledge_dispositions", rf"{PROJECT}/knowledge/assessments/{UUID}/dispositions",
@@ -118,6 +120,7 @@ PROTECTED_MUTATIONS = frozenset(
         ("knowledge_domains", "POST"),
         ("knowledge_domain", "PATCH"),
         ("knowledge_dispositions", "POST"),
+        ("knowledge_changes", "POST"),
         ("follow_up_answer", "POST"),
         ("work_items", "POST"),
         ("checkpoints", "POST"),

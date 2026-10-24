@@ -355,7 +355,9 @@ def minimal_summary(work_item: dict, *, display_state: str) -> dict:
     return {
         "work_item": {
             key: work_item[key]
-            for key in ("id", "title", "status", "priority", "version", "updated_at")
+            for key in ("id", "title", "status", "priority", "version", "updated_at",
+                        "decision_review_revision_id", "decision_review_change_id",
+                        "decision_review_project_id", "decision_change_ids") if key in work_item
         },
         "checkpoint_count": 1,
         "display_state": display_state,

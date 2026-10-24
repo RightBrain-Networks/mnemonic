@@ -543,6 +543,9 @@ def merge_work_records(
         raise duplicate_self()
     graph = _load_graph(database, project_id, tuple(locked.values()))
     _require_merge_preconditions(database, source, destination, payload, graph)
+    from mnemonic_api.services.decision_changes import require_merge_scope_adopted
+
+    require_merge_scope_adopted(database, source, destination)
     from mnemonic_api.transcript_lifecycle import register_closeout_transcripts
 
     register_closeout_transcripts(database, source, payload.subagent_transcripts,

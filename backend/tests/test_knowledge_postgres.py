@@ -36,6 +36,7 @@ def put_body(domain, content="# Decision\n\nKeep every revision.\n", **changes):
         "media_type": "text/markdown",
         "state": "proposed",
         "author_kind": "agent",
+        "source_work_item_id": None,
         "agent_session_id": "native-session",
         "model_id": "model-1",
         "client_operation_id": str(uuid4()),

@@ -13,6 +13,9 @@ export type Task = {
   review_state: "requested" | "completed" | "superseded" | null;
   title: string; summary: string; status: TaskStatus; updated_at: string; lease: LeasePublic | null;
   decision_review_revision_id?: string | null;
+  decision_review_project_id?: string | null;
+  decision_review_change_id?: string | null;
+  decision_change_ids?: string[];
 };
 export type TaskCounts = { active: number; pending: number };
 export type TaskPage = {
@@ -44,7 +47,10 @@ export function decodeTaskPage(value: unknown, projectId: string, status: TaskSt
   const seen = new Set<string>();
   const items = page.items.map((value) => {
     const row = objectValue(value);
-    if (!row || !exactKeys(row, ["id", "kind", "project_id", "work_item_id", "work_version", "title", "summary", "status", "review_state", "updated_at", "lease", ...(Object.hasOwn(row, "decision_review_revision_id") ? ["decision_review_revision_id"] : [])])
+    if (!row || !exactKeys(row, ["id", "kind", "project_id", "work_item_id", "work_version", "title", "summary", "status", "review_state", "updated_at", "lease", ...["decision_review_revision_id", "decision_review_change_id", "decision_change_ids", "decision_review_project_id"].filter((key) => Object.hasOwn(row, key))])
+      || row.decision_review_project_id != null && (!validUuid(row.decision_review_project_id) || row.kind !== "work_item")
+      || row.decision_review_change_id != null && (!validUuid(row.decision_review_change_id) || row.kind !== "work_item")
+      || row.decision_change_ids !== undefined && (!Array.isArray(row.decision_change_ids) || !row.decision_change_ids.every(validUuid) || new Set(row.decision_change_ids).size !== row.decision_change_ids.length)
       || row.decision_review_revision_id != null && (!validUuid(row.decision_review_revision_id) || row.kind !== "work_item")
       || !finiteInteger(row.work_version, 1) || !validUuid(row.id) || !validUuid(row.work_item_id) || !sameUuid(row.project_id, projectId)
       || !["work_item", "code_review"].includes(String(row.kind)) || kind && row.kind !== kind

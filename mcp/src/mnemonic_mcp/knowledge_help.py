@@ -17,6 +17,20 @@ KNOWLEDGE_GUIDES: dict[str, tuple[str, str, str]] = {
         ("Use the exact domain_id from list_knowledge_domains. Renaming preserves all document "
         "identifiers, revisions, and references; the prefix cannot change."),
     ),
+    "decision_change_get": (
+        "Knowledge", "Read one substantive change and its current review scope.",
+        ("Inspect scope_version and acknowledged_scope_version. Page decision_assessments with "
+        "change_id to read all obligations. A closed driver requires explicit human admission "
+        "before a new review obligation; the agent tools cannot admit it."),
+    ),
+    "decision_change_update": (
+        "Knowledge", "Adopt assessments or acknowledge inspected review scope.",
+        ("adopt requires ordinary pending work_item_id, expected_work_version and 1–100 unique "
+        "assessment_ids. acknowledge requires change_id and current expected_scope_version. "
+        "Use truthful actor_client/session/model and active lease_token where applicable. "
+        "Acknowledgement never replaces dispositions; new scope invalidates the old acknowledgement. "
+        "Retain the operation UUID and every argument for an uncertain retry."),
+    ),
     "decision_get": (
         "Knowledge", "Read a decision's current or exact historical revision.",
         ("Use decision_id such as ADR-00194 or ADR-00194-0. Omitted revision selects current. "
@@ -31,13 +45,13 @@ KNOWLEDGE_GUIDES: dict[str, tuple[str, str, str]] = {
     ),
     "decision_put": (
         "Knowledge", "Create a decision or retain a new immutable revision.",
-        ("Supply domain_id, title, content, media_type, explicit state and actual agent session/model. "
-        "UTF-8 text has no template. Revise using decision_id and expected_revision from decision_get. "
-        "New uploads deduplicate by content hash, retaining original metadata. Supply full desired "
-        "metadata on revision. References may cross domains; supersession stays within one domain. "
-        "depends_on pins exact target revisions with rationale; related links are informational. "
-        "supersession_details pins revision, extent and reason. Changes create impact assessments. "
-        "Managed PDRs use request_human_input and the human dashboard; decision_put cannot revise them."),
+        ("Send domain, title, UTF-8 content, media_type, state and actual agent session/model. "
+        "Fresh agents declare source_work_item_id (session origin or external null). "
+        "Revise with decision_id and expected_revision; supply all desired links. "
+        "change defaults substantive; record-existing needs change_id, exact governing_reference "
+        "and reason; maintenance needs reason. Uncertainty stays substantive. Closed lineage "
+        "needs human dashboard admission. depends_on pins causal revisions; supersession_details "
+        "pins overridden evidence. Managed PDRs use request_human_input, never decision_put."),
     ),
     "decision_scope_append": (
         "Knowledge", "Record the commit implementing a cited decision revision.",
@@ -75,7 +89,7 @@ KNOWLEDGE_GUIDES: dict[str, tuple[str, str, str]] = {
     ),
     "decision_assessments": (
         "Knowledge", "List captured reassessment episodes after decision changes.",
-        ("Optionally filter a stable decision_id and page all results. Episodes pin before/after "
+        ("Optionally filter decision_id or change_id and page all current obligations. Episodes pin before/after "
         "revisions, diff and captured coverage. Fetch candidate pages with decision_assessment_get. "
         "A change does not automatically invalidate dependent code or authorize remediation."),
     ),

@@ -43,7 +43,7 @@ async def test_help_is_local_read_only_and_returns_one_plain_text_page(settings)
 
 def test_index_lists_every_command_and_gives_exact_navigation(catalog):
     page = render_help("", catalog)
-    assert len(catalog) == 74
+    assert len(catalog) == 76
     assert catalog.keys() == GUIDES.keys()
     for name in catalog:
         assert name in page

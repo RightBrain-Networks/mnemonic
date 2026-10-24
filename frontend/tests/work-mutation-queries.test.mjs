@@ -61,6 +61,7 @@ test("every protected work operation refreshes its declared reads and keeps unre
   const basic = ["work", "tasks", "work-detail", "attention-count", "attention"];
   const closeout = [...basic, "report-count", "reports"];
   const cases = {
+    decision_change_update: [{ project_id: project }, [...basic, "knowledge"]],
     create_work: [{ work_item: { project_id: project }, initial_relationships: [] }, basic],
     add_checkpoint: [{}, basic],
     append_event: [{ project_id: project }, basic],

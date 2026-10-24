@@ -1,6 +1,7 @@
 "use client";
 
 import DependencyCycleNotice from "@/components/dependency-cycle-notice";
+import DecisionChangePanel from "@/components/decision-change-panel";
 import ExternalReferences from "@/components/external-references";
 import WorkTranscriptLinks from "@/components/work-transcript-links";
 import { WorkArtifactLinks } from "@/components/artifact-library";
@@ -424,11 +425,12 @@ function OpenedPane({ opened, props }: { opened: WorkSummary; props: WorkDetailP
         <span className="detail-activity">Last activity <time dateTime={work.updated_at}>{formatDateTime(work.updated_at)}</time></span>
       </div>
       <h3 className="detail-title">{work.title}</h3>
-      <DecisionReviewBadge revisionId={work.decision_review_revision_id} />
+      <DecisionReviewBadge revisionId={work.decision_review_revision_id} changeId={work.decision_review_change_id} />
       <p className="detail-summary">{work.summary}</p>
       <ExternalReferences references={work.external_references} />
       <WorkArtifactLinks projectId={work.project_id} workItemId={work.id} />
       <WorkTranscriptLinks projectId={work.project_id} workItemId={work.id} links={context?.transcripts} />
+      {context && !isDuplicate && <DecisionChangePanel key={work.id} work={work} disabled={actionsLocked} sourceProjectId={context.initial_checkpoint.source_metadata.decision_project_id} />}
       <dl className="detail-facts" aria-label="Work item facts">
         <div><dt>Priority</dt><dd>{work.priority}</dd></div>
         <div><dt>Checkpoints</dt><dd>{context?.checkpoint_total ?? opened.checkpoint_count}</dd></div>

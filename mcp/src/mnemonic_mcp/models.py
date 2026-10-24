@@ -1938,6 +1938,16 @@ def _expected_display_state(readiness: Readiness) -> DisplayState:
 
 
 class WorkItemRead(CanonicalResponse):
+    decision_change_projects: dict[UUID, UUID] = Field(
+        default_factory=dict, exclude_if=lambda value: not value,
+    )
+    decision_review_project_id: UUID | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
+    decision_review_change_id: UUID | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
+    decision_change_ids: list[UUID] = Field(default_factory=list, exclude_if=lambda v: not v)
     decision_review_revision_id: UUID | SkipJsonSchema[None] = Field(
         default=None, exclude_if=lambda value: value is None,
     )
@@ -2519,6 +2529,13 @@ class HumanGatePage(CanonicalResponse):
 
 
 class WorkItemPointer(CanonicalResponse):
+    decision_review_project_id: UUID | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
+    decision_review_change_id: UUID | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
+    decision_change_ids: list[UUID] = Field(default_factory=list, exclude_if=lambda v: not v)
     decision_review_revision_id: UUID | SkipJsonSchema[None] = Field(
         default=None, exclude_if=lambda value: value is None,
     )
@@ -2592,6 +2609,13 @@ class HierarchySummary(CanonicalResponse, SearchHitRanking):
 
 
 class CompactWorkHit(CanonicalResponse, WorkMatchEvidence, SearchHitRanking):
+    decision_review_project_id: UUID | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
+    decision_review_change_id: UUID | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
+    decision_change_ids: list[UUID] = Field(default_factory=list, exclude_if=lambda v: not v)
     decision_review_revision_id: UUID | SkipJsonSchema[None] = Field(
         default=None, exclude_if=lambda value: value is None,
     )

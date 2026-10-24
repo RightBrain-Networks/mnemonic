@@ -1,9 +1,13 @@
 # Knowledge graph
 
-Release 0.91.0 and plugin 0.54.0 require dispositions for incoming related
-citations alongside the origin and declared dependents, while preserving unknown
-causality and historical assessment requirements. The Alembic head remains
-`0057_automatic_decision_reviews`.
+Release 0.92.0, plugin 0.55.0 and migration `0058_decision_changes` group reviews by
+explicit decision change, preserve inherited review boundaries, and require owner
+admission before a closed review-derived change starts another cycle. See
+[automatic decision impact reviews](#automatic-decision-impact-reviews).
+
+Release 0.91.0 added required dispositions for incoming related citations alongside
+the origin and declared dependents, preserving unknown causality and historical
+assessment requirements. Those obligations remain in force.
 
 Release 0.87.0, plugin 0.52.0 and migration `0056_product_decisions` make Needs
 Attention questions Product Decision Records (PDRs) and create a default Product
@@ -307,14 +311,36 @@ the setting hides the priority input and stops future automatic creation; it
 does not cancel existing work. Changing settings does not backfill earlier
 decision changes.
 
-When enabled, an actual decision revision creates one standard Pending work
-item in the same transaction as the decision and its impact assessments.
-This includes text, metadata, state, and managed PDR revisions. A replacement
-document that supersedes an existing decision also creates an investigation.
-An initial document without supersession, an unchanged save, and a receipt
-replay create no additional work. Multiple impact assessments for the same
-triggering revision share one investigation. Concurrent writes retain the
-existing expected-revision checks.
+When enabled, a substantive decision change has one native change identity and
+at most one ordinary Pending review driver. Related revisions recording that
+ruling join the same change. Initial creation without supersession, unchanged
+saves, maintenance, and receipt replay create no additional review. A replacement
+that supersedes existing decisions can create review obligations at revision zero.
+There is no backlog on enable and no automatic cleanup of historical work.
+
+Fresh agent `decision_put` calls declare `source_work_item_id`: the exact session
+origin, or explicit null for a human/external trigger. Omission is reserved for
+historical receipt replay. `change` defaults to `{kind:"substantive"}`. Recording
+an existing ruling uses `{kind:"record-existing", change_id, governing_reference,
+reason}` with an exact revision reference; genuine formatting/provenance upkeep
+uses `{kind:"maintenance", reason}`. Uncertainty stays substantive. Section headings,
+timing, state labels and authorship cannot establish classification. Decision reads
+retain the declaration in `change`, including source work and native change ID.
+
+Unchanged supersession obligations reuse an existing immutable episode only when
+the governing transition and captured candidates/coverage match. Different evidence
+adds obligations without copying old dispositions. Review work and discovered-from
+follow-ups retain change lineage, including later descendants. An open driver
+accumulates obligations. Closed changes stop for explicit owner admission before
+new obligations; a dashboard `admit` action creates a successor change without
+reopening or rewriting completed work. An accepted PDR alone does not perform
+admission. Managed answers remain durable with `change.requires_admission` when
+new obligations await admission; the change exposes `pending_revision_count`.
+The separate admit action materializes those retained transitions in the successor.
+When follow-up work moves to another project, its answers use a local held change
+while retaining the original project's lineage. That driverless held change also
+requires explicit admission. Agents cannot admit a successor or evade lineage
+through an unrelated root or false external origin.
 
 The task card displays **DECISION IMPACT REVIEW**. Its initial checkpoint records the
 exact previous and replacement revision references, source project, impact
@@ -338,29 +364,51 @@ proof of decision use; absent local matches do not prove remote or unregistered
 implementation is absent. The report retains search and provenance limitations.
 
 REST project settings and MCP `get_project_settings` expose
-`automatic_decision_reviews` and `decision_review_priority`. Updates use the
-existing revision-checked settings PATCH. Work detail, task summaries, ready
-work pointers, and compact search include `decision_review_revision_id` only
-for generated investigations. The marker is immutable and uniquely identifies
-the triggering decision revision; ordinary work has no marker. No new MCP
-tool or specialized work lifecycle is introduced.
+`automatic_decision_reviews` and `decision_review_priority`. Work detail, task
+summaries, ready pointers and compact search expose `decision_review_change_id`
+for native drivers and `decision_change_ids` for lineage. Historical
+`decision_review_revision_id` markers remain readable and still display the chip.
+Work detail includes `decision_change_projects` to resolve inherited changes in
+their source projects. Change reads identify the driver's current project,
+whether its review is closed, and any already admitted successor.
 
-Deploy aligned API, worker, MCP, and dashboard 0.91.1 with migration
-`0057_automatic_decision_reviews` after the normal authorized backup and
-migration procedure and plugin 0.54.0. The migration adds
-default-off settings and the nullable work marker; it creates no historical
-investigations and preserves existing project prompts. Downgrade refuses
-when nondefault settings or generated investigations would be lost. No new
-service or environment variable is required.
+`decision_change_get(project_id, change_id)` returns the driver, parent change,
+current `scope_version`, `acknowledged_scope_version`, and revision/assessment
+counts. Page `decision_assessments(change_id=...)` for all current obligations.
+The initial checkpoint is a retained starting reference, not the current scope.
+`decision_change_update(action="acknowledge", change_id, expected_scope_version,
+actor_client, actor_session_id, actor_model, lease_token)` records inspection of
+that scope; new obligations invalidate it. `action="adopt"` instead accepts an
+ordinary pending `work_item_id`, `expected_work_version`, and 1–100 unique
+`assessment_ids` to make existing combined work a native driver. Neither action
+merges historical work or changes dispositions. Both use receipt-protected
+operation IDs and exact uncertain retries.
+
+The Work details scope panel shows current episodes, allows acknowledgement and
+explicit adoption, and offers the human-only successor admission action for closed
+drivers and driverless held changes, including inherited changes from another
+project. Admission remains visible after refresh. The two agent tools never
+expose `admit`. REST uses one receipt-protected
+`POST /projects/{project_id}/knowledge/changes` action surface, with
+`GET /projects/{project_id}/knowledge/changes/{change_id}` for reads.
+
+Deploy aligned API, worker, MCP and dashboard with migration
+`0058_decision_changes`. It preserves historical assessments, dispositions and
+terminal work without creating a review backlog. No new service or environment
+variable is required.
 
 Each investigation drives its existing impact-assessment episodes. Start with
 `decision_assessment_get` for the retained diff and candidate pages; the task
 stores references rather than a second diff or disposition ledger. Done returns
-409 `decision_impact_review_incomplete` until every pinned code-impact candidate has an
+409 `decision_impact_review_incomplete` until every attached code-impact candidate has an
 assessment disposition and each `change-required` candidate, including optional
 context dispositions, has linked, distinct,
 undeleted remediation work. This does not require remediation to be finished
-before the investigation closes. Additional evidence found by a fresh impact
+before the investigation closes. Native grouped reviews also require acknowledgement
+of their current scope; `decision_change_scope_unacknowledged` and
+`decision_change_scope_conflict` require rereading and inspecting the new scope.
+Acknowledgement never substitutes for dispositions. Historical ungrouped reviews
+retain their original pinned-episode guard. Additional evidence found by a fresh impact
 trace is reported explicitly; it cannot rewrite an immutable episode snapshot.
 
 Check whether code already satisfies the replacement decision first. An
@@ -370,10 +418,8 @@ closeout must record that exact citation and resulting commits through the
 standard decision-provenance declaration. The closeout appends scope atomically;
 verified integration mappings preserve later merge hashes.
 
-Successive changes retain separate pinned investigations. Later reviews consult
-existing dispositions and remediation to avoid duplicate work; they never replace
-an active or unclaimed review's historical scope. Missing recorded scope does not
-suppress a review: unregistered implementation and indirect dependencies remain
-unknown coverage. Bulk changes use the same one-per-triggering-revision rule;
-projects may disable automation before a bulk import to suppress new reviews,
-without creating a backlog when it is enabled again.
+Missing recorded scope does not suppress substantive reviews: unregistered code
+and indirect dependencies remain unknown coverage. Bulk changes use explicit
+classification and grouping; operators can disable automation before an import,
+without creating a backlog when it is enabled again. Existing completed or promoted
+reviews and their evidence remain intact.

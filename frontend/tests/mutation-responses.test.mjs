@@ -346,6 +346,7 @@ test("completion response binds authoritative evidence IDs, parents, positions, 
 
 test("Core exposes exactly fifteen closed browser mutation kinds", () => {
   assert.deepEqual(MUTATION_KINDS, [
+    "decision_change_update",
     "create_work",
     "add_checkpoint",
     "append_event",

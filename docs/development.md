@@ -925,8 +925,8 @@ questions, cold/warm lease isolation, one atomic remediation and hard depth ceil
 exact historical and new receipt replay, protected lineage under direct SQL,
 bounded discovery/history, backup/restore audit, and both dashboard Done paths.
 Run `scripts/audit_code_reviews.py` read-only from a private database environment.
-The current inventory is 74 MCP tools, 23 protected MCP writes, 30 REST receipt
-kinds, 24 protected browser mutations and 24 work-event types. See
+The current inventory is 76 MCP tools, 24 protected MCP writes, 31 REST receipt
+kinds, 25 protected browser mutations and 24 work-event types. See
 [code reviews](code-reviews.md) for client and deployment rules.
 
 The [artifact library](artifacts.md) exposes nine MCP tools, three durable

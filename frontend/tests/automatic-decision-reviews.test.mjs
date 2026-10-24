@@ -59,3 +59,23 @@ test("decision impact review instructions belong to the managed prompt catalog",
   assert.deepEqual(promptQueryKeys(route, "PUT"), []);
   assert.deepEqual(promptQueryKeys(`${route}/render`, "POST"), []);
 });
+
+
+test("native adopted reviews and inherited lineage survive strict work and task reads", () => {
+  const work = { ...fixtures.workItem, decision_review_change_id: fixtures.project, decision_change_ids: [fixtures.project],
+    decision_review_project_id: fixtures.work, decision_change_projects: { [fixtures.project]: fixtures.work } };
+  assert.equal(decodeWorkItem(work, fixtures.project).decision_review_change_id, fixtures.project);
+  assert.deepEqual(decodeWorkItem(work, fixtures.project).decision_change_projects, { [fixtures.project]: fixtures.work });
+  assert.throws(() => decodeWorkItem({ ...work, decision_review_change_id: "invalid" }, fixtures.project));
+  for (const invalid of [{ invalid: fixtures.work }, { [fixtures.project]: "invalid" }, [], null]) {
+    assert.throws(() => decodeWorkItem({ ...work, decision_change_projects: invalid }, fixtures.project));
+  }
+  assert.throws(() => decodeWorkItem({ ...work, decision_change_ids: [fixtures.project, fixtures.project] }, fixtures.project));
+  const item = { id: work.id, kind: "work_item", project_id: fixtures.project, work_item_id: work.id, work_version: 1,
+    title: work.title, summary: work.summary, status: "pending", review_state: null, updated_at: work.updated_at, lease: null,
+    decision_review_change_id: fixtures.project, decision_change_ids: [fixtures.project] };
+  const page = { project_id: fixtures.project, work_items: { active: 0, pending: 1 }, code_reviews: { active: 0, pending: 0 },
+    next_lease_expires_at: null, items: [item], total: 1, limit: 20, offset: 0 };
+  assert.deepEqual(decodeTaskPage(page, fixtures.project, "pending", "work_item", 0), page);
+  assert.throws(() => decodeTaskPage({ ...page, items: [{ ...item, decision_review_change_id: "invalid" }] }, fixtures.project, "pending", "work_item", 0));
+});

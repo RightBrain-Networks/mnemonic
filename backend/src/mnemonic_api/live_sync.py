@@ -11,7 +11,7 @@ UUID_PATTERN = re.compile(
     r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
     r"[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
 )
-MUTATION_METHODS = frozenset({"POST", "PATCH", "DELETE"})
+MUTATION_METHODS = frozenset({"POST", "PATCH", "DELETE", "PUT"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -24,6 +24,12 @@ class MutationEvent:
             "revision": revision,
             "scope": self.scope,
         }
+
+
+def _decision_work_mutation(method: str, remaining: list[str]) -> bool:
+    return (remaining[1:] == ["knowledge", "decisions"] and method == "PUT") or (
+        remaining[1:] == ["knowledge", "changes"] and method == "POST"
+    )
 
 
 def mutation_event(method: str, path: str) -> MutationEvent | None:
@@ -40,8 +46,16 @@ def mutation_event(method: str, path: str) -> MutationEvent | None:
         return None
     if len(remaining) == 1:
         return MutationEvent("projects") if method == "PATCH" else None
+    return _project_detail_mutation(method, remaining)
+
+
+def _project_detail_mutation(method: str, remaining: list[str]) -> MutationEvent | None:
     if remaining[1:] in (["settings"], ["priority-rubric"]):
         return MutationEvent("projects") if method == "PATCH" else None
+    if _decision_work_mutation(method, remaining):
+        return MutationEvent("work-items")
+    if method == "PUT":
+        return None
     if remaining[1] == "relationships":
         return MutationEvent("work-items")
     if remaining[1] != "work-items":

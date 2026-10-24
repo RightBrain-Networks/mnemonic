@@ -8,6 +8,7 @@ const closeoutReads = [...workReads, "report-count", "reports"] as const;
 
 // Keep this exhaustive: every protected write must declare its read dependencies.
 const mutationReadRoots = {
+  decision_change_update: [...workReads, "knowledge"],
   create_work: workReads,
   add_checkpoint: workReads,
   append_event: workReads,
@@ -43,6 +44,7 @@ function affectedProjects(confirmation: ConfirmedMutation): Set<string> {
     case "create_job_completion_report_follow_up":
       addProject(confirmation.result.work_item.project_id);
       break;
+    case "decision_change_update":
     case "update_work":
     case "defer_work":
     case "append_event":

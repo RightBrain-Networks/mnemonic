@@ -500,6 +500,19 @@ def ready_work_page(
                                     'external_references', projected.external_references,
                                 'decision_review_revision_id',
                                     projected.decision_review_revision_id,
+                                'decision_review_change_id', (
+                                    SELECT change.id FROM decision_changes AS change
+                                    WHERE change.review_work_item_id=projected.id
+                                ),
+                                'decision_review_project_id', (
+                                    SELECT change.project_id FROM decision_changes AS change
+                                    WHERE change.review_work_item_id=projected.id
+                                ),
+                                'decision_change_ids', COALESCE((
+                                    SELECT jsonb_agg(member.change_id ORDER BY member.change_id)
+                                    FROM decision_change_work AS member
+                                    WHERE member.work_item_id=projected.id
+                                ), '[]'::jsonb),
                                 'status', projected.status,
                                 'priority', projected.priority,
                                 'version', projected.version,

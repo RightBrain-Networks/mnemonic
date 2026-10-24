@@ -8,6 +8,8 @@ from sqlalchemy.orm import Session
 from mnemonic_api.errors import conflict
 from mnemonic_api.impact_schemas import is_code_impact
 from mnemonic_api.models import (
+    DecisionChange,
+    DecisionChangeAssessment,
     DecisionDocument,
     DecisionImpactAssessment,
     DecisionImpactDisposition,
@@ -38,8 +40,11 @@ def _scope(
         assert document is not None
         domain = knowledge.require_domain(database, before.project_id, document.domain_id)
         origin = reference(document, before, domain)
+        from mnemonic_api.services.decision_impact import _revision_reference
+
+        after = _revision_reference(database, episode.replacement_revision_id)
         lines.append(
-            f"- `{origin}` → `{replacement}` ({episode.trigger}); "
+            f"- `{origin}` → `{after}` ({episode.trigger}); "
             f"impact assessment `{episode.id}`."
         )
     lines.extend([
@@ -47,8 +52,8 @@ def _scope(
         "Use decision_get for the pinned revisions, decision_assessment_get to retrieve the "
         "listed immutable assessment episodes, and decision_impact on each old reference "
         "to refresh downstream evidence. Page all results and report incomplete coverage. "
-        "A later revision does not replace this task's pinned scope; inspect it separately "
-        "when assessing whether remediation is still necessary.",
+        "Each episode retains its exact transition; additional grouped revisions can extend "
+        "this review. Read the current decision change scope before completion.",
         "Use the source project for decision and assessment reads and for remediation work "
         "linked in those assessments. If this work has moved, use its current project for "
         "claims, checkpoints, and closeout; discovered-from still cites this exact review work.",
@@ -73,10 +78,12 @@ def _prompt(
 def create_decision_review(
     database: Session, document: DecisionDocument, revision: DecisionRevision,
     episodes: list[DecisionImpactAssessment],
+    *, change: DecisionChange,
 ) -> None:
     """The revision write/receipt transaction owns both the work and its unique trigger."""
     settings = database.get(ProjectSettings, document.project_id)
-    if not episodes or settings is None or not settings.automatic_decision_reviews:
+    if (change.review_work_item_id is not None or not episodes or settings is None
+            or not settings.automatic_decision_reviews):
         return
     domain = knowledge.require_domain(database, document.project_id, document.domain_id)
     replacement = reference(document, revision, domain)
@@ -92,6 +99,9 @@ def create_decision_review(
     prompt = _prompt(
         database, document.project_id, work_id, title, summary, settings.decision_review_priority,
         template.content, _scope(database, episodes, replacement)
+        + f"\n\nDecision change: `{change.id}`. Current scope version: {change.scope_version}. "
+        "Read decision_change_get and page decision_assessments with change_id; acknowledge "
+        "the latest scope through decision_change_update before completing."
         + "\n\n" + revision_author_note(database, revision),
     )
     create_work_records(
@@ -106,6 +116,7 @@ def create_decision_review(
                 source_metadata={
                     "automatic_decision_review": True,
                     "decision_project_id": str(document.project_id),
+                    "decision_change_id": str(change.id),
                     "decision_revision_id": str(revision.id),
                     "decision_reference": replacement,
                     "assessment_ids": [str(episode.id) for episode in episodes],
@@ -115,14 +126,28 @@ def create_decision_review(
         ),
         decision_review_revision_id=revision.id, work_item_id=work_id,
     )
+    from mnemonic_api.services.decision_changes import bind_work
+
+    change.review_work_item_id = work_id
+    bind_work(database, work_id, change.id)
 
 
 def require_decision_impact_review_complete(database: Session, work: WorkItem) -> None:
     """Done means the retained assessment ledger was investigated, with tracked follow-ups."""
-    if work.decision_review_revision_id is None:
+    change = database.scalar(select(DecisionChange).where(
+        DecisionChange.review_work_item_id == work.id,
+    ).with_for_update())
+    if change is None:
         return
-    episodes = database.scalars(select(DecisionImpactAssessment).where(
-        DecisionImpactAssessment.replacement_revision_id == work.decision_review_revision_id,
+    if change.acknowledged_scope_version != change.scope_version:
+        raise conflict("decision_change_scope_unacknowledged",
+                       "Acknowledge the latest decision review scope before completing.",
+                       context={"change_id": str(change.id), "scope_version": change.scope_version})
+    episodes = database.scalars(select(DecisionImpactAssessment).join(
+        DecisionChangeAssessment,
+        DecisionChangeAssessment.assessment_id == DecisionImpactAssessment.id,
+    ).where(
+        DecisionChangeAssessment.change_id == change.id,
     ).order_by(DecisionImpactAssessment.id).with_for_update()).all()
     candidates = {(episode.id, candidate["reference"])
                   for episode in episodes for candidate in episode.candidates

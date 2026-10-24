@@ -17,16 +17,20 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
-from mnemonic_api.decision_review_integrity import DECISION_REVIEW_FINDINGS
+from mnemonic_api.decision_change_integrity import DECISION_CHANGE_FINDINGS
+from mnemonic_api.decision_review_integrity import (
+    DECISION_REVIEW_FINDINGS,
+    LEGACY_DECISION_REVIEW_FINDINGS,
+)
 from mnemonic_api.knowledge_integrity import KNOWLEDGE_FINDINGS
 from mnemonic_api.transcript_recovery_db import RECOVERY_FINDINGS
 from sqlalchemy import Connection, create_engine, text
 from sqlalchemy.exc import SQLAlchemyError
 
-HEAD = "0057_automatic_decision_reviews"
+HEAD = "0058_decision_changes"
 PROMPT_LIBRARY_HEADS = (
     "0035_prompt_library", "0036_transcript_copies", "0037_background_jobs",
-    "0038_transcript_recovery", "0039_manual_review_requests", "0040_normalized_transcripts", "0041_artifact_passages", "0042_transcript_health", "0046_shared_transcript_copies", "0047_artifact_transfer", "0048_force_claims", "0049_duplicate_embeddings", "0051_priority_rubrics", "0052_dependency_cycles", "0056_product_decisions", HEAD,
+    "0038_transcript_recovery", "0039_manual_review_requests", "0040_normalized_transcripts", "0041_artifact_passages", "0042_transcript_health", "0046_shared_transcript_copies", "0047_artifact_transfer", "0048_force_claims", "0049_duplicate_embeddings", "0051_priority_rubrics", "0052_dependency_cycles", "0056_product_decisions", "0057_automatic_decision_reviews", HEAD,
 )
 EXTRACTION_HEAD = "0027_artifact_fulltext"
 EXTRACTION_HEADS = (
@@ -34,7 +38,7 @@ EXTRACTION_HEADS = (
     "0030_question_versions", "0031_review_decisions", "0032_agent_transcripts",
     "0033_transcript_imports", "0034_variable_work_leases", "0035_prompt_library",
     "0036_transcript_copies", "0037_background_jobs", "0038_transcript_recovery",
-    "0039_manual_review_requests", "0040_normalized_transcripts", "0041_artifact_passages", "0042_transcript_health", "0046_shared_transcript_copies", "0047_artifact_transfer", "0048_force_claims", "0049_duplicate_embeddings", "0051_priority_rubrics", "0052_dependency_cycles", "0056_product_decisions", HEAD,
+    "0039_manual_review_requests", "0040_normalized_transcripts", "0041_artifact_passages", "0042_transcript_health", "0046_shared_transcript_copies", "0047_artifact_transfer", "0048_force_claims", "0049_duplicate_embeddings", "0051_priority_rubrics", "0052_dependency_cycles", "0056_product_decisions", "0057_automatic_decision_reviews", HEAD,
 )
 ARTIFACT_HEAD = "0026_artifact_library"
 ARTIFACT_HEADS = (ARTIFACT_HEAD, *EXTRACTION_HEADS)
@@ -963,7 +967,7 @@ def _head_findings(
             previous._catalog(connection, expected_head)
         )
     findings = _catalog_drift(connection, expected_head)
-    checks = _ACTIVITY_FINDINGS | (_PRECEDENCE_FINDINGS if expected_head in {"0052_dependency_cycles", "0056_product_decisions", HEAD} else {})
+    checks = _ACTIVITY_FINDINGS | (_PRECEDENCE_FINDINGS if expected_head in {"0052_dependency_cycles", "0056_product_decisions", "0057_automatic_decision_reviews", HEAD} else {})
     if expected_head in REPORT_HEADS:
         checks.update(_report_checks(expected_head))
     if expected_head in REFERENCE_HEADS:
@@ -978,12 +982,16 @@ def _head_findings(
         checks.update(_ARTIFACT_FINDINGS)
     if expected_head in EXTRACTION_HEADS:
         checks.update(_EXTRACTION_FINDINGS)
-    if expected_head in {"0038_transcript_recovery", "0039_manual_review_requests", "0040_normalized_transcripts", "0041_artifact_passages", "0042_transcript_health", "0046_shared_transcript_copies", "0047_artifact_transfer", "0048_force_claims", "0049_duplicate_embeddings", "0051_priority_rubrics", "0052_dependency_cycles", "0056_product_decisions", HEAD}:
+    if expected_head in {"0038_transcript_recovery", "0039_manual_review_requests", "0040_normalized_transcripts", "0041_artifact_passages", "0042_transcript_health", "0046_shared_transcript_copies", "0047_artifact_transfer", "0048_force_claims", "0049_duplicate_embeddings", "0051_priority_rubrics", "0052_dependency_cycles", "0056_product_decisions", "0057_automatic_decision_reviews", HEAD}:
         checks.update(RECOVERY_FINDINGS)
-    if expected_head in {"0056_product_decisions", HEAD}:
+    if expected_head in {"0056_product_decisions", "0057_automatic_decision_reviews", HEAD}:
         checks.update(KNOWLEDGE_FINDINGS)
+    if expected_head == "0057_automatic_decision_reviews":
+        checks.update(LEGACY_DECISION_REVIEW_FINDINGS)
     if expected_head == HEAD:
         checks.update(DECISION_REVIEW_FINDINGS)
+    if expected_head == HEAD:
+        checks.update(DECISION_CHANGE_FINDINGS)
     findings.update(
         {key: connection.scalar(text(sql)) for key, sql in checks.items()}
     )

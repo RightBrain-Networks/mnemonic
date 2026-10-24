@@ -1,12 +1,41 @@
 import { decodeAssessment, decodeAssessmentDetail, decodeDisposition, decodeImpact, type ImpactKind } from "./knowledge-impact.ts";
-import { queryOptions } from "@tanstack/react-query";
+import { queryOptions, type QueryClient } from "@tanstack/react-query";
 import { queryKeys } from "./query-keys.ts";
+import { decodeDecisionChange } from "./decision-changes.ts";
 import { decodeDecision, decodeDecisionContent, decodeDomain, decodeKnowledgePage, decodeScope, knowledgeJson, knowledgePath, verifyDecisionContent, type DecisionState } from "./knowledge.ts";
 
 export const knowledgeKeys = {
   root: (projectId: string) => [...queryKeys.project(projectId), "knowledge"] as const,
   domains: (projectId: string) => [...knowledgeKeys.root(projectId), "domains"] as const
 };
+
+export function invalidateKnowledgeReads(client: QueryClient, projectId: string | null) {
+  // Live work notifications intentionally carry no project identity. A moved
+  // follow-up can display review scope owned by several other projects.
+  return client.invalidateQueries({
+    predicate: ({ queryKey }) => queryKey[0] === "mnemonic" && queryKey[1] === "project"
+      && (projectId === null || queryKey[2] === projectId) && queryKey[3] === "knowledge",
+    refetchType: "active"
+  });
+}
+
+export function decisionChangeOptions(projectId: string, changeId: string) {
+  return queryOptions({
+    queryKey: [...knowledgeKeys.root(projectId), "change", changeId],
+    queryFn: async ({ signal }) => decodeDecisionChange(await knowledgeJson(knowledgePath(projectId,
+      `/changes/${encodeURIComponent(changeId)}`), { signal }), projectId, changeId),
+    retry: false, staleTime: 0, refetchInterval: 30_000, refetchIntervalInBackground: false
+  });
+}
+
+export function changeAssessmentsOptions(projectId: string, changeId: string, scopeVersion: number, offset: number) {
+  return queryOptions({
+    queryKey: [...knowledgeKeys.root(projectId), "change-assessments", changeId, scopeVersion, offset],
+    queryFn: async ({ signal }) => decodeKnowledgePage(await knowledgeJson(knowledgePath(projectId,
+      `/assessments?change_id=${encodeURIComponent(changeId)}&offset=${offset}&limit=25`), { signal }),
+    (value) => decodeAssessment(value, projectId)), retry: false
+  });
+}
 
 export async function readDomainPage(projectId: string, offset: number, signal: AbortSignal) {
   return decodeKnowledgePage(await knowledgeJson(knowledgePath(projectId, `/domains?limit=100&offset=${offset}`), { signal }),

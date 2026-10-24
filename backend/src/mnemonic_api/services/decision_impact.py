@@ -24,10 +24,13 @@ from mnemonic_api.impact_schemas import (
 )
 from mnemonic_api.knowledge_schemas import DecisionPutRequest, KnowledgePage, KnowledgePagination
 from mnemonic_api.models import (
+    DecisionChange,
+    DecisionChangeAssessment,
     DecisionDocument,
     DecisionImpactAssessment,
     DecisionImpactDisposition,
     DecisionRevision,
+    DecisionRevisionChange,
     KnowledgeDomain,
 )
 from mnemonic_api.services.decision_dependencies import superseded_ids
@@ -163,7 +166,6 @@ def _episode(
         coverage=coverage.model_dump(mode="json"),
         created_at=created_at,
     )
-    database.add(assessment)
     return assessment
 
 
@@ -172,8 +174,25 @@ def create_assessments(
     document: DecisionDocument,
     revision: DecisionRevision,
     payload: DecisionPutRequest,
+    *, hold_closed: bool = False, admitted_change: DecisionChange | None = None,
 ) -> None:
     from mnemonic_api.services import knowledge
+    from mnemonic_api.services.decision_change_classification import classify_revision
+    from mnemonic_api.services.decision_changes import attach_assessments, require_open
+
+    change, governing = (admitted_change, None) if admitted_change is not None else (
+        classify_revision(database, revision, payload, hold_closed=hold_closed)
+    )
+    classification = database.get(DecisionRevisionChange, revision.id)
+    if (admitted_change is None and classification is not None
+            and classification.requires_admission):
+        return
+    if payload.change is not None and payload.change.kind == "maintenance":
+        return
+    assert change is not None
+    if governing is None:
+        require_open(database, change)
+    replacement = governing or revision
 
     episodes = []
     if revision.revision:
@@ -186,17 +205,66 @@ def create_assessments(
         before = knowledge.require_revision(
             database, target, None if detail is None else detail.revision
         )
+        # A governing revision can reuse its original supersession obligation only
+        # when it actually declared that target. Revision transitions remain exact.
+        after = replacement
+        if governing is not None:
+            governing_document = database.get(DecisionDocument, governing.document_id)
+            assert governing_document is not None
+            if identifier not in knowledge.decision_read(
+                database, governing_document, governing,
+            ).supersedes:
+                after = revision
         episodes.append(_episode(
             database,
             before,
-            revision,
+            after,
             "supersession",
             None if detail is None else detail.extent,
             None if detail is None else detail.reason,
         ))
+    episodes = _reuse_identical_assessments(database, change.id, episodes, revision)
     database.flush()
+    attach_assessments(database, change, episodes)
     from mnemonic_api.services.decision_reviews import create_decision_review
-    create_decision_review(database, document, revision, episodes)
+    create_decision_review(database, document, revision, episodes, change=change)
+
+
+def _reuse_identical_assessments(
+    database: Session, change_id: UUID, episodes: list[DecisionImpactAssessment],
+    current_revision: DecisionRevision,
+) -> list[DecisionImpactAssessment]:
+    """Reuse only the exact transition and evidence; never transplant verdicts."""
+    with database.no_autoflush:
+        retained = list(database.scalars(select(DecisionImpactAssessment).join(
+            DecisionChangeAssessment,
+            DecisionChangeAssessment.assessment_id == DecisionImpactAssessment.id,
+        ).where(DecisionChangeAssessment.change_id == change_id)))
+    result = []
+    for episode in episodes:
+        previous = next((old for old in retained if _same_obligation(old, episode)), None)
+        if previous is not None:
+            result.append(previous)
+        else:
+            if episode.replacement_revision_id != current_revision.id:
+                # The governing revision is sealed. Changed evidence or intent
+                # needs a new truthful snapshot against this annotation revision.
+                before = database.get(DecisionRevision, episode.origin_revision_id)
+                assert before is not None
+                episode = _episode(database, before, current_revision, episode.trigger,
+                                   episode.extent, episode.reason)
+            database.add(episode)
+            result.append(episode)
+    return result
+
+
+def _same_obligation(left: DecisionImpactAssessment, right: DecisionImpactAssessment) -> bool:
+    fields = ("origin_revision_id", "replacement_revision_id", "trigger", "extent", "reason",
+              "diff", "candidates")
+    return all(getattr(left, key) == getattr(right, key) for key in fields) and (
+        {key: value for key, value in left.coverage.items() if key != "snapshot_at"}
+        == {key: value for key, value in right.coverage.items() if key != "snapshot_at"}
+    )
 
 
 def require_assessment(
@@ -291,6 +359,13 @@ def list_assessments(
     query = select(DecisionImpactAssessment).where(
         DecisionImpactAssessment.project_id == project_id
     )
+    if filters.change_id is not None:
+        from mnemonic_api.services.decision_changes import require_change
+
+        require_change(database, project_id, filters.change_id)
+        query = query.join(DecisionChangeAssessment).where(
+            DecisionChangeAssessment.change_id == filters.change_id,
+        )
     if filters.decision_id is not None:
         document, _, _ = knowledge.require_document(database, project_id, filters.decision_id)
         revisions = select(DecisionRevision.id).where(DecisionRevision.document_id == document.id)

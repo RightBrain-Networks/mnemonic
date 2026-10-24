@@ -178,7 +178,7 @@ closeout outcomes.
 ## Automatic decision impact reviews (0.89.0)
 
 The `decision-impact-review` template is initialized for existing and new projects on first
-access. Exact untouched copies of the 0.89 and 0.90 shipped templates are refreshed to
+access. Exact untouched copies of earlier shipped templates are refreshed to
 the improved default on their next read, under the existing prompt lock. Customized
 bytes, including whitespace changes, are preserved. Its creation time remains;
 the new content has a new SHA-256 revision, so stale saves must reload.
@@ -188,7 +188,9 @@ decision/assessment references in the initial checkpoint. Later template edits d
 not rewrite existing investigations. The default instructs agents to investigate
 without changing code and to create separate standard work items for remediation
 or further investigation. It classifies rule/scope/reference changes before
-candidate review, requires dispositions for incoming related citations of unknown
+candidate review, reads the current native change scope and every attached assessment,
+requires acknowledgement before Done, preserves inherited follow-up lineage, and stops
+new obligations on a closed review for human admission. It requires dispositions for incoming related citations of unknown
 causality, preserves historical assessment requirements, separates required verdicts
 from optional contextual contradiction notes, and gives fallback repository searches
 for missing commits.

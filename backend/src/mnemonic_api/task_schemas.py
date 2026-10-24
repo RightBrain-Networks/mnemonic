@@ -28,6 +28,15 @@ class TaskCounts(APIModel):
 
 
 class TaskSummary(APIModel):
+    decision_review_project_id: UUID | None = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
+    decision_review_change_id: UUID | None = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
+    decision_change_ids: list[UUID] = Field(
+        default_factory=list, exclude_if=lambda value: not value,
+    )
     decision_review_revision_id: UUID | None = Field(
         default=None, exclude_if=lambda value: value is None,
     )

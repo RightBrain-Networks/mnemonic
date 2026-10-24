@@ -1,5 +1,43 @@
 # Mnemonic validation record
 
+## Bounded decision impact review cycles (0.92.0)
+
+Explicit change identities group review obligations and carry through discovered
+work. Closed cycles require dashboard admission before new scope; managed owner
+answers remain retained while waiting. Adoption and acknowledgement use the normal
+receipt, checkpoint, event, activity and backup contracts. Migration 0058 preserves
+historical ledgers and closeouts and propagates recorded descendant lineage.
+
+Validation used Python 3.14, Node 24, isolated PostgreSQL and RabbitMQ. The complete
+backend suite passed **5,287 tests** on PostgreSQL 17.11 with four parallel workers.
+Regression cases cover exact supersession
+reuse, changed scope, stale acknowledgement, completion fencing, retained answers,
+cross-project moves, concurrent movement during scope discovery, migration,
+backup restoration and global integrity audits. The full MCP CI suite passed
+**2,359 tests**, with one existing skip. The
+dashboard passed **594 unit tests**, type checking and production build. Eight
+desktop/narrow browser cases passed; the final focused rerun also verified live
+scope growth preserves a disposition draft and requires fresh acknowledgement.
+Plugin checks passed (72 tests, one existing skip). Python lint/types, operational
+checks, OpenAPI generation and secret scanning passed.
+
+A final review added four regressions for changed supersession scope, incoming
+citations, extent, and reason. All 35 targeted decision-change, storage, and locking
+tests passed. Exact prior evidence reuses its episode; changed evidence creates
+a fresh episode against the current revision while preserving earlier verdicts.
+
+Duplicate-suggestion validation also covers fresh, analyzed, and stale project
+statistics. A planner-cost regression exposes over 100 million row comparisons
+in the prior query. The corrected query composes mapped documents through indexed
+member lookups and carries root ordering forward, preserving the strict linear
+row-work bound and existing ranking semantics. All 39 targeted suggestion and
+embedding-job checks passed on PostgreSQL 17.11, matching the CI image.
+
+Reviewed screenshots show [adopted scope](images/decision-impact-review-scope/adopted-scope-desktop.png)
+and [owner admission on a narrow screen](images/decision-impact-review-scope/owner-admission-narrow.png).
+Production deployment requires coordinated writers and migration 0058; local
+validation did not change production services.
+
 ## Decision impact and implementation provenance (0.86.0)
 
 Revision-pinned dependencies and full/partial supersession details now connect
