@@ -666,10 +666,11 @@ expose `admit`. REST uses one receipt-protected
 `GET /projects/{project_id}/knowledge/changes/{change_id}` for reads.
 
 Deploy aligned API, worker, MCP and dashboard with migration
-`0062_review_scope_notices`. It preserves historical assessments, dispositions and
+`0063_impact_findings`. It preserves historical assessments, dispositions and
 terminal work without creating a review backlog. No new service or environment
-variable is required. Downgrade is refused once exact attachment versions exist;
-the earlier batch migration also refuses to discard retained batch receipts.
+variable is required. Migration 0063 refuses downgrade while dispositions retain
+finding IDs or remediation targets. Earlier migrations also refuse to discard
+exact attachment versions or retained batch receipts.
 
 Each investigation drives its existing impact-assessment episodes. Start with
 `decision_assessment_get` for the retained diff and candidate pages; the task
