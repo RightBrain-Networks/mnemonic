@@ -105,3 +105,23 @@ def work_elements() -> list:
         _timestamp(),
         sa.Index("ix_decision_change_work_change", "change_id"),
     ]
+
+
+def supersession_reuse_elements() -> list:
+    table = "decision_supersession_reuses"
+    elements = [
+        sa.Column("project_id", UUID, nullable=False),
+        sa.Column("revision_id", UUID, primary_key=True),
+        sa.Column("target_revision_id", UUID, primary_key=True),
+        sa.Column("governing_revision_id", UUID, nullable=False),
+        sa.Column("reason", sa.String(8000), nullable=False),
+        sa.CheckConstraint("length(btrim(reason)) > 0", name="reason_nonblank"),
+        sa.CheckConstraint("revision_id <> governing_revision_id", name="no_self_governance"),
+        sa.CheckConstraint("revision_id <> target_revision_id", name="no_self_target"),
+    ]
+    for name in ("revision_id", "target_revision_id", "governing_revision_id"):
+        elements.append(sa.ForeignKeyConstraint(
+            ["project_id", name], ["decision_revisions.project_id", "decision_revisions.id"],
+            ondelete="RESTRICT", name=f"fk_{table}_{name}",
+        ))
+    return elements

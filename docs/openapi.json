@@ -6429,6 +6429,14 @@
               }
             ],
             "title": "Reason"
+          },
+          "unchanged_supersessions": {
+            "items": {
+              "$ref": "#/components/schemas/UnchangedSupersession"
+            },
+            "maxItems": 100,
+            "title": "Unchanged Supersessions",
+            "type": "array"
           }
         },
         "title": "DecisionChangeDeclaration",
@@ -7402,6 +7410,13 @@
               }
             ],
             "title": "Source Work Item Id"
+          },
+          "unchanged_supersessions": {
+            "items": {
+              "$ref": "#/components/schemas/UnchangedSupersession"
+            },
+            "title": "Unchanged Supersessions",
+            "type": "array"
           }
         },
         "required": [
@@ -17913,6 +17928,34 @@
         "title": "TranscriptWarning",
         "type": "object"
       },
+      "UnchangedSupersession": {
+        "additionalProperties": false,
+        "properties": {
+          "governing_reference": {
+            "pattern": "^[A-Z]{1,5}-[0-9]{5,19}-[0-9]{1,10}$",
+            "title": "Governing Reference",
+            "type": "string"
+          },
+          "reason": {
+            "maxLength": 8000,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          },
+          "target_reference": {
+            "pattern": "^[A-Z]{1,5}-[0-9]{5,19}-[0-9]{1,10}$",
+            "title": "Target Reference",
+            "type": "string"
+          }
+        },
+        "required": [
+          "target_reference",
+          "governing_reference",
+          "reason"
+        ],
+        "title": "UnchangedSupersession",
+        "type": "object"
+      },
       "ValidationError": {
         "properties": {
           "ctx": {
@@ -21700,7 +21743,7 @@
   "info": {
     "description": "Durable project-scoped work with immutable agent checkpoints.",
     "title": "Mnemonic API",
-    "version": "0.93.0"
+    "version": "0.94.0"
   },
   "openapi": "3.1.0",
   "paths": {

@@ -13,14 +13,27 @@ ChangeReason = Annotated[
 ]
 
 
+class UnchangedSupersession(ImpactModel):
+    target_reference: Reference
+    governing_reference: Reference
+    reason: ChangeReason
+
+
 class DecisionChangeInput(ImpactModel):
     kind: Literal["substantive", "record-existing", "maintenance"] = "substantive"
     change_id: UUID | None = None
     reason: ChangeReason | None = None
     governing_reference: Reference | None = None
+    unchanged_supersessions: list[UnchangedSupersession] = Field(
+        default_factory=list, max_length=100, exclude_if=lambda value: not value,
+    )
 
     @model_validator(mode="after")
     def classification(self) -> Self:
+        targets = [item.target_reference.rsplit("-", 1)[0]
+                   for item in self.unchanged_supersessions]
+        if len(targets) != len(set(targets)):
+            raise ValueError("Unchanged supersession targets must name unique decisions")
         if self.kind != "substantive" and self.reason is None:
             raise ValueError("Non-substantive revisions require a reason")
         if self.kind == "record-existing" and (

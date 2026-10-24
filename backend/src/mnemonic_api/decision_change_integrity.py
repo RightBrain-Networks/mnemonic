@@ -1,6 +1,9 @@
 """Validate change ownership and scope after privileged backup restoration."""
 
+from mnemonic_api.supersession_reuse_integrity import SUPERSESSION_REUSE_FINDINGS
+
 DECISION_CHANGE_FINDINGS = {
+    **SUPERSESSION_REUSE_FINDINGS,
     "unadmitted_held_decision_assessments": """
         SELECT count(*) FROM decision_impact_assessments assessment
         JOIN decision_revision_changes classification

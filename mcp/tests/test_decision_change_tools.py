@@ -158,3 +158,54 @@ async def test_historical_sparse_put_does_not_invent_external_origin(settings):
         return httpx.Response(200, json={"created": True, "decision": decision()})
 
     await adapter(settings, handler).call_tool("decision_put", arguments())
+
+
+async def test_unchanged_supersession_declaration_survives_transport_and_response(settings):
+    entries = [{"target_reference": "ADR-00002-0", "governing_reference": "ADR-00001-0",
+                "reason": "Only an unrelated rule changed; this supersession is unchanged."}]
+    declaration = {"kind": "substantive", "change_id": None, "reason": None,
+                   "governing_reference": None, "unchanged_supersessions": entries}
+
+    def handler(request):
+        assert json.loads(request.content)["change"] == declaration
+        return httpx.Response(200, json={"created": True, "decision": decision(change={
+            **declaration, "change_id": CHANGE_ID, "reason": None, "governing_reference": None,
+            "source_work_item_id": None,
+        })})
+
+    result = structured(await adapter(settings, handler).call_tool("decision_put", {
+        **arguments(), "source_work_item_id": None, "change": declaration,
+    }))
+    assert result["decision"]["change"]["unchanged_supersessions"] == entries
+
+
+@pytest.mark.parametrize("entries", [
+    [{"target_reference": "ADR-00002", "governing_reference": "ADR-00001-0", "reason": "Same"}],
+    [{"target_reference": "ADR-00002-0", "governing_reference": "ADR-00001", "reason": "Same"}],
+    [{"target_reference": "ADR-00002-0", "governing_reference": "ADR-00001-0", "reason": " "}],
+    [{"target_reference": f"ADR-00002-{revision}", "governing_reference": "ADR-00001-0",
+      "reason": "Duplicate target"} for revision in (0, 1)],
+])
+async def test_unchanged_supersession_declarations_require_exact_unique_evidence(settings, entries):
+    server = adapter(settings, lambda request: pytest.fail("Invalid declaration reached HTTP"))
+    with pytest.raises(ToolError):
+        await server.call_tool("decision_put", {
+            **arguments(), "source_work_item_id": None,
+            "change": {"unchanged_supersessions": entries},
+        })
+
+
+async def test_missing_retained_supersession_declaration_is_unknown_outcome(settings):
+    server = adapter(settings, lambda request: httpx.Response(200, json={
+        "created": True, "decision": decision(change={
+            "kind": "substantive", "change_id": CHANGE_ID, "reason": None,
+            "governing_reference": None, "source_work_item_id": None,
+        }),
+    }))
+    with pytest.raises(ToolError, match=UNKNOWN_IDEMPOTENT_MUTATION_OUTCOME):
+        await server.call_tool("decision_put", {
+            **arguments(), "source_work_item_id": None, "change": {
+                "unchanged_supersessions": [{"target_reference": "ADR-00002-0",
+                    "governing_reference": "ADR-00001-0", "reason": "Same supersession rule"}],
+            },
+        })

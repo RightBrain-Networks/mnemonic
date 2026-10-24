@@ -47,6 +47,26 @@ test("adoption, acknowledgement and human admission bind distinct result identit
     { action: "admit", change_id: changeId, expected_scope_version: 2 }));
 });
 
+test("decision reads retain explicit supersession reuse evidence and reject malformed declarations", () => {
+  const row = { change_id: changeId, kind: "substantive", reason: null,
+    governing_reference: null, source_work_item_id: work };
+  const declaration = { target_reference: "ADR-00001-0", governing_reference: "ADR-00002-0",
+    reason: "The prior supersession remains unchanged." };
+  const withEvidence = { ...row, unchanged_supersessions: [declaration] };
+  assert.deepEqual(decodeDecisionRevisionChange(withEvidence), withEvidence);
+  const unicodeEvidence = { ...row, unchanged_supersessions: [{ ...declaration, reason: "😀".repeat(8000) }] };
+  assert.deepEqual(decodeDecisionRevisionChange(unicodeEvidence), unicodeEvidence);
+  assert.deepEqual(decodeDecisionRevisionChange(row), row);
+  for (const evidence of [null, {}, [{ ...declaration, target_reference: "ADR-00001" }],
+    [{ ...declaration, governing_reference: null }], [{ ...declaration, reason: " " }],
+    [{ ...declaration, reason: "bad\0reason" }], [{ ...declaration, reason: "😀".repeat(8001) }],
+    [{ ...declaration, extra: true }],
+    [declaration, { ...declaration, target_reference: "ADR-00001-1" }],
+    Array.from({ length: 101 }, () => declaration)]) {
+    assert.throws(() => decodeDecisionRevisionChange({ ...row, unchanged_supersessions: evidence }));
+  }
+});
+
 test("moved drivers, driverless held answers and admitted successors retain their source identity", () => {
   const moved = { ...change, review_work_project_id: work, review_closed: true, successor_change_id: assessment };
   assert.deepEqual(decodeDecisionChange(moved, project), moved);

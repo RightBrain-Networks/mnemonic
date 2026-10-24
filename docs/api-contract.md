@@ -14,8 +14,8 @@ previous bundled rubric. Edits are retained in PostgreSQL and project backups.
 Use [unified search](search.md) to retrieve work, artifacts, transcripts, and decisions in one
 ranked, filtered, paginated read through REST or MCP.
 
-This is application/API/MCP/dashboard `0.93.0`, plugin `0.56.0`, and migration
-`0059_domain_decision_reviews`. See [knowledge graph](knowledge-graph.md) for retained
+This is application/API/MCP/dashboard `0.94.0`, plugin `0.57.0`, and migration
+`0060_supersession_reuse`. See [knowledge graph](knowledge-graph.md) for retained
 decision revisions and commit provenance, and [dependency cycles](dependency-cycles.md) for explicit
 parent closure requirements, cycle refusal, and honest deadlock display. The catalog has exactly 76 MCP tools, 24
 protected MCP writes, 31 REST receipt kinds, 25 protected browser mutations and

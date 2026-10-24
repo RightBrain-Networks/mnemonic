@@ -2548,6 +2548,17 @@ class DecisionRevisionChange(Base):
     created_at: Mapped[datetime]
 
 
+class DecisionSupersessionReuse(Base):
+    __table__ = Table("decision_supersession_reuses", Base.metadata,
+                      *decision_changes.supersession_reuse_elements())
+
+    project_id: Mapped[UUID]
+    revision_id: Mapped[UUID]
+    target_revision_id: Mapped[UUID]
+    governing_revision_id: Mapped[UUID]
+    reason: Mapped[str]
+
+
 class DecisionChangeAssessment(Base):
     __table__ = Table("decision_change_assessments", Base.metadata,
                       *decision_changes.assessment_elements())

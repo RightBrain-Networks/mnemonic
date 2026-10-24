@@ -1,6 +1,16 @@
 """Complete tool guidance, disclosed in bounded help pages instead of the catalog."""
 
 DETAILS: dict[str, str] = {
+    'decision_put': (
+        'Optional change.unchanged_supersessions entries explicitly declare an unchanged ruling '
+        'with exact target_reference, governing_reference of the latest prior supersession '
+        'capture in this same replacement document, and a reason. Continuous unchanged target, '
+        'extent and reason plus matching captured evidence can reuse that immutable episode; '
+        'changed evidence still creates a fresh episode. Metadata equality alone never proves '
+        'unchanged substantive intent. A revision episode is still captured. Omit the declaration '
+        'when the ruling changed or is uncertain. supersession_details pins overridden evidence. '
+        'All existing decision_put arguments and exact receipt replay rules remain unchanged.'
+    ),
     'request_human_input': (
         'Each Needs Attention item is a Product Decision Record in the project domain marked '
         'is_product_decision_domain. Fresh questions create proposed revision 0; each rewrite '

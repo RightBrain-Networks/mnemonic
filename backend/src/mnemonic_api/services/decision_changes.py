@@ -93,6 +93,7 @@ def read_change(database: Session, change: DecisionChange) -> DecisionChangeRead
 
 def revision_change_read(database: Session, revision_id: UUID) -> DecisionRevisionChangeRead | None:
     from mnemonic_api.services.decision_impact import _revision_reference
+    from mnemonic_api.services.decision_supersession_declarations import read_declarations
 
     row = database.get(DecisionRevisionChange, revision_id)
     if row is None:
@@ -107,6 +108,7 @@ def revision_change_read(database: Session, revision_id: UUID) -> DecisionRevisi
         source_work_item_id=row.source_work_item_id,
         governing_reference=(_revision_reference(database, row.governing_revision_id)
                              if row.governing_revision_id else None),
+        unchanged_supersessions=read_declarations(database, revision_id),
     )
 
 
