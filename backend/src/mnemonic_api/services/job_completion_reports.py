@@ -37,6 +37,7 @@ from mnemonic_api.phase12_schemas import (
     SourceWorkState,
     WorkReportFollowUpPage,
 )
+from mnemonic_api.repository_identity import canonical_provenance
 from mnemonic_api.schemas import (
     JobCompletionReportDismissalResult,
     JobCompletionReportFollowUpRequest,
@@ -123,6 +124,22 @@ def prepare_closeout_report(
     return settings
 
 
+def _canonical_report_provenance(payload: JobCompletionReportInput) -> dict | None:
+    value = canonical_provenance(
+        payload.decision_provenance.model_dump(mode="json")
+        if payload.decision_provenance is not None else None
+    )
+    if value is not None:
+        commits = value["commits"]
+        if len({(item["repository"], item["commit_hash"]) for item in commits}) != len(commits):
+            raise ApplicationError(
+                422, "decision_provenance_duplicate_commits",
+                "GitHub aliases identify a duplicate repository/commit pair. "
+                "Include each pair once in a new closeout intent.",
+            )
+    return value
+
+
 def seal_closeout_report(
     database: Session,
     work_item: WorkItem,
@@ -149,8 +166,7 @@ def seal_closeout_report(
         work_title_at_closeout=work_item.title,
         summary=payload.summary,
         fyi_items=payload.fyi_items,
-        decision_provenance=(payload.decision_provenance.model_dump(mode="json")
-                             if payload.decision_provenance is not None else None),
+        decision_provenance=_canonical_report_provenance(payload),
         prompt_revision=settings.revision,
         prompt_template_sha256=template.revision,
         prompt_text=rendered,

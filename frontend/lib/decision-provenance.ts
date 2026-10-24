@@ -40,3 +40,15 @@ export function provenanceFromDraft(draft: ProvenanceDraft): DecisionProvenance 
   if (!validDecisionProvenance(value)) throw new Error("Declare decision use: cited decisions need exact revisions and full commit hashes with repository identities. Other conclusions need a reason. Remove duplicate entries and keep at most 500 citation/commit pairs.");
   return value;
 }
+
+// Comparison only: frozen requests and historical response objects keep their bytes.
+export function canonicalRepository(value: string): string {
+  const match = /^(?:(?:https?:\/\/)?github\.com\/)?([a-z0-9][a-z0-9-]{0,38})\/([a-z0-9_.-]{1,100})\/?$/i.exec(value);
+  if (!match || match[0] !== value) return value;
+  const rawName = match[2].toLowerCase(), name = rawName.replace(/\.git$/, "");
+  if (!name || name === "." || name === ".." || rawName.endsWith(".git.git")) return value;
+  return `https://github.com/${match[1].toLowerCase()}/${name}`;
+}
+export function canonicalProvenance(value: DecisionProvenance | null | undefined): DecisionProvenance | null {
+  return value == null ? null : { ...value, commits: value.commits.map((commit) => ({ ...commit, repository: canonicalRepository(commit.repository) })) };
+}

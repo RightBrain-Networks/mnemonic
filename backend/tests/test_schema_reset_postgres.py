@@ -326,7 +326,7 @@ def _seed_knowledge(api: TestClient, engine: Engine, project_id: UUID) -> None:
         "agent_session_id": "schema-reset", "client_operation_id": str(uuid4()),
     })
     assert scope.status_code == 200, scope.text
-    _seed_knowledge_follow_up(api, collection, original_id)
+    _seed_knowledge_follow_up(api, collection, original_id, scope.json()["scope"]["repository"])
     declared = api.put(collection + "/decisions", json={
         **replacement_body, "decision_id": replacement_id, "expected_revision": 0,
         "content": "Retain all revision history. Storage policy annotation.",
@@ -339,7 +339,9 @@ def _seed_knowledge(api: TestClient, engine: Engine, project_id: UUID) -> None:
     assert declared.status_code == 200, declared.text
 
 
-def _seed_knowledge_follow_up(api: TestClient, collection: str, original_id: str) -> None:
+def _seed_knowledge_follow_up(
+    api: TestClient, collection: str, original_id: str, repository: str,
+) -> None:
     """Exercise append-only assessment history and original-to-merged commit mappings."""
     assessments = api.get(collection + "/assessments")
     assert assessments.status_code == 200, assessments.text
@@ -352,7 +354,7 @@ def _seed_knowledge_follow_up(api: TestClient, collection: str, original_id: str
     })
     assert disposition.status_code == 201, disposition.text
     mapping = api.post(collection + "/commits/reconcile", json={
-        "repository": "github.com/example/schema-reset", "original_commit_hash": "a" * 40,
+        "repository": repository, "original_commit_hash": "a" * 40,
         "merged_commit_hash": "b" * 40, "client_operation_id": str(uuid4()),
     })
     assert mapping.status_code == 200, mapping.text

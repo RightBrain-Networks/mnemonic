@@ -15,6 +15,7 @@ from test_tools import adapter, structured
 from mnemonic_mcp.phase12_models import JobCompletionReportInput, JobCompletionReportRead
 from mnemonic_mcp.phase12_tools import report_matches_request
 from mnemonic_mcp.provenance_models import DecisionProvenance
+from mnemonic_mcp.repository_identity import canonical_provenance
 
 REPOSITORY = "github.com/team/repository"
 DECLARATION = {
@@ -80,7 +81,7 @@ async def test_complete_work_forwards_provenance_in_the_same_receipt_intent(
 ):
     tool, args, response = closeout_fixture("done", work_item, checkpoint)
     args["job_completion_report"]["decision_provenance"] = DECLARATION
-    response["job_completion_report"]["decision_provenance"] = DECLARATION
+    response["job_completion_report"]["decision_provenance"] = canonical_provenance(DECLARATION)
 
     def handler(request):
         body = json.loads(request.content)
@@ -89,7 +90,7 @@ async def test_complete_work_forwards_provenance_in_the_same_receipt_intent(
         return httpx.Response(200, json=response)
 
     result = structured(await adapter(settings, handler).call_tool(tool, args))
-    assert result["job_completion_report"]["decision_provenance"] == DECLARATION
+    assert result["job_completion_report"]["decision_provenance"] == canonical_provenance(DECLARATION)
 
 
 async def test_commit_lookup_resolves_merged_hash_without_replacing_original(settings):
@@ -136,3 +137,58 @@ async def test_reconcile_receipt_keeps_original_and_integrated_commits(settings)
     result = structured(await adapter(settings, handler).call_tool("decision_scope_reconcile", args))
     assert result["original_commit_hash"] == "a" * 40
     assert result["merged_commit_hash"] == "b" * 40
+
+
+@pytest.mark.parametrize("stored", [REPOSITORY, "https://github.com/team/repository",
+                                     "HTTP://GitHub.com/Team/Repository.git/"])
+async def test_scope_append_matches_alias_response_without_rewriting_intent(settings, stored):
+    args = {
+        "project_id": PROJECT_ID, "decision_id": "ADR-00001", "revision": 0,
+        "commit_hash": "a" * 40, "repository": REPOSITORY,
+        "work_item_id": WORK_ID, "agent_session_id": "native-thread",
+        "client_operation_id": CLIENT_OPERATION_ID,
+    }
+
+    def handler(request):
+        assert json.loads(request.content)["repository"] == REPOSITORY
+        return httpx.Response(200, json={"scope": scope(repository=stored), "created": True})
+
+    result = structured(await adapter(settings, handler).call_tool("decision_scope_append", args))
+    assert result["scope"]["repository"] == stored
+    assert args["repository"] == REPOSITORY
+
+
+async def test_lookup_accepts_legacy_alias_but_returns_its_original_spelling(settings):
+    stored = "HTTP://GitHub.com/Team/Repository.git/"
+    response = {"items": [scope(repository=stored)], "total": 1, "limit": 50, "offset": 0}
+    result = structured(await adapter(settings, lambda request: stream_json(response)).call_tool(
+        "decision_commit_lookup", {
+            "project_id": PROJECT_ID, "repository": REPOSITORY, "commit_hash": "a" * 40,
+        },
+    ))
+    assert result["items"][0]["repository"] == stored
+
+
+@pytest.mark.parametrize("repository", [None, "https://gitlab.com/team/repository",
+                                        "ssh://github.com/team/repository"])
+async def test_lookup_never_matches_unknown_or_other_host_identity(settings, repository):
+    response = {"items": [scope(repository=repository)], "total": 1, "limit": 50, "offset": 0}
+    with pytest.raises(ToolError, match="unexpected response"):
+        await adapter(settings, lambda request: stream_json(response)).call_tool(
+            "decision_commit_lookup", {
+                "project_id": PROJECT_ID, "repository": REPOSITORY, "commit_hash": "a" * 40,
+            },
+        )
+
+
+async def test_duplicate_canonical_pair_error_gives_new_intent_guidance(
+    settings, work_item, checkpoint,
+):
+    tool, args, _ = closeout_fixture("done", work_item, checkpoint)
+    args["job_completion_report"]["decision_provenance"] = DECLARATION
+    response = {"detail": {"code": "decision_provenance_duplicate_commits",
+                           "message": "Duplicate commit aliases", "context": {}}}
+    with pytest.raises(ToolError, match="Remove the duplicate pair.*new closeout intent"):
+        await adapter(settings, lambda request: httpx.Response(422, json=response)).call_tool(
+            tool, args,
+        )

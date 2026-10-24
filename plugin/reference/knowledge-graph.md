@@ -176,7 +176,15 @@ Supply `repository`, work item ID, and actual native agent session ID whenever
 available. Include those actual citations and commits again in the complete Done
 declaration; closeout reuses exact registered citations instead of counting them
 twice. A missing repository remains unknown and cannot match an explicit identity.
-Reuse the same credential-free repository string consistently. Manual appends
+Fresh scope/report writes normalize explicit GitHub slugs and HTTP(S) github.com
+URLs to lowercase `https://github.com/owner/name`, removing an optional `.git`
+suffix and trailing slash. Other hosts/schemes and unrecognized values stay exact;
+repeated `.git` suffixes stay unchanged. Historical rows, reports, snapshots, and
+receipts keep their original spelling. Fresh canonical rows do not silently merge
+historical aliases. A fresh report rejects duplicate repository/commit pairs under
+GitHub aliases; remove duplicates and prepare a new intent after this definitive
+rejection. Preserve every original argument, including repository spelling, for an
+uncertain retry. Manual appends
 retain their existing request/metadata identity rules; this does not make arbitrary
 repeated appends with different work/session metadata interchangeable. Scope stays
 append-only; revision updates never move older commits onto a newer revision.
@@ -201,12 +209,15 @@ or fragments in that identity. Mnemonic stores declarations and does not fetch
 or independently verify Git.
 
 `decision_scope` pages citations for one decision, optionally one revision.
-`decision_commit_lookup` does the reverse for an exact repository and full hash.
+`decision_commit_lookup` does the reverse for a repository and full hash. Supported
+GitHub aliases match case-insensitively and return original stored spellings; other
+identities match exactly. Missing identities never match an explicit repository.
 Their `completion_citations` show subsequent report/work and actor provenance
 when Done reused an existing scope; the original scope author/work is unchanged.
 Inspect `completion_citations_truncated` for bounded report coverage.
 After squash/rebase/merge, inspect actual merge evidence and call
-`decision_scope_reconcile` with repository, original hash, and merged hash.
+`decision_scope_reconcile` with the exact **stored repository spelling from lookup**,
+original hash, and merged hash. Reconciliation does not expand GitHub aliases.
 This appends a mapping to registered scopes without rewriting their original
 commit. Finding both Git objects is not proof they are equivalent; verify the
 actual integration relationship. Never guess a mapping because diffs look alike.

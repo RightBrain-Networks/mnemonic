@@ -13,6 +13,7 @@ from .knowledge_models import (
     DecisionScopeResult,
     DecisionTextRead,
 )
+from .repository_identity import canonical_repository
 
 
 def decision_identity(decision: DecisionRead, project_id: UUID, reference: str) -> bool:
@@ -119,8 +120,8 @@ def scope_matches(
     item = result.scope
     return (
         item.project_id == project_id and item.decision_id == decision_id
-        and item.repository == intent.repository
+        and canonical_repository(item.repository) == canonical_repository(intent.repository)
         and all(getattr(item, key) == value for key, value in intent.model_dump(
-            exclude={"client_operation_id"},
+            exclude={"client_operation_id", "repository"},
         ).items())
     )

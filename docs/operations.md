@@ -1,5 +1,12 @@
 # Operating Mnemonic
 
+Release 0.101.0 and plugin 0.64.0 canonicalize explicit GitHub repository identities
+on fresh scope appends and completion reports. Lookup accepts supported aliases
+while returning the stored spelling; reconciliation still requires that exact
+stored spelling. Historical rows, snapshots and retry intents are unchanged.
+No new configuration, backfill or migration is required beyond
+`0062_review_scope_notices`.
+
 Release 0.100.0 and plugin 0.63.0 add supersession comparisons between successive
 revisions of the replacing document, plus explicit warnings for missing captured
 extent/reason. These are read projections; retained assessment evidence and old

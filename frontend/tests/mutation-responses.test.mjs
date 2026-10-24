@@ -1237,3 +1237,12 @@ test("checkpoint and event notices retain metadata without changing requested co
   assert.throws(() => decodeCheckpoint({ ...row, review_scope_changed: { ...notice, review_work_item_id: counterpart } }, work));
   assert.throws(() => decodeCheckpoint({ ...row, review_scope_changed: { ...notice, episodes_added: 4 } }, work));
 });
+
+test("duplicate canonical commit aliases definitively reject a closeout", async () => {
+  const spec = request("complete_work", "POST", `/projects/${project}/work-items/${work}/complete`, {
+    expected_version: 1, checkpoint: checkpointInput()
+  });
+  const detail = { code: "decision_provenance_duplicate_commits", message: "Include each repository/commit pair once in a new closeout intent.", context: {} };
+  assert.equal((await classify(spec, 422, { detail })).type, "rejected");
+  assert.equal((await classify(spec, 503, { detail })).type, "unresolved");
+});

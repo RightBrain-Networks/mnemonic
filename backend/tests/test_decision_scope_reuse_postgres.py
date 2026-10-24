@@ -10,11 +10,18 @@ from sqlalchemy.orm import Session
 from mnemonic_api.errors import ApplicationError
 from mnemonic_api.knowledge_integrity import KNOWLEDGE_FINDINGS
 from mnemonic_api.models import WorkItem
+from mnemonic_api.repository_identity import canonical_provenance
 from mnemonic_api.services.decision_scope_citations import completion_citations
 from mnemonic_api.services.knowledge import require_no_knowledge_links
 from mnemonic_backup.archive import BackupError, restore_project
 
-from .test_decision_provenance_postgres import ORIGINAL, REPOSITORY, declaration, report
+from .test_decision_provenance_postgres import (
+    CANONICAL_REPOSITORY,
+    ORIGINAL,
+    REPOSITORY,
+    declaration,
+    report,
+)
 from .test_knowledge_postgres import domain, path, put, put_body
 from .test_project_backup_archive import _export, _rewrite, _snapshot
 from .test_project_reports_postgres import close, create
@@ -56,7 +63,7 @@ def test_closeout_reuses_merge_scope_and_preserves_each_session_and_work(
         )
         assert result.status_code == 200, result.text
         retained = result.json()["job_completion_report"]
-        assert retained["decision_provenance"] == declaration(decision)
+        assert retained["decision_provenance"] == canonical_provenance(declaration(decision))
         assert retained["actor_session_id"] == session
         report_ids.append(retained["id"])
         work_ids.append(work["id"])
@@ -155,7 +162,7 @@ def test_reused_completion_citations_report_bounded_evidence(
     with Session(postgres_engine) as database:
         citations, truncated = completion_citations(
             database, UUID(project["id"]), decision["decision_id"], 0,
-            REPOSITORY, ORIGINAL, limit=1,
+            CANONICAL_REPOSITORY, ORIGINAL, limit=1,
         )
     assert len(citations) == 1 and truncated
 

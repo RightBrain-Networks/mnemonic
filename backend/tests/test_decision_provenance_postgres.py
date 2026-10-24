@@ -16,6 +16,7 @@ from .test_project_reports_postgres import close, create
 
 pytestmark = pytest.mark.postgres
 REPOSITORY = "github.com/example/application"
+CANONICAL_REPOSITORY = "https://github.com/example/application"
 ORIGINAL = "a" * 40
 MERGED = "b" * 40
 
@@ -76,7 +77,7 @@ def test_completion_citations_pin_old_revision_and_replay_atomically(
     assert scope["total"] == 1
     item = scope["items"][0]
     assert item["revision"] == 0
-    assert item["repository"] == REPOSITORY
+    assert item["repository"] == CANONICAL_REPOSITORY
     assert item["work_item_id"] == work["id"]
     assert item["agent_session_id"] == checkpoint_fields["source_session_id"]
     assert item["completion_report_id"] == response.json()["job_completion_report"]["id"]
@@ -108,7 +109,7 @@ def test_merge_reconciliation_reverse_lookup_and_immutability(api, project, data
         "client_operation_id": str(uuid4()),
     })
     assert scope.status_code == 200, scope.text
-    intent = {"repository": REPOSITORY, "original_commit_hash": ORIGINAL,
+    intent = {"repository": scope.json()["scope"]["repository"], "original_commit_hash": ORIGINAL,
               "merged_commit_hash": MERGED, "client_operation_id": str(uuid4())}
     response = api.post(path(project) + "/commits/reconcile", json=intent)
     assert response.status_code == 200, response.text
@@ -168,7 +169,7 @@ def test_backup_retains_completion_citations_and_refuses_forged_declaration(
                        job_completion_report=report(declaration(decision)))
     assert result.status_code == 200, result.text
     mapping = api.post(path(project) + "/commits/reconcile", json={
-        "repository": REPOSITORY, "original_commit_hash": ORIGINAL,
+        "repository": CANONICAL_REPOSITORY, "original_commit_hash": ORIGINAL,
         "merged_commit_hash": MERGED, "client_operation_id": str(uuid4()),
     })
     assert mapping.status_code == 200, mapping.text

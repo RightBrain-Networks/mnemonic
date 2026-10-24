@@ -1,5 +1,11 @@
 # Knowledge graph
 
+Release 0.101.0 and plugin 0.64.0 canonicalize explicit GitHub repository identities
+on fresh scope appends and completion reports. Supported aliases match during
+commit lookup; historical evidence and attribution remain unchanged. See
+[code provenance](#code-provenance) for exact retry and reconciliation rules.
+The migration head remains `0062_review_scope_notices`.
+
 Release 0.99.0 and plugin 0.62.0 add a read-only grouped view of required decision
 impact candidates. It distinguishes stable documents, captured revisions and
 per-episode obligations, with bounded pagination and a coherent scope snapshot.
@@ -148,14 +154,36 @@ these records so a developer can identify affected commits before amending a
 decision. Commit hashes identify recorded provenance; Mnemonic does not fetch or
 verify an external Git repository.
 
-Scope also accepts a credential-free `repository` identity. Use the same stable
-identity for writes and reverse lookup. `decision_commit_lookup` finds registered
-citations by repository and full original or reconciled merged hash. Historical
+Scope also accepts a credential-free `repository` identity. Fresh scope appends
+and completion reports canonicalize explicit GitHub `owner/name`,
+`github.com/owner/name`, and HTTP(S) `github.com` URLs to lowercase
+`https://github.com/owner/name`, removing one optional `.git` suffix and trailing
+slash. Other hosts, schemes, and unrecognized forms keep their exact spelling;
+ambiguous repeated `.git` suffixes are left unchanged. Missing identity stays
+unknown. Credentials and URL query/fragment parameters remain invalid.
+
+Manual appends deduplicate only with the same revision, commit, work, session,
+and completion-report attribution. Fresh canonical writes reuse canonical rows;
+they never collapse differently spelled historical rows. A fresh completion
+rejects duplicate repository/commit pairs that differ only by supported GitHub
+aliases (`422 decision_provenance_duplicate_commits`); remove duplicate pairs in
+a new closeout intent after that definitive rejection.
+
+`decision_commit_lookup` accepts supported GitHub aliases case-insensitively for
+original or reconciled hashes and returns every matching scope with its **stored
+repository spelling**. Alias case folding is ASCII-only; unsupported Unicode
+spellings and other repository identities match exactly. Existing scope,
+report, assessment snapshots and receipts retain their original values; historical
+cleanup requires a separate audited backfill. Exact retries preserve the original
+operation ID and every request argument, including repository spelling, even when
+the successful response contains its canonical form. Historical
 scopes without repository identity remain readable but cannot prove which
 repository contained a commit or match an explicit repository during closeout.
 After a verified squash/rebase/merge,
 `decision_scope_reconcile` appends an original-to-merged hash mapping; it never
-rewrites the original scope record. Finding both objects alone does not prove an
+rewrites the original scope record. Reconciliation deliberately requires the exact
+**stored repository value returned by lookup**, including historical spelling; it
+does not expand aliases or combine differently spelled historical rows. Finding both objects alone does not prove an
 integration relationship: inspect actual merge evidence first.
 
 Scope and commit-lookup results expose `completion_citations` for later Done

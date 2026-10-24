@@ -59,7 +59,8 @@ def prepare(arguments: argparse.Namespace) -> dict:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--directory", type=Path, default=Path.cwd())
-    parser.add_argument("--repository", required=True, help="stable credential-free repository ID")
+    parser.add_argument("--repository", required=True,
+                        help="credential-free ID; reconciliation needs the stored lookup spelling")
     parser.add_argument("--decision", action="append", default=[], help="exact revision consulted")
     parser.add_argument("--commit", action="append", default=[], help="local revision, e.g. HEAD")
     parser.add_argument("--original", help="original local commit for merge reconciliation")

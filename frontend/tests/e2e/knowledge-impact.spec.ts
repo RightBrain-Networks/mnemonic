@@ -31,11 +31,14 @@ async function fixture(api: APIRequestContext) {
   const remediation = await work(api, project.id, "Update the gateway transport adapter");
   const authorWork = await work(api, project.id, "Implement remote catalog registration");
   await json(await api.post(`/api/v1/projects/${project.id}/work-items/${authorWork.id}/claim`, { data: { holder_client: "codex", holder_session_id: "revision-author-session", claim_request_id: crypto.randomUUID(), session_transcript: null } }));
-  await json(await api.post(`${path}/decisions/${dependent.decision_id}/scope`, { data: { revision: 0, repository, commit_hash: originalHash, work_item_id: remediation.id, agent_session_id: "implementation-session", client_operation_id: crypto.randomUUID() } }));
-  await json(await api.post(`${path}/commits/reconcile`, { data: { repository, original_commit_hash: originalHash, merged_commit_hash: mergedHash, client_operation_id: crypto.randomUUID() } }));
-  const current = await decision(origin.title, "# Transport catalog\n\nUse remotely registered transport adapters.\n", { decision_id: origin.decision_id, expected_revision: 0, depends_on: dependencies, author_kind: "agent", agent_session_id: "revision-author-session", model_id: "acceptance-model" });
+  const registered = await json(await api.post(`${path}/decisions/${dependent.decision_id}/scope`, { data: { revision: 0, repository, commit_hash: originalHash, work_item_id: remediation.id, agent_session_id: "implementation-session", client_operation_id: crypto.randomUUID() } }));
+  const storedRepository = registered.scope.repository;
+  expect(storedRepository).toBe("https://github.com/acceptance/transport");
+  const mapping = await json(await api.post(`${path}/commits/reconcile`, { data: { repository: storedRepository, original_commit_hash: originalHash, merged_commit_hash: mergedHash, client_operation_id: crypto.randomUUID() } }));
+  expect(mapping.repository).toBe(storedRepository);
+  const current = await decision(origin.title, "# Transport catalog\n\nUse remotely registered transport adapters.\n", { decision_id: origin.decision_id, expected_revision: 0, depends_on: dependencies, author_kind: "agent", agent_session_id: "revision-author-session", model_id: "acceptance-model", source_work_item_id: authorWork.id });
   const replacement = await decision("Replace local adapter discovery", "# Discovery\n\nReplace only the catalog discovery protocol.\n", { supersession_details: [{ decision_id: origin.decision_id, revision: current.revision, extent: "partial", reason: "Replace discovery; retain the catalog identity rules." }] });
-  return { project, prerequisite, origin, dependent, related, current, replacement, remediation, authorWork, path };
+  return { project, prerequisite, origin, dependent, related, current, replacement, remediation, authorWork, path, storedRepository };
 }
 
 test("decision impact traces exact revisions and appends auditable dispositions with safe retries", async ({ page }, testInfo) => {
@@ -139,7 +142,7 @@ test("decision impact traces exact revisions and appends auditable dispositions 
 test("Done requires a decision declaration while checkpoints remain independent", async ({ page }, testInfo) => {
   const api = await apiClient();
   try {
-    const { project, dependent, path } = await fixture(api);
+    const { project, dependent, path, storedRepository } = await fixture(api);
     const item = await work(api, project.id, "Ship the transport gateway");
     await json(await api.post(`${path}/decisions/${dependent.decision_id}/scope`, { data: {
       revision: 0, repository, commit_hash: "e".repeat(40), agent_session_id: "earlier-merge-session",
@@ -169,7 +172,7 @@ test("Done requires a decision declaration while checkpoints remain independent"
     await expect.poll(async () => (await json(await api.get(`/api/v1/projects/${project.id}/work-items/${item.id}`))).work_item.status).toBe("done");
     const scopes = await json(await api.get(`${path}/commits?repository=${repository}&commit_hash=${"e".repeat(40)}`));
     expect(scopes.items).toHaveLength(1);
-    expect(scopes.items[0]).toMatchObject({ decision_id: dependent.decision_id, revision: 0, work_item_id: null, agent_session_id: "earlier-merge-session" });
+    expect(scopes.items[0]).toMatchObject({ decision_id: dependent.decision_id, revision: 0, repository: storedRepository, work_item_id: null, agent_session_id: "earlier-merge-session" });
     expect(scopes.items[0].completion_report_id).toBeUndefined();
     expect(scopes.items[0].completion_citations).toHaveLength(1);
     expect(scopes.items[0].completion_citations[0].work_item_id).toBe(item.id);

@@ -1,5 +1,37 @@
 # Mnemonic validation record
 
+## Explicit GitHub repository identities (0.101.0)
+
+Release 0.101.0 and plugin 0.64.0 canonicalize supported GitHub slugs and HTTP(S)
+URLs only during fresh scope appends and closeout report sealing. Historical
+records, snapshots, attribution and retry arguments retain their original values.
+Lookup accepts supported aliases while reconciliation requires the exact stored
+spelling. Unknown repositories remain distinct. The schema and catalog remain at
+`0062_review_scope_notices` and 78 tools, 25 protected MCP writes, 32 REST receipt
+kinds and 25 protected browser mutations.
+
+Independent review found that PostgreSQL's locale-sensitive lowercasing could
+match unsupported Unicode identities to ASCII GitHub aliases. Both direct and
+reconciled-hash lookups now use ASCII case folding. Five PostgreSQL regressions
+cover repository names, owners, hosts and mixed host/path forms while preserving
+exact lookup of unknown spellings. Shared Python/browser parser fixtures verify
+conservative, idempotent normalization. Focused provenance and lookup checks pass
+52 tests, with another 23 impact tests verifying frozen evidence and fresh scope.
+
+Using Python 3.14, Node 24 and isolated PostgreSQL/RabbitMQ, the full backend suite
+passed 5,524 tests with one reset-fixture failure: reconciliation used its original
+input spelling after the scope had been canonically stored. After passing the
+returned stored identity into that fixture, all 80 reset and aggregate-audit tests
+passed. The complete MCP suite passed 2,538 tests; all 30 shared parser cases also
+passed after adding the Unicode regressions. The dashboard passes 635 tests,
+type checking and production build. Eight desktop/narrow impact browser cases
+pass on the isolated combined stack after correcting the fixture's stored
+repository and required originating-work declaration.
+
+The plugin suite completes 72 cases with one optional external CLI check skipped.
+Backend/MCP Ruff and type checks, operational-script lint, OpenAPI checks and the
+gitleaks hook pass. No production services or historical records were changed.
+
 ## Successive supersession comparisons (0.100.0)
 
 Assessment reads now compare the superseding document with its previous revision

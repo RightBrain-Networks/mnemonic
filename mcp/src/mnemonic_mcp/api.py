@@ -61,6 +61,7 @@ _APPLICATION_ERRORS = {
     "decision_assessment_version_conflict": "Assessment version changed; use decision_assessment_get before preparing a new disposition intent.",
     "decision_assessment_candidate_invalid": "Use an exact candidate_reference from this assessment's captured candidate pages.",
     "decision_provenance_required": "Every project includes a PDR domain, so fresh Done requires job_completion_report.decision_provenance: cited with exact revisions and commits, or a reasoned no-applicable-decisions/not-code declaration.",
+    "decision_provenance_duplicate_commits": "GitHub aliases identify the same repository/commit pair. Remove the duplicate pair and prepare a new closeout intent after this definitive rejection; preserve every argument on an uncertain retry.",
     "decision_scope_not_found": "No registered scope matches this repository and commit; use decision_commit_lookup before a new reconciliation intent.",
     "decision_scope_reconciliation_too_large": "This commit matches more than 500 registered citations; request operator help for reconciliation without changing repository identity or inventing mappings.",
     "transcript_path_not_allowed": (
