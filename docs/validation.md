@@ -1,5 +1,41 @@
 # Mnemonic validation record
 
+## Review scope growth notices (0.97.0)
+
+Release 0.97.0, plugin 0.60.0 and migration `0062_review_scope_notices` retain an
+immutable attachment version for newly bound assessment episodes. Scope-growth
+checkpoints identify the causing revision and author, distinguish candidate rows
+from distinct revision references and decision identities, and restate each
+episode's review obligations. Historical attachment boundaries remain unknown.
+
+The 12 focused PostgreSQL checks cover persistent notices on status, renewal and
+token-bearing progress writes; acknowledgment clearing; exact replay after
+acknowledgment; shared episodes; moved review drivers; immutable attachment order;
+and backup/downgrade guards. Notices carry coordination metadata without cold
+review context. Single and batch disposition responses require a progress token,
+and a batch carries the notice only at its top level. Token-free writes and
+disposition history remain sparse. All 64 focused MCP help, notice and batch
+checks pass, including rejection of malformed or unsolicited notice metadata.
+
+Using Python 3.14, Node 24 and isolated PostgreSQL/RabbitMQ, the final full backend
+run passed all 5,449 tests with six workers. Its initial run exposed two historical
+fixture assumptions: an 0019 checkpoint shape followed the current read model,
+and a batch downgrade fixture included newly recorded attachment boundaries.
+Both fixtures now explicitly retain their historical shape. All 36 affected
+cases passed separately before the clean full rerun.
+
+The full MCP suite passed 2,435 tests with one outdated status-field inventory
+assertion. After adding the scope notice to that exact inventory and asserting
+that it remains optional, all 80 variable-lease, notice and help checks passed.
+
+The dashboard passes all 598 tests, type checking and production build. The
+plugin suite completes 72 cases with one optional external CLI check skipped.
+Backend/MCP Ruff and type checks, operational-script lint, OpenAPI and gitleaks
+pass. The aggregate integrity-audit suite passes 61 tests. Independent fresh and
+pg_dump/restored catalogs match the committed 0062 snapshot across all nine
+categories and report no integrity findings, including supported historical
+prompt hashes. No production services were changed.
+
 ## Atomic disposition batches and review progress renewal (0.96.0)
 
 Release 0.96.0, plugin 0.59.0 and migration `0061_batch_dispositions` add one
