@@ -105,9 +105,9 @@ one-off ID needed before dispatch. Explicit IDs and REST receipts retain their
 contracts; prepared upload intents keep their helper-generated IDs. See
 `docs/automatic-uuids.md`. The tool idempotence hint is false for these calls.
 
-The current application/API/MCP/dashboard release is `0.91.1`, Claude plugin
-`0.54.0`, and Alembic head `0057_automatic_decision_reviews`. The catalog is exactly
-74 MCP tools, 23 receipt-protected MCP writes, 30 REST receipt kinds, 24 protected
+The current application/API/MCP/dashboard release is `0.92.0`, Claude plugin
+`0.55.0`, and Alembic head `0058_decision_changes`. The catalog is exactly
+76 MCP tools, 24 receipt-protected MCP writes, 31 REST receipt kinds, 25 protected
 browser mutations, 24 work-event types, and three plugin skills. Project priority
 guidance is editable in Settings > Workspace; agents explicitly call
 `get_prompt(project_id, prompt_id="priority-rubric")` when needed. MCP
@@ -368,10 +368,17 @@ missing provenance remains unknown. The bundled decision_provenance.py helper
 verifies local commit existence and prepares declarations without network or writes.
 
 Automatic decision impact reviews are opt-in per project in Settings > Workspace,
-default off with priority 40. Actual decision changes create ordinary pending
-work with an immutable decision_review_revision_id marker and a snapshot of
-the editable decision-impact-review prompt. Investigate only; create separate work
-for remediation. Impact and assessment reads default to kind=code-impact for the
+default off with priority 40. Explicit changes own one ordinary review with a
+snapshot of the editable decision-impact-review prompt. Related revisions extend
+its assessment scope; read decision_change_get and page decision_assessments with
+change_id, then acknowledge the exact current scope before Done. Fresh agent
+decision_put declares source_work_item_id (or explicit null for an external trigger).
+Changes default to substantive; record-existing names its governing change and exact
+revision, and maintenance requires a reason. Follow-ups inherit lineage. Closed
+cycles require explicit dashboard admission; managed owner answers remain retained
+while awaiting admission. Adoption binds named episodes into an ordinary combined
+investigation. Investigate only; create separate work for remediation. Impact and
+assessment reads default to kind=code-impact for the
 origin and reverse depends_on dependents; kind=context separately pages
 prerequisites and related references. Only code-impact candidates require verdicts;
 every recorded change-required result still requires remediation. Classify full

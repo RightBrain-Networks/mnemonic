@@ -25,6 +25,7 @@ from mnemonic_api.schemas import DuplicateSuggestionRequest
 from mnemonic_api.semantic import BGE_QUERY_PREFIX
 from mnemonic_api.services import duplicate_suggestions as suggestion_service
 
+from .conftest import reset_disposable_schema
 from .report_fixtures import reported
 
 pytestmark = pytest.mark.postgres
@@ -912,17 +913,44 @@ def test_ten_thousand_cached_members_find_dense_only_candidate_beyond_lexical_ca
         ) == 10_000
 
 
-def test_large_lexical_selection_avoids_quadratic_row_comparisons(
-    api, project, postgres_engine
-):
-    population = 10_001
+def _lexical_plan_population(api, project, postgres_engine, population, statistics):
+    if statistics == "stale-project":
+        bulk_save(postgres_engine, project["id"], count=population,
+                  title_prefix="Previously analyzed candidate")
+        with postgres_engine.begin() as connection:
+            connection.execute(text("ANALYZE work_items, checkpoints, work_duplicate_merges"))
+        # The shared test schema retains column statistics across its normal
+        # TRUNCATE reset. A new project's UUID is absent from the old MCVs.
+        reset_disposable_schema(postgres_engine)
+        response = api.post("/api/v1/projects", json={"name": "New lexical population"})
+        assert response.status_code == 201, response.text
+        project.update(response.json())
     bulk_save(
         postgres_engine,
         project["id"],
         count=population,
         title_prefix="Oversize lexical candidate",
     )
+    if statistics == "analyzed":
+        with postgres_engine.begin() as connection:
+            connection.execute(text("ANALYZE work_items, checkpoints, work_duplicate_merges"))
+
+
+@pytest.mark.parametrize(("statistics", "prefer_scans"), [
+    ("unanalyzed", False), ("analyzed", False),
+    ("stale-project", False), ("stale-project", True),
+])
+def test_large_lexical_selection_avoids_quadratic_row_comparisons(
+    api, project, postgres_engine, statistics, prefer_scans,
+):
+    population = 10_001
+    _lexical_plan_population(api, project, postgres_engine, population, statistics)
     with postgres_engine.connect() as connection:
+        if prefer_scans:
+            # Keep every join strategy available while making repeated tuple
+            # comparisons look cheap under the stale one-row project estimate.
+            connection.execute(text("SET LOCAL random_page_cost = 10"))
+            connection.execute(text("SET LOCAL cpu_tuple_cost = 0.001"))
         plan = connection.scalar(
             text(
                 "EXPLAIN (ANALYZE, FORMAT JSON, TIMING OFF) "
@@ -950,7 +978,7 @@ def test_large_lexical_selection_avoids_quadratic_row_comparisons(
             node.get(key, 0)
             for key in ("Actual Rows", "Rows Removed by Filter", "Rows Removed by Join Filter")
         ) * node["Actual Loops"]
-        assert examined < population * 50, node
+        assert examined < population * 50, json.dumps(node, indent=2)
         pending.extend(node.get("Plans", []))
 
 

@@ -136,19 +136,20 @@ WHERE work.id = ANY(CAST(:work_item_ids AS uuid[]))
   AND work.deleted_at IS NULL
 """
 
-# Carry group sizes with each member so ranking cannot rejoin all candidate roots
-# to all group counts when PostgreSQL underestimates the number of matches.
+# Carry group size and root ordering with each member so ranking cannot rejoin
+# candidate roots when PostgreSQL underestimates the number of project members.
 _ROOT_MAP_CTES = """
 visible_ids AS MATERIALIZED (
-    SELECT id
+    SELECT id, updated_at
     FROM work_items
     WHERE project_id = CAST(:project_id AS uuid)
       AND deleted_at IS NULL
-), canonical_walk(member_id, current_id, depth) AS (
-    SELECT id, id, 0
+), canonical_walk(member_id, current_id, root_updated_at, depth) AS (
+    SELECT id, id, updated_at, 0
     FROM visible_ids
     UNION ALL
-    SELECT walk.member_id, duplicate.destination_work_item_id, walk.depth + 1
+    SELECT walk.member_id, duplicate.destination_work_item_id,
+           destination.updated_at, walk.depth + 1
     FROM canonical_walk AS walk
     JOIN work_duplicate_merges AS duplicate
       ON duplicate.project_id = CAST(:project_id AS uuid)
@@ -159,6 +160,7 @@ visible_ids AS MATERIALIZED (
 ), root_map AS MATERIALIZED (
     SELECT walk.member_id,
            walk.current_id AS root_id,
+           walk.root_updated_at,
            CAST(
                pg_catalog.count(*) OVER (PARTITION BY walk.current_id) - 1
                AS integer
@@ -173,9 +175,12 @@ visible_ids AS MATERIALIZED (
 )
 """
 
-_PROJECT_BOUNDED_TEXT_SQL = _BOUNDED_TEXT_SQL.replace(
-    "WHERE work.id = ANY(CAST(:work_item_ids AS uuid[]))\n  AND work.deleted_at IS NULL",
-    "WHERE work.project_id = CAST(:project_id AS uuid)\n  AND work.deleted_at IS NULL",
+_MEMBER_BOUNDED_TEXT_SQL = _BOUNDED_TEXT_SQL.replace(
+    "SELECT work.id,",
+    "SELECT work.id, work.title, work.summary, work.updated_at,",
+).replace(
+    "WHERE work.id = ANY(CAST(:work_item_ids AS uuid[]))",
+    "WHERE work.id = roots.member_id",
 )
 
 _EXACT_GROUPS_SQL = f"""
@@ -190,6 +195,7 @@ exact_visible AS MATERIALIZED (
 ), ranked_exact AS (
     SELECT roots.root_id,
            exact_visible.id AS matched_member_id,
+           roots.root_updated_at,
            roots.duplicate_member_count,
            pg_catalog.row_number() OVER (
                PARTITION BY roots.root_id
@@ -200,7 +206,7 @@ exact_visible AS MATERIALIZED (
     WHERE CAST(:excluded_root_id AS uuid) IS NULL
        OR roots.root_id <> CAST(:excluded_root_id AS uuid)
 ), exact_groups AS MATERIALIZED (
-    SELECT root_id, matched_member_id, duplicate_member_count
+    SELECT root_id, matched_member_id, duplicate_member_count, root_updated_at
     FROM ranked_exact
     WHERE member_rank = 1
 ), totals AS (
@@ -220,14 +226,14 @@ LEFT JOIN LATERAL (
            exact_groups.matched_member_id,
            exact_groups.duplicate_member_count
     FROM exact_groups
-    JOIN work_items AS root ON root.id = exact_groups.root_id
-    ORDER BY root.updated_at DESC, root.id ASC
+    ORDER BY exact_groups.root_updated_at DESC, exact_groups.root_id ASC
     LIMIT CAST(:public_limit AS integer)
 ) AS candidate ON true
 """
 
-# Materialize composed documents before ranking: inlining their correlated
-# checkpoint reads can make a low match estimate produce quadratic member joins.
+# Compose each mapped member through one indexed lookup before filtering. The
+# lateral fence prevents stale project statistics from turning document/root
+# matching or checkpoint composition into repeated full-population scans.
 _LEXICAL_GROUPS_SQL = f"""
 WITH RECURSIVE {_ROOT_MAP_CTES},
 exact_visible AS MATERIALIZED (
@@ -241,17 +247,18 @@ exact_visible AS MATERIALIZED (
     SELECT DISTINCT roots.root_id
     FROM exact_visible
     JOIN root_map AS roots ON roots.member_id = exact_visible.id
-), bounded AS (
-    {_PROJECT_BOUNDED_TEXT_SQL}
 ), documents AS MATERIALIZED (
-    SELECT work.id,
-           work.updated_at,
+    SELECT roots.root_id,
+           roots.root_updated_at,
+           roots.duplicate_member_count,
+           bounded.id,
+           bounded.updated_at,
            pg_catalog.setweight(
-               pg_catalog.to_tsvector('english'::regconfig, COALESCE(work.title, '')),
+               pg_catalog.to_tsvector('english'::regconfig, COALESCE(bounded.title, '')),
                'A'
            ) ||
            pg_catalog.setweight(
-               pg_catalog.to_tsvector('english'::regconfig, COALESCE(work.summary, '')),
+               pg_catalog.to_tsvector('english'::regconfig, COALESCE(bounded.summary, '')),
                'B'
            ) ||
            pg_catalog.setweight(
@@ -266,8 +273,11 @@ exact_visible AS MATERIALIZED (
                pg_catalog.to_tsvector('english'::regconfig, bounded.checkpoint_tail),
                'D'
            ) AS document
-    FROM work_items AS work
-    JOIN bounded ON bounded.id = work.id
+    FROM root_map AS roots
+    CROSS JOIN LATERAL (
+        {_MEMBER_BOUNDED_TEXT_SQL}
+        OFFSET 0
+    ) AS bounded
 ), query_lexemes AS (
     SELECT lexeme.value
     FROM pg_catalog.unnest(
@@ -285,9 +295,10 @@ exact_visible AS MATERIALIZED (
            ) AS terms
     FROM query_lexemes
 ), scored AS (
-    SELECT roots.root_id,
+    SELECT documents.root_id,
            documents.id AS matched_member_id,
-           roots.duplicate_member_count,
+           documents.root_updated_at,
+           documents.duplicate_member_count,
            documents.updated_at AS matched_updated_at,
            pg_catalog.ts_rank_cd(
                documents.document,
@@ -295,15 +306,14 @@ exact_visible AS MATERIALIZED (
                :rank_normalization
            ) AS score
     FROM documents
-    JOIN root_map AS roots ON roots.member_id = documents.id
     CROSS JOIN query
     WHERE documents.document @@ query.terms
       AND NOT EXISTS (
-          SELECT 1 FROM exact_roots WHERE exact_roots.root_id = roots.root_id
+          SELECT 1 FROM exact_roots WHERE exact_roots.root_id = documents.root_id
       )
       AND (
           CAST(:excluded_root_id AS uuid) IS NULL
-          OR roots.root_id <> CAST(:excluded_root_id AS uuid)
+          OR documents.root_id <> CAST(:excluded_root_id AS uuid)
       )
 ), ranked AS (
     SELECT scored.*,
@@ -319,9 +329,8 @@ SELECT ranked.root_id,
        ranked.matched_member_id,
        ranked.duplicate_member_count
 FROM ranked
-JOIN work_items AS root ON root.id = ranked.root_id
 WHERE ranked.member_rank = 1
-ORDER BY ranked.score DESC, root.updated_at DESC, root.id ASC
+ORDER BY ranked.score DESC, ranked.root_updated_at DESC, ranked.root_id ASC
 LIMIT CAST(:shortlist_limit AS integer)
 """
 
