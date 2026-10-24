@@ -15,7 +15,7 @@ from sqlalchemy import Connection, text
 
 from mnemonic_api.models import Base
 
-HEAD = "0059_domain_decision_reviews"
+HEAD = "0060_supersession_reuse"
 # Infrastructure delivery state is neither project data nor a restore target.
 # The reconciler derives transcript jobs anew from the restored domain rows.
 INFRASTRUCTURE_TABLES = frozenset({

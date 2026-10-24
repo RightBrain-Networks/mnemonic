@@ -4,6 +4,7 @@ export type DecisionRevisionChange = {
   change_id: string | null; kind: "substantive" | "record-existing" | "maintenance";
   reason: string | null; governing_reference: string | null; source_work_item_id: string | null;
   requires_admission?: boolean;
+  unchanged_supersessions?: { target_reference: string; governing_reference: string; reason: string }[];
 };
 export type DecisionChange = {
   id: string; project_id: string; origin_reference: string | null;
@@ -16,10 +17,30 @@ const reference = /^[A-Z]{1,5}-[0-9]{5,19}-[0-9]{1,10}$/;
 const nullableUuid = (value: unknown) => value === null || validUuid(value);
 const nullableReference = (value: unknown) => value === null || typeof value === "string" && reference.test(value);
 
+function validUnchangedSupersessions(value: unknown): boolean {
+  if (!Array.isArray(value) || value.length > 100) return false;
+  const targets = new Set<string>();
+  return value.every((item) => {
+    const row = objectValue(item);
+    if (!row || !exactKeys(row, ["target_reference", "governing_reference", "reason"])
+      || typeof row.target_reference !== "string" || !reference.test(row.target_reference)
+      || typeof row.governing_reference !== "string" || !reference.test(row.governing_reference)
+      || typeof row.reason !== "string" || !row.reason.trim() || Array.from(row.reason).length > 8000
+      || row.reason.includes("\0")) return false;
+    const target = row.target_reference.slice(0, row.target_reference.lastIndexOf("-"));
+    if (targets.has(target)) return false;
+    targets.add(target);
+    return true;
+  });
+}
+
 export function decodeDecisionRevisionChange(value: unknown): DecisionRevisionChange {
   const row = objectValue(value);
-  if (!row || !exactKeys(row, ["change_id", "kind", "reason", "governing_reference", "source_work_item_id", ...(Object.hasOwn(row, "requires_admission") ? ["requires_admission"] : [])])
+  if (!row || !exactKeys(row, ["change_id", "kind", "reason", "governing_reference", "source_work_item_id",
+    ...(Object.hasOwn(row, "requires_admission") ? ["requires_admission"] : []),
+    ...(Object.hasOwn(row, "unchanged_supersessions") ? ["unchanged_supersessions"] : [])])
     || row.requires_admission !== undefined && typeof row.requires_admission !== "boolean"
+    || Object.hasOwn(row, "unchanged_supersessions") && !validUnchangedSupersessions(row.unchanged_supersessions)
     || !nullableUuid(row.change_id) || !nullableUuid(row.source_work_item_id)
     || !["substantive", "record-existing", "maintenance"].includes(String(row.kind))
     || !(row.reason === null || typeof row.reason === "string" && row.reason.trim() && row.reason.length <= 8000 && !row.reason.includes("\0"))

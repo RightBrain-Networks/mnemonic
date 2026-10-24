@@ -83,6 +83,15 @@ def put_decision_matches(
         and set(row.related_artifact_ids) == set(request.related_artifact_ids)
         and set(row.supersedes) == set(superseded_ids(request))
         and same_annotations(row, request)
+        and _same_supersession_declarations(request, result)
+    )
+
+
+def _same_supersession_declarations(request: DecisionPutRequest, result: DecisionPutResult) -> bool:
+    expected = request.change.unchanged_supersessions if request.change else []
+    actual = result.decision.change.unchanged_supersessions if result.decision.change else []
+    return sorted(item.model_dump_json() for item in expected) == sorted(
+        item.model_dump_json() for item in actual
     )
 
 

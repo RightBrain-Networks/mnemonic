@@ -72,7 +72,7 @@ _GUARDED_TABLES = (
     "decision_dependencies", "decision_supersession_details", "decision_impact_assessments",
     "decision_impact_dispositions", "decision_commit_mappings",
     "decision_changes", "decision_revision_changes", "decision_change_assessments",
-    "decision_change_work",
+    "decision_change_work", "decision_supersession_reuses",
     "artifacts", "artifact_revisions", "artifact_audit",
     "artifact_access_approvals", "artifact_links",
     "artifact_work_links", "artifact_operations", "artifact_extractions",
@@ -306,7 +306,7 @@ def _seed_knowledge(api: TestClient, engine: Engine, project_id: UUID) -> None:
     })
     assert original.status_code == 200, original.text
     original_id = original.json()["decision"]["decision_id"]
-    replacement = api.put(collection + "/decisions", json={
+    replacement_body = {
         **body, "title": "Updated storage policy", "content": "Retain all revision history.",
         "related_decision_ids": [original_id], "supersedes": [original_id],
         "depends_on": [{"decision_id": original_id, "revision": 0,
@@ -314,7 +314,9 @@ def _seed_knowledge(api: TestClient, engine: Engine, project_id: UUID) -> None:
         "supersession_details": [{"decision_id": original_id, "revision": 0,
                                   "extent": "partial", "reason": "Replace storage location only"}],
         "related_work_item_ids": [str(work_id)], "related_artifact_ids": [str(artifact_id)],
-        "client_operation_id": str(uuid4()),
+    }
+    replacement = api.put(collection + "/decisions", json={
+        **replacement_body, "client_operation_id": str(uuid4()),
     })
     assert replacement.status_code == 200, replacement.text
     replacement_id = replacement.json()["decision"]["decision_id"]
@@ -325,6 +327,16 @@ def _seed_knowledge(api: TestClient, engine: Engine, project_id: UUID) -> None:
     })
     assert scope.status_code == 200, scope.text
     _seed_knowledge_follow_up(api, collection, original_id)
+    declared = api.put(collection + "/decisions", json={
+        **replacement_body, "decision_id": replacement_id, "expected_revision": 0,
+        "content": "Retain all revision history. Storage policy annotation.",
+        "change": {"unchanged_supersessions": [{
+            "target_reference": original_id + "-0",
+            "governing_reference": replacement_id + "-0",
+            "reason": "The replacement keeps the same retention ruling",
+        }]}, "client_operation_id": str(uuid4()),
+    })
+    assert declared.status_code == 200, declared.text
 
 
 def _seed_knowledge_follow_up(api: TestClient, collection: str, original_id: str) -> None:
@@ -412,7 +424,9 @@ def test_reset_empties_every_table_but_keeps_the_migration_head(
     _recover_transcript(api, project_id, tmp_path / "transcripts")
     _seed_knowledge(api, postgres_engine, project_id)
     seeded = _row_counts(postgres_engine)
-    assert all(seeded[table] > 0 for table in _POPULATED_TABLES), seeded
+    assert all(seeded[table] > 0 for table in _POPULATED_TABLES), {
+        table: seeded[table] for table in _POPULATED_TABLES if not seeded[table]
+    }
 
     with postgres_engine.connect() as connection:
         head = connection.scalar(text("SELECT version_num FROM alembic_version"))

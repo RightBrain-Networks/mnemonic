@@ -25,15 +25,29 @@ def _database_text(value: str | None) -> str | None:
     return value
 
 
+class UnchangedSupersession(APIModel):
+    target_reference: PinnedReference
+    governing_reference: PinnedReference
+    reason: Reason
+    valid_reason = field_validator("reason")(_database_text)
+
+
 class DecisionChangeDeclaration(APIModel):
     kind: Literal["substantive", "record-existing", "maintenance"] = "substantive"
     change_id: UUID | None = None
     reason: Reason | None = None
     governing_reference: PinnedReference | None = None
+    unchanged_supersessions: list[UnchangedSupersession] = Field(
+        default_factory=list, max_length=100, exclude_if=lambda value: not value,
+    )
     valid_reason = field_validator("reason")(_database_text)
 
     @model_validator(mode="after")
     def classification(self) -> Self:
+        targets = [item.target_reference.rsplit("-", 1)[0]
+                   for item in self.unchanged_supersessions]
+        if len(targets) != len(set(targets)):
+            raise ValueError("Unchanged supersession targets must name unique decisions")
         if self.kind != "substantive" and self.reason is None:
             raise ValueError("Non-substantive classifications require a reason")
         if self.kind == "record-existing" and (
@@ -52,6 +66,9 @@ class DecisionRevisionChangeRead(APIModel):
     reason: str | None
     governing_reference: str | None
     source_work_item_id: UUID | None
+    unchanged_supersessions: list[UnchangedSupersession] = Field(
+        default_factory=list, exclude_if=lambda value: not value,
+    )
 
 
 class DecisionChangeRead(APIModel):

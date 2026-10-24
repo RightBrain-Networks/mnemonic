@@ -31,6 +31,7 @@ from mnemonic_api.models import (
     DecisionImpactDisposition,
     DecisionRevision,
     DecisionRevisionChange,
+    DecisionSupersessionReuse,
     KnowledgeDomain,
 )
 from mnemonic_api.services.decision_dependencies import superseded_ids
@@ -40,6 +41,7 @@ from mnemonic_api.services.decision_impact_graph import (
     reference,
     traverse,
 )
+from mnemonic_api.services.decision_supersession_reuse import reusable_supersession, same_evidence
 from mnemonic_api.services.revision_authors import revision_author_context
 from mnemonic_api.services.work_items import require_project, require_work_item
 
@@ -242,7 +244,13 @@ def _reuse_identical_assessments(
         ).where(DecisionChangeAssessment.change_id == change_id)))
     result = []
     for episode in episodes:
-        previous = next((old for old in retained if _same_obligation(old, episode)), None)
+        previous = (
+            reusable_supersession(database, current_revision, episode)
+            if episode.trigger == "supersession" and database.get(
+                DecisionSupersessionReuse, (current_revision.id, episode.origin_revision_id),
+            ) is not None
+            else next((old for old in retained if _same_obligation(old, episode)), None)
+        )
         if previous is not None:
             result.append(previous)
         else:
@@ -260,10 +268,9 @@ def _reuse_identical_assessments(
 
 def _same_obligation(left: DecisionImpactAssessment, right: DecisionImpactAssessment) -> bool:
     fields = ("origin_revision_id", "replacement_revision_id", "trigger", "extent", "reason",
-              "diff", "candidates")
-    return all(getattr(left, key) == getattr(right, key) for key in fields) and (
-        {key: value for key, value in left.coverage.items() if key != "snapshot_at"}
-        == {key: value for key, value in right.coverage.items() if key != "snapshot_at"}
+              "diff")
+    return all(getattr(left, key) == getattr(right, key) for key in fields) and same_evidence(
+        left, right,
     )
 
 

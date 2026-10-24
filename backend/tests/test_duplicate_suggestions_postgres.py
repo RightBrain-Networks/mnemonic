@@ -1428,5 +1428,5 @@ def test_title_key_function_and_partial_expression_index_are_frozen(postgres_eng
                 """
             )
         ).one()
-        assert head == "0059_domain_decision_reviews"
+        assert head == "0060_supersession_reuse"
         assert capacity == 64

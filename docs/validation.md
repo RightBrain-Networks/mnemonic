@@ -1,5 +1,28 @@
 # Mnemonic validation record
 
+## Unchanged supersession reuse (0.94.0)
+
+This release preserves the same immutable supersession assessment when a continuous
+unchanged declaration has identical captured candidates and coverage. Revision
+transitions and changed evidence still produce fresh obligations. Migration
+`0060_supersession_reuse` retains explicit declarations of unchanged supersessions.
+Downgrade is refused once declarations exist.
+
+Validation used Python 3.14, Node 24 and isolated PostgreSQL/RabbitMQ. The complete
+backend suite reached 5,367 passing tests with one reset-fixture seed omission;
+after correcting that fixture, all 80 audit/reset tests passed. The full MCP suite
+reached 2,376 passing tests with one help-size failure; after shortening the
+overview, all 42 help/decision-change checks passed. Focused coverage includes 87
+PostgreSQL checks for reuse, changed evidence, immutable storage, backup/restore
+and historical receipt replay. The migrated and restored database catalogs pass
+the integrity audit, including legacy prompt hashes and permission drift checks.
+
+Backend/MCP Ruff and type checks pass. The dashboard passes 596 unit tests, type
+checking and production build; six focused decoder checks also pass after an
+independent review corrected Unicode character counting. Plugin validation passes
+71 tests, with one optional external CLI check skipped. The gitleaks pre-commit
+scan passes. No production services were changed.
+
 ## Domain decision review overrides (0.93.0)
 
 Migration 0059 and the versioned domain APIs cover all six project/default and

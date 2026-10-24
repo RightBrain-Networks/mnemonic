@@ -190,6 +190,7 @@ _APPLICATION_ERRORS = {
     "decision_change_adoption_conflict": "Inspect current work and assessment ownership before a new adoption intent.",
     "decision_change_source_required": "Fresh agent decision writes require source_work_item_id: exact session-origin work, or explicit null for an external trigger.",
     "decision_change_governance_invalid": "Use an exact governing reference and its existing change for record-existing; uncertainty remains substantive.",
+    "decision_supersession_reuse_invalid": "Inspect the latest prior supersession capture for this same replacement document. Declare its exact target and governing replacement reference only when the ruling, target revision, extent and reason remained unchanged; otherwise omit reuse and review a fresh episode.",
     "decision_change_human_admission_required": "Only the human dashboard can admit a successor review cycle.",
     "decision_change_not_found": "The decision change was not found in this project.",
     "decision_impact_review_incomplete": (

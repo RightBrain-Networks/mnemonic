@@ -154,6 +154,8 @@ def classify_revision(
     database: Session, revision: DecisionRevision, payload: DecisionPutRequest,
     *, hold_closed: bool = False,
 ) -> tuple[DecisionChange | None, DecisionRevision | None]:
+    from mnemonic_api.services.decision_supersession_declarations import record_declarations
+
     declaration = payload.change or DecisionChangeDeclaration()
     source = _source(database, payload)
     change = _select_change(database, revision, declaration, source, hold_closed=hold_closed)
@@ -169,6 +171,7 @@ def classify_revision(
                                 and _needs_admission(database, change, _lineage(database, source))
                                 and declaration.kind == "substantive"),
     ))
+    record_declarations(database, revision, payload)
     if source is not None and change is not None:
         bind_work(database, source.id, change.id)
     database.flush()

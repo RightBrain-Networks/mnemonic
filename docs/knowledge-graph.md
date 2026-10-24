@@ -1,5 +1,10 @@
 # Knowledge graph
 
+Release 0.94.0, plugin 0.57.0 and migration `0060_supersession_reuse` retain explicit
+unchanged-supersession declarations. A revision can reuse the same original
+assessment when its author names the exact unchanged ruling and current evidence
+still matches. Existing callers retain the conservative default behavior.
+
 Release 0.93.0, plugin 0.56.0 and migration `0059_domain_decision_reviews` add
 per-domain automatic review overrides. Existing and new domains default to
 `inherit`, preserving the project policy until explicitly changed.
@@ -224,8 +229,9 @@ overlap without treating it as proof of a defect or implementation ownership.
 ## Reassessment after changes
 
 Actual revision changes and supersession create durable assessment episodes.
-Revising a replacement also creates a fresh supersession assessment for each
-retained supersedes link; identical content and metadata create no episode.
+Revising a replacement can retain a supersession's original episode when its
+governing ruling and captured evidence remain unchanged; identical content and
+metadata create no episode. New or changed supersessions create fresh episodes.
 Each captures before/after references, a bounded text/metadata diff, candidate
 evidence, and coverage at the change. A candidate is a reason to investigate;
 the change does not automatically invalidate its implementation. Later graph
@@ -348,8 +354,41 @@ timing, state labels and authorship cannot establish classification. Decision re
 retain the declaration in `change`, including source work and native change ID.
 
 Unchanged supersession obligations reuse an existing immutable episode only when
-the governing transition and captured candidates/coverage match. Different evidence
-adds obligations without copying old dispositions. Review work and discovered-from
+the governing transition and captured candidates/coverage match. Existing exact
+`record-existing` governance remains supported. For a revision governed elsewhere,
+or a substantive revision changing other rules, explicitly declare each unchanged
+supersession in `change.unchanged_supersessions`, for example:
+
+```json
+{
+  "kind": "substantive",
+  "unchanged_supersessions": [{
+    "target_reference": "ADR-00194-0",
+    "governing_reference": "ADR-00201-2",
+    "reason": "Only the unrelated transport rule changes; this target's supersession is unchanged."
+  }]
+}
+```
+
+The governing reference must identify the replacement revision of the latest
+prior supersession capture for that target, in the same replacement document.
+The source author is explicitly asserting an unchanged ruling; matching metadata
+or a section heading alone cannot establish that. The server also checks that the
+target revision, extent and reason have been continuously unchanged, including
+through maintenance revisions. Invalid or interrupted declarations are rejected.
+Declarations are immutable, retained with their source revision, and returned in
+`decision_get`/history under `change.unchanged_supersessions`.
+
+Current candidates and coverage must still match that latest capture. New scope,
+incoming citations or changed coverage create a fresh episode with no copied
+dispositions, despite the author's unchanged-ruling declaration. The new revision
+episode always captures the text and metadata transition. An unchanged supersession
+can link the same original immutable episode into a new change; this preserves the
+original conclusion history without creating a duplicate episode. Without an
+explicit unchanged declaration or existing exact governance, changed replacement
+text receives a fresh supersession episode. An unpinned target advancing to another
+revision also creates a new obligation.
+Review work and discovered-from
 follow-ups retain change lineage, including later descendants. An open driver
 accumulates obligations. Closed changes stop for explicit owner admission before
 new obligations; a dashboard `admit` action creates a successor change without
@@ -413,7 +452,7 @@ expose `admit`. REST uses one receipt-protected
 `GET /projects/{project_id}/knowledge/changes/{change_id}` for reads.
 
 Deploy aligned API, worker, MCP and dashboard with migration
-`0059_domain_decision_reviews`. It preserves historical assessments, dispositions and
+`0060_supersession_reuse`. It preserves historical assessments, dispositions and
 terminal work without creating a review backlog. No new service or environment
 variable is required.
 

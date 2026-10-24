@@ -96,9 +96,12 @@ def _change_matches(item: DecisionRead, intent: DecisionPut) -> bool:
     if intent.change is None:
         return item.change.kind == "substantive"
     return all(getattr(item.change, key) == value for key, value in intent.change.model_dump(
-        exclude={"change_id"},
+        exclude={"change_id", "unchanged_supersessions"},
     ).items()) and (
         intent.change.change_id is None or item.change.change_id == intent.change.change_id
+    ) and (
+        sorted(entry.model_dump_json() for entry in item.change.unchanged_supersessions)
+        == sorted(entry.model_dump_json() for entry in intent.change.unchanged_supersessions)
     )
 
 

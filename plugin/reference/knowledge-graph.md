@@ -243,6 +243,17 @@ transition and captured candidate/coverage evidence match. Different transitions
 or evidence add obligations; no verdicts are copied across them. A content-and-
 metadata no-op creates no episode. Maintenance records remain auditable without
 spawning a new review cycle.
+For a substantive edit to other rules, or a record-existing edit governed by another
+document, use optional `change.unchanged_supersessions` only after verifying each
+supersession ruling stayed unchanged. Each entry names exact `target_reference`,
+`governing_reference` (the replacement revision of the latest prior supersession
+capture in this same document), and a concrete `reason`. The declaration is retained
+and returned in the revision's `change`. The server verifies continuous target,
+extent and reason and compares current captured candidates/coverage; changed
+evidence still creates a fresh episode. Removing/reintroducing a supersession or
+changing its target/extent/reason cannot reuse an older capture. Metadata equality
+alone is not semantic proof. Existing exact governing reuse remains supported;
+without either authority, substantive replacement edits receive fresh assessments.
 Use `decision_assessments` (filter `change_id` for grouped review scope), then `decision_assessment_get` and every candidate
 page. Episodes pin before/after revisions, a bounded diff, candidate snapshots,
 and coverage at creation. Fetch both exact texts when the diff is truncated.
