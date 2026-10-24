@@ -18,6 +18,7 @@ from mnemonic_api.impact_schemas import (
     ImpactDispositionRead,
     ImpactDispositionRequest,
     ImpactPageQuery,
+    ImpactProjection,
     ImpactQuery,
     ImpactRead,
     is_code_impact,
@@ -42,6 +43,13 @@ from mnemonic_api.services.decision_impact_graph import (
     traverse,
 )
 from mnemonic_api.services.decision_supersession_reuse import reusable_supersession, same_evidence
+from mnemonic_api.services.impact_read_projections import (
+    author_read,
+    candidate_read,
+    diff_read,
+    disposition_projection,
+    projection,
+)
 from mnemonic_api.services.revision_authors import revision_author_context
 from mnemonic_api.services.work_items import require_project, require_work_item
 
@@ -72,8 +80,9 @@ def read_impact(
     return ImpactRead(
         project_id=project_id,
         origin_reference=reference(document, revision, domain),
-        origin_author=revision_author_context(database, revision),
-        items=items,
+        origin_author=author_read(revision_author_context(database, revision), filters),
+        items=[candidate_read(item, filters) for item in items],
+        projection=projection(filters),
         kind=filters.kind,
         candidate_count=candidate_count,
         context_count=context_count,
@@ -308,7 +317,10 @@ def _version(database: Session, assessment_id: UUID) -> int:
     )
 
 
-def assessment_read(database: Session, row: DecisionImpactAssessment) -> ImpactAssessmentRead:
+def assessment_read(
+    database: Session, row: DecisionImpactAssessment, options: ImpactProjection | None = None,
+) -> ImpactAssessmentRead:
+    options = options or ImpactProjection()
     before = database.get(DecisionRevision, row.origin_revision_id)
     after = database.get(DecisionRevision, row.replacement_revision_id)
     assert before is not None and after is not None
@@ -331,11 +343,12 @@ def assessment_read(database: Session, row: DecisionImpactAssessment) -> ImpactA
             "trigger": row.trigger,
             "before_reference": _revision_reference(database, row.origin_revision_id),
             "after_reference": _revision_reference(database, row.replacement_revision_id),
-            "before_author": revision_author_context(database, before),
-            "after_author": revision_author_context(database, after),
+            "before_author": author_read(revision_author_context(database, before), options),
+            "after_author": author_read(revision_author_context(database, after), options),
             "extent": row.extent,
             "reason": row.reason,
-            "diff": row.diff,
+            "diff": diff_read(row.diff, options),
+            "projection": projection(options),
             "candidate_count": len(required),
             "context_count": len(row.candidates) - len(required),
             "coverage": _assessment_coverage(row),
@@ -392,7 +405,7 @@ def list_assessments(
         .limit(filters.limit)
     ).all()
     return KnowledgePage(
-        items=[assessment_read(database, row) for row in rows],
+        items=[assessment_read(database, row, filters) for row in rows],
         total=total,
         limit=filters.limit,
         offset=filters.offset,
@@ -407,7 +420,7 @@ def assessment_detail(
     database: Session, project_id: UUID, assessment_id: UUID, filters: ImpactPageQuery
 ) -> ImpactAssessmentDetail:
     row = require_assessment(database, project_id, assessment_id)
-    value = assessment_read(database, row)
+    value = assessment_read(database, row, filters)
     selected = [item for item in row.candidates
                 if is_code_impact(item["relationship"], item.get("related_direction"))
                 == (filters.kind == "code-impact")]
@@ -433,8 +446,8 @@ def assessment_detail(
         **value.model_dump(),
         kind=filters.kind,
         total=len(selected),
-        candidates=candidates,
-        dispositions=[disposition_read(item) for item in latest],
+        candidates=[candidate_read(item, filters) for item in candidates],
+        dispositions=[disposition_projection(disposition_read(item), filters) for item in latest],
         disposition_history_total=value.version,
         limit=filters.limit,
         offset=filters.offset,

@@ -5,11 +5,12 @@ from typing import Annotated, Literal
 from uuid import UUID
 
 from pydantic import Field, StrictInt, StringConstraints, field_validator
+from pydantic.experimental.missing_sentinel import MISSING
 
 from mnemonic_api.decision_link_schemas import DecisionDependency as DecisionDependency
 from mnemonic_api.decision_link_schemas import SupersessionDetail as SupersessionDetail
 from mnemonic_api.decision_scope_schemas import ScopeCompletionCitation
-from mnemonic_api.revision_author_schemas import RevisionAuthorContext
+from mnemonic_api.revision_author_schemas import RevisionAuthorWork
 from mnemonic_api.schemas import APIModel, MutationActor
 
 Identifier = Annotated[str, StringConstraints(pattern=r"^[A-Z]{1,5}-[0-9]{5,19}$")]
@@ -20,6 +21,14 @@ Reason = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, m
 
 ImpactKind = Literal["code-impact", "context"]
 RelatedDirection = Literal["incoming", "outgoing"]
+ImpactDetail = Literal["full", "compact"]
+ImpactScopes = Literal["full", "summary", "none"]
+
+
+class ImpactProjection(APIModel):
+    detail: ImpactDetail = "full"
+    include_diff: bool = True
+    include_scopes: ImpactScopes = "full"
 
 
 def is_code_impact(relationship: str, related_direction: str | None = None) -> bool:
@@ -29,7 +38,7 @@ def is_code_impact(relationship: str, related_direction: str | None = None) -> b
     )
 
 
-class ImpactPageQuery(APIModel):
+class ImpactPageQuery(ImpactProjection):
     kind: ImpactKind = "code-impact"
     limit: Annotated[int, Field(ge=1, le=100)] = 50
     offset: Annotated[int, Field(ge=0)] = 0
@@ -74,6 +83,46 @@ class ImpactCandidate(APIModel):
     evidence_truncated: bool
 
 
+class ImpactScopeSummary(APIModel):
+    captured_scope_count: int
+    commit_hashes: list[str]
+    evidence_truncated: bool
+
+
+class ImpactCandidateRead(APIModel):
+    """Read projection only: persisted candidates retain their complete original schema."""
+
+    decision_id: str
+    reference: str
+    revision: int
+    title: str | MISSING = MISSING
+    state: str
+    is_current: bool
+    relationship: Literal["origin", "depends-on", "depends-on-prerequisite", "related-only"]
+    related_direction: RelatedDirection | None = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
+    path: list[str]
+    rationale: str | None | MISSING = MISSING
+    scopes: list[ImpactScopeEvidence] | MISSING = MISSING
+    scope_summary: ImpactScopeSummary | MISSING = MISSING
+    related_work_item_ids: list[UUID] | MISSING = MISSING
+    related_artifact_ids: list[UUID] | MISSING = MISSING
+    evidence_truncated: bool
+
+
+class ImpactAuthorRead(APIModel):
+    reference: str
+    author_kind: Literal["human", "agent"]
+    agent_session_id: str | None
+    model_id: str | None
+    authored_at: datetime
+    work_observed_at: datetime
+    active_work_items: list[RevisionAuthorWork] | MISSING = MISSING
+    active_work_item_ids: list[UUID] | MISSING = MISSING
+    active_work_items_truncated: bool
+
+
 class ImpactWarning(APIModel):
     code: Literal["origin_has_no_linked_commits"]
     reference: str
@@ -102,8 +151,9 @@ class ImpactCoverage(APIModel):
 class ImpactRead(APIModel):
     project_id: UUID
     origin_reference: str
-    origin_author: RevisionAuthorContext
-    items: list[ImpactCandidate]
+    origin_author: ImpactAuthorRead
+    items: list[ImpactCandidateRead]
+    projection: ImpactProjection | MISSING = MISSING
     kind: ImpactKind
     candidate_count: int
     context_count: int
@@ -156,17 +206,39 @@ class ImpactDiff(APIModel):
     truncated: bool
 
 
+class ImpactDiffRead(APIModel):
+    changed_fields: list[str]
+    before_sha256: str
+    after_sha256: str
+    unified_diff: str | MISSING = MISSING
+    truncated: bool
+
+
+class ImpactDispositionProjection(APIModel):
+    id: UUID | MISSING = MISSING
+    project_id: UUID | MISSING = MISSING
+    assessment_id: UUID | MISSING = MISSING
+    version: int
+    candidate_reference: str
+    disposition: Disposition
+    reason: str | MISSING = MISSING
+    remediation_work_item_id: UUID | None
+    actor: MutationActor | MISSING = MISSING
+    created_at: datetime | MISSING = MISSING
+
+
 class ImpactAssessmentRead(APIModel):
     id: UUID
     project_id: UUID
     trigger: Literal["revision", "supersession"]
     before_reference: str
     after_reference: str
-    before_author: RevisionAuthorContext
-    after_author: RevisionAuthorContext
+    before_author: ImpactAuthorRead
+    after_author: ImpactAuthorRead
     extent: Literal["full", "partial"] | None
     reason: str | None
-    diff: ImpactDiff
+    diff: ImpactDiffRead
+    projection: ImpactProjection | MISSING = MISSING
     candidate_count: int
     context_count: int
     coverage: ImpactCoverage
@@ -180,15 +252,15 @@ class ImpactAssessmentRead(APIModel):
 class ImpactAssessmentDetail(ImpactAssessmentRead):
     kind: ImpactKind
     total: int
-    candidates: list[ImpactCandidate]
-    dispositions: list[ImpactDispositionRead]
+    candidates: list[ImpactCandidateRead]
+    dispositions: list[ImpactDispositionProjection]
     disposition_history_total: int
     limit: int
     offset: int
     next_offset: int | None
 
 
-class ImpactAssessmentQuery(APIModel):
+class ImpactAssessmentQuery(ImpactProjection):
     change_id: UUID | None = None
     decision_id: Identifier | None = None
     limit: Annotated[int, Field(ge=1, le=100)] = 50

@@ -4,7 +4,7 @@ from typing import Annotated
 from uuid import UUID
 
 from mcp.server.fastmcp import FastMCP
-from pydantic import Field, StrictInt
+from pydantic import Field, StrictBool, StrictInt
 
 from .api import MnemonicAPI
 from .impact_models import (
@@ -12,12 +12,16 @@ from .impact_models import (
     ImpactActor,
     ImpactAssessmentDetail,
     ImpactAssessmentRead,
+    ImpactDetail,
     ImpactDispositionCreate,
     ImpactDispositionRead,
     ImpactKind,
+    ImpactProjection,
     ImpactRead,
+    ImpactScopes,
     Reason,
     Reference,
+    effective_projection,
 )
 from .knowledge_models import DecisionIdentifier, DecisionReference, KnowledgePage, RevisionNumber
 from .knowledge_tools import _READ, _WRITE, Limit, Offset, _read, _validated, _write
@@ -34,10 +38,11 @@ def _reference_matches(actual: str, requested: str, revision: int | None = None)
 
 def _impact_matches(
     result: ImpactRead, project_id: UUID, reference: str, revision: int | None,
-    max_depth: int, limit: int, offset: int, kind: ImpactKind,
+    max_depth: int, limit: int, offset: int, kind: ImpactKind, options: ImpactProjection,
 ) -> bool:
     return (
         result.project_id == project_id
+        and effective_projection(result.projection) == options
         and result.kind == kind
         and _reference_matches(result.origin_reference, reference, revision)
         and (result.limit, result.offset, result.coverage.max_depth) == (limit, offset, max_depth)
@@ -58,14 +63,19 @@ def _register_impact_reads(server: FastMCP, api: MnemonicAPI) -> None:
         max_depth: Annotated[StrictInt, Field(ge=1, le=16)] = 8,
         limit: Limit = 50, offset: Offset = 0,
         kind: ImpactKind = "code-impact",
+        detail: ImpactDetail = "full", include_diff: StrictBool = True,
+        include_scopes: ImpactScopes = "full",
     ) -> ImpactRead:
-        """Trace reverse declared dependencies from an exact decision revision to downstream decisions, recorded commits, work, and artifacts. Current revision is the default; retain origin_reference. Follow next_offset and inspect coverage/evidence_truncated. kind=code-impact (default) returns the changed decision, reverse depends_on dependents, and records citing that trace through incoming related links (related-only, related_direction=incoming, causality unknown); kind=context separately pages prerequisites and outward references for optional contradiction checks. Each candidate carries one shortest explanatory path. candidate_count counts required code-impact records; context_count is separate. Inspect no-linked-commit warnings and revision author/current active-work context. Missing scope calls for repository commit-message, declared-file, and source-ID searches; an empty graph never proves no implementation. Bounded traversal and recorded provenance cannot prove all affected code is known. This is a read, not authorization to revise decisions or implement changes."""
+        """Trace reverse declared dependencies from an exact decision revision to downstream decisions, recorded commits, work, and artifacts. Current revision is the default; retain origin_reference. Follow next_offset and inspect coverage/evidence_truncated. kind=code-impact (default) returns the changed decision, reverse depends_on dependents, and records citing that trace through incoming related links (related-only, related_direction=incoming, causality unknown); kind=context separately pages prerequisites and outward references for optional contradiction checks. Each candidate carries one shortest explanatory path. candidate_count counts required code-impact records; context_count is separate. Inspect no-linked-commit warnings and revision author/current active-work context. Missing scope calls for repository commit-message, declared-file, and source-ID searches; an empty graph never proves no implementation. Bounded traversal and recorded provenance cannot prove all affected code is known. Optional detail=compact omits candidate prose/resource links and summarizes author work by IDs; include_scopes=summary returns captured counts/hashes, or none omits scopes. Full defaults preserve existing evidence. Use full reads and decision_scope to inspect omitted details. This is a read, not authorization to revise decisions or implement changes."""
+        options = ImpactProjection(detail=detail, include_diff=include_diff,
+                                   include_scopes=include_scopes)
         return await _read(
             api, f"projects/{project_id}/knowledge/decisions/{decision_id}/impact", ImpactRead,
             lambda result: _impact_matches(
-                result, project_id, decision_id, revision, max_depth, limit, offset, kind,
+                result, project_id, decision_id, revision, max_depth, limit, offset, kind, options,
             ),
-            {"max_depth": max_depth, "limit": limit, "offset": offset, "kind": kind,
+            {**options.model_dump(exclude_defaults=True), "max_depth": max_depth, "limit": limit,
+             "offset": offset, "kind": kind,
              **({"revision": revision} if revision is not None else {})},
         )
 
@@ -76,13 +86,18 @@ def _register_assessment_reads(server: FastMCP, api: MnemonicAPI) -> None:
         project_id: UUID, decision_id: DecisionIdentifier | None = None,
         limit: Limit = 50, offset: Offset = 0,
         change_id: UUID | None = None,
+        detail: ImpactDetail = "full", include_diff: StrictBool = True,
+        include_scopes: ImpactScopes = "full",
     ) -> KnowledgePage[ImpactAssessmentRead]:
-        """List durable impact assessments created by decision revisions or supersession. Optionally select a stable decision ID or change_id. For a native review, filter by change_id and page every current episode; the initial prompt may precede scope growth. Each episode pins before/after revisions, a bounded diff, captured candidates and coverage. Page all results; get exact candidate pages with decision_assessment_get. An assessment records a need to inspect consequences, not automatic invalidation or permission to perform remediation."""
+        """List durable impact assessments created by decision revisions or supersession. Optionally select a stable decision ID or change_id. For a native review, filter by change_id and page every current episode; the initial prompt may precede scope growth. Each episode pins before/after revisions, a bounded diff, captured candidates and coverage. Page all results; get exact candidate pages with decision_assessment_get. Use detail=compact and include_diff=false for concise episode navigation: retain transition hashes, changed fields and coverage while omitting unified diff and author work titles. Full defaults are unchanged. An assessment records a need to inspect consequences, not automatic invalidation or permission to perform remediation."""
+        options = ImpactProjection(detail=detail, include_diff=include_diff,
+                                   include_scopes=include_scopes)
         return await _read(
             api, f"projects/{project_id}/knowledge/assessments", KnowledgePage[ImpactAssessmentRead],
             lambda page: page.limit == limit and page.offset == offset
-            and all(item.project_id == project_id for item in page.items),
-            {"limit": limit, "offset": offset,
+            and all(item.project_id == project_id
+                    and effective_projection(item.projection) == options for item in page.items),
+            {**options.model_dump(exclude_defaults=True), "limit": limit, "offset": offset,
              **({"change_id": change_id} if change_id is not None else {}),
              **({"decision_id": decision_id} if decision_id is not None else {})},
         )
@@ -91,14 +106,19 @@ def _register_assessment_reads(server: FastMCP, api: MnemonicAPI) -> None:
     async def decision_assessment_get(
         project_id: UUID, assessment_id: UUID, limit: Limit = 50, offset: Offset = 0,
         kind: ImpactKind = "code-impact",
+        detail: ImpactDetail = "full", include_diff: StrictBool = True,
+        include_scopes: ImpactScopes = "full",
     ) -> ImpactAssessmentDetail:
-        """Read one captured decision-change assessment and a page of latest dispositions. kind=code-impact (default) selects required origin/reverse-dependency candidates and captured incoming related-only citations; kind=context selects optional prerequisites and outward references. total/next_offset apply to the selected kind. Context-only records need no individual verdict, including historical related-only entries without captured direction. Incoming related-only candidates need dispositions without implying causal dependence. Compare complete before/after text to classify rule, scope, or references-only changes before reviewing candidates; headings do not establish semantics. Follow next_offset; read version before appending a disposition. Inspect exact before/after text when diff.truncated and scope when evidence_truncated. Candidate snapshots retain the evidence known at the change; later registrations require a fresh decision_impact read. Earlier dispositions remain available through decision_assessment_history. Neither open nor reviewed candidates grant execution authority."""
+        """Read one captured decision-change assessment and a page of latest dispositions. kind=code-impact (default) selects required origin/reverse-dependency candidates and captured incoming related-only citations; kind=context selects optional prerequisites and outward references. total/next_offset apply to the selected kind. Context-only records need no individual verdict, including historical related-only entries without captured direction. Incoming related-only candidates need dispositions without implying causal dependence. Compare complete before/after text to classify rule, scope, or references-only changes before reviewing candidates; headings do not establish semantics. Follow next_offset; read version before appending a disposition. Inspect exact before/after text when diff.truncated and scope when evidence_truncated. Candidate snapshots retain the evidence known at the change; later registrations require a fresh decision_impact read. Earlier dispositions remain available through decision_assessment_history. Optional detail=compact summarizes latest dispositions without reasons or attribution, omits candidate prose/resource links and reduces author work to IDs. include_diff=false omits unified_diff while retaining hashes/changed_fields/truncated; include_scopes=summary returns captured scope counts and hashes, or none omits scopes. Read full detail/history and decision_scope for omitted evidence; a compact summary is navigation, not sufficient evidence for a verdict. Full defaults remain unchanged. Neither open nor reviewed candidates grant execution authority."""
+        options = ImpactProjection(detail=detail, include_diff=include_diff,
+                                   include_scopes=include_scopes)
         return await _read(
             api, f"projects/{project_id}/knowledge/assessments/{assessment_id}",
             ImpactAssessmentDetail,
             lambda item: (item.project_id, item.id, item.limit, item.offset, item.kind)
-            == (project_id, assessment_id, limit, offset, kind),
-            {"limit": limit, "offset": offset, "kind": kind},
+            == (project_id, assessment_id, limit, offset, kind)
+            and effective_projection(item.projection) == options,
+            {**options.model_dump(exclude_defaults=True), "limit": limit, "offset": offset, "kind": kind},
         )
 
     @server.tool(annotations=_READ)

@@ -14,10 +14,11 @@ from pydantic import (
     field_validator,
     model_validator,
 )
+from pydantic.experimental.missing_sentinel import MISSING
 
 from .provenance_models import CommitHash, RepositoryIdentity, ScopeCompletionCitation, nonblank
 from .response_validation import validate_page_items
-from .revision_author_models import RevisionAuthorContext
+from .revision_author_models import RevisionAuthorContext, RevisionAuthorWork
 
 
 class ImpactModel(BaseModel):
@@ -56,9 +57,27 @@ class SupersessionDetail(ImpactModel):
 
 
 ImpactKind = Literal["code-impact", "context"]
+ImpactDetail = Literal["full", "compact"]
+ImpactScopes = Literal["full", "summary", "none"]
 
 
-class ImpactQuery(ImpactModel):
+class ImpactProjection(ImpactModel):
+    detail: ImpactDetail = "full"
+    include_diff: StrictBool = True
+    include_scopes: ImpactScopes = "full"
+
+
+def require_projection_fields(value: ImpactModel, names: tuple[str, ...], present: bool) -> None:
+    if any((getattr(value, name) is not MISSING) != present for name in names):
+        raise ValueError("Impact fields disagree with the declared projection")
+
+
+def effective_projection(value: ImpactProjection | MISSING) -> ImpactProjection:
+    return ImpactProjection() if value is MISSING else value
+
+
+
+class ImpactQuery(ImpactProjection):
     kind: ImpactKind = "code-impact"
     revision: Annotated[int | None, Field(ge=0)] = None
     max_depth: Annotated[int, Field(ge=1, le=16)] = 8
@@ -81,11 +100,25 @@ class ImpactScopeEvidence(ImpactModel):
     completion_citations_truncated: StrictBool = Field(default=False, exclude_if=lambda v: not v)
 
 
-class ImpactCandidate(ImpactModel):
+class ImpactScopeSummary(ImpactModel):
+    captured_scope_count: Annotated[StrictInt, Field(ge=0, le=10)]
+    commit_hashes: Annotated[list[CommitHash], Field(max_length=10)]
+    evidence_truncated: StrictBool
+
+    @model_validator(mode="after")
+    def coherent_summary(self) -> Self:
+        if len(self.commit_hashes) > self.captured_scope_count or (
+            len(self.commit_hashes) != len(set(self.commit_hashes))
+        ) or bool(self.commit_hashes) != bool(self.captured_scope_count):
+            raise ValueError("Scope summary must describe distinct captured commits")
+        return self
+
+
+class ImpactCandidateRead(ImpactModel):
     decision_id: Identifier
     reference: Reference
     revision: Revision
-    title: str
+    title: str | MISSING = MISSING
     state: Literal["proposed", "rejected", "accepted", "superseded", "partially-superseded"]
     is_current: StrictBool
     relationship: Literal["origin", "depends-on", "depends-on-prerequisite", "related-only"]
@@ -93,10 +126,11 @@ class ImpactCandidate(ImpactModel):
         default=None, exclude_if=lambda value: value is None,
     )
     path: list[Reference]
-    rationale: str | None
-    scopes: list[ImpactScopeEvidence]
-    related_work_item_ids: list[UUID]
-    related_artifact_ids: list[UUID]
+    rationale: str | None | MISSING = MISSING
+    scopes: list[ImpactScopeEvidence] | MISSING = MISSING
+    scope_summary: ImpactScopeSummary | MISSING = MISSING
+    related_work_item_ids: list[UUID] | MISSING = MISSING
+    related_artifact_ids: list[UUID] | MISSING = MISSING
     evidence_truncated: StrictBool
 
     @model_validator(mode="after")
@@ -109,15 +143,53 @@ class ImpactCandidate(ImpactModel):
             raise ValueError("Candidate path must end at its exact revision")
         if len(self.path) != len(set(self.path)):
             raise ValueError("Candidate path cannot repeat a revision")
-        if any(scope.revision != self.revision for scope in self.scopes):
+        if self.scopes is not MISSING and any(
+            scope.revision != self.revision for scope in self.scopes
+        ):
             raise ValueError("Candidate scope cites a different revision")
         return self
+
+    def validate_projection(self, options: ImpactProjection) -> None:
+        require_projection_fields(self, (
+            "title", "rationale", "related_work_item_ids", "related_artifact_ids",
+        ), options.detail == "full")
+        require_projection_fields(self, ("scopes",), options.include_scopes == "full")
+        require_projection_fields(self, ("scope_summary",), options.include_scopes == "summary")
+        if self.scope_summary is not MISSING and (
+            self.scope_summary.evidence_truncated != self.evidence_truncated
+        ):
+            raise ValueError("Scope summary must preserve candidate evidence coverage")
 
     @property
     def requires_disposition(self) -> bool:
         return self.relationship in ("origin", "depends-on") or (
             self.relationship == "related-only" and self.related_direction == "incoming"
         )
+
+
+class ImpactAuthorRead(ImpactModel):
+    reference: Reference
+    author_kind: Literal["human", "agent"]
+    agent_session_id: str | None
+    model_id: str | None
+    authored_at: datetime
+    work_observed_at: datetime
+    active_work_items: list[RevisionAuthorWork] | MISSING = MISSING
+    active_work_item_ids: Annotated[list[UUID], Field(max_length=10)] | MISSING = MISSING
+    active_work_items_truncated: StrictBool
+
+    def validate_projection(self, options: ImpactProjection) -> None:
+        require_projection_fields(self, ("active_work_items",), options.detail == "full")
+        require_projection_fields(self, ("active_work_item_ids",), options.detail == "compact")
+        if options.detail == "full":
+            RevisionAuthorContext.model_validate(self.model_dump())
+        elif self.active_work_item_ids is not MISSING:
+            if len(self.active_work_item_ids) != len(set(self.active_work_item_ids)):
+                raise ValueError("Author work identities must be unique")
+            if self.author_kind == "human" and (
+                self.agent_session_id or self.model_id or self.active_work_item_ids
+            ):
+                raise ValueError("Human author cannot have agent session holdings")
 
 
 class ImpactWarning(ImpactModel):
@@ -148,8 +220,9 @@ class ImpactCoverage(ImpactModel):
 class ImpactRead(ImpactModel):
     project_id: UUID
     origin_reference: Reference
-    origin_author: RevisionAuthorContext
-    items: list[ImpactCandidate]
+    origin_author: ImpactAuthorRead
+    items: list[ImpactCandidateRead]
+    projection: ImpactProjection | MISSING = MISSING
     kind: ImpactKind
     candidate_count: Annotated[StrictInt, Field(ge=0)]
     context_count: Annotated[StrictInt, Field(ge=0)]
@@ -158,6 +231,14 @@ class ImpactRead(ImpactModel):
     offset: Annotated[StrictInt, Field(ge=0)]
     next_offset: Annotated[StrictInt, Field(ge=0)] | None
     coverage: ImpactCoverage
+
+    @model_validator(mode="after")
+    def coherent_projection(self) -> Self:
+        options = effective_projection(self.projection)
+        self.origin_author.validate_projection(options)
+        for item in self.items:
+            item.validate_projection(options)
+        return self
 
     @model_validator(mode="after")
     def coherent_page(self) -> Self:
@@ -236,17 +317,44 @@ class ImpactDiff(ImpactModel):
     truncated: StrictBool
 
 
+class ImpactDiffRead(ImpactModel):
+    changed_fields: list[str]
+    before_sha256: Annotated[str, Field(pattern=r"^[a-f0-9]{64}$")]
+    after_sha256: Annotated[str, Field(pattern=r"^[a-f0-9]{64}$")]
+    unified_diff: Annotated[str, Field(max_length=16384)] | MISSING = MISSING
+    truncated: StrictBool
+
+
+class ImpactDispositionProjection(ImpactModel):
+    id: UUID | MISSING = MISSING
+    project_id: UUID | MISSING = MISSING
+    assessment_id: UUID | MISSING = MISSING
+    version: Annotated[StrictInt, Field(ge=1)]
+    candidate_reference: Reference
+    disposition: Disposition
+    reason: str | MISSING = MISSING
+    remediation_work_item_id: UUID | None
+    actor: ImpactActor | MISSING = MISSING
+    created_at: datetime | MISSING = MISSING
+
+    def validate_projection(self, options: ImpactProjection) -> None:
+        require_projection_fields(self, (
+            "id", "project_id", "assessment_id", "reason", "actor", "created_at",
+        ), options.detail == "full")
+
+
 class ImpactAssessmentRead(ImpactModel):
     id: UUID
     project_id: UUID
     trigger: Literal["revision", "supersession"]
     before_reference: Reference
     after_reference: Reference
-    before_author: RevisionAuthorContext
-    after_author: RevisionAuthorContext
+    before_author: ImpactAuthorRead
+    after_author: ImpactAuthorRead
     extent: Literal["full", "partial"] | None
     reason: str | None
-    diff: ImpactDiff
+    diff: ImpactDiffRead
+    projection: ImpactProjection | MISSING = MISSING
     candidate_count: Annotated[StrictInt, Field(ge=0)]
     context_count: Annotated[StrictInt, Field(ge=0)]
     coverage: ImpactCoverage
@@ -255,6 +363,14 @@ class ImpactAssessmentRead(ImpactModel):
     unassessed_count: Annotated[StrictInt, Field(ge=0)]
     change_required_count: Annotated[StrictInt, Field(ge=0)]
     status: Literal["pending", "change-required", "resolved"]
+
+    @model_validator(mode="after")
+    def coherent_projection(self) -> Self:
+        options = effective_projection(self.projection)
+        self.before_author.validate_projection(options)
+        self.after_author.validate_projection(options)
+        require_projection_fields(self.diff, ("unified_diff",), options.include_diff)
+        return self
 
     @model_validator(mode="after")
     def coherent_status(self) -> Self:
@@ -281,12 +397,21 @@ class ImpactAssessmentRead(ImpactModel):
 class ImpactAssessmentDetail(ImpactAssessmentRead):
     kind: ImpactKind
     total: Annotated[StrictInt, Field(ge=0)]
-    candidates: list[ImpactCandidate]
-    dispositions: list[ImpactDispositionRead]
+    candidates: list[ImpactCandidateRead]
+    dispositions: list[ImpactDispositionProjection]
     disposition_history_total: Annotated[StrictInt, Field(ge=0)]
     limit: Annotated[StrictInt, Field(ge=1, le=100)]
     offset: Annotated[StrictInt, Field(ge=0)]
     next_offset: Annotated[StrictInt, Field(ge=0)] | None
+
+    @model_validator(mode="after")
+    def coherent_candidate_projection(self) -> Self:
+        options = effective_projection(self.projection)
+        for candidate in self.candidates:
+            candidate.validate_projection(options)
+        for disposition in self.dispositions:
+            disposition.validate_projection(options)
+        return self
 
     @model_validator(mode="after")
     def coherent_candidates(self) -> Self:
@@ -298,9 +423,13 @@ class ImpactAssessmentDetail(ImpactAssessmentRead):
             raise ValueError("Assessment page must match its selected kind")
         validate_page_items(self.candidates, total=self.total, limit=self.limit,
                             offset=self.offset, key=lambda item: item.reference)
+        if effective_projection(self.projection).detail == "full" and any(
+            item.project_id != self.project_id or item.assessment_id != self.id
+            for item in self.dispositions
+        ):
+            raise ValueError("Assessment disposition identifies another episode")
         refs = {item.reference for item in self.candidates}
-        if any(item.project_id != self.project_id or item.assessment_id != self.id
-               or item.version > self.version or item.candidate_reference not in refs
+        if any(item.version > self.version or item.candidate_reference not in refs
                for item in self.dispositions):
             raise ValueError("Assessment disposition does not match this candidate page")
         if len({item.candidate_reference for item in self.dispositions}) != len(self.dispositions):
@@ -312,7 +441,7 @@ class ImpactAssessmentDetail(ImpactAssessmentRead):
         return self
 
 
-class ImpactAssessmentQuery(ImpactModel):
+class ImpactAssessmentQuery(ImpactProjection):
     decision_id: Identifier | None = None
     limit: Annotated[int, Field(ge=1, le=100)] = 50
     offset: Annotated[int, Field(ge=0)] = 0

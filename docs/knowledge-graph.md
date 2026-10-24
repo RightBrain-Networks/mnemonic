@@ -254,6 +254,37 @@ bounded to 16 KiB with explicit truncation; read both exact decision revisions
 when the full text matters. Candidate pages retain the current assessment version
 so concurrent review can be detected.
 
+Impact and assessment reads support optional projections without changing the
+stored evidence or existing defaults. Use `detail="compact"`,
+`include_diff=false`, and `include_scopes="summary"` for smaller navigation
+responses. `detail="full"`, `include_diff=true`, and `include_scopes="full"`
+remain the defaults on REST and MCP. Nondefault responses include a `projection`
+object with the three effective options; omitted fields mean deliberately omitted
+detail, not empty evidence.
+
+- Compact candidates retain exact identities, state/currentness, relationships,
+  directions, paths, and `evidence_truncated`. They omit title, rationale, and
+  linked work/artifact lists. Author context retains identity and observation
+  timestamps, replacing active-work descriptions with `active_work_item_ids`.
+- Scope `summary` replaces `scopes` with `scope_summary`: the number of captured
+  scope rows, distinct captured original commit hashes, and evidence truncation.
+  `captured_scope_count` is not an exact live scope total: captures are bounded,
+  and later registrations do not modify a snapshot. Repository identities, merged
+  commit mappings, attribution, and completion citations require full scope reads.
+  Scope `none` omits both scope rows and their summary; coverage remains visible.
+- `include_diff=false` omits only `diff.unified_diff`; changed fields, before/after
+  hashes, and the original truncation flag remain. Compact latest dispositions
+  retain candidate reference, version, verdict, and remediation work ID, omitting
+  record IDs, prose, attribution, and creation time. Full assessment reads and
+  `decision_assessment_history` retain those details.
+
+Projection preserves every candidate, latest disposition, count, and continuation
+offset. A compact navigation page is not sufficient evidence for a verdict:
+retrieve relevant exact decision text, full detail/history, and `decision_scope`
+before relying on omitted evidence. There is no universal compact byte limit;
+use a smaller `limit` for long paths or many distinct commit hashes and follow
+`next_offset`. Assessment lists retain ordinary offset/limit pagination.
+
 `decision_assessment_append` records an exact candidate reference, current
 `expected_version`, truthful actor provenance, a concrete reason, and one of
 `still-valid`, `change-required`, `not-affected`, or `resolved`. Remediation work
