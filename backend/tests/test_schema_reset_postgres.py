@@ -72,7 +72,7 @@ _GUARDED_TABLES = (
     "decision_dependencies", "decision_supersession_details", "decision_impact_assessments",
     "decision_impact_dispositions", "decision_commit_mappings",
     "decision_changes", "decision_revision_changes", "decision_change_assessments",
-    "decision_change_work", "decision_supersession_reuses",
+    "decision_change_work", "decision_supersession_reuses", "work_change_inheritance_exclusions",
     "artifacts", "artifact_revisions", "artifact_audit",
     "artifact_access_approvals", "artifact_links",
     "artifact_work_links", "artifact_operations", "artifact_extractions",
@@ -360,6 +360,22 @@ def _seed_knowledge_follow_up(
     assert mapping.status_code == 200, mapping.text
 
 
+def _seed_inheritance_exclusion(
+    api: TestClient, engine: Engine, project_id: UUID, work_payload: dict,
+) -> None:
+    with engine.connect() as connection:
+        origin = connection.scalar(text(
+            "SELECT id FROM work_items WHERE project_id=:project_id ORDER BY created_at, id LIMIT 1"
+        ), {"project_id": project_id})
+    response = api.post(f"/api/v1/projects/{project_id}/work-items", json={
+        **work_payload, "title": "Independent reset fixture follow-up",
+        "discovered_from_work_item_id": str(origin), "inherit_decision_change": False,
+        "decision_change_inheritance_reason": "This fixture checks independent cleanup evidence.",
+        "client_operation_id": str(uuid4()),
+    })
+    assert response.status_code == 201, response.text
+
+
 def test_reset_of_an_intact_schema_never_replays_the_migration_chain(
     api: TestClient, postgres_engine: Engine, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -425,6 +441,7 @@ def test_reset_empties_every_table_but_keeps_the_migration_head(
     project_id = _complete_with_evidence(api, work_payload)
     _recover_transcript(api, project_id, tmp_path / "transcripts")
     _seed_knowledge(api, postgres_engine, project_id)
+    _seed_inheritance_exclusion(api, postgres_engine, project_id, work_payload)
     seeded = _row_counts(postgres_engine)
     assert all(seeded[table] > 0 for table in _POPULATED_TABLES), {
         table: seeded[table] for table in _POPULATED_TABLES if not seeded[table]
