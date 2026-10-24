@@ -1,5 +1,9 @@
 # Knowledge graph
 
+Release 0.95.0 and plugin 0.58.0 add opt-in compact impact and assessment reads.
+Full defaults and immutable snapshots remain unchanged; the schema stays at
+`0060_supersession_reuse`.
+
 Release 0.94.0, plugin 0.57.0 and migration `0060_supersession_reuse` retain explicit
 unchanged-supersession declarations. A revision can reuse the same original
 assessment when its author names the exact unchanged ruling and current evidence
