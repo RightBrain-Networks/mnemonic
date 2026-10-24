@@ -1,4 +1,4 @@
-import { validDecisionProvenance, provenanceFromDraft, type ProvenanceDraft } from "./decision-provenance.ts";
+import { canonicalProvenance, validDecisionProvenance, provenanceFromDraft, type ProvenanceDraft } from "./decision-provenance.ts";
 import type {
   JobCompletionReport, JobCompletionReportInput, JobReportCount, JobReportDetail,
   JobReportDismissal, JobReportEnvelope, JobReportFollowUp, JobReportPage,
@@ -116,7 +116,7 @@ export function matchCloseoutReport(value: unknown, projectId: string, work: Wor
   if (!sameUuid(report.work_item_id, work.id) || report.closeout_status !== work.status
     || report.closeout_work_version !== work.version || report.work_title_at_closeout !== work.title
     || report.completion_checkpoint_id !== checkpointId || report.summary !== input.summary
-    || !jsonEqual(report.decision_provenance ?? null, input.decision_provenance ?? null)
+    || !jsonEqual(canonicalProvenance(report.decision_provenance), canonicalProvenance(input.decision_provenance))
     || !jsonEqual(report.fyi_items, input.fyi_items) || report.prompt_revision !== input.prompt_revision
     || report.actor_client !== (expectedActor?.actor_client ?? expectedActor?.source_client)
     || report.actor_session_id !== (expectedActor?.actor_session_id ?? expectedActor?.source_session_id)

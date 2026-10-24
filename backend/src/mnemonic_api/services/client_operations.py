@@ -59,6 +59,7 @@ from mnemonic_api.provenance_api import (
     CommitReconcileRequest,
     CommitReconcileResult,
 )
+from mnemonic_api.repository_identity import canonical_provenance
 from mnemonic_api.schemas import (
     APIModel,
     CheckpointCreate,
@@ -1447,7 +1448,10 @@ def _report_matches(actual, expected, actor: MutationActor | None) -> bool:
         return actual is None and expected is None
     return (
         actual.summary == expected.summary and actual.fyi_items == expected.fyi_items
-        and actual.decision_provenance == expected.decision_provenance
+        and canonical_provenance(actual.decision_provenance.model_dump(mode="json")
+                                 if actual.decision_provenance else None)
+        == canonical_provenance(expected.decision_provenance.model_dump(mode="json")
+                                if expected.decision_provenance else None)
         and actual.prompt_revision == expected.prompt_revision and actor is not None
         and all(getattr(actual, field) == getattr(actor, field)
                 for field in ("actor_client", "actor_session_id", "actor_model"))

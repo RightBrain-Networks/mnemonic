@@ -38,3 +38,17 @@ test("closeout receipt validation binds the exact decision revision and implemen
   assert.deepEqual(matchCloseoutReport(report, f.project, f.workItem, input, f.actor, report.completion_checkpoint_id), report);
   assert.throws(() => matchCloseoutReport({ ...report, decision_provenance: { ...cited, citations: [{ decision_id: "ADR-00001", revision: 1 }] } }, f.project, f.workItem, input, f.actor, report.completion_checkpoint_id));
 });
+
+test("canonical GitHub report identities match without mutating frozen requests or historical reads", () => {
+  const input = { ...f.reportInput, decision_provenance: structuredClone(cited) };
+  const before = JSON.stringify(input);
+  const canonical = { ...cited, commits: [{ ...cited.commits[0], repository: "https://github.com/team/project" }] };
+  const report = { ...f.report, decision_provenance: canonical };
+  assert.deepEqual(matchCloseoutReport(report, f.project, f.workItem, input, f.actor, report.completion_checkpoint_id), report);
+  assert.equal(JSON.stringify(input), before);
+  const oldReport = { ...f.report, decision_provenance: cited };
+  assert.deepEqual(decodeJobReport(oldReport, f.project).decision_provenance, cited);
+  for (const repository of ["https://gitlab.com/team/project", "https://github.com/another/project", "ssh://github.com/team/project"]) {
+    assert.throws(() => matchCloseoutReport({ ...report, decision_provenance: { ...canonical, commits: [{ ...canonical.commits[0], repository }] } }, f.project, f.workItem, input, f.actor, report.completion_checkpoint_id));
+  }
+});

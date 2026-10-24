@@ -24,6 +24,7 @@ from .phase12_models import (
     ReportCursorDocument,
     cursor_document,
 )
+from .repository_identity import canonical_provenance
 from .response_validation import response_matches
 
 _READ = ToolAnnotations(
@@ -45,11 +46,14 @@ def report_matches_request(
         return actual is None
     if actual is None:
         return False
-    if actual.model_dump(mode="json", include={
+    actual_fields = actual.model_dump(mode="json", include={
         "summary", "fyi_items", "prompt_revision", "decision_provenance",
-    }) != (
-        requested.model_dump(mode="json")
-    ):
+    })
+    requested_fields = requested.model_dump(mode="json")
+    for fields in (actual_fields, requested_fields):
+        if "decision_provenance" in fields:
+            fields["decision_provenance"] = canonical_provenance(fields["decision_provenance"])
+    if actual_fields != requested_fields:
         return False
     return actor is None or (
         actual.actor_client == actor[0].strip()

@@ -42,6 +42,7 @@ from mnemonic_api.models import (
     WorkGate,
     WorkItem,
 )
+from mnemonic_api.repository_identity import canonical_repository
 from mnemonic_api.services.decision_dependencies import (
     add_pinned_links,
     pinned_links,
@@ -676,6 +677,8 @@ def append_scope(
     payload: DecisionScopeRequest,
     *, completion_report_id: UUID | None = None,
 ) -> DecisionScopeResult:
+    # Fresh execution only: receipt fingerprints and historical response bytes stay raw.
+    payload = payload.model_copy(update={"repository": canonical_repository(payload.repository)})
     require_revision(database, document, payload.revision)
     if payload.work_item_id is not None:
         require_work_item(database, project_id, payload.work_item_id)
