@@ -20,6 +20,11 @@ scope growth preserves a disposition draft and requires fresh acknowledgement.
 Plugin checks passed (72 tests, one existing skip). Python lint/types, operational
 checks, OpenAPI generation and secret scanning passed.
 
+A final review added four regressions for changed supersession scope, incoming
+citations, extent, and reason. All 35 targeted decision-change, storage, and locking
+tests passed. Exact prior evidence reuses its episode; changed evidence creates
+a fresh episode against the current revision while preserving earlier verdicts.
+
 Reviewed screenshots show [adopted scope](images/decision-impact-review-scope/adopted-scope-desktop.png)
 and [owner admission on a narrow screen](images/decision-impact-review-scope/owner-admission-narrow.png).
 Production deployment requires coordinated writers and migration 0058; local

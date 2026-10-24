@@ -13,6 +13,7 @@ from .test_decision_impact_postgres import changed, decision
 from .test_decision_reviews_postgres import assess, context, reviews, settings
 from .test_human_gates_postgres import create_work, gate_path, gate_request, resolution_payload
 from .test_knowledge_postgres import domain, path, put, put_body
+from .test_project_activity_audit_postgres import _audit
 from .test_project_reports_postgres import close as close_report
 from .test_work_item_moves_postgres import _move_payload, _project
 
@@ -330,3 +331,68 @@ def test_change_lock_refreshes_driver_closed_by_another_transaction(
         with pytest.raises(ApplicationError) as failure:
             require_open(database, change)
         assert failure.value.detail["code"] == "decision_change_closed"
+
+
+def _change_supersession_evidence(api, project, target, old, details, mutation):
+    if mutation == "scope":
+        result = api.post(path(project) + f"/decisions/{old['decision_id']}/scope", json={
+            "revision": 0, "commit_hash": "a" * 40, "repository": "example/supersession",
+            "client_operation_id": str(uuid4()),
+        })
+        assert result.status_code == 200, result.text
+    elif mutation == "incoming-candidate":
+        decision(api, project, target, "New incoming citation to the previous ruling",
+                 related_decision_ids=[old["decision_id"]])
+    else:
+        details[0][mutation] = (
+            "partial" if mutation == "extent" else "Clarify which earlier guarantee is replaced."
+        )
+
+
+@pytest.mark.parametrize("mutation", ["scope", "incoming-candidate", "extent", "reason"])
+def test_changed_supersession_evidence_uses_current_annotation_without_rewriting_old_episode(
+    api, project, postgres_engine, mutation,
+):
+    settings(api, project, automatic_decision_reviews=True)
+    target = domain(api, project)
+    old = decision(api, project, target, "Previous ruling")
+    details = [{"decision_id": old["decision_id"], "revision": 0,
+                "extent": "full", "reason": "Replace the previous ruling."}]
+    governing = decision(api, project, target, "Enacted replacement ruling",
+                         supersession_details=details)
+    change_id = governing["change"]["change_id"]
+    original = api.get(path(project) + "/assessments", params={"change_id": change_id}).json()
+    original_id = original["items"][0]["id"]
+    assess(api, project, original_id, old["reference"])
+    before = api.get(path(project) + f"/assessments/{original_id}").json()
+    acknowledged, _ = update(api, project, "acknowledge", change_id=change_id,
+                             expected_scope_version=1)
+    assert acknowledged.status_code == 200, acknowledged.text
+    _change_supersession_evidence(api, project, target, old, details, mutation)
+    annotation = changed(api, project, target, governing, "Replacement ruling with provenance note",
+                         supersession_details=details, change={
+        "kind": "record-existing", "change_id": change_id,
+        "governing_reference": governing["reference"], "reason": "Document the enacted ruling.",
+    })
+    assert annotation["change"]["governing_reference"] == governing["reference"]
+    episodes = api.get(path(project) + "/assessments", params={"change_id": change_id}).json()
+    assert episodes["total"] == 3 and len(reviews(api, project)) == 1
+    fresh = next(item for item in episodes["items"]
+                 if item["trigger"] == "supersession" and item["id"] != original_id)
+    assert fresh["before_reference"] == old["reference"]
+    assert fresh["after_reference"] == annotation["reference"]
+    assert fresh["diff"]["after_sha256"] == annotation["sha256"]
+    assert f"+++ {annotation['reference']}" in fresh["diff"]["unified_diff"]
+    assert (fresh["extent"], fresh["reason"]) == (details[0]["extent"], details[0]["reason"])
+    assert fresh["version"] == 0 and fresh["unassessed_count"] > 0
+    retained = api.get(path(project) + f"/assessments/{original_id}").json()
+    for key in ("before_reference", "after_reference", "diff", "candidates", "dispositions"):
+        assert retained[key] == before[key]
+    current = group(api, project, change_id)
+    assert current["scope_version"] == 3 and current["acknowledged_scope_version"] == 1
+    fresh_detail = api.get(path(project) + f"/assessments/{fresh['id']}").json()
+    if mutation == "scope":
+        assert fresh_detail["candidates"][0]["scopes"][0]["commit_hash"] == "a" * 40
+    if mutation == "incoming-candidate":
+        assert fresh_detail["candidate_count"] == before["candidate_count"] + 1
+    assert _audit(postgres_engine)["result"] == "pass"

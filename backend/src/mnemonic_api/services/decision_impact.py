@@ -223,7 +223,7 @@ def create_assessments(
             None if detail is None else detail.extent,
             None if detail is None else detail.reason,
         ))
-    episodes = _reuse_identical_assessments(database, change.id, episodes)
+    episodes = _reuse_identical_assessments(database, change.id, episodes, revision)
     database.flush()
     attach_assessments(database, change, episodes)
     from mnemonic_api.services.decision_reviews import create_decision_review
@@ -232,6 +232,7 @@ def create_assessments(
 
 def _reuse_identical_assessments(
     database: Session, change_id: UUID, episodes: list[DecisionImpactAssessment],
+    current_revision: DecisionRevision,
 ) -> list[DecisionImpactAssessment]:
     """Reuse only the exact transition and evidence; never transplant verdicts."""
     with database.no_autoflush:
@@ -245,6 +246,13 @@ def _reuse_identical_assessments(
         if previous is not None:
             result.append(previous)
         else:
+            if episode.replacement_revision_id != current_revision.id:
+                # The governing revision is sealed. Changed evidence or intent
+                # needs a new truthful snapshot against this annotation revision.
+                before = database.get(DecisionRevision, episode.origin_revision_id)
+                assert before is not None
+                episode = _episode(database, before, current_revision, episode.trigger,
+                                   episode.extent, episode.reason)
             database.add(episode)
             result.append(episode)
     return result
