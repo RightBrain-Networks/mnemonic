@@ -33,6 +33,14 @@ WORK_COLUMNS = (
     "id, project_id, title, summary, status, priority, initial_checkpoint_id, "
     "version, created_at, updated_at"
 )
+# Freeze the historical physical projection. Current read-only response metadata
+# (for example review_scope_changed) did not exist in Phase 11 receipts.
+CHECKPOINT_READ_FIELDS = (
+    "id", "work_item_id", "kind", "prompt", "source_client", "source_session_id",
+    "source_model", "source_session_url", "repository_branch", "verified_against",
+    "affected_paths", "tags", "source_metadata", "migration_origin", "legacy_record_id",
+    "created_at",
+)
 
 
 def _require_boundary(connection: Connection) -> None:
@@ -321,7 +329,7 @@ def complete(
         )
         response: dict[str, Any] = {
             "work_item": completed_work,
-            "checkpoint": {key: checkpoint[key] for key in CheckpointRead.model_fields},
+            "checkpoint": {key: checkpoint[key] for key in CHECKPOINT_READ_FIELDS},
         }
         if any(children.values()):
             response["completion_evidence"] = children
@@ -391,7 +399,7 @@ def _creation_body(work: dict[str, Any], checkpoint: dict[str, Any]) -> dict[str
     return WorkCreation.model_validate(
         {
             "work_item": {key: work[key] for key in WORK_COLUMNS.split(", ")},
-            "initial_checkpoint": {key: checkpoint[key] for key in CheckpointRead.model_fields},
+            "initial_checkpoint": {key: checkpoint[key] for key in CHECKPOINT_READ_FIELDS},
         }
     ).model_dump(mode="json")
 
@@ -480,7 +488,7 @@ def checkpoint_fixture(
             checkpoint=checkpoint,
         )
         body = CheckpointRead.model_validate(
-            {key: checkpoint[key] for key in CheckpointRead.model_fields}
+            {key: checkpoint[key] for key in CHECKPOINT_READ_FIELDS}
         ).model_dump(mode="json")
         _other_receipt(
             connection,
