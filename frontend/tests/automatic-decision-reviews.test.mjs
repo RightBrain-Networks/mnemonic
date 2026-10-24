@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { parseDecisionReviewPriority, validDecisionReviewPriority } from "../lib/automatic-decision-reviews.ts";
+import { effectiveDecisionReviews, parseDecisionReviewPriority, validDecisionReviewPriority, validDomainDecisionReviewSetting } from "../lib/automatic-decision-reviews.ts";
 import { decodeProjectSettings } from "../lib/job-completion-reports.ts";
 import { decodeWorkItem } from "../lib/work-codecs.ts";
 import { decodeTaskPage } from "../lib/tasks.ts";
@@ -14,6 +14,16 @@ const settings = {
   code_review_required_min_priority: 100, code_review_optional_min_priority: 100,
   allow_remediation_code_reviews: false, automatic_decision_reviews: false, decision_review_priority: 40
 };
+
+test("domain settings inherit or override either project default", () => {
+  for (const projectEnabled of [false, true]) {
+    assert.equal(effectiveDecisionReviews("inherit", projectEnabled), projectEnabled);
+    assert.equal(effectiveDecisionReviews("on", projectEnabled), true);
+    assert.equal(effectiveDecisionReviews("off", projectEnabled), false);
+  }
+  for (const value of ["inherit", "on", "off"]) assert.equal(validDomainDecisionReviewSetting(value), true);
+  for (const value of [null, undefined, true, false, "ON", "enabled", 1]) assert.equal(validDomainDecisionReviewSetting(value), false);
+});
 
 test("decision impact review settings enforce a boolean and an integer priority from zero through 100", () => {
   assert.deepEqual(decodeProjectSettings(settings, fixtures.project), settings);

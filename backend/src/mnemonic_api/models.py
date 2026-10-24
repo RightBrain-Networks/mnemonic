@@ -2408,7 +2408,9 @@ class TranscriptWorkerHealth(Base):
 
 
 class KnowledgeDomain(Base):
-    __table__ = Table("knowledge_domains", Base.metadata, *knowledge.domain_elements())
+    __table__ = Table(
+        "knowledge_domains", Base.metadata, *knowledge.domain_elements(review_policy=True)
+    )
 
     id: Mapped[UUID]
     project_id: Mapped[UUID]
@@ -2416,6 +2418,7 @@ class KnowledgeDomain(Base):
     prefix: Mapped[str]
     version: Mapped[int]
     next_ordinal: Mapped[int]
+    automatic_decision_reviews: Mapped[Literal["inherit", "on", "off"]]
     created_at: Mapped[datetime]
     updated_at: Mapped[datetime]
 

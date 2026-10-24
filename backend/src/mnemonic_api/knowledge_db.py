@@ -21,13 +21,23 @@ def _timestamp(name: str = "created_at") -> sa.Column:
     )
 
 
-def domain_elements() -> list:
+def domain_review_policy_elements() -> list:
+    return [
+        sa.Column("automatic_decision_reviews", sa.String(7), nullable=False,
+                  server_default="inherit"),
+        sa.CheckConstraint("automatic_decision_reviews IN ('inherit','on','off')",
+                           name="automatic_decision_reviews"),
+    ]
+
+
+def domain_elements(*, review_policy: bool = False) -> list:
     return [
         *_identity(),
         sa.Column("name", sa.String(120), nullable=False),
         sa.Column("prefix", sa.String(5), nullable=False),
         sa.Column("version", sa.BigInteger, nullable=False, server_default="1"),
         sa.Column("next_ordinal", sa.BigInteger, nullable=False, server_default="1"),
+        *(domain_review_policy_elements() if review_policy else []),
         _timestamp(),
         _timestamp("updated_at"),
         sa.UniqueConstraint("project_id", "id", name="uq_knowledge_domains_project_id"),

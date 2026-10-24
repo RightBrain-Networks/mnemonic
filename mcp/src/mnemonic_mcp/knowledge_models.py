@@ -30,6 +30,7 @@ DecisionState = Literal[
     "proposed", "rejected", "accepted", "superseded", "partially-superseded"
 ]
 DecisionMediaType = Literal["text/plain", "text/markdown"]
+AutomaticDecisionReviews = Literal["inherit", "on", "off"]
 DecisionIdentifier = Annotated[str, StringConstraints(pattern=r"^[A-Z]{1,5}-[0-9]{5,19}$")]
 DecisionReference = Annotated[
     str, StringConstraints(pattern=r"^[A-Z]{1,5}-[0-9]{5,19}(?:-[0-9]{1,10})?$")
@@ -61,6 +62,9 @@ class KnowledgePagination(KnowledgeModel):
 class DomainCreateRequest(KnowledgeModel):
     name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=120)]
     prefix: Annotated[str, StringConstraints(min_length=1, max_length=5)]
+    automatic_decision_reviews: AutomaticDecisionReviews = Field(
+        default="inherit", exclude_if=lambda value: value == "inherit",
+    )
 
     @field_validator("prefix")
     @classmethod
@@ -76,8 +80,17 @@ class DomainCreate(DomainCreateRequest):
 
 
 class DomainRenameRequest(KnowledgeModel):
-    name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=120)]
+    name: Annotated[
+        str, StringConstraints(strip_whitespace=True, min_length=1, max_length=120)
+    ] | MISSING = MISSING
+    automatic_decision_reviews: AutomaticDecisionReviews | MISSING = MISSING
     expected_version: Annotated[StrictInt, Field(ge=1)]
+
+    @model_validator(mode="after")
+    def has_changes(self) -> Self:
+        if self.name is MISSING and self.automatic_decision_reviews is MISSING:
+            raise ValueError("Supply a name or automatic_decision_reviews setting")
+        return self
 
 
 class DomainRename(DomainRenameRequest):
@@ -88,6 +101,7 @@ class KnowledgeDomainRead(KnowledgeModel):
     id: UUID
     project_id: UUID
     name: str
+    automatic_decision_reviews: AutomaticDecisionReviews | MISSING = MISSING
     prefix: Annotated[str, Field(pattern=r"^[A-Z]{1,5}$")]
     version: Annotated[StrictInt, Field(ge=1)]
     created_at: datetime

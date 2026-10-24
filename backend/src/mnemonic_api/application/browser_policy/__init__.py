@@ -130,7 +130,7 @@ def _special_error(name: str | None, path: str, method: str, body: JsonObject) -
         try:
             model.model_validate(body)
         except ValueError:
-            return "Provide a valid knowledge domain name, prefix and current version."
+            return "Provide a valid domain name or review setting and the required prefix/version."
     if name == "prompt" and method == "PUT" and not projects.prompt_update(path, body):
         return "The prompt update requires valid content and its current revision."
     if name == "prompt_render" and not projects.prompt_render(body):

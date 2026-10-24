@@ -538,8 +538,8 @@ startup/investigation and estimate remaining session time for later lease reques
 within the current project bounds. Preserve exact `lease_minutes` arguments on
 uncertain claim retries.
 
-Application/API/MCP/dashboard 0.92.0, plugin 0.55.0 and Alembic
-`0058_decision_changes` ship together: 76 MCP tools, 24
+Application/API/MCP/dashboard 0.93.0, plugin 0.56.0 and Alembic
+`0059_domain_decision_reviews` ship together: 76 MCP tools, 24
 receipt-protected MCP writes,
 31 REST receipt kinds, 25 protected browser mutations, 24 event types and three
 plugin skills. Existing projects default to Never/Never/off review settings;
@@ -668,8 +668,9 @@ retain original attribution. See [knowledge graph](docs/knowledge-graph.md) and 
 [shared agent workflow](plugin/reference/knowledge-graph.md) for all knowledge tools,
 coverage limits, exact retries, and the local Git helper.
 
-Automatic decision impact reviews are opt-in per project in Settings > Workspace,
-default off with priority 40. Explicit decision changes own one ordinary review;
+Automatic decision impact reviews use a project default in Settings > Workspace,
+off with priority 40. Domain overrides inherit/on/off govern future review creation
+from the changed record domain; settings do not backfill work or cancel obligations. Explicit decision changes own one ordinary review;
 related revisions extend its immutable assessment membership and invalidate scope
 acknowledgement. Use decision_change_get and page decision_assessments(change_id=...),
 then acknowledge the current scope before Done. Fresh agent decision_put declares

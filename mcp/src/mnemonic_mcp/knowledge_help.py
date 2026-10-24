@@ -2,7 +2,7 @@
 
 KNOWLEDGE_GUIDES: dict[str, tuple[str, str, str]] = {
     "list_knowledge_domains": (
-        "Knowledge", "List decision domains and their immutable prefixes.",
+        "Knowledge", "List decision domains, review overrides and immutable prefixes.",
         ("Every project has a Product Decision Records domain, marked is_product_decision_domain. "
         "Choose an existing project domain before creating a decision. Domain names and prefixes "
         "are unique within the project; prefixes never change. Follow pagination."),
@@ -10,12 +10,16 @@ KNOWLEDGE_GUIDES: dict[str, tuple[str, str, str]] = {
     "create_knowledge_domain": (
         "Knowledge", "Create a named decision domain with a permanent prefix.",
         ("Supply name and a prefix of one to five ASCII letters; the prefix becomes uppercase. "
+        "automatic_decision_reviews defaults to inherit (project policy); on/off override it. "
         "List domains first to avoid name or prefix conflicts. Domain deletion is unavailable."),
     ),
     "rename_knowledge_domain": (
-        "Knowledge", "Rename a decision domain while retaining its prefix.",
+        "Knowledge", "Update a domain name or automatic decision review override.",
         ("Use the exact domain_id from list_knowledge_domains. Renaming preserves all document "
-        "identifiers, revisions, and references; the prefix cannot change."),
+        "identifiers, revisions, and references; the prefix cannot change. Supply expected_version "
+        "and name and/or automatic_decision_reviews (inherit, on, off). The changed record's domain "
+        "governs whether later revisions open reviews; existing reviews retain their obligations. "
+        "Priority remains project-wide. Changes do not backfill reviews."),
     ),
     "decision_change_get": (
         "Knowledge", "Read one substantive change and its current review scope.",

@@ -82,10 +82,13 @@ def create_decision_review(
 ) -> None:
     """The revision write/receipt transaction owns both the work and its unique trigger."""
     settings = database.get(ProjectSettings, document.project_id)
-    if (change.review_work_item_id is not None or not episodes or settings is None
-            or not settings.automatic_decision_reviews):
+    if change.review_work_item_id is not None or not episodes or settings is None:
         return
     domain = knowledge.require_domain(database, document.project_id, document.domain_id)
+    if not (domain.automatic_decision_reviews == "on" or (
+        domain.automatic_decision_reviews == "inherit" and settings.automatic_decision_reviews
+    )):
+        return
     replacement = reference(document, revision, domain)
     work_id = uuid4()
     title = f"Decision impact review: {replacement} — {revision.title}"[:200]

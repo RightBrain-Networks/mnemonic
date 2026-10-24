@@ -105,8 +105,8 @@ one-off ID needed before dispatch. Explicit IDs and REST receipts retain their
 contracts; prepared upload intents keep their helper-generated IDs. See
 `docs/automatic-uuids.md`. The tool idempotence hint is false for these calls.
 
-The current application/API/MCP/dashboard release is `0.92.0`, Claude plugin
-`0.55.0`, and Alembic head `0058_decision_changes`. The catalog is exactly
+The current application/API/MCP/dashboard release is `0.93.0`, Claude plugin
+`0.56.0`, and Alembic head `0059_domain_decision_reviews`. The catalog is exactly
 76 MCP tools, 24 receipt-protected MCP writes, 31 REST receipt kinds, 25 protected
 browser mutations, 24 work-event types, and three plugin skills. Project priority
 guidance is editable in Settings > Workspace; agents explicitly call
@@ -367,8 +367,12 @@ not a match for an explicit identity. Preserve original commit records and use
 missing provenance remains unknown. The bundled decision_provenance.py helper
 verifies local commit existence and prepares declarations without network or writes.
 
-Automatic decision impact reviews are opt-in per project in Settings > Workspace,
-default off with priority 40. Explicit changes own one ordinary review with a
+Automatic decision impact reviews use a project default in Settings > Workspace,
+off with priority 40. Each knowledge domain has automatic_decision_reviews set to
+inherit (default), on, or off; on/off override the project switch. The changed
+record domain governs new reviews. Assessment capture and existing review
+obligations remain intact; setting changes do not backfill work. Explicit changes
+own one ordinary review with a
 snapshot of the editable decision-impact-review prompt. Related revisions extend
 its assessment scope; read decision_change_get and page decision_assessments with
 change_id, then acknowledge the exact current scope before Done. Fresh agent

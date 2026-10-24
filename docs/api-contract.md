@@ -14,8 +14,8 @@ previous bundled rubric. Edits are retained in PostgreSQL and project backups.
 Use [unified search](search.md) to retrieve work, artifacts, transcripts, and decisions in one
 ranked, filtered, paginated read through REST or MCP.
 
-This is application/API/MCP/dashboard `0.92.0`, plugin `0.55.0`, and migration
-`0058_decision_changes`. See [knowledge graph](knowledge-graph.md) for retained
+This is application/API/MCP/dashboard `0.93.0`, plugin `0.56.0`, and migration
+`0059_domain_decision_reviews`. See [knowledge graph](knowledge-graph.md) for retained
 decision revisions and commit provenance, and [dependency cycles](dependency-cycles.md) for explicit
 parent closure requirements, cycle refusal, and honest deadlock display. The catalog has exactly 76 MCP tools, 24
 protected MCP writes, 31 REST receipt kinds, 25 protected browser mutations and
@@ -2149,8 +2149,16 @@ returns them before using these unchanged REST receipt contracts. See
 Project settings add `automatic_decision_reviews` (default false) and
 `decision_review_priority` (integer 0–100, default 40). The existing revision-checked
 PATCH controls them. The managed prompt ID is `decision-impact-review`.
+Knowledge domain reads expose `automatic_decision_reviews` as `inherit`, `on`,
+or `off`. Domain creation defaults to `inherit`. The existing domain PATCH and
+MCP `rename_knowledge_domain` accept a name and/or that setting with
+`expected_version`; null and empty updates are rejected. `on` and `off` override
+the project boolean, and the changed record's domain governs review creation.
+Assessment capture and existing review obligations remain intact; toggles do not
+backfill work. Priority stays project-wide. Historical operation receipts replay
+their exact stored response, which may predate the domain setting field.
 Generated ordinary work exposes an immutable optional `decision_review_revision_id`.
-One investigation per triggering revision shares the existing impact-assessment
+One investigation per substantive decision change shares the existing impact-assessment
 ledger. Done fails with 409 `decision_impact_review_incomplete` while pinned
 code-impact candidates lack dispositions or change-required findings lack separate remediation
 work; error context reports `missing_dispositions` and `untracked_changes` counts.

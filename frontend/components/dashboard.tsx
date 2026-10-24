@@ -2935,6 +2935,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
               backupMaximumBytes={backupMaxBytes}
               onBackupPendingChange={handleBackupPendingChange}
               onPromptPendingChange={setPromptPending}
+              onKnowledgePendingChange={setKnowledgePending}
             />}
         </> : view === "summaries" ? <>
           <DashboardViewChrome eyebrow="WORK RESULTS FOR PEOPLE" title="Summaries"

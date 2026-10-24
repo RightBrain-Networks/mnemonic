@@ -20,6 +20,7 @@ from mnemonic_api.schemas import APIModel
 
 DecisionState = Literal["proposed", "rejected", "accepted", "superseded", "partially-superseded"]
 DecisionMediaType = Literal["text/plain", "text/markdown"]
+DomainReviewPolicy = Literal["inherit", "on", "off"]
 DecisionIdentifier = Annotated[str, StringConstraints(pattern=r"^[A-Z]{1,5}-[0-9]{5,19}$")]
 DecisionReference = Annotated[
     str, StringConstraints(pattern=r"^[A-Z]{1,5}-[0-9]{5,19}(?:-[0-9]{1,10})?$")
@@ -53,6 +54,9 @@ class KnowledgePagination(APIModel):
 class DomainCreateRequest(APIModel):
     name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=120)]
     prefix: Annotated[str, StringConstraints(min_length=1, max_length=5)]
+    automatic_decision_reviews: DomainReviewPolicy = Field(
+        default="inherit", exclude_if=lambda value: value == "inherit"
+    )
 
     @field_validator("name")
     @classmethod
@@ -73,13 +77,22 @@ class DomainCreate(DomainCreateRequest):
 
 
 class DomainRenameRequest(APIModel):
-    name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=120)]
+    name: Annotated[
+        str, StringConstraints(strip_whitespace=True, min_length=1, max_length=120)
+    ] | MISSING = MISSING
+    automatic_decision_reviews: DomainReviewPolicy | MISSING = MISSING
     expected_version: Annotated[StrictInt, Field(ge=1)]
 
     @field_validator("name")
     @classmethod
     def valid_name(cls, value: str) -> str:
         return _database_text(value)
+
+    @model_validator(mode="after")
+    def require_change(self) -> Self:
+        if self.name is MISSING and self.automatic_decision_reviews is MISSING:
+            raise ValueError("Supply a domain name or automatic decision review setting")
+        return self
 
 
 class DomainRename(DomainRenameRequest):
@@ -92,6 +105,8 @@ class KnowledgeDomainRead(APIModel):
     project_id: UUID
     name: str
     prefix: str
+    # Permanent receipts predating domain policy retain their original sparse shape.
+    automatic_decision_reviews: DomainReviewPolicy | MISSING = MISSING
     version: int
     created_at: datetime
     updated_at: datetime

@@ -18,6 +18,13 @@ domain using a unique name and prefix; prefixes become uppercase and must match
 `[A-Z]{1,5}`. `rename_knowledge_domain` needs the current domain version. A prefix
 cannot change, and domain deletion is unavailable.
 
+Domains expose `automatic_decision_reviews`: `inherit` (the creation default)
+follows the project switch, while `on` and `off` override it. The existing
+`rename_knowledge_domain` tool updates a name and/or this setting with the current
+`expected_version`. The changed record's domain governs future review creation;
+priority remains project-wide. Settings do not backfill reviews or cancel existing
+review obligations, and substantive assessment capture remains independent.
+
 Use unified `search` with `facets=["decisions"]` for only decisions, or include
 the other desired sources. `filters.decisions.domain_ids` selects domain UUIDs;
 `state` selects a lifecycle state. Current revisions are the default;
