@@ -3,11 +3,18 @@
 Use [unified search](search.md) to retrieve work, artifacts, and transcripts in one
 ranked, filtered, paginated read through REST or MCP.
 
-Release 0.91.1 removes quadratic joins from duplicate-suggestion candidate
-selection for large projects. Ranking, duplicate-group counts, shortlist limits,
-and request deadlines are unchanged. The API, worker, MCP, and dashboard versions
-remain aligned; plugin 0.54.0 and migration `0057_automatic_decision_reviews` are
-unchanged. No new configuration or database migration is required.
+Release 0.92.0 adds explicit decision-change grouping and a human admission boundary
+for recursive review-derived changes. Deploy API, worker, MCP and dashboard together,
+with plugin 0.55.0 and migration `0058_decision_changes`, after the usual authorized
+backup and migration. Existing review markers receive exact one-to-one groups;
+historical closeouts and dispositions stay intact. Ordinary combined investigations
+can explicitly adopt named assessments. Review scope changes require acknowledgement
+before Done. Managed owner answers remain readable while awaiting review admission.
+Customized prompts and historical work prompts are preserved; untouched shipped
+investigation prompts refresh to the current bounded-review instructions.
+
+Release 0.91.1 removes quadratic joins from duplicate-suggestion candidate selection
+for large projects, with no migration or configuration changes.
 
 Release 0.91.0 includes incoming related citations in required decision impact
 reviews without claiming a causal dependency. New snapshots capture link direction;
@@ -201,8 +208,8 @@ Migration `0041_artifact_passages` adds rebuildable artifact passage caches; fol
 [semantic artifact upgrade and backfill](artifact-semantic-search.md#coordinated-upgrade).
 Explicit [multi-project search](multi-project-search.md) shares one bounded corpus
 and reports coverage for every selected project.
-Inventory exactly 74 MCP tools,
-23 protected MCP writes, 30 REST receipt kinds, 24 protected browser mutations,
+Inventory exactly 76 MCP tools,
+24 protected MCP writes, 31 REST receipt kinds, 25 protected browser mutations,
 and 24 work-event types. Keep older writers stopped: fresh closeouts still
 require a report and operation UUID, fresh work starts Pending, settings use
 revision checks, and relationship endpoint identity, adjacency, graph guards,

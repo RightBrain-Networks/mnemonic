@@ -189,6 +189,7 @@ class ImpactAssessmentDetail(ImpactAssessmentRead):
 
 
 class ImpactAssessmentQuery(APIModel):
+    change_id: UUID | None = None
     decision_id: Identifier | None = None
     limit: Annotated[int, Field(ge=1, le=100)] = 50
     offset: Annotated[int, Field(ge=0)] = 0

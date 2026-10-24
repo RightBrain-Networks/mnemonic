@@ -18,7 +18,7 @@ import { transcriptLibraryPath } from "@/lib/transcripts";
 import ArtifactLibrary from "@/components/artifact-library";
 import KnowledgeLibrary from "@/components/knowledge-library";
 import { knowledgeLibraryPath } from "@/lib/knowledge";
-import { completionDomainsOptions, knowledgeKeys } from "@/lib/knowledge-queries";
+import { completionDomainsOptions, invalidateKnowledgeReads } from "@/lib/knowledge-queries";
 import { ARTIFACT_DEFAULT_MAX_BYTES, artifactLibraryPath, artifactLocation } from "@/lib/artifacts";
 import CodeReviewHandoffEditor, { emptyReviewHandoff } from "@/components/code-review-handoff-editor";
 import JobReportEditor from "@/components/job-report-editor";
@@ -646,6 +646,16 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
 
   useEffect(() => connectWorkMutationQueries(queryClient, mutationRegistry), [queryClient, mutationRegistry]);
 
+  useEffect(() => mutationRegistry.subscribeConfirmed((confirmation) => {
+    const selected = openedRef.current?.work_item;
+    if (confirmation.kind === "decision_change_update" && selected
+      && confirmation.intent.conflictKeys.includes(mutationWorkKey(selected.project_id, selected.id))) {
+      // The context observer is intentionally disabled. Reconcile through the
+      // existing edit/placement guards after both initial success and exact retry.
+      setContextRefresh((value) => value + 1);
+    }
+  }), [mutationRegistry]);
+
   useEffect(() => {
     if (checkpointPage && checkpointOffset > 0 && checkpointOffset >= checkpointPage.total) {
       setCheckpointOffset(Math.max(0, Math.floor((checkpointPage.total - 1) / CHECKPOINT_PAGE_SIZE) * CHECKPOINT_PAGE_SIZE));
@@ -902,7 +912,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
     void invalidateWorkDetailReads(queryClient, projectId);
     void invalidateArtifactReads(queryClient, projectId);
     void invalidateTranscriptReads(queryClient, projectId);
-    if (projectId) void queryClient.invalidateQueries({ queryKey: knowledgeKeys.root(projectId) });
+    void invalidateKnowledgeReads(queryClient, projectId);
     setWorkMotionRevision((value) => value + 1);
   }
   function refreshAttention(projectId: string | null = activeIdRef.current) {

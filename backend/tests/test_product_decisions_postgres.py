@@ -121,7 +121,8 @@ def test_pdr_metadata_revisions_retain_omissions_clear_explicit_lists_and_pin_de
     assessments = api.get(path(project) + "/assessments",
                           params={"decision_id": "PDR-00001"})
     assert assessments.status_code == 200, assessments.text
-    assert assessments.json()["total"] == 1
+    # Proposed owner questions retain metadata without enacting a changed ruling.
+    assert assessments.json()["total"] == 0
 
 
 def test_identical_questions_get_distinct_records_and_invalid_links_roll_back_allocation(

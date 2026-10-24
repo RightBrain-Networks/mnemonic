@@ -414,6 +414,25 @@ def assemble_work_context(
                     'external_references', w.external_references,
                     'manual_review_request', w.manual_review_request,
                     'decision_review_revision_id', w.decision_review_revision_id,
+                    'decision_change_projects', COALESCE((
+                        SELECT jsonb_object_agg(member.change_id, change.project_id)
+                        FROM decision_change_work AS member
+                        JOIN decision_changes AS change ON change.id=member.change_id
+                        WHERE member.work_item_id=w.id
+                    ), '{{}}'::jsonb),
+                    'decision_review_change_id', (
+                        SELECT change.id FROM decision_changes AS change
+                        WHERE change.review_work_item_id=w.id
+                    ),
+                    'decision_review_project_id', (
+                        SELECT change.project_id FROM decision_changes AS change
+                        WHERE change.review_work_item_id=w.id
+                    ),
+                    'decision_change_ids', COALESCE((
+                        SELECT jsonb_agg(member.change_id ORDER BY member.change_id)
+                        FROM decision_change_work AS member
+                        WHERE member.work_item_id=w.id
+                    ), '[]'::jsonb),
                     'status', w.status, 'priority', w.priority,
                     'initial_checkpoint_id', w.initial_checkpoint_id,
                     'version', w.version, 'created_at', w.created_at, 'updated_at', w.updated_at

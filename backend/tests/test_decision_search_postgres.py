@@ -21,6 +21,7 @@ def put(api, project, selected_domain, **changes):
     payload = {"domain_id": selected_domain["id"], "title": "Storage transport",
                "content": "Historical durable provenance.\nA second line.",
                "media_type": "text/markdown", "state": "accepted", "author_kind": "human",
+               "source_work_item_id": None,
                "client_operation_id": str(uuid4()), **changes}
     response = api.put(f"/api/v1/projects/{project['id']}/knowledge/decisions", json=payload)
     assert response.status_code in (200, 201), response.text

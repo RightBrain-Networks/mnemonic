@@ -1,5 +1,30 @@
 # Mnemonic validation record
 
+## Bounded decision impact review cycles (0.92.0)
+
+Explicit change identities group review obligations and carry through discovered
+work. Closed cycles require dashboard admission before new scope; managed owner
+answers remain retained while waiting. Adoption and acknowledgement use the normal
+receipt, checkpoint, event, activity and backup contracts. Migration 0058 preserves
+historical ledgers and closeouts and propagates recorded descendant lineage.
+
+Validation used Python 3.14, Node 24, isolated PostgreSQL and RabbitMQ. The complete
+backend suite passed **5,280 tests**. Regression cases cover exact supersession
+reuse, changed scope, stale acknowledgement, completion fencing, retained answers,
+cross-project moves, concurrent movement during scope discovery, migration,
+backup restoration and global integrity audits. The MCP full-suite cases passed
+across the initial run and focused reruns after updating contract fixtures. The
+dashboard passed **594 unit tests**, type checking and production build. Eight
+desktop/narrow browser cases passed; the final focused rerun also verified live
+scope growth preserves a disposition draft and requires fresh acknowledgement.
+Plugin checks passed (72 tests, one existing skip). Python lint/types, operational
+checks, OpenAPI generation and secret scanning passed.
+
+Reviewed screenshots show [adopted scope](images/decision-impact-review-scope/adopted-scope-desktop.png)
+and [owner admission on a narrow screen](images/decision-impact-review-scope/owner-admission-narrow.png).
+Production deployment requires coordinated writers and migration 0058; local
+validation did not change production services.
+
 ## Decision impact and implementation provenance (0.86.0)
 
 Revision-pinned dependencies and full/partial supersession details now connect

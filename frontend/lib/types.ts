@@ -78,7 +78,11 @@ export interface Page<T> {
 }
 
 export interface WorkItem {
+  decision_change_projects?: Record<string, string>;
   decision_review_revision_id?: string | null;
+  decision_review_project_id?: string | null;
+  decision_review_change_id?: string | null;
+  decision_change_ids?: string[];
   manual_review_request?: import("./manual-reviews.ts").ManualReviewRequest;
   external_references?: ExternalReference[];
   id: string;

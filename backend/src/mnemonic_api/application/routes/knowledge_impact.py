@@ -8,6 +8,8 @@ from fastapi.responses import JSONResponse
 
 from mnemonic_api.application.mutations import run_registered_mutation
 from mnemonic_api.database import Database, begin_coherent_read
+from mnemonic_api.decision_change_schemas import DecisionChangeRead, DecisionChangeUpdate
+from mnemonic_api.errors import ApplicationError
 from mnemonic_api.impact_schemas import (
     ImpactAssessmentDetail,
     ImpactAssessmentQuery,
@@ -23,6 +25,36 @@ from mnemonic_api.services import decision_impact
 
 router = APIRouter()
 _PREFIX = "/projects/{project_id}/knowledge"
+
+
+@router.get(_PREFIX + "/changes/{change_id}", response_model=DecisionChangeRead)
+def get_decision_change(
+    project_id: UUID, change_id: UUID, database: Database,
+) -> DecisionChangeRead:
+    from mnemonic_api.services.decision_changes import read_change, require_change
+
+    begin_coherent_read(database)
+    return read_change(database, require_change(database, project_id, change_id))
+
+
+@router.post(_PREFIX + "/changes", response_model=DecisionChangeRead)
+def update_decision_change(
+    project_id: UUID, payload: DecisionChangeUpdate, request: Request, database: Database,
+) -> JSONResponse:
+    from mnemonic_api.application.browser_routes import require_browser_admission
+    from mnemonic_api.services.decision_change_actions import update_change
+
+    # Admission is a human dashboard operation; an agent cannot spoof it through REST.
+    if payload.action == "admit" or payload.actor_client == "dashboard":
+        if not request.url.path.startswith("/api/mnemonic/"):
+            raise ApplicationError(403, "decision_change_human_admission_required",
+                                   "Human admission is available only in the dashboard.")
+        require_browser_admission(request)
+    return run_registered_mutation(
+        "update_decision_change", request=request, database=database, project_id=project_id,
+        target={}, payload=payload,
+        execute=lambda body: update_change(database, project_id, body),
+    )
 
 
 @router.get(_PREFIX + "/decisions/{decision_id}/impact", response_model=ImpactRead)

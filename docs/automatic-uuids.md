@@ -45,4 +45,4 @@ REST callers retain their existing contracts. Backend entity identifiers were
 already generated automatically. Prepared local artifact uploads retain the
 UUID frozen by `upload_artifact.py prepare` inside the upload intent; the adapter
 does not rewrite it or any other nested identifier. The current tool catalog has
-74 tools, 23 receipt-protected MCP writes and 30 REST receipt kinds.
+76 tools, 24 receipt-protected MCP writes and 31 REST receipt kinds.

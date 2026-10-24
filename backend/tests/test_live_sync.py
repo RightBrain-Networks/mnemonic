@@ -48,6 +48,14 @@ def test_mutation_events_are_scoped_without_record_contents():
     project_id = str(uuid4())
     work_item_id = str(uuid4())
 
+    assert mutation_event(
+        "PUT", f"/api/v1/projects/{project_id}/knowledge/decisions"
+    ) == MutationEvent("work-items")
+    assert mutation_event(
+        "POST", f"/api/v1/projects/{project_id}/knowledge/changes"
+    ) == MutationEvent("work-items")
+    assert mutation_event("PUT", f"/api/v1/projects/{project_id}/work-items") is None
+
     assert mutation_event("POST", "/api/v1/projects") == MutationEvent("projects")
     assert mutation_event(
         "PATCH", f"/api/v1/projects/{project_id}"

@@ -15,7 +15,9 @@ from pydantic import (
     field_validator,
     model_validator,
 )
+from pydantic.experimental.missing_sentinel import MISSING
 
+from .decision_change_models import DecisionChangeInput, DecisionRevisionChange
 from .impact_models import DecisionDependency, SupersessionDetail
 from .provenance_models import CommitHash, RepositoryIdentity, ScopeCompletionCitation
 from .response_validation import validate_page_items
@@ -95,6 +97,8 @@ class KnowledgeDomainRead(KnowledgeModel):
 
 
 class DecisionPutRequest(KnowledgeModel):
+    source_work_item_id: UUID | None | MISSING = MISSING
+    change: DecisionChangeInput | None = Field(default=None, exclude_if=lambda v: v is None)
     domain_id: UUID
     title: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=500)]
     content: Annotated[str, Field(max_length=MAX_DECISION_BYTES)]
@@ -154,6 +158,7 @@ class DecisionHumanGateRead(KnowledgeModel):
 
 
 class DecisionRead(KnowledgeModel):
+    change: DecisionRevisionChange | None = Field(default=None, exclude_if=lambda v: v is None)
     id: UUID
     project_id: UUID
     domain_id: UUID

@@ -148,6 +148,27 @@ test("failed reconciliation rejects without converting retained context into suc
   assert.equal(observer.getCurrentResult().isError, false);
 });
 
+test("guarded reconciliation publishes new review lineage without a work version change", async (t) => {
+  const { client, observe } = createClient(t);
+  const initial = context();
+  const adopted = { ...initial, work_item: { ...initial.work_item,
+    decision_review_change_id: checkpointId, decision_change_ids: [checkpointId],
+    decision_review_project_id: otherProject, decision_change_projects: { [checkpointId]: otherProject }
+  } };
+  const fetch = t.mock.method(globalThis, "fetch", async () => Response.json(initial));
+  const options = workContextOptions(project, work);
+  await client.fetchQuery(options);
+  const observer = observe({ ...options, enabled: false });
+  fetch.mock.mockImplementation(async () => Response.json(adopted));
+  await invalidateWorkDetailReads(client, null);
+  assert.equal(fetch.mock.callCount(), 1, "live invalidation must wait for the editor/recovery guard");
+  const fresh = await fetchFreshWorkContext(client, project, work);
+  assert.equal(fresh.work_item.version, initial.work_item.version);
+  assert.equal(observer.getCurrentResult().data.work_item.decision_review_change_id, checkpointId);
+  assert.deepEqual(observer.getCurrentResult().data.work_item.decision_change_projects,
+    { [checkpointId]: otherProject });
+});
+
 test("context decoding rejects another project's work and incoherent revisions without replacing cache", async (t) => {
   const { client } = createClient(t);
   const fetch = t.mock.method(globalThis, "fetch", async () => Response.json(context()));

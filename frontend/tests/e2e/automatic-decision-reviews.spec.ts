@@ -2,7 +2,8 @@ import { expect, request, test, type APIRequestContext } from "@playwright/test"
 import type { ProjectSettings, WorkItem } from "../../lib/types";
 import type { Decision } from "../../lib/knowledge";
 import { selectWork, workCard } from "./surface";
-import { claim } from "./task-fixtures";
+import { claim, createWork } from "./task-fixtures";
+import { reportForFixture } from "./job-report-fixture";
 
 async function apiClient() {
   const baseURL = process.env.MNEMONIC_E2E_API_URL;
@@ -152,15 +153,133 @@ test("changed decisions create ordinary investigation tasks with editable instru
     await card.screenshot({ path: testInfo.outputPath("decision-impact-review-work-card.png") });
     const pane = await selectWork(page, investigation.title);
     await expect(pane.getByText("DECISION IMPACT REVIEW", { exact: true })).toBeVisible();
+    await expect(pane.getByText(/Scope version 1 · 1 revision · 1 assessment/)).toBeVisible();
+    await pane.getByRole("checkbox", { name: "I have inspected all assessments in scope version 1." }).check();
+    await pane.getByRole("button", { name: "Acknowledge scope version 1" }).click();
+    await expect(pane.getByText("Scope version 1 acknowledged.", { exact: true })).toBeVisible();
+    await pane.locator(".decision-change-panel").screenshot({ path: testInfo.outputPath("decision-impact-review-current-scope.png"), animations: "disabled" });
+    await pane.getByRole("button", { name: `${original.reference} → ${changed.reference}`, exact: true }).click();
+    await pane.getByRole("button", { name: `Record disposition for ${original.reference}`, exact: true }).click();
+    const draft = "Keep this investigative disposition draft while another revision extends the review.";
+    await pane.getByRole("textbox", { name: "Reason", exact: true }).fill(draft);
+    const extended = (await json(await api.put(`${path}/decisions`, { data: {
+      ...fields, content: "Use remote transport registration with durable retries.", decision_id: original.decision_id,
+      expected_revision: changed.revision, source_work_item_id: investigation.id, client_operation_id: crypto.randomUUID()
+    } }))).decision as Decision;
+    // This must arrive through live invalidation, before the 30-second fallback poll.
+    await expect(pane.getByText(/Scope version 2 · 2 revisions · 2 assessments/)).toBeVisible({ timeout: 10_000 });
+    await expect(pane.getByRole("textbox", { name: "Reason", exact: true })).toHaveValue(draft);
+    await expect(pane.getByRole("checkbox", { name: "I have inspected all assessments in scope version 2." })).not.toBeChecked();
+    await expect(pane.getByRole("button", { name: "Acknowledge scope version 2" })).toBeDisabled();
+    const refreshed = await json(await api.get(`/api/v1/projects/${selected.id}/work-items/${investigation.id}`));
+    expect(refreshed.work_item.version).toBe(detail.work_item.version);
+    await pane.getByRole("button", { name: "Cancel disposition", exact: true }).click();
     await claim(api, selected.id, investigation.id);
     await page.goto(`/?project=${selected.id}`);
     await expect(page.locator(".task-card").filter({ hasText: investigation.title }).getByText("DECISION IMPACT REVIEW", { exact: true })).toBeVisible();
     await configure(api, selected.id, { automatic_decision_reviews: false });
     await json(await api.put(`${path}/decisions`, {
       data: { ...fields, content: "Retain remote transport registration with retries.", decision_id: original.decision_id,
-        expected_revision: changed.revision, client_operation_id: crypto.randomUUID() }
+        expected_revision: extended.revision, client_operation_id: crypto.randomUUID() }
     }));
     const remaining = await json(await api.get(`/api/v1/projects/${selected.id}/tasks?status=all&kind=work_item&limit=20`));
     expect(remaining.items).toHaveLength(1);
+  } finally { await api.dispose(); }
+});
+
+test("ordinary work adopts assessments and closed reviews require explicit owner admission", async ({ page }, testInfo) => {
+  const api = await apiClient();
+  try {
+    const project = await createProject(api);
+    const path = `/api/v1/projects/${project.id}/knowledge`;
+    const domain = await json(await api.post(`${path}/domains`, {
+      data: { name: "Architecture", prefix: "ADR", client_operation_id: crypto.randomUUID() }
+    }));
+    const fields = { domain_id: domain.id, title: "Bounded review adoption", state: "accepted", media_type: "text/markdown", author_kind: "human" };
+    const original = (await json(await api.put(`${path}/decisions`, {
+      data: { ...fields, content: "First ruling.", client_operation_id: crypto.randomUUID() }
+    }))).decision as Decision;
+    await json(await api.put(`${path}/decisions`, {
+      data: { ...fields, content: "Replacement ruling.", decision_id: original.decision_id,
+        expected_revision: original.revision, client_operation_id: crypto.randomUUID() }
+    }));
+    const episodes = await json(await api.get(`${path}/assessments?decision_id=${original.decision_id}`));
+    const episode = episodes.items[0];
+    const work = await createWork(api, project.id, "Combined impact investigation");
+    await page.goto(`/work-items?project=${project.id}`);
+    const pane = await selectWork(page, "Combined impact investigation");
+    await pane.getByText("Decision impact review scope", { exact: true }).click();
+    await pane.getByText("Adopt existing assessments into this work item", { exact: true }).click();
+    await pane.getByRole("textbox", { name: "Assessment IDs" }).fill(episode.id);
+    await pane.getByRole("button", { name: "Adopt assessments", exact: true }).click();
+    await expect(pane.getByText("DECISION IMPACT REVIEW", { exact: true })).toBeVisible();
+    await expect(pane.getByText(/Scope version 1 ·/)).toBeVisible();
+    await pane.getByRole("checkbox", { name: "I have inspected all assessments in scope version 1." }).check();
+    await pane.getByRole("button", { name: "Acknowledge scope version 1" }).click();
+    await expect(pane.getByText("Scope version 1 acknowledged.", { exact: true })).toBeVisible();
+    await pane.locator(".decision-change-panel").screenshot({ path: testInfo.outputPath("decision-impact-review-adopted-scope.png"), animations: "disabled" });
+    await json(await api.post(`${path}/assessments/${episode.id}/dispositions`, { data: {
+      candidate_reference: original.reference, expected_version: episode.version, disposition: "not-affected",
+      reason: "Disposable browser fixture has no implementation to remediate.",
+      actor: { actor_client: "dashboard", actor_session_id: "adoption-browser-test" }, client_operation_id: crypto.randomUUID()
+    } }));
+    const context = await json(await api.get(`/api/v1/projects/${project.id}/work-items/${work.id}`));
+    const child = (await json(await api.post(`/api/v1/projects/${project.id}/work-items`, { data: {
+      title: "Moved decision follow-up", summary: "Retain the original review boundary after moving projects.",
+      discovered_from_work_item_id: work.id,
+      initial_checkpoint: { prompt: "Ask the owner about a new scope exception.", source_client: "codex", source_session_id: "adoption-browser-test" }
+    } }))).work_item;
+    await json(await api.post(`/api/v1/projects/${project.id}/work-items/${work.id}/complete`, { data: {
+      expected_version: context.work_item.version, client_operation_id: crypto.randomUUID(), subagent_transcripts: null,
+      checkpoint: { prompt: "Reviewed the disposable assessment and acknowledged current scope.", source_client: "dashboard", source_session_id: "adoption-browser-test" },
+      job_completion_report: await reportForFixture(api, project.id)
+    } }));
+    const destination = await createProject(api);
+    await configure(api, destination.id, { automatic_decision_reviews: true });
+    await json(await api.post(`/api/v1/projects/${project.id}/work-items/${child.id}/move`, { data: {
+      target_project_id: destination.id, expected_version: child.version, client_operation_id: crypto.randomUUID(),
+      actor: { actor_client: "dashboard", actor_session_id: "adoption-browser-test", actor_model: null }
+    } }));
+    const gates = `/api/v1/projects/${destination.id}/work-items/${child.id}/gates`;
+    const gate = await json(await api.post(gates, { data: {
+      question: "Should the moved follow-up apply the new scope exception?", requested_by_client: "codex",
+      requested_by_session_id: "adoption-browser-test", requested_by_model: "test-model", client_operation_id: crypto.randomUUID()
+    } }));
+    const answered = await json(await api.post(`${gates}/${gate.id}/resolve`, { data: {
+      resolution: "Apply the reviewed exception in this destination project.", resolved_by_client: "dashboard",
+      resolved_by_session_id: "adoption-browser-test", resolved_by_model: "human-ui",
+      reviewed_context_revision: gate.current_context_revision, client_operation_id: crypto.randomUUID()
+    } }));
+    const answer = await json(await api.get(`/api/v1/projects/${destination.id}/knowledge/decisions/${answered.decision.reference}`));
+    expect(answer.change.requires_admission).toBe(true);
+    await page.goto(`/work-items?project=${destination.id}&work=${child.id}`);
+    const movedPane = page.locator(".work-detail-pane");
+    await movedPane.getByText(/Inherited change lineage \(/).click();
+    const sourceScope = movedPane.getByRole("region", { name: `Decision change ${context.work_item.decision_review_change_id}`, exact: true });
+    await expect(sourceScope.getByRole("link", { name: "Open the review work item" })).toHaveAttribute("href", `/work-items?project=${project.id}&work=${work.id}`);
+    const heldScope = movedPane.getByRole("region", { name: `Decision change ${answer.change.change_id}`, exact: true });
+    await expect(heldScope.getByText("These retained decision revisions have no review driver.", { exact: false })).toBeVisible();
+    await heldScope.getByRole("checkbox", { name: "Authorize a new review cycle for this change." }).check();
+    await heldScope.getByRole("button", { name: "Admit a new review cycle", exact: true }).click();
+    await expect(heldScope.getByText(/New cycle admitted:/)).toBeVisible();
+    const destinationTasks = await json(await api.get(`/api/v1/projects/${destination.id}/tasks?status=pending&kind=work_item&limit=20`));
+    expect(destinationTasks.items.filter((item: WorkItem) => item.decision_review_change_id)).toHaveLength(1);
+    await heldScope.screenshot({ path: testInfo.outputPath("decision-impact-review-moved-lineage.png"), animations: "disabled" });
+    await page.reload();
+    await movedPane.getByText(/Inherited change lineage \(/).click();
+    await expect(heldScope.getByText(/New cycle admitted:/)).toBeVisible();
+    await expect(heldScope.getByRole("button", { name: "Admit a new review cycle", exact: true })).toHaveCount(0);
+    await page.goto(`/work-items?project=${project.id}&work=${work.id}`);
+    const closedPane = page.locator(".work-detail-pane");
+    await expect(closedPane.getByRole("button", { name: "Admit a new review cycle", exact: true })).toBeDisabled();
+    await closedPane.getByRole("checkbox", { name: "Authorize a new review cycle for this change." }).check();
+    await closedPane.getByRole("button", { name: "Admit a new review cycle", exact: true }).click();
+    await expect(closedPane.getByText(/New cycle admitted:/)).toBeVisible();
+    await closedPane.locator(".decision-change-panel").screenshot({ path: testInfo.outputPath("decision-impact-review-owner-admission.png"), animations: "disabled" });
+    await page.reload();
+    await expect(closedPane.getByText(/New cycle admitted:/)).toBeVisible();
+    await expect(closedPane.getByRole("button", { name: "Admit a new review cycle", exact: true })).toHaveCount(0);
+    const retained = await json(await api.get(`/api/v1/projects/${project.id}/work-items/${work.id}`));
+    expect(retained.work_item.status).toBe("done");
   } finally { await api.dispose(); }
 });

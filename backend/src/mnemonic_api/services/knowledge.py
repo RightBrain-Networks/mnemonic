@@ -284,10 +284,12 @@ def decision_read(
         )
         or 0
     )
+    from mnemonic_api.services.decision_changes import revision_change_read
     from mnemonic_api.services.product_decisions import decision_gate_read
 
     return DecisionRead.model_validate(
         {
+            "change": revision_change_read(database, revision.id),
             "human_gate": decision_gate_read(database, document.id),
             "id": document.id,
             "project_id": document.project_id,

@@ -3,6 +3,8 @@
 import hashlib
 from uuid import UUID
 
+from pydantic.experimental.missing_sentinel import MISSING
+
 from .knowledge_models import (
     DecisionPut,
     DecisionPutResult,
@@ -68,6 +70,8 @@ def _put_metadata_matches(result: DecisionPutResult, intent: DecisionPut) -> boo
     # A new upload deduplicates by domain/content hash and retains the original metadata.
     if not result.created and intent.decision_id is None:
         return True
+    if result.created and not _change_matches(item, intent):
+        return False
     fields = {"title", "media_type", "state"}
     if result.created:
         fields |= {"author_kind", "agent_session_id", "model_id"}
@@ -79,6 +83,23 @@ def _put_metadata_matches(result: DecisionPutResult, intent: DecisionPut) -> boo
             and all(set(getattr(item, key)) == set(getattr(intent, key)) for key in links)
             and set(item.supersedes) == supersedes
             and _pinned_links(item) == _pinned_links(intent))
+
+
+def _change_matches(item: DecisionRead, intent: DecisionPut) -> bool:
+    if intent.source_work_item_id is MISSING and intent.change is None:
+        return True  # Historical receipt replay retains its original sparse result.
+    if item.change is None:
+        return False
+    if intent.source_work_item_id is not MISSING \
+            and item.change.source_work_item_id != intent.source_work_item_id:
+        return False
+    if intent.change is None:
+        return item.change.kind == "substantive"
+    return all(getattr(item.change, key) == value for key, value in intent.change.model_dump(
+        exclude={"change_id"},
+    ).items()) and (
+        intent.change.change_id is None or item.change.change_id == intent.change.change_id
+    )
 
 
 def _pinned_links(item: DecisionRead | DecisionPut) -> tuple[set[tuple], set[tuple]]:

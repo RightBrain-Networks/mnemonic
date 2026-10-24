@@ -139,7 +139,8 @@ def _append(
     knowledge.add_pinned_links(database, document, revision, payload)
     database.flush()
     from mnemonic_api.services.decision_impact import create_assessments
-    create_assessments(database, document, revision, payload)
+    create_assessments(database, document, revision, payload,
+                       hold_closed=payload.author_kind == "human")
 
 
 def write_question_decision(
@@ -156,6 +157,9 @@ def write_question_decision(
         "domain_id": document.domain_id, "content": product_decision_content(payload.question),
         "media_type": "text/markdown", "state": "proposed", "author_kind": author_kind,
         "agent_session_id": agent_session_id, "model_id": model_id, **metadata,
+        "source_work_item_id": work.id,
+        "change": {"kind": "maintenance", "reason":
+                   "Unaccepted human question; this revision does not enact a ruling."},
     })
     _append(database, document, decision, authored_at, advancing=not creating)
 
@@ -167,6 +171,7 @@ def write_answer_decision(database: Session, work: WorkItem, gate: WorkGate) -> 
         domain_id=document.domain_id,
         content=product_decision_content(question, gate.resolution),
         media_type="text/markdown", state="accepted", author_kind="human",
+        source_work_item_id=work.id,
         **_metadata(database, document, work, None),
     )
     assert gate.resolved_at is not None

@@ -2140,6 +2140,22 @@ class HumanGateRead(APIModel):
 
 
 class WorkItemRead(Timestamps):
+    decision_change_projects: dict[UUID, UUID] = Field(
+        default_factory=dict, exclude_if=lambda value: not value,
+        description="Source project for each inherited decision-change identity.",
+    )
+    decision_review_project_id: UUID | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None,
+        description="Source project owning this work's decision change and assessment ledger.",
+    )
+    decision_review_change_id: UUID | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None,
+        description="Explicit decision change whose investigation this work drives.",
+    )
+    decision_change_ids: list[UUID] = Field(
+        default_factory=list, exclude_if=lambda value: not value,
+        description="Inherited decision-change identities for this work and its descendants.",
+    )
     decision_review_revision_id: UUID | SkipJsonSchema[None] = Field(
         default=None, exclude_if=lambda value: value is None,
         description="Triggering decision revision for an ordinary decision impact review task.",
@@ -2813,6 +2829,18 @@ class RelationshipRemovalResult(APIModel):
 
 
 class WorkItemPointer(APIModel):
+    decision_review_project_id: UUID | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None,
+        description="Source project owning this work's decision change and assessment ledger.",
+    )
+    decision_review_change_id: UUID | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None,
+        description="Explicit decision change whose investigation this work drives.",
+    )
+    decision_change_ids: list[UUID] = Field(
+        default_factory=list, exclude_if=lambda value: not value,
+        description="Inherited decision-change identities for this work and its descendants.",
+    )
     decision_review_revision_id: UUID | SkipJsonSchema[None] = Field(
         default=None, exclude_if=lambda value: value is None,
     )
@@ -2907,6 +2935,18 @@ WorkSearchStatus = Literal[
 
 
 class CompactWorkHit(WorkMatchEvidence, SearchHitRanking):
+    decision_review_project_id: UUID | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None,
+        description="Source project owning this work's decision change and assessment ledger.",
+    )
+    decision_review_change_id: UUID | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None,
+        description="Explicit decision change whose investigation this work drives.",
+    )
+    decision_change_ids: list[UUID] = Field(
+        default_factory=list, exclude_if=lambda value: not value,
+        description="Inherited decision-change identities for this work and its descendants.",
+    )
     decision_review_revision_id: UUID | SkipJsonSchema[None] = Field(
         default=None, exclude_if=lambda value: value is None,
     )

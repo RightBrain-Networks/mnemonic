@@ -20,6 +20,7 @@ _ADMITTED = object()
 BROWSER_HANDLERS = {
     "knowledge_provenance": ("decision_commit_lookup",),
     "knowledge_impact": (
+        "get_decision_change", "update_decision_change",
         "get_decision_impact", "list_decision_assessments", "get_decision_assessment",
         "get_decision_assessment_history", "assess_decision_impact",
     ),

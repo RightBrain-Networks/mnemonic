@@ -1,3 +1,4 @@
+import { decodeDecisionRevisionChange, type DecisionRevisionChange } from "./decision-changes.ts";
 import { ApiError, detailMessage } from "./api.ts";
 import { readBoundedJson } from "./bounded-json.ts";
 import { exactKeys, finiteInteger, objectValue, sameUuid, validUuid } from "./wire-guards.ts";
@@ -10,6 +11,7 @@ export type KnowledgeDomain = {
   is_product_decision_domain?: boolean;
 };
 export type Decision = {
+  change?: DecisionRevisionChange | null;
   id: string; project_id: string; domain_id: string; domain_name: string; prefix: string;
   ordinal: number; decision_id: string; reference: string; revision: number; title: string;
   state: DecisionState; media_type: "text/plain" | "text/markdown"; size_bytes: number;
@@ -102,6 +104,7 @@ export function decodeDecision(value: unknown, projectId: string, decisionId?: s
       || item.prefix !== "PDR"
       || (!sameUuid(gate.work_project_id, projectId) ? gate.status !== "resolved" : !item.related_work_item_ids.includes(gate.work_item_id))) invalid();
   }
+  if (item.change != null) decodeDecisionRevisionChange(item.change);
   return item as Decision;
 }
 

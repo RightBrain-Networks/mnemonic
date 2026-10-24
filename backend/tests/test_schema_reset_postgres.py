@@ -71,6 +71,8 @@ _GUARDED_TABLES = (
     "decision_work_item_links", "decision_artifact_links", "decision_scopes",
     "decision_dependencies", "decision_supersession_details", "decision_impact_assessments",
     "decision_impact_dispositions", "decision_commit_mappings",
+    "decision_changes", "decision_revision_changes", "decision_change_assessments",
+    "decision_change_work",
     "artifacts", "artifact_revisions", "artifact_audit",
     "artifact_access_approvals", "artifact_links",
     "artifact_work_links", "artifact_operations", "artifact_extractions",
@@ -101,6 +103,7 @@ _GUARDED_TABLES = (
 _POPULATED_TABLES = (
     *(table for table in _GUARDED_TABLES if table not in {
         "product_decision_requests",
+        "decision_change_work",
         "artifact_access_approvals", "artifact_links",
         "work_agent_follow_ups",
         "work_agent_follow_up_answers",

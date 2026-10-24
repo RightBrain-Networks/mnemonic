@@ -75,13 +75,15 @@ def _register_assessment_reads(server: FastMCP, api: MnemonicAPI) -> None:
     async def decision_assessments(
         project_id: UUID, decision_id: DecisionIdentifier | None = None,
         limit: Limit = 50, offset: Offset = 0,
+        change_id: UUID | None = None,
     ) -> KnowledgePage[ImpactAssessmentRead]:
-        """List durable impact assessments created by decision revisions or supersession. Optionally select a stable decision ID. Each episode pins before/after revisions, a bounded diff, captured candidates and coverage. Page all results; get exact candidate pages with decision_assessment_get. An assessment records a need to inspect consequences, not automatic invalidation or permission to perform remediation."""
+        """List durable impact assessments created by decision revisions or supersession. Optionally select a stable decision ID or change_id. For a native review, filter by change_id and page every current episode; the initial prompt may precede scope growth. Each episode pins before/after revisions, a bounded diff, captured candidates and coverage. Page all results; get exact candidate pages with decision_assessment_get. An assessment records a need to inspect consequences, not automatic invalidation or permission to perform remediation."""
         return await _read(
             api, f"projects/{project_id}/knowledge/assessments", KnowledgePage[ImpactAssessmentRead],
             lambda page: page.limit == limit and page.offset == offset
             and all(item.project_id == project_id for item in page.items),
             {"limit": limit, "offset": offset,
+             **({"change_id": change_id} if change_id is not None else {}),
              **({"decision_id": decision_id} if decision_id is not None else {})},
         )
 

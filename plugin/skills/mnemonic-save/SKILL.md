@@ -10,8 +10,12 @@ provenance, or change assessments, read
 [knowledge-graph.md](${CLAUDE_PLUGIN_ROOT}/reference/knowledge-graph.md).
 Use the knowledge tools for decision records rather than saving a second artifact
 copy. Preserve the user's unstructured text and explicit decision state. A saved
-decision, dependency, or assessment never grants implementation authority. Register
-actual decision scope as pull requests merge; Done still declares complete citations
+decision, dependency, or assessment never grants implementation authority.
+Fresh `decision_put` calls declare the session-origin `source_work_item_id` (or
+explicit null for an external trigger) and classify substantive, record-existing,
+or maintenance changes as described in that reference. Preserve inherited review
+lineage; closed reviews need explicit human admission before new obligations.
+Register actual decision scope as pull requests merge; Done still declares complete citations
 and reuses exact decision/revision/repository/commit registrations.
 
 For a local artifact upload, replacement, or download, read the short

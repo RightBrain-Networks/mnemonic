@@ -36,6 +36,7 @@ from mnemonic_api.application.guards import reject_registered_mutation_query
 from mnemonic_api.application.state import settings_of
 from mnemonic_api.errors import ApplicationError
 from mnemonic_api.schemas import APIModel
+from mnemonic_api.services import decision_change_locks
 from mnemonic_api.services.client_operations import (
     CompletedOperation,
     OperationKind,
@@ -108,6 +109,7 @@ def run_registered_mutation[Payload: APIModel, Result: APIModel](
         database.commit()
         _record_success(trace, operation)
         return operation.response
+    _require_decision_change_declaration(kind, payload)
     database.info["client_operation_keyed"] = (
         getattr(payload, "client_operation_id", None) is not None
     )
@@ -116,12 +118,22 @@ def run_registered_mutation[Payload: APIModel, Result: APIModel](
         mutation_project_ids = scope_factory()
     else:
         mutation_project_ids = cast(Iterable[UUID], additional_project_ids)
+    decision_scope = decision_change_locks.discover_scope(database, kind, target, payload)
+    if decision_scope is not None:
+        mutation_project_ids = (*mutation_project_ids, *decision_scope.project_ids)
     with project_mutation(
         database,
         project_id,
         additional_project_ids=mutation_project_ids,
         protected=True,
     ):
+        if decision_scope is not None:
+            from mnemonic_api.services.relationships import lock_relationship_graph
+
+            lock_relationship_graph(database)
+            decision_change_locks.require_unchanged_scope(
+                database, decision_scope, kind, target, payload,
+            )
         result = execute(cast(Payload, operation.domain_payload))
         _require_closeout_transcript_assertion(kind, payload)
         completed = complete_client_operation(
@@ -135,6 +147,15 @@ def run_registered_mutation[Payload: APIModel, Result: APIModel](
         database.commit()
     _record_success(trace, completed)
     return completed.response
+
+
+def _require_decision_change_declaration(kind: str, payload: APIModel) -> None:
+    if (kind == "put_decision" and getattr(payload, "author_kind", None) == "agent"
+            and "source_work_item_id" not in payload.model_fields_set):
+        raise ApplicationError(
+            422, "decision_change_source_required",
+            "Declare the originating work item, or explicit null for an external trigger.",
+        )
 
 
 def _require_closeout_transcript_assertion(kind: str, payload: APIModel) -> None:

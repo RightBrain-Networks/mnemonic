@@ -183,8 +183,17 @@ _APPLICATION_ERRORS = {
         "reopened. Its history is retained; save any continuation as new work."
     ),
     "work_blocked": "This work item has an unresolved blocker.",
+    "decision_change_closed": "This change is closed. Ask the owner to admit a successor through the dashboard before adding obligations.",
+    "decision_change_scope_conflict": "Read the current change scope and inspect added assessments before a new intent.",
+    "decision_change_scope_unacknowledged": "Inspect every current assessment, then acknowledge the current scope version before Done.",
+    "decision_change_lineage_conflict": "Preserve the session-origin work and inherited change identity. Do not create an unrelated root to bypass a review.",
+    "decision_change_adoption_conflict": "Inspect current work and assessment ownership before a new adoption intent.",
+    "decision_change_source_required": "Fresh agent decision writes require source_work_item_id: exact session-origin work, or explicit null for an external trigger.",
+    "decision_change_governance_invalid": "Use an exact governing reference and its existing change for record-existing; uncertainty remains substantive.",
+    "decision_change_human_admission_required": "Only the human dashboard can admit a successor review cycle.",
+    "decision_change_not_found": "The decision change was not found in this project.",
     "decision_impact_review_incomplete": (
-        "Append an evidenced disposition for every candidate in the pinned impact assessments. "
+        "Append an evidenced disposition for every required candidate in the attached impact assessments. "
         "Link separate remediation work for each change-required candidate before completing "
         "this investigation. Read the existing assessments for the remaining work."
     ),

@@ -14,12 +14,12 @@ previous bundled rubric. Edits are retained in PostgreSQL and project backups.
 Use [unified search](search.md) to retrieve work, artifacts, transcripts, and decisions in one
 ranked, filtered, paginated read through REST or MCP.
 
-This is application/API/MCP/dashboard `0.91.1`, plugin `0.54.0`, and migration
-`0057_automatic_decision_reviews`. See [knowledge graph](knowledge-graph.md) for retained
+This is application/API/MCP/dashboard `0.92.0`, plugin `0.55.0`, and migration
+`0058_decision_changes`. See [knowledge graph](knowledge-graph.md) for retained
 decision revisions and commit provenance, and [dependency cycles](dependency-cycles.md) for explicit
-parent closure requirements, cycle refusal, and honest deadlock display. The catalog has exactly 74 MCP tools, 23
-protected MCP writes, 30 REST receipt kinds, 24 protected browser mutations and
-24 work-event types. The 30 REST receipt kinds comprise 18 work operations, six knowledge operations, four artifact operations
+parent closure requirements, cycle refusal, and honest deadlock display. The catalog has exactly 76 MCP tools, 24
+protected MCP writes, 31 REST receipt kinds, 25 protected browser mutations and
+24 work-event types. The 31 REST receipt kinds comprise 18 work operations, seven knowledge operations, four artifact operations
 with filesystem recovery journals, and two transcript operations (rebuild and import). See
 [artifact contracts](artifacts.md) for binary routes, retention and work discovery.
 Relationship identity and graph invariants are global;

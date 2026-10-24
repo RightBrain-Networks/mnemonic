@@ -4,6 +4,7 @@ import hashlib
 import io
 from contextlib import contextmanager
 from datetime import datetime
+from unittest.mock import patch
 from uuid import UUID, uuid4
 
 import pytest
@@ -64,7 +65,9 @@ def _legacy_behavior(monkeypatch):
 @contextmanager
 def _historical_automatic_review_columns():
     missing = {
-        WorkItem: {"decision_review_revision_id": None},
+        WorkItem: {"decision_review_revision_id": None, "decision_review_change_id": None,
+                   "decision_review_project_id": None, "decision_change_ids": [],
+                   "decision_change_projects": {}},
         ProjectSettings: {"automatic_decision_reviews": False, "decision_review_priority": 40},
     }
 
@@ -86,7 +89,12 @@ def _historical_automatic_review_columns():
         event.listen(model, "load", historical_defaults)
         event.listen(model, "refresh", historical_defaults)
     try:
-        yield
+        with patch("mnemonic_api.services.decision_reviews.require_decision_impact_review_complete",
+                   lambda *_: None), patch(
+                       "mnemonic_api.services.decision_change_locks.discover_scope",
+                       lambda *_: None,
+                   ):
+            yield
     finally:
         for model in missing:
             event.remove(model, "load", historical_defaults)
@@ -262,7 +270,7 @@ def test_backfill_retains_every_question_answer_actor_and_existing_pdr_ordinal(
     with pytest.raises(BackupError, match="integrity"):
         restore_project(postgres_engine, UUID(project["id"]),
                         io.BytesIO(_rewrite(archive, discard_fresh_receipt)))
-    with pytest.raises(RuntimeError, match="Product decision data exists"):
+    with pytest.raises(RuntimeError, match="Decision change identities"):
         migrate(postgres_engine, "0055_decision_provenance", downgrade=True)
 
 

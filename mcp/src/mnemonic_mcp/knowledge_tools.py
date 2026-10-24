@@ -7,8 +7,10 @@ from uuid import UUID
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 from pydantic import BaseModel, Field, StrictInt, ValidationError
+from pydantic.experimental.missing_sentinel import MISSING
 
 from .api import MnemonicAPI, TransportEffect
+from .decision_change_models import DecisionChangeInput
 from .impact_models import DecisionDependency, SupersessionDetail
 from .input_errors import InputValidationError
 from .knowledge_models import (
@@ -91,6 +93,7 @@ async def _write[T: BaseModel](
 
 
 def register_knowledge_tools(server: FastMCP, api: MnemonicAPI) -> None:
+    from .decision_change_tools import register_decision_change_tools
     from .knowledge_impact_tools import register_impact_tools
     from .knowledge_provenance_tools import register_provenance_tools
 
@@ -99,6 +102,7 @@ def register_knowledge_tools(server: FastMCP, api: MnemonicAPI) -> None:
     _register_decision_writes(server, api)
     register_impact_tools(server, api)
     register_provenance_tools(server, api)
+    register_decision_change_tools(server, api)
 
 
 def _register_domains(server: FastMCP, api: MnemonicAPI) -> None:
@@ -213,8 +217,13 @@ def _register_decision_writes(server: FastMCP, api: MnemonicAPI) -> None:
         supersedes: DecisionLinks = [],  # noqa: B006
         depends_on: Annotated[list[DecisionDependency], Field(max_length=100)] = [],  # noqa: B006
         supersession_details: Annotated[list[SupersessionDetail], Field(max_length=100)] = [],  # noqa: B006
+        source_work_item_id: Annotated[UUID | None | MISSING, Field(
+            description="Required for fresh agent writes: exact session-origin work, or explicit "
+            "null for a human/external trigger. Omission is only for historical receipt replay.",
+        )] = MISSING,
+        change: DecisionChangeInput | None = None,
     ) -> DecisionPutResult:
-        """Create a server-numbered decision or append an immutable revision. Managed Needs Attention PDRs must be authored through request_human_input and answered by the human dashboard; decision_put cannot revise them or bypass the queue. Required: domain, title, content, text/plain or text/markdown media_type, and explicit state (proposed/rejected/accepted/superseded/partially-superseded). Agent authors supply actual agent_session_id and model_id. Decode source files to Unicode first; UTF-8 content is limited to 1 MiB and no template is imposed. To revise, supply stable decision_id and expected_revision together from decision_get. New uploads deduplicate by domain/content hash and retain original metadata. Explicit updates with changed content or metadata create a revision; identical repeats preserve the original author. All historical versions remain in PostgreSQL. Links may cross domains within the project; supersedes must stay within the same domain. Supply full desired metadata on each revision. depends_on declares causal dependencies with exact target revisions and rationale; related links alone remain informational. supersession_details pins the overridden revision with full/partial extent and reason. Revision/supersession changes create captured impact assessments. When code uses a decision, record its commit and exact cited revision via the atomic closeout declaration or decision_scope_append outside closeout. Omit client_operation_id for automatic UUID minting; retain it and every argument unchanged for one uncertain retry, then reconcile using reads."""
+        """Create a server-numbered decision or append an immutable revision. Managed Needs Attention PDRs must be authored through request_human_input and answered by the human dashboard; decision_put cannot revise them or bypass the queue. Required: domain, title, content, text/plain or text/markdown media_type, and explicit state (proposed/rejected/accepted/superseded/partially-superseded). Agent authors supply actual agent_session_id and model_id, plus explicit source_work_item_id: the session-origin work or null for an external trigger. Omission is only for historical receipt replay. change defaults to substantive. Use record-existing only with an existing change_id, exact governing_reference and reason; maintenance also requires a reason. Uncertainty stays substantive. Review-derived revisions retain their change lineage; a closed review requires human dashboard admission before a new obligation. Decode source files to Unicode first; UTF-8 content is limited to 1 MiB and no template is imposed. To revise, supply stable decision_id and expected_revision together from decision_get. New uploads deduplicate by domain/content hash and retain original metadata. Explicit updates with changed content or metadata create a revision; identical repeats preserve the original author. All historical versions remain in PostgreSQL. Links may cross domains within the project; supersedes must stay within the same domain. Supply full desired metadata on each revision. depends_on declares causal dependencies with exact target revisions and rationale; related links alone remain informational. supersession_details pins the overridden revision with full/partial extent and reason. Revision/supersession changes create captured impact assessments. When code uses a decision, record its commit and exact cited revision via the atomic closeout declaration or decision_scope_append outside closeout. Omit client_operation_id for automatic UUID minting; retain it and every argument unchanged for one uncertain retry, then reconcile using reads."""
         intent = _validated(DecisionPut, {
             "domain_id": domain_id, "title": title, "content": content,
             "media_type": media_type, "state": state, "client_operation_id": client_operation_id,
@@ -224,6 +233,7 @@ def _register_decision_writes(server: FastMCP, api: MnemonicAPI) -> None:
             "related_work_item_ids": related_work_item_ids,
             "related_artifact_ids": related_artifact_ids, "supersedes": supersedes,
             "depends_on": depends_on, "supersession_details": supersession_details,
+            "source_work_item_id": source_work_item_id, "change": change,
         })
         return await _write(
             api, "PUT", f"projects/{project_id}/knowledge/decisions", DecisionPutResult, intent,

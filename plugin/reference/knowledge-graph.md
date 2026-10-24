@@ -87,7 +87,10 @@ answer, or invent use because a PDR is linked to the work.
 Supply title, domain, media type, and explicit state: `proposed`, `rejected`,
 `accepted`, `superseded`, or `partially-superseded`. Agent authors supply their
 actual native session and model IDs; never invent original authorship or mark
-agent-authored content as human. The server allocates the monotonic ordinal and
+agent-authored content as human. Fresh agent calls explicitly declare
+`source_work_item_id`: the exact work that initiated this session, or null for a
+human/external trigger. Later reads do not change origin. Sparse omission is only
+for historical receipt replay. The server allocates the monotonic ordinal and
 initial revision 0. New uploads deduplicate by content hash within the domain
 and retain the original metadata.
 
@@ -97,6 +100,17 @@ omitting an existing link from the replacement list removes it from the new
 revision, while the old revision remains unchanged. Identical text and metadata
 are a no-op. A definitive stale-revision conflict requires rereading before a
 new intent; an uncertain result requires the exact original intent and ID.
+
+Classify revisions explicitly with `change`. The default `kind="substantive"`
+means a new ruling or scope change; uncertainty stays substantive. A revision
+recording the same ruling uses `kind="record-existing"` with its existing
+`change_id`, exact `governing_reference` and a concrete `reason`. Genuine
+formatting/provenance maintenance uses `kind="maintenance"` with a reason.
+Never infer classification from headings, elapsed time, authorship or accepted
+state. Related revisions join one native change and review. Review-derived work
+and its discovered-from descendants retain that change identity. A closed change
+requires explicit human dashboard admission before new review obligations; do
+not evade this with null source, a different root, or reopened historical work.
 
 Use each relationship for its explicit meaning:
 
@@ -217,9 +231,12 @@ it has no linked commits. Reports should distinguish recorded dependencies,
 context checks, and unregistered or truncated evidence.
 
 Actual document revisions and supersession create durable assessment episodes.
-An amended replacement decision creates another supersession assessment for
-each retained supersedes link; a content-and-metadata no-op creates no episode.
-Use `decision_assessments`, then `decision_assessment_get` and every candidate
+An unchanged supersession can reuse its original episode only when the governing
+transition and captured candidate/coverage evidence match. Different transitions
+or evidence add obligations; no verdicts are copied across them. A content-and-
+metadata no-op creates no episode. Maintenance records remain auditable without
+spawning a new review cycle.
+Use `decision_assessments` (filter `change_id` for grouped review scope), then `decision_assessment_get` and every candidate
 page. Episodes pin before/after revisions, a bounded diff, candidate snapshots,
 and coverage at creation. Fetch both exact texts when the diff is truncated.
 Later scope/dependency registrations do not rewrite this snapshot; run a fresh
@@ -245,7 +262,15 @@ version when concurrent changes matter.
 
 ## Investigate an assigned decision impact review
 
-Use the ordinary work claim/checkpoint/closeout lifecycle for the pinned transition;
+Read `decision_review_change_id` from the work. If present, call
+`decision_change_get` and page `decision_assessments(change_id=...)` for all current
+obligations. The initial prompt is a starting reference, not the current scope.
+Use historical pinned IDs only when no native change is present. Existing ordinary
+pending work can explicitly adopt 1–100 unique assessment IDs with
+`decision_change_update(action="adopt", work_item_id=..., expected_work_version=...,
+assessment_ids=[...])`; this does not merge historical work or copy dispositions.
+
+Use the ordinary work claim/checkpoint/closeout lifecycle for the assigned transitions;
 this is an investigation, not a specialized code review or permission to implement
 remediation. Read the exact before/after texts before investigating candidates.
 Classify the change as a rule change, scope change, references-only, or a combination.
@@ -271,6 +296,23 @@ not contradict it." Optional context dispositions remain available. Every record
 `change-required` result, including context, needs a distinct undeleted remediation
 work link before Done. Keep actual fixes in separately authorized work. Report
 extra live candidates absent from the frozen ledger and remaining coverage gaps.
+
+Before Done, reread the change and inspect any new attached assessments. Reuse
+truthful dispositions on the same immutable episode instead of repeating settled
+work. Call `decision_change_update(action="acknowledge", change_id=...,
+expected_scope_version=..., lease_token=...)` with actual actor_client/session/model.
+Scope growth invalidates acknowledgement. Done checks acknowledgement and every
+attached episode; acknowledging never substitutes for candidate dispositions.
+Closed changes need a human-admitted successor before new obligations. Agents
+cannot admit successors, and an accepted PDR alone is not that dashboard action.
+Managed answers remain durable: `change.requires_admission` identifies a retained
+substantive revision awaiting explicit admission; `pending_revision_count` on the
+change shows held obligations. Admission materializes their assessments in the
+successor, without relabeling answers as maintenance or parsing approval prose.
+If follow-up work moves projects, managed answers may use a local held change
+with no driver while preserving the original lineage. That held change still
+requires explicit owner admission. Work detail's `decision_change_projects` map
+locates inherited changes; use each change's own project for reads and actions.
 
 ## Preserve exact writes across uncertainty
 

@@ -88,7 +88,7 @@ export function DecisionAssessments({ projectId, decisionId, onDecision, onPendi
 function DispositionRecord({ entry, projectId }: { entry: ImpactDisposition; projectId: string }) {
   return <div className="impact-disposition"><strong>{entry.disposition.replaceAll("-", " ")}</strong><p>{entry.reason}</p>{entry.remediation_work_item_id && <Link href={`/work-items?project=${projectId}&work=${entry.remediation_work_item_id}`}>Remediation work {entry.remediation_work_item_id}</Link>}<span>Record {entry.version} · {formatDateTime(entry.created_at)} · {entry.actor.actor_client} · {entry.actor.actor_session_id}{entry.actor.actor_model ? ` · ${entry.actor.actor_model}` : ""}</span></div>;
 }
-function AssessmentView({ projectId, id, onDecision, onPendingChange }: { projectId: string; id: string; onDecision: (reference: string) => void; onPendingChange: (pending: boolean) => void }) {
+export function AssessmentView({ projectId, id, onDecision, onPendingChange }: { projectId: string; id: string; onDecision: (reference: string) => void; onPendingChange: (pending: boolean) => void }) {
   const [offset, setOffset] = useState(0);
   const [kind, setKind] = useState<ImpactKind>("code-impact");
   const [historyOffset, setHistoryOffset] = useState(0);

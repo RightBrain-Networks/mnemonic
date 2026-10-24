@@ -15,7 +15,7 @@ from mnemonic_api.errors import ApplicationError
 from mnemonic_api.prompt_storage import PromptStorage
 
 from .test_decision_impact_postgres import changed, decision, dependency
-from .test_duplicate_handling_postgres import merge_work
+from .test_duplicate_handling_postgres import merge_payload
 from .test_human_gates_postgres import create_work, gate_path, gate_request, resolution_payload
 from .test_knowledge_postgres import domain, path, put, put_body
 from .test_manual_review_requests_postgres import request_review
@@ -59,7 +59,34 @@ def assess(api, project, assessment_id, reference, disposition="still-valid", re
     assert result.status_code == 201, result.text
 
 
+def acknowledge_scope(api, project, work, lease_token=None):
+    current = context(api, project, work["id"])
+    change_id = current["work_item"].get("decision_review_change_id")
+    if change_id is None:
+        return
+    source = current["work_item"].get("decision_review_project_id", project["id"])
+    endpoint = path({"id": source}) + "/changes"
+    change = api.get(endpoint + f"/{change_id}").json()
+    payload = {
+        "action": "acknowledge", "change_id": change_id,
+        "expected_scope_version": change["scope_version"],
+        "actor_client": "dashboard", "actor_session_id": "impact-review-test-owner",
+        "client_operation_id": str(uuid4()),
+    }
+    if lease_token is not None:
+        lease = current["readiness"]["active_lease"]
+        payload.update(lease_token=lease_token, actor_client=lease["holder_client"],
+                       actor_session_id=lease["holder_session_id"])
+        result = api.post(endpoint, json=payload)
+    else:
+        result = api.post(endpoint.replace("/api/v1/", "/api/mnemonic/"), json=payload,
+                          headers={"host": "localhost:3000", "origin": "http://localhost:3000"})
+    assert result.status_code == 200, result.text
+
+
 def finish(api, project, work, checkpoint_fields, status="done"):
+    if status == "done":
+        acknowledge_scope(api, project, work)
     revision = api.get(f"/api/v1/projects/{project['id']}/settings").json()["revision"]
     return close(api, project, work, checkpoint_fields, status=status, job_completion_report={
         "summary": "Investigated the pinned decision transition and tracked all findings.",
@@ -139,6 +166,7 @@ def test_revision_creates_one_pinned_standard_task_with_custom_prompt(
     assert claimed.status_code == 200, claimed.text
     active = context(api, project, work_id)["readiness"]["active_lease"]
     assert active.get("purpose", "implementation") == "implementation"
+    acknowledge_scope(api, project, work, claimed.json()["lease_token"])
     report_prompt = api.post(base + "/prompts/job-completion-report/render",
                              json={"work_item_id": work_id}).json()
     completed, completion_intent = close(
@@ -188,6 +216,8 @@ def test_metadata_revision_and_supersession_are_grouped_per_trigger(api, project
     assert len(reviews(api, project)) == 2
     latest = reviews(api, project)[0]
     initial = context(api, project, latest["work_item_id"])["initial_checkpoint"]
+    # An unclassified revision remains substantive; only an explicit existing-rule
+    # declaration can reuse earlier coverage without asserting a new ruling.
     assert len(initial["source_metadata"]["assessment_ids"]) == 3
 
 
@@ -225,7 +255,7 @@ def test_decision_impact_marker_survives_all_work_list_and_hierarchy_projections
     assert child["decision_review_revision_id"] == marker
 
 
-def test_managed_product_decision_revisions_and_answers_create_standard_work(
+def test_managed_questions_wait_for_accepted_answer_before_creating_standard_work(
     api, project, work_payload,
 ):
     settings(api, project, automatic_decision_reviews=True)
@@ -239,7 +269,7 @@ def test_managed_product_decision_revisions_and_answers_create_standard_work(
                 "client_operation_id": str(uuid4())}
     updated = api.post(endpoint, json=revision)
     assert updated.status_code == 201, updated.text
-    assert len(reviews(api, project)) == 1
+    assert reviews(api, project) == []
     answer = {**resolution_payload(revision=updated.json()["current_context_revision"]),
               "expected_question_version": 2}
     resolved = api.post(endpoint + f"/{original['id']}/resolve", json=answer)
@@ -247,7 +277,7 @@ def test_managed_product_decision_revisions_and_answers_create_standard_work(
     assert api.post(endpoint, json=revision).json() == updated.json()
     assert api.post(endpoint + f"/{original['id']}/resolve", json=answer).json() == resolved.json()
     spawned = reviews(api, project)
-    assert len(spawned) == 2 and all(item["kind"] == "work_item" for item in spawned)
+    assert len(spawned) == 1 and all(item["kind"] == "work_item" for item in spawned)
     assert all(item["status"] == "pending" for item in spawned)
 
 
@@ -299,7 +329,7 @@ def test_decision_review_marker_is_immutable_and_unique(api, project, postgres_e
                                  {"id": spawned["work_item_id"]}) == 1
 
 
-def test_decision_review_can_move_and_merge_with_retained_origin(api, project, work_payload):
+def test_moved_decision_review_cannot_merge_without_scope_adoption(api, project, work_payload):
     settings(api, project, automatic_decision_reviews=True)
     target = domain(api, project)
     first = decision(api, project, target, "Moveable policy review")
@@ -321,8 +351,12 @@ def test_decision_review_can_move_and_merge_with_retained_origin(api, project, w
     assert retained["initial_checkpoint"] == original["initial_checkpoint"]
     assert retained["initial_checkpoint"]["source_metadata"]["decision_project_id"] == project["id"]
     ordinary = create_work(api, destination, work_payload, title="Consolidated investigation")
-    merged, _ = merge_work(api, destination, retained["work_item"], ordinary["work_item"])
-    assert merged["canonical_work_item"]["id"] == ordinary["work_item"]["id"]
+    payload = merge_payload(retained, context(api, destination, ordinary["work_item"]["id"]))
+    merged = api.post(
+        f"/api/v1/projects/{destination['id']}/work-items/{work_id}/merge", json=payload,
+    )
+    assert merged.status_code == 409, merged.text
+    assert merged.json()["detail"]["code"] == "decision_change_adoption_conflict"
     alias = context(api, destination, work_id)
     assert alias["work_item"]["decision_review_revision_id"] == \
         spawned["decision_review_revision_id"]

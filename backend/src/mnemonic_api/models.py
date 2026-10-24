@@ -24,13 +24,16 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     func,
+    literal,
+    select,
     text,
 )
-from sqlalchemy.dialects.postgresql import ARRAY, JSONB, TSVECTOR
-from sqlalchemy.orm import DeclarativeBase, Mapped, deferred, mapped_column
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB, TSVECTOR, aggregate_order_by
+from sqlalchemy.orm import DeclarativeBase, Mapped, column_property, deferred, mapped_column
 from sqlalchemy.schema import conv
 
 from mnemonic_api import code_review_db_tables as reviews
+from mnemonic_api import decision_change_db as decision_changes
 from mnemonic_api import impact_db as impact
 from mnemonic_api import knowledge_db as knowledge
 from mnemonic_api import manual_review_db as manual_reviews
@@ -67,6 +70,14 @@ class Base(DeclarativeBase):
             "pk": "pk_%(table_name)s",
         }
     )
+
+
+DECISION_CHANGE_TABLE = Table(
+    "decision_changes", Base.metadata, *decision_changes.change_elements(),
+)
+DECISION_CHANGE_WORK_TABLE = Table(
+    "decision_change_work", Base.metadata, *decision_changes.work_elements(),
+)
 
 
 class Project(Base):
@@ -178,7 +189,7 @@ class ClientOperation(Base):
             "'dismiss_job_completion_report', 'create_job_completion_report_follow_up', "
             "'respond_to_work_follow_up', 'complete_code_review', 'create_knowledge_domain', "
             "'rename_knowledge_domain', 'put_decision', 'append_decision_scope', "
-            "'assess_decision_impact', 'reconcile_decision_scope')",
+            "'assess_decision_impact', 'reconcile_decision_scope', 'update_decision_change')",
             name="operation_kind_valid",
         ),
         CheckConstraint(
@@ -328,6 +339,36 @@ class WorkItem(Base):
     remediation_id: Mapped[UUID | None] = mapped_column()
     decision_review_revision_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("decision_revisions.id", ondelete="RESTRICT"), unique=True,
+    )
+    decision_review_change_id: Mapped[UUID | None] = column_property(
+        select(DECISION_CHANGE_TABLE.c.id)
+        .where(DECISION_CHANGE_TABLE.c.review_work_item_id == id)
+        .correlate_except(DECISION_CHANGE_TABLE).scalar_subquery()
+    )
+    decision_review_project_id: Mapped[UUID | None] = column_property(
+        select(DECISION_CHANGE_TABLE.c.project_id)
+        .where(DECISION_CHANGE_TABLE.c.review_work_item_id == id)
+        .correlate_except(DECISION_CHANGE_TABLE).scalar_subquery()
+    )
+    decision_change_ids: Mapped[list[UUID]] = column_property(
+        select(func.coalesce(
+            func.array_agg(aggregate_order_by(
+                DECISION_CHANGE_WORK_TABLE.c.change_id, DECISION_CHANGE_WORK_TABLE.c.change_id,
+            )),
+            literal([], type_=ARRAY(DECISION_CHANGE_WORK_TABLE.c.change_id.type)),
+        )).where(DECISION_CHANGE_WORK_TABLE.c.work_item_id == id)
+        .correlate_except(DECISION_CHANGE_WORK_TABLE).scalar_subquery()
+    )
+    decision_change_projects: Mapped[dict[str, str]] = column_property(
+        select(func.coalesce(
+            func.jsonb_object_agg(
+                DECISION_CHANGE_WORK_TABLE.c.change_id, DECISION_CHANGE_TABLE.c.project_id,
+            ), literal({}, type_=JSONB),
+        )).select_from(DECISION_CHANGE_WORK_TABLE.join(
+            DECISION_CHANGE_TABLE,
+            DECISION_CHANGE_TABLE.c.id == DECISION_CHANGE_WORK_TABLE.c.change_id,
+        )).where(DECISION_CHANGE_WORK_TABLE.c.work_item_id == id)
+        .correlate_except(DECISION_CHANGE_WORK_TABLE, DECISION_CHANGE_TABLE).scalar_subquery()
     )
     completion_review_checkpoint_id: Mapped[UUID | None] = mapped_column()
     completion_review_policy_snapshot: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
@@ -2470,6 +2511,54 @@ class DecisionImpactDisposition(Base):
     reason: Mapped[str]
     remediation_work_item_id: Mapped[UUID | None]
     actor: Mapped[dict]
+    created_at: Mapped[datetime]
+
+
+class DecisionChange(Base):
+    __table__ = DECISION_CHANGE_TABLE
+
+    id: Mapped[UUID]
+    project_id: Mapped[UUID]
+    origin_revision_id: Mapped[UUID | None]
+    review_work_item_id: Mapped[UUID | None]
+    parent_change_id: Mapped[UUID | None]
+    scope_version: Mapped[int]
+    acknowledged_scope_version: Mapped[int]
+    admission_actor_client: Mapped[str | None]
+    admission_actor_session_id: Mapped[str | None]
+    admission_actor_model: Mapped[str | None]
+    created_at: Mapped[datetime]
+    updated_at: Mapped[datetime]
+
+
+class DecisionRevisionChange(Base):
+    __table__ = Table("decision_revision_changes", Base.metadata,
+                      *decision_changes.revision_elements())
+
+    revision_id: Mapped[UUID]
+    change_id: Mapped[UUID | None]
+    kind: Mapped[str]
+    reason: Mapped[str | None]
+    governing_revision_id: Mapped[UUID | None]
+    source_work_item_id: Mapped[UUID | None]
+    requires_admission: Mapped[bool]
+    created_at: Mapped[datetime]
+
+
+class DecisionChangeAssessment(Base):
+    __table__ = Table("decision_change_assessments", Base.metadata,
+                      *decision_changes.assessment_elements())
+
+    change_id: Mapped[UUID]
+    assessment_id: Mapped[UUID]
+    created_at: Mapped[datetime]
+
+
+class DecisionChangeWork(Base):
+    __table__ = DECISION_CHANGE_WORK_TABLE
+
+    work_item_id: Mapped[UUID]
+    change_id: Mapped[UUID]
     created_at: Mapped[datetime]
 
 
