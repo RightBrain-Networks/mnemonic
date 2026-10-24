@@ -1,5 +1,12 @@
 # Operating Mnemonic
 
+Release 0.100.0 and plugin 0.63.0 add supersession comparisons between successive
+revisions of the replacing document, plus explicit warnings for missing captured
+extent/reason. These are read projections; retained assessment evidence and old
+cross-document diffs are unchanged. `include_diff=false` omits both ordinary and
+supersession prose. No new configuration or migration is required beyond
+`0062_review_scope_notices`.
+
 Release 0.99.0 and plugin 0.62.0 add a read-only grouped view of required decision
 impact candidates. It distinguishes stable documents, captured revisions and
 per-episode obligations, with bounded pagination and a coherent scope snapshot.

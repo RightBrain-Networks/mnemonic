@@ -58,6 +58,83 @@ class SupersessionDetail(ImpactModel):
         return DecisionDependency.valid_reason(value)
 
 
+class SupersedesSection(ImpactModel):
+    found: StrictBool
+    section_count: Annotated[StrictInt, Field(ge=0)]
+    text: str | None = Field(default=None, exclude_if=lambda value: value is None)
+    truncated: StrictBool
+    source_characters_scanned: Annotated[StrictInt, Field(ge=0, le=65536)]
+
+    @model_validator(mode="after")
+    def coherent_section(self) -> Self:
+        if self.found != (self.section_count > 0) or (
+            not self.found and self.text not in {None, ""}
+        ):
+            raise ValueError("Section evidence must agree with heading discovery")
+        if self.text is not None and len(self.text.encode("utf-8")) > 8192:
+            raise ValueError("Section evidence exceeds its byte bound")
+        return self
+
+
+class SupersessionDelta(ImpactModel):
+    source: Literal["read-projection"]
+    target_reference: Reference
+    before_reference: Reference | None
+    after_reference: Reference
+    kind: Literal["new-supersession", "continued-supersession"]
+    details_before: SupersessionDetail | None
+    details_after: SupersessionDetail | None
+    metadata_changed: StrictBool
+    section_before: SupersedesSection
+    section_after: SupersedesSection
+    unified_diff: str | None = Field(default=None, exclude_if=lambda value: value is None)
+    truncated: StrictBool
+    section_scan_limit: Literal[65536]
+    section_byte_limit: Literal[8192]
+    diff_byte_limit: Literal[16384]
+    interpretation: Literal[
+        "Supersedes headings are evidence aids; read exact revisions to establish rule scope."
+    ]
+
+    @model_validator(mode="after")
+    def coherent_comparison(self) -> Self:
+        document, number = self.after_reference.rsplit("-", 1)
+        expected = f"{document}-{int(number) - 1}" if int(number) else None
+        if self.before_reference != expected or (
+            self.kind == "continued-supersession" and expected is None
+        ):
+            raise ValueError("Supersession delta must compare consecutive replacement revisions")
+        if self.metadata_changed != (self.kind == "new-supersession"
+                                     or self.details_before != self.details_after):
+            raise ValueError("Supersession metadata change disagrees with its exact details")
+        if (self.section_before.truncated or self.section_after.truncated) and not self.truncated:
+            raise ValueError("Section truncation must remain visible in the comparison")
+        if self.unified_diff is not None and len(self.unified_diff.encode("utf-8")) > 16384:
+            raise ValueError("Supersession diff exceeds its byte bound")
+        return self
+
+    @model_validator(mode="after")
+    def coherent_target(self) -> Self:
+        document = self.target_reference.rsplit("-", 1)[0]
+        if any(detail.decision_id != document for detail in (
+            self.details_before, self.details_after,
+        ) if detail is not None):
+            raise ValueError("Supersession details must concern the captured target document")
+        if self.details_after is not None and self.target_reference != (
+            f"{document}-{self.details_after.revision}"
+        ):
+            raise ValueError("Current supersession detail must pin the captured origin")
+        return self
+
+
+    def validate_diff_projection(self, include_diff: bool) -> None:
+        fields = ((self, "unified_diff"), (self.section_before, "text"),
+                  (self.section_after, "text"))
+        if any((name in model.model_fields_set) != include_diff
+               or (include_diff and getattr(model, name) is None) for model, name in fields):
+            raise ValueError("Supersession prose must match the requested diff projection")
+
+
 ImpactKind = Literal["code-impact", "context"]
 ImpactDetail = Literal["full", "compact"]
 ImpactScopes = Literal["full", "summary", "none"]
@@ -203,7 +280,7 @@ class ImpactAuthorRead(ImpactModel):
 
 
 class ImpactWarning(ImpactModel):
-    code: Literal["origin_has_no_linked_commits"]
+    code: Literal["origin_has_no_linked_commits", "supersession_extent_reason_unknown"]
     reference: Reference
     message: str
 
@@ -415,6 +492,9 @@ class ImpactAssessmentRead(ImpactModel):
     reason: str | None
     diff: ImpactDiffRead
     projection: ImpactProjection | MISSING = MISSING
+    supersession_delta: SupersessionDelta | None = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
     candidate_count: Annotated[StrictInt, Field(ge=0)]
     context_count: Annotated[StrictInt, Field(ge=0)]
     coverage: ImpactCoverage
@@ -430,10 +510,18 @@ class ImpactAssessmentRead(ImpactModel):
         self.before_author.validate_projection(options)
         self.after_author.validate_projection(options)
         require_projection_fields(self.diff, ("unified_diff",), options.include_diff)
+        if self.supersession_delta is not None:
+            self.supersession_delta.validate_diff_projection(options.include_diff)
         return self
 
     @model_validator(mode="after")
     def coherent_status(self) -> Self:
+        if self.supersession_delta is not None and (
+            self.trigger != "supersession"
+            or (self.supersession_delta.target_reference, self.supersession_delta.after_reference)
+                != (self.before_reference, self.after_reference)
+        ):
+            raise ValueError("Supersession comparison must identify this assessment transition")
         if (self.before_author.reference, self.after_author.reference) != (
             self.before_reference, self.after_reference,
         ):

@@ -14,6 +14,7 @@ from mnemonic_api.decision_scope_schemas import ScopeCompletionCitation
 from mnemonic_api.review_scope_schemas import ReviewScopeChanged
 from mnemonic_api.revision_author_schemas import RevisionAuthorWork
 from mnemonic_api.schemas import APIModel, LeaseToken, MutationActor
+from mnemonic_api.supersession_delta_schemas import SupersessionDelta
 
 Identifier = Annotated[str, StringConstraints(pattern=r"^[A-Z]{1,5}-[0-9]{5,19}$")]
 Reference = Annotated[str, StringConstraints(pattern=r"^[A-Z]{1,5}-[0-9]{5,19}-[0-9]{1,10}$")]
@@ -136,7 +137,7 @@ class ImpactAuthorRead(APIModel):
 
 
 class ImpactWarning(APIModel):
-    code: Literal["origin_has_no_linked_commits"]
+    code: Literal["origin_has_no_linked_commits", "supersession_extent_reason_unknown"]
     reference: str
     message: str
 
@@ -290,6 +291,9 @@ class ImpactAssessmentRead(APIModel):
     reason: str | None
     diff: ImpactDiffRead
     projection: ImpactProjection | MISSING = MISSING
+    supersession_delta: SupersessionDelta | None = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
     candidate_count: int
     context_count: int
     coverage: ImpactCoverage

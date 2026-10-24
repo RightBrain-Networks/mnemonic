@@ -369,6 +369,27 @@ show whether more references remain. Reads do not acknowledge scope or change
 Done requirements. REST exposes the same projection at
 `GET /projects/{project_id}/knowledge/changes/{change_id}/candidates`.
 
+Supersession assessment reads also expose `supersession_delta`. It compares the
+superseding document with its immediately preceding revision, or marks a new
+supersession when the target was not declared previously. Exact replacement
+`before_reference`/`after_reference` and `target_reference` identify the evidence;
+`details_before`/`details_after` compare only the captured target's structured
+supersession details, including target revision, extent and reason. The original
+cross-document `diff` remains available unchanged.
+
+The comparison extracts literal Markdown `Supersedes` headings (ATX or setext,
+excluding fenced examples) and their subordinate sections. It reports section
+presence and count, scans at most 65,536 source characters per revision, retains
+at most 8,192 UTF-8 bytes per side and 16,384 bytes of diff, and marks truncation.
+A missing section or empty section diff never establishes unchanged rule scope:
+headings are evidence aids, and the governing rule may appear anywhere in either
+exact revision. When both captured extent and reason are null, coverage explicitly
+warns `supersession_extent_reason_unknown`; inspect the replacement and preceding
+revision before judging scope. These fields and warnings are read projections;
+historical episodes, diffs, coverage snapshots and dispositions remain immutable.
+Compact reads may omit section text and diff prose while retaining identity,
+structured details, bounds and coverage metadata.
+
 ## MCP workflow
 
 1. Call `list_knowledge_domains` and select a domain. Create one with

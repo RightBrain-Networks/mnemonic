@@ -1,5 +1,21 @@
 # Mnemonic validation record
 
+## Successive supersession comparisons (0.100.0)
+
+Assessment reads now compare the superseding document with its previous revision
+and show target-specific extent/reason changes. Literal Supersedes sections and
+their diff are bounded, with explicit presence and truncation metadata. Missing
+captured extent and reason produce a coverage warning. Existing cross-document
+diffs and immutable evidence stay intact; `include_diff=false` omits both kinds of
+prose while preserving identities and bounds.
+
+The full backend suite passed 5,486 tests on isolated PostgreSQL/RabbitMQ, and the
+full MCP suite passed 2,505 tests. Focused coverage includes 22 PostgreSQL cases
+and strict MCP checks rejecting missing or unsolicited diff fields. Dashboard
+validation passed 604 tests, type checking and production build. Backend/MCP
+Ruff and types, OpenAPI, 71 plugin tests (one optional external CLI check skipped)
+and the gitleaks hook pass. No migration or production change was required.
+
 ## Grouped decision review candidates (0.99.0)
 
 The read-only grouped view retains separate per-candidate, per-episode obligations

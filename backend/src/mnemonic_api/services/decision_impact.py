@@ -23,6 +23,7 @@ from mnemonic_api.impact_schemas import (
     ImpactProjection,
     ImpactQuery,
     ImpactRead,
+    ImpactWarning,
     is_code_impact,
 )
 from mnemonic_api.knowledge_schemas import DecisionPutRequest, KnowledgePage, KnowledgePagination
@@ -57,6 +58,7 @@ from mnemonic_api.services.impact_read_projections import (
     projection,
 )
 from mnemonic_api.services.revision_authors import revision_author_context
+from mnemonic_api.services.supersession_delta import supersession_delta
 from mnemonic_api.services.work_items import require_project, require_work_item
 
 
@@ -334,6 +336,8 @@ def assessment_read(
     before = database.get(DecisionRevision, row.origin_revision_id)
     after = database.get(DecisionRevision, row.replacement_revision_id)
     assert before is not None and after is not None
+    before_reference = _revision_reference(database, row.origin_revision_id)
+    after_reference = _revision_reference(database, row.replacement_revision_id)
     latest = database.scalars(
         select(DecisionImpactDisposition)
         .where(DecisionImpactDisposition.assessment_id == row.id)
@@ -351,17 +355,21 @@ def assessment_read(
             "id": row.id,
             "project_id": row.project_id,
             "trigger": row.trigger,
-            "before_reference": _revision_reference(database, row.origin_revision_id),
-            "after_reference": _revision_reference(database, row.replacement_revision_id),
+            "before_reference": before_reference,
+            "after_reference": after_reference,
             "before_author": author_read(revision_author_context(database, before), options),
             "after_author": author_read(revision_author_context(database, after), options),
             "extent": row.extent,
             "reason": row.reason,
             "diff": diff_read(row.diff, options),
             "projection": projection(options),
+            "supersession_delta": supersession_delta(
+                database, row, before, after, before_reference, after_reference,
+                include_diff=options.include_diff,
+            ),
             "candidate_count": len(required),
             "context_count": len(row.candidates) - len(required),
-            "coverage": _assessment_coverage(row),
+            "coverage": _assessment_coverage(row, before_reference),
             "created_at": row.created_at,
             "version": _version(database, row.id),
             "unassessed_count": unassessed,
@@ -371,12 +379,18 @@ def assessment_read(
     )
 
 
-def _assessment_coverage(row: DecisionImpactAssessment) -> ImpactCoverage:
+def _assessment_coverage(row: DecisionImpactAssessment, before_reference: str) -> ImpactCoverage:
     coverage = ImpactCoverage.model_validate(row.coverage)
     if "warnings" not in row.coverage:
         origin = next((item for item in row.candidates if item["relationship"] == "origin"), None)
         if origin is not None and not origin["scopes"] and not origin["evidence_truncated"]:
             coverage.warnings.append(no_linked_commits_warning(origin["reference"]))
+    if row.trigger == "supersession" and row.extent is None and row.reason is None:
+        coverage.warnings.append(ImpactWarning(
+            code="supersession_extent_reason_unknown", reference=before_reference,
+            message="This supersession has no captured extent or reason; inspect the exact "
+                    "superseding revision and its preceding revision before assessing scope.",
+        ))
     return coverage
 
 
