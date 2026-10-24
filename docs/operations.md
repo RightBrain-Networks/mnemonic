@@ -3,6 +3,12 @@
 Use [unified search](search.md) to retrieve work, artifacts, and transcripts in one
 ranked, filtered, paginated read through REST or MCP.
 
+Release 0.91.1 removes quadratic joins from duplicate-suggestion candidate
+selection for large projects. Ranking, duplicate-group counts, shortlist limits,
+and request deadlines are unchanged. The API, worker, MCP, and dashboard versions
+remain aligned; plugin 0.54.0 and migration `0057_automatic_decision_reviews` are
+unchanged. No new configuration or database migration is required.
+
 Release 0.91.0 includes incoming related citations in required decision impact
 reviews without claiming a causal dependency. New snapshots capture link direction;
 historical snapshots retain their existing completion requirements. Outward links
