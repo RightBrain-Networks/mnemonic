@@ -1076,6 +1076,13 @@
     {"args":["search","PUT"],"result":null},
     {"args":["search","DELETE"],"result":null},
     {"args":["search","HEAD"],"result":null},
-    {"args":["search","OPTIONS"],"result":null}
+    {"args":["search","OPTIONS"],"result":null},
+    {"args":["projects/e36a7e53-938f-4c8a-b75a-af9c7331711a/knowledge/assessments/e36a7e53-938f-4c8a-b75a-af9c7331711a/dispositions/batch","GET"],"result":null},
+    {"args":["projects/e36a7e53-938f-4c8a-b75a-af9c7331711a/knowledge/assessments/e36a7e53-938f-4c8a-b75a-af9c7331711a/dispositions/batch","POST"],"result":null},
+    {"args":["projects/e36a7e53-938f-4c8a-b75a-af9c7331711a/knowledge/assessments/e36a7e53-938f-4c8a-b75a-af9c7331711a/dispositions/batch","PATCH"],"result":null},
+    {"args":["projects/e36a7e53-938f-4c8a-b75a-af9c7331711a/knowledge/assessments/e36a7e53-938f-4c8a-b75a-af9c7331711a/dispositions/batch","PUT"],"result":null},
+    {"args":["projects/e36a7e53-938f-4c8a-b75a-af9c7331711a/knowledge/assessments/e36a7e53-938f-4c8a-b75a-af9c7331711a/dispositions/batch","DELETE"],"result":null},
+    {"args":["projects/e36a7e53-938f-4c8a-b75a-af9c7331711a/knowledge/assessments/e36a7e53-938f-4c8a-b75a-af9c7331711a/dispositions/batch","HEAD"],"result":null},
+    {"args":["projects/e36a7e53-938f-4c8a-b75a-af9c7331711a/knowledge/assessments/e36a7e53-938f-4c8a-b75a-af9c7331711a/dispositions/batch","OPTIONS"],"result":null}
   ]
 }

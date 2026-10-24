@@ -125,29 +125,22 @@ KNOWLEDGE_GUIDES: dict[str, tuple[str, str, str]] = {
     ),
     "decision_assessment_append": (
         "Knowledge", "Record an evidenced disposition for one affected revision.",
-        ("Read assessment version and exact candidate_reference first. Choose still-valid, "
-        "change-required, not-affected or resolved; include a concrete reason and remediation "
-        "work ID when applicable. Only record resolved after inspecting completed remediation. "
-        "Context-only records allow short truthful contradiction notes and do not each require a "
-        "verdict. Every change-required result still needs remediation before review Done. "
-        "This appends history without changing decision state, completing work, or resolving a "
-        "human question. An optional active implementation lease_token renews an associated current "
-        "review driver on fresh success, clamped to its project lease bounds. Token-free writes "
-        "and exact retries do not renew. A definitive stale version requires rereading before "
-        "a new intent."),
+        ("Read current version and exact candidate_reference. Supply an evidenced verdict, reason "
+        "and optional remediation work ID. Context verdicts are optional; change-required still "
+        "needs remediation before Done. Record resolved only after verifying completed remediation. "
+        "Optional lease_token must identify an associated current review's active implementation "
+        "lease; fresh success renews its last duration within project bounds. Token-free writes "
+        "and exact replays never renew. Reread after a version conflict. No execution authority."),
     ),
     "decision_assessment_append_batch": (
         "Knowledge", "Atomically record 1–100 evidenced dispositions for one assessment episode.",
-        ("Supply one current expected_version, shared actor, and ordered items with unique exact "
-        "candidate_reference, disposition, concrete reason, and optional remediation_work_item_id. "
-        "Every item uses the singleton validation and receives the next consecutive version. "
-        "Any invalid item rolls back the whole batch and any optional lease renewal. One operation "
-        "UUID protects the entire request; preserve item order and every argument on an uncertain "
-        "retry. A definitive conflict requires rereading decision_assessment_get. Optional "
-        "lease_token must belong to an associated current review driver with an active implementation "
-        "lease; fresh success renews its last granted duration within current project bounds. "
-        "No token or an exact replay never renews. Candidate and episode Done requirements remain "
-        "unchanged. Never copy judgments between distinct assessment episodes."),
+        ("Supply expected_version, shared actor and 1–100 ordered items: unique candidate_reference, "
+        "disposition, reason and optional remediation_work_item_id. Singleton validation and "
+        "consecutive versions apply; any invalid item rolls back rows and lease renewal. Preserve "
+        "order on retries; reread after a version conflict. Optional lease_token must identify an "
+        "associated current review's active implementation lease; fresh success renews its last "
+        "duration within project bounds. Token-free writes and exact replays never renew. Done "
+        "rules stay unchanged; never copy verdicts across episodes."),
     ),
     "decision_commit_lookup": (
         "Knowledge", "Find decision citations for an original or merged repository commit.",
