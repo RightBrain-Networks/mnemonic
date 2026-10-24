@@ -1,5 +1,24 @@
 # Mnemonic validation record
 
+## Opt-in compact impact reads (0.95.0)
+
+Existing full-response defaults remain unchanged. Callers can select compact
+candidate and author metadata, omit diff prose, and request captured scope
+summaries or omit scopes. These are read projections; stored assessment evidence
+and historical dispositions retain their original shapes.
+
+Validation used Python 3.14, Node 24 and isolated PostgreSQL/RabbitMQ. The complete
+backend suite passed 5,379 tests; the full MCP suite passed 2,393 tests. The dashboard passed 596 unit tests, type
+checking and production build. Backend and MCP Ruff/type checks pass. Plugin
+validation passed 71 tests with one optional external CLI check skipped.
+
+Focused projection tests preserve default payloads, bind returned projections to
+the exact request, reject missing or unsolicited fields, and exercise pagination.
+A representative 46-candidate response is below 25 KB with all compact options,
+compared with over 300 KB for its full response. This is a measured fixture, not a
+universal payload limit: long paths and commit lists still require smaller pages.
+No production services were changed.
+
 ## Unchanged supersession reuse (0.94.0)
 
 This release preserves the same immutable supersession assessment when a continuous
