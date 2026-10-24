@@ -67,6 +67,10 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    if op.get_bind().scalar(sa.text(
+        "SELECT EXISTS(SELECT 1 FROM work_change_inheritance_exclusions)"
+    )):
+        raise RuntimeError("Work inheritance exclusions cannot be safely downgraded.")
     op.drop_table(TABLE)
     op.execute("DROP FUNCTION mnemonic_work_inheritance_fresh()")
     op.execute("DROP FUNCTION mnemonic_work_inheritance_seal()")
