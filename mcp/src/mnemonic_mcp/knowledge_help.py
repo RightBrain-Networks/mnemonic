@@ -90,26 +90,32 @@ KNOWLEDGE_GUIDES: dict[str, tuple[str, str, str]] = {
         "Page each kind independently. Inspect missing-code warnings, authorship/current active-work "
         "context, coverage and evidence_truncated. No linked commits means unknown implementation: "
         "inspect commit messages, files named in the decision, and source mentions of its stable ID. "
+        "Use detail=compact with include_scopes=summary for smaller navigation reads, or "
+        "include_scopes=none to omit scope evidence. Summary counts describe captured rows, not "
+        "complete live scope; evidence_truncated remains explicit. Full defaults are unchanged. "
         "Traversal completeness never proves all provenance is registered. No execution authority."),
     ),
     "decision_assessments": (
         "Knowledge", "List captured reassessment episodes after decision changes.",
         ("Optionally filter decision_id or change_id and page all current obligations. Episodes pin before/after "
         "revisions, diff and captured coverage. Fetch candidate pages with decision_assessment_get. "
+        "For compact navigation use detail=compact and include_diff=false: hashes, changed fields, "
+        "truncation and coverage remain; full author work titles and unified diff are omitted. "
         "A change does not automatically invalidate dependent code or authorize remediation."),
     ),
     "decision_assessment_get": (
         "Knowledge", "Read an assessment's captured candidates and latest dispositions.",
-        ("Follow next_offset and retain the assessment version. Check diff.truncated and candidate "
-        "evidence_truncated; retrieve exact revisions/scope for omitted evidence. Snapshots do not "
-        "include later registrations: use decision_impact for current evidence. kind=code-impact "
-        "is the required ledger, including captured incoming related-only citations of unknown "
-        "causality; kind=context pages optional contradiction-check records. "
-        "candidate_count and context_count are separate. Context-only verdicts are optional, "
-        "including historical related-only candidates without captured direction. Read earlier "
-        "dispositions with "
-        "decision_assessment_history. Compare full before/after text and classify rule, scope, "
-        "or references-only changes before evaluating candidates; headings do not determine scope."),
+        ("Follow next_offset; retain version and inspect coverage/evidence_truncated. "
+        "kind=code-impact requires origin/dependent and incoming related-only conclusions; "
+        "causality remains unknown. kind=context is optional, including historical related-only "
+        "rows without direction. Snapshots exclude later registrations: compare decision_impact. "
+        "Read exact before/after text to classify rule, scope or reference changes. "
+        "Opt in with detail=compact, include_diff=false, include_scopes=summary (or none). "
+        "Projection metadata states omissions: candidate prose/links, author work titles, "
+        "disposition reasons/attribution and unified diff. Hashes, changed fields, coverage, "
+        "counts and the complete candidate ledger remain. Scope summaries count captured rows, "
+        "not complete live scope. Retrieve full detail, decision_assessment_history and "
+        "decision_scope before relying on omitted evidence. Defaults remain full."),
     ),
     "decision_assessment_history": (
         "Knowledge", "Read the immutable history of impact dispositions.",

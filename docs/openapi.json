@@ -10040,14 +10040,14 @@
         "additionalProperties": false,
         "properties": {
           "after_author": {
-            "$ref": "#/components/schemas/RevisionAuthorContext"
+            "$ref": "#/components/schemas/ImpactAuthorRead"
           },
           "after_reference": {
             "title": "After Reference",
             "type": "string"
           },
           "before_author": {
-            "$ref": "#/components/schemas/RevisionAuthorContext"
+            "$ref": "#/components/schemas/ImpactAuthorRead"
           },
           "before_reference": {
             "title": "Before Reference",
@@ -10059,7 +10059,7 @@
           },
           "candidates": {
             "items": {
-              "$ref": "#/components/schemas/ImpactCandidate"
+              "$ref": "#/components/schemas/ImpactCandidateRead"
             },
             "title": "Candidates",
             "type": "array"
@@ -10081,7 +10081,7 @@
             "type": "string"
           },
           "diff": {
-            "$ref": "#/components/schemas/ImpactDiff"
+            "$ref": "#/components/schemas/ImpactDiffRead"
           },
           "disposition_history_total": {
             "title": "Disposition History Total",
@@ -10089,7 +10089,7 @@
           },
           "dispositions": {
             "items": {
-              "$ref": "#/components/schemas/ImpactDispositionRead"
+              "$ref": "#/components/schemas/ImpactDispositionProjection"
             },
             "title": "Dispositions",
             "type": "array"
@@ -10145,6 +10145,10 @@
             "format": "uuid",
             "title": "Project Id",
             "type": "string"
+          },
+          "projection": {
+            "$ref": "#/components/schemas/ImpactProjection",
+            "title": "Projection"
           },
           "reason": {
             "anyOf": [
@@ -10222,14 +10226,14 @@
         "additionalProperties": false,
         "properties": {
           "after_author": {
-            "$ref": "#/components/schemas/RevisionAuthorContext"
+            "$ref": "#/components/schemas/ImpactAuthorRead"
           },
           "after_reference": {
             "title": "After Reference",
             "type": "string"
           },
           "before_author": {
-            "$ref": "#/components/schemas/RevisionAuthorContext"
+            "$ref": "#/components/schemas/ImpactAuthorRead"
           },
           "before_reference": {
             "title": "Before Reference",
@@ -10256,7 +10260,7 @@
             "type": "string"
           },
           "diff": {
-            "$ref": "#/components/schemas/ImpactDiff"
+            "$ref": "#/components/schemas/ImpactDiffRead"
           },
           "extent": {
             "anyOf": [
@@ -10282,6 +10286,10 @@
             "format": "uuid",
             "title": "Project Id",
             "type": "string"
+          },
+          "projection": {
+            "$ref": "#/components/schemas/ImpactProjection",
+            "title": "Projection"
           },
           "reason": {
             "anyOf": [
@@ -10343,8 +10351,88 @@
         "title": "ImpactAssessmentRead",
         "type": "object"
       },
-      "ImpactCandidate": {
+      "ImpactAuthorRead": {
         "additionalProperties": false,
+        "properties": {
+          "active_work_item_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Active Work Item Ids",
+            "type": "array"
+          },
+          "active_work_items": {
+            "items": {
+              "$ref": "#/components/schemas/RevisionAuthorWork"
+            },
+            "title": "Active Work Items",
+            "type": "array"
+          },
+          "active_work_items_truncated": {
+            "title": "Active Work Items Truncated",
+            "type": "boolean"
+          },
+          "agent_session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Session Id"
+          },
+          "author_kind": {
+            "enum": [
+              "human",
+              "agent"
+            ],
+            "title": "Author Kind",
+            "type": "string"
+          },
+          "authored_at": {
+            "format": "date-time",
+            "title": "Authored At",
+            "type": "string"
+          },
+          "model_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Id"
+          },
+          "reference": {
+            "title": "Reference",
+            "type": "string"
+          },
+          "work_observed_at": {
+            "format": "date-time",
+            "title": "Work Observed At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reference",
+          "author_kind",
+          "agent_session_id",
+          "model_id",
+          "authored_at",
+          "work_observed_at",
+          "active_work_items_truncated"
+        ],
+        "title": "ImpactAuthorRead",
+        "type": "object"
+      },
+      "ImpactCandidateRead": {
+        "additionalProperties": false,
+        "description": "Read projection only: persisted candidates retain their complete original schema.",
         "properties": {
           "decision_id": {
             "title": "Decision Id",
@@ -10425,6 +10513,10 @@
             "title": "Revision",
             "type": "integer"
           },
+          "scope_summary": {
+            "$ref": "#/components/schemas/ImpactScopeSummary",
+            "title": "Scope Summary"
+          },
           "scopes": {
             "items": {
               "$ref": "#/components/schemas/ImpactScopeEvidence"
@@ -10445,18 +10537,13 @@
           "decision_id",
           "reference",
           "revision",
-          "title",
           "state",
           "is_current",
           "relationship",
           "path",
-          "rationale",
-          "scopes",
-          "related_work_item_ids",
-          "related_artifact_ids",
           "evidence_truncated"
         ],
-        "title": "ImpactCandidate",
+        "title": "ImpactCandidateRead",
         "type": "object"
       },
       "ImpactCoverage": {
@@ -10545,7 +10632,7 @@
         "title": "ImpactCoverage",
         "type": "object"
       },
-      "ImpactDiff": {
+      "ImpactDiffRead": {
         "additionalProperties": false,
         "properties": {
           "after_sha256": {
@@ -10576,10 +10663,9 @@
           "changed_fields",
           "before_sha256",
           "after_sha256",
-          "unified_diff",
           "truncated"
         ],
-        "title": "ImpactDiff",
+        "title": "ImpactDiffRead",
         "type": "object"
       },
       "ImpactDispositionCreate": {
@@ -10641,6 +10727,77 @@
           "client_operation_id"
         ],
         "title": "ImpactDispositionCreate",
+        "type": "object"
+      },
+      "ImpactDispositionProjection": {
+        "additionalProperties": false,
+        "properties": {
+          "actor": {
+            "$ref": "#/components/schemas/MutationActor",
+            "title": "Actor"
+          },
+          "assessment_id": {
+            "format": "uuid",
+            "title": "Assessment Id",
+            "type": "string"
+          },
+          "candidate_reference": {
+            "title": "Candidate Reference",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "disposition": {
+            "enum": [
+              "still-valid",
+              "change-required",
+              "not-affected",
+              "resolved"
+            ],
+            "title": "Disposition",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "remediation_work_item_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Remediation Work Item Id"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "candidate_reference",
+          "disposition",
+          "remediation_work_item_id"
+        ],
+        "title": "ImpactDispositionProjection",
         "type": "object"
       },
       "ImpactDispositionRead": {
@@ -10719,6 +10876,37 @@
         "title": "ImpactDispositionRead",
         "type": "object"
       },
+      "ImpactProjection": {
+        "additionalProperties": false,
+        "properties": {
+          "detail": {
+            "default": "full",
+            "enum": [
+              "full",
+              "compact"
+            ],
+            "title": "Detail",
+            "type": "string"
+          },
+          "include_diff": {
+            "default": true,
+            "title": "Include Diff",
+            "type": "boolean"
+          },
+          "include_scopes": {
+            "default": "full",
+            "enum": [
+              "full",
+              "summary",
+              "none"
+            ],
+            "title": "Include Scopes",
+            "type": "string"
+          }
+        },
+        "title": "ImpactProjection",
+        "type": "object"
+      },
       "ImpactRead": {
         "additionalProperties": false,
         "properties": {
@@ -10735,7 +10923,7 @@
           },
           "items": {
             "items": {
-              "$ref": "#/components/schemas/ImpactCandidate"
+              "$ref": "#/components/schemas/ImpactCandidateRead"
             },
             "title": "Items",
             "type": "array"
@@ -10768,7 +10956,7 @@
             "type": "integer"
           },
           "origin_author": {
-            "$ref": "#/components/schemas/RevisionAuthorContext"
+            "$ref": "#/components/schemas/ImpactAuthorRead"
           },
           "origin_reference": {
             "title": "Origin Reference",
@@ -10778,6 +10966,10 @@
             "format": "uuid",
             "title": "Project Id",
             "type": "string"
+          },
+          "projection": {
+            "$ref": "#/components/schemas/ImpactProjection",
+            "title": "Projection"
           },
           "total": {
             "title": "Total",
@@ -10892,6 +11084,33 @@
           "agent_session_id"
         ],
         "title": "ImpactScopeEvidence",
+        "type": "object"
+      },
+      "ImpactScopeSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "captured_scope_count": {
+            "title": "Captured Scope Count",
+            "type": "integer"
+          },
+          "commit_hashes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Commit Hashes",
+            "type": "array"
+          },
+          "evidence_truncated": {
+            "title": "Evidence Truncated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "captured_scope_count",
+          "commit_hashes",
+          "evidence_truncated"
+        ],
+        "title": "ImpactScopeSummary",
         "type": "object"
       },
       "ImpactWarning": {
@@ -14827,78 +15046,6 @@
           "deleted"
         ],
         "title": "ReviewSourceState",
-        "type": "object"
-      },
-      "RevisionAuthorContext": {
-        "additionalProperties": false,
-        "properties": {
-          "active_work_items": {
-            "items": {
-              "$ref": "#/components/schemas/RevisionAuthorWork"
-            },
-            "title": "Active Work Items",
-            "type": "array"
-          },
-          "active_work_items_truncated": {
-            "title": "Active Work Items Truncated",
-            "type": "boolean"
-          },
-          "agent_session_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Agent Session Id"
-          },
-          "author_kind": {
-            "enum": [
-              "human",
-              "agent"
-            ],
-            "title": "Author Kind",
-            "type": "string"
-          },
-          "authored_at": {
-            "format": "date-time",
-            "title": "Authored At",
-            "type": "string"
-          },
-          "model_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Model Id"
-          },
-          "reference": {
-            "title": "Reference",
-            "type": "string"
-          },
-          "work_observed_at": {
-            "format": "date-time",
-            "title": "Work Observed At",
-            "type": "string"
-          }
-        },
-        "required": [
-          "reference",
-          "author_kind",
-          "agent_session_id",
-          "model_id",
-          "authored_at",
-          "work_observed_at",
-          "active_work_items",
-          "active_work_items_truncated"
-        ],
-        "title": "RevisionAuthorContext",
         "type": "object"
       },
       "RevisionAuthorWork": {
@@ -21743,7 +21890,7 @@
   "info": {
     "description": "Durable project-scoped work with immutable agent checkpoints.",
     "title": "Mnemonic API",
-    "version": "0.94.0"
+    "version": "0.95.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -23904,6 +24051,45 @@
           },
           {
             "in": "query",
+            "name": "detail",
+            "required": false,
+            "schema": {
+              "default": "full",
+              "enum": [
+                "full",
+                "compact"
+              ],
+              "title": "Detail",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "include_diff",
+            "required": false,
+            "schema": {
+              "default": true,
+              "title": "Include Diff",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "include_scopes",
+            "required": false,
+            "schema": {
+              "default": "full",
+              "enum": [
+                "full",
+                "summary",
+                "none"
+              ],
+              "title": "Include Scopes",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
             "name": "change_id",
             "required": false,
             "schema": {
@@ -24011,6 +24197,45 @@
             "schema": {
               "format": "uuid",
               "title": "Assessment Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "detail",
+            "required": false,
+            "schema": {
+              "default": "full",
+              "enum": [
+                "full",
+                "compact"
+              ],
+              "title": "Detail",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "include_diff",
+            "required": false,
+            "schema": {
+              "default": true,
+              "title": "Include Diff",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "include_scopes",
+            "required": false,
+            "schema": {
+              "default": "full",
+              "enum": [
+                "full",
+                "summary",
+                "none"
+              ],
+              "title": "Include Scopes",
               "type": "string"
             }
           },
@@ -24855,6 +25080,45 @@
             "schema": {
               "pattern": "^[A-Z]{1,5}-[0-9]{5,19}(?:-[0-9]{1,10})?$",
               "title": "Decision Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "detail",
+            "required": false,
+            "schema": {
+              "default": "full",
+              "enum": [
+                "full",
+                "compact"
+              ],
+              "title": "Detail",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "include_diff",
+            "required": false,
+            "schema": {
+              "default": true,
+              "title": "Include Diff",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "include_scopes",
+            "required": false,
+            "schema": {
+              "default": "full",
+              "enum": [
+                "full",
+                "summary",
+                "none"
+              ],
+              "title": "Include Scopes",
               "type": "string"
             }
           },

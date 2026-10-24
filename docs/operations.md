@@ -3,6 +3,12 @@
 Use [unified search](search.md) to retrieve work, artifacts, and transcripts in one
 ranked, filtered, paginated read through REST or MCP.
 
+Release 0.95.0 and plugin 0.58.0 add opt-in compact decision impact reads. No new
+migration or configuration is required beyond `0060_supersession_reuse`. Existing
+read defaults and stored evidence remain unchanged. Untouched default review
+prompts upgrade to describe the compact options; authored custom prompts remain
+unchanged. Production deployment remains a separately authorized operation.
+
 Release 0.94.0 adds explicit, auditable unchanged-supersession reuse with migration
 `0060_supersession_reuse` and plugin 0.57.0. Deploy aligned API, worker, MCP and
 dashboard only after an authorized backup and migration. Once reuse declarations

@@ -213,6 +213,15 @@ actual integration relationship. Never guess a mapping because diffs look alike.
 
 ## Assess a change and record what was done
 
+For smaller navigation reads, explicitly request `detail="compact"`,
+`include_diff=false`, and `include_scopes="summary"`. Defaults remain full.
+Compact reads retain identities, paths, coverage and pagination while omitting
+candidate prose/resource links, full author-work descriptions and disposition
+reasons/attribution. Scope summaries count captured rows, not all live scope.
+An omitted diff is not an empty diff. Retrieve full detail/history and exact
+decision text before recording a verdict; use smaller pages for long paths or
+many distinct hashes. Read shaping never changes stored assessment evidence.
+
 Before amending or reversing a decision, call `decision_impact` for its exact
 revision. With `kind="code-impact"` (the default), it returns the changed decision
 and records that depend on it through reverse declared dependencies, plus records

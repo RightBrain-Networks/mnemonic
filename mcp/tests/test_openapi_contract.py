@@ -94,6 +94,21 @@ def test_phase12_models_match_published_openapi_shape():
         assert set(schema.get("required", [])) == set(components[name].get("required", [])), name
 
 
+def test_impact_projection_models_match_published_openapi_shape():
+    from mnemonic_mcp import impact_models
+
+    document = json.loads((REPOSITORY_ROOT / "docs/openapi.json").read_text())
+    components = document["components"]["schemas"]
+    for name in (
+        "ImpactProjection", "ImpactScopeSummary", "ImpactCandidateRead", "ImpactAuthorRead",
+        "ImpactDiffRead", "ImpactDispositionProjection", "ImpactRead", "ImpactAssessmentRead",
+        "ImpactAssessmentDetail",
+    ):
+        schema = getattr(impact_models, name).model_json_schema()
+        assert set(schema["properties"]) == set(components[name]["properties"]), name
+        assert set(schema.get("required", [])) == set(components[name].get("required", [])), name
+
+
 def test_external_nested_contracts_match_openapi_properties_and_required_sets():
     from mnemonic_mcp.external_records import (
         ExternalCandidateReference,
