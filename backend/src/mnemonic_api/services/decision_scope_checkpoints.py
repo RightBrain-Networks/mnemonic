@@ -63,7 +63,7 @@ def growth_checkpoint(
         "Record extra live candidates and their evidenced conclusions separately; preserve the "
         "episode's frozen scope and do not fabricate ledger entries. Record a disposition for "
         "each required episode/reference pair, even when "
-        "that reference appears in another episode. Every change-required result needs separate "
+        "that reference appears in another episode. Every change-required result needs "
         "tracked remediation. Context-only candidates do not require verdicts.",
         "Read decision_change_get and page decision_assessments with this change_id, then use "
         "decision_change_update(action=acknowledge) with the exact current expected_scope_version. "
