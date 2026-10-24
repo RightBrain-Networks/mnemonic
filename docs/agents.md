@@ -7,7 +7,7 @@ For code reviews, branch by temperature before ordinary recall: the
 [code-review protocol](code-reviews.md) governs mandatory handoff, durable
 originating-session recommendation answers, minimal cold coordination, warm
 adversarial review and one atomic remediation. Reviews are not implementation
-closeouts. The current catalog is 77 tools and 25 protected writes.
+closeouts. The current catalog is 78 tools and 25 protected writes.
 The [knowledge graph](knowledge-graph.md) retains decision revisions and code
 provenance. After implementing code informed by a decision, append the resulting
 commit hash and exact consulted revision through `decision_scope_append` as each

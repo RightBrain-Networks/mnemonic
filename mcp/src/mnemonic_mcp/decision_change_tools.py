@@ -12,6 +12,10 @@ from .knowledge_tools import _READ, _WRITE, Session, _read, _validated, _write
 
 
 def register_decision_change_tools(server: FastMCP, api: MnemonicAPI) -> None:
+    from .decision_candidate_tools import register_decision_candidate_tools
+
+    register_decision_candidate_tools(server, api)
+
     @server.tool(annotations=_READ)
     async def decision_change_get(project_id: UUID, change_id: UUID) -> DecisionChangeRead:
         """Read a substantive change's native review driver, scope version and acknowledged version. Page decision_assessments(change_id=...) for its current obligations, including revisions added while the review is active. Reading or acknowledging scope does not dispose candidates or grant execution authority. Follow-up work retains this lineage; a closed driver requires explicit human dashboard admission before a new substantive review cycle."""

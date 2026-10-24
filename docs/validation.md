@@ -1,5 +1,33 @@
 # Mnemonic validation record
 
+## Grouped decision review candidates (0.99.0)
+
+The read-only grouped view retains separate per-candidate, per-episode obligations
+while distinguishing stable documents, captured revisions and occurrences. Both
+pagination levels have explicit continuation offsets, and each response uses one
+coherent database snapshot. Historical unknown citation direction stays unknown;
+reads neither copy judgments nor acknowledge review scope. No migration is added
+beyond `0062_review_scope_notices`.
+
+Validation used Python 3.14, Node 24 and isolated PostgreSQL/RabbitMQ. The full
+backend suite passed **5,475 tests** with six workers. Focused regressions cover
+191 required occurrences across six episodes, 71 captured revisions and 50 stable
+documents, concurrent scope/disposition changes, complete pagination, exact filtered
+counts, context exclusion and historical direction handling. The generated OpenAPI
+snapshot and machine-only browser route inventory pass.
+
+The full MCP suite reached **2,485 passing tests** with one stale status-field
+assertion already collected before its correction. After adding the optional
+`review_scope_changed` field to that exact schema expectation, all 80 lease,
+notice and help checks passed. All 66 focused grouped-read, help and stack catalog
+checks also passed, including request-bound response validation and malformed
+count, scope, reference and continuation refusal.
+
+The dashboard passed **599 unit tests**, type checking and production build.
+Backend/MCP Ruff and type checks pass. Plugin checks passed 71 tests with one
+optional external CLI check skipped, plus 108 subtests. The gitleaks hook passes.
+No production services were changed.
+
 ## Literal citation excerpts (0.98.0)
 
 Opt-in excerpts come from the exact captured candidate revision, with its text

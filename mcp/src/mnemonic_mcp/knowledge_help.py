@@ -21,6 +21,18 @@ KNOWLEDGE_GUIDES: dict[str, tuple[str, str, str]] = {
         "governs whether later revisions open reviews; existing reviews retain their obligations. "
         "Priority remains project-wide. Changes do not backfill reviews."),
     ),
+    "decision_change_candidates": (
+        "Knowledge", "Group a change's required candidates while retaining per-episode obligations.",
+        ("Supply project_id and change_id; optionally filter decision_id. Whole-change document, "
+        "revision, occurrence, unassessed and change-required counts share one coherent snapshot "
+        "with exact review scope. Page groups with next_offset and occurrences with each group's "
+        "next_occurrence_offset; decision_id plus limit=1 reaches any group's later occurrences. "
+        "Captured references come only from returned occurrences, with revision_count and "
+        "references_complete disclosing missing references. Latest dispositions are compact "
+        "identity/version/result/remediation summaries; read assessment/history for actual evidence. "
+        "Limits are 1–100, defaulting to 20 groups and 10 occurrences, with product at most 200. "
+        "Grouping never copies judgments or changes per-candidate, per-episode completion requirements."),
+    ),
     "decision_change_get": (
         "Knowledge", "Read one substantive change and its current review scope.",
         ("Inspect scope_version and acknowledged_scope_version. review_scope_changed notices on "
