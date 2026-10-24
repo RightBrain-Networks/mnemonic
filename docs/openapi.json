@@ -2049,10 +2049,40 @@
             "title": "Disposition",
             "type": "string"
           },
+          "finding_id": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,99}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finding Id"
+          },
           "id": {
             "format": "uuid",
             "title": "Id",
             "type": "string"
+          },
+          "remediation_target": {
+            "anyOf": [
+              {
+                "enum": [
+                  "code",
+                  "decision-record",
+                  "both"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Remediation Target"
           },
           "remediation_work_item_id": {
             "anyOf": [
@@ -6851,6 +6881,16 @@
             "title": "Created At",
             "type": "string"
           },
+          "finding_summary": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ImpactFindingSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "id": {
             "format": "uuid",
             "title": "Id",
@@ -10534,6 +10574,16 @@
             ],
             "title": "Extent"
           },
+          "finding_summary": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ImpactFindingSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "id": {
             "format": "uuid",
             "title": "Id",
@@ -10711,6 +10761,16 @@
               }
             ],
             "title": "Extent"
+          },
+          "finding_summary": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ImpactFindingSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "id": {
             "format": "uuid",
@@ -11237,6 +11297,20 @@
             "title": "Expected Version",
             "type": "integer"
           },
+          "finding_id": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,99}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finding Id"
+          },
           "lease_token": {
             "anyOf": [
               {
@@ -11255,6 +11329,22 @@
             "minLength": 1,
             "title": "Reason",
             "type": "string"
+          },
+          "remediation_target": {
+            "anyOf": [
+              {
+                "enum": [
+                  "code",
+                  "decision-record",
+                  "both"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Remediation Target"
           },
           "remediation_work_item_id": {
             "anyOf": [
@@ -11298,11 +11388,41 @@
             "title": "Disposition",
             "type": "string"
           },
+          "finding_id": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,99}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finding Id"
+          },
           "reason": {
             "maxLength": 4000,
             "minLength": 1,
             "title": "Reason",
             "type": "string"
+          },
+          "remediation_target": {
+            "anyOf": [
+              {
+                "enum": [
+                  "code",
+                  "decision-record",
+                  "both"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Remediation Target"
           },
           "remediation_work_item_id": {
             "anyOf": [
@@ -11356,6 +11476,20 @@
             "title": "Disposition",
             "type": "string"
           },
+          "finding_id": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,99}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finding Id"
+          },
           "id": {
             "format": "uuid",
             "title": "Id",
@@ -11369,6 +11503,22 @@
           "reason": {
             "title": "Reason",
             "type": "string"
+          },
+          "remediation_target": {
+            "anyOf": [
+              {
+                "enum": [
+                  "code",
+                  "decision-record",
+                  "both"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Remediation Target"
           },
           "remediation_work_item_id": {
             "anyOf": [
@@ -11426,6 +11576,20 @@
             "title": "Disposition",
             "type": "string"
           },
+          "finding_id": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,99}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finding Id"
+          },
           "id": {
             "format": "uuid",
             "title": "Id",
@@ -11439,6 +11603,22 @@
           "reason": {
             "title": "Reason",
             "type": "string"
+          },
+          "remediation_target": {
+            "anyOf": [
+              {
+                "enum": [
+                  "code",
+                  "decision-record",
+                  "both"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Remediation Target"
           },
           "remediation_work_item_id": {
             "anyOf": [
@@ -11474,6 +11654,33 @@
           "created_at"
         ],
         "title": "ImpactDispositionRead",
+        "type": "object"
+      },
+      "ImpactFindingSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "change_required_row_count": {
+            "minimum": 0.0,
+            "title": "Change Required Row Count",
+            "type": "integer"
+          },
+          "named_finding_count": {
+            "minimum": 0.0,
+            "title": "Named Finding Count",
+            "type": "integer"
+          },
+          "unlabelled_change_required_count": {
+            "minimum": 0.0,
+            "title": "Unlabelled Change Required Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "named_finding_count",
+          "unlabelled_change_required_count",
+          "change_required_row_count"
+        ],
+        "title": "ImpactFindingSummary",
         "type": "object"
       },
       "ImpactProjection": {
@@ -22781,7 +22988,7 @@
   "info": {
     "description": "Durable project-scoped work with immutable agent checkpoints.",
     "title": "Mnemonic API",
-    "version": "0.101.0"
+    "version": "0.102.0"
   },
   "openapi": "3.1.0",
   "paths": {

@@ -538,8 +538,8 @@ startup/investigation and estimate remaining session time for later lease reques
 within the current project bounds. Preserve exact `lease_minutes` arguments on
 uncertain claim retries.
 
-Application/API/MCP/dashboard 0.101.0, plugin 0.64.0 and Alembic
-`0062_review_scope_notices` ship together: 78 MCP tools, 25
+Application/API/MCP/dashboard 0.102.0, plugin 0.65.0 and Alembic
+`0063_impact_findings` ship together: 78 MCP tools, 25
 receipt-protected MCP writes,
 32 REST receipt kinds, 25 protected browser mutations, 24 event types and three
 plugin skills. Existing projects default to Never/Never/off review settings;
