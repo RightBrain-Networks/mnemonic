@@ -1,3 +1,4 @@
+import { decodeSupersessionDelta, type SupersessionDelta } from "./supersession-deltas.ts";
 import { decisionIdPattern, referencePattern, decisionStates, decodeKnowledgePage, validCommitHash, validScopeProvenance, type KnowledgePage, type DecisionScope, type DecisionState } from "./knowledge.ts";
 import { boundedText, finiteInteger, nullableUuid, objectValue, sameUuid, validUuid } from "./wire-guards.ts";
 import { validRevisionAuthor, type RevisionAuthorContext } from "./revision-authors.ts";
@@ -17,7 +18,7 @@ export type ImpactCandidate = {
 export type ImpactCoverage = {
   traversal_complete: boolean; provenance_complete: false; max_depth: number; snapshot_at?: string | null; notes?: string[];
   candidate_limit: number; visited_revisions: number; reasons: string[];
-  warnings?: { code: "origin_has_no_linked_commits"; reference: string; message: string }[];
+  warnings?: { code: "origin_has_no_linked_commits" | "supersession_extent_reason_unknown"; reference: string; message: string }[];
   related_semantics: "unknown"; path_policy: "one deterministic shortest path per revision";
 };
 export type DecisionImpact = KnowledgePage<ImpactCandidate> & { project_id: string; origin_reference: string; origin_author: RevisionAuthorContext; kind: ImpactKind; candidate_count: number; context_count: number; coverage: ImpactCoverage };
@@ -26,6 +27,7 @@ export type ImpactAssessment = {
   id: string; project_id: string; trigger: "revision" | "supersession"; before_reference: string;
   after_reference: string; extent: "full" | "partial" | null; reason: string | null;
   before_author: RevisionAuthorContext; after_author: RevisionAuthorContext; context_count: number;
+  supersession_delta?: SupersessionDelta | null;
   diff: ImpactDiff; candidate_count: number; unassessed_count?: number; change_required_count?: number; status?: "pending" | "change-required" | "resolved"; coverage: ImpactCoverage; created_at: string; version: number;
 };
 export type ImpactDisposition = {
@@ -59,7 +61,7 @@ function decodeCoverage(value: unknown): ImpactCoverage {
     || item.path_policy !== "one deterministic shortest path per revision") invalid();
   if (item.warnings !== undefined && (!Array.isArray(item.warnings) || !item.warnings.every((value) => {
     const warning = objectValue(value);
-    return warning && warning.code === "origin_has_no_linked_commits" && reference(warning.reference) && typeof warning.message === "string";
+    return warning && (warning.code === "origin_has_no_linked_commits" || warning.code === "supersession_extent_reason_unknown") && reference(warning.reference) && typeof warning.message === "string";
   }))) invalid();
   return item as ImpactCoverage;
 }
@@ -116,7 +118,9 @@ export function decodeAssessment(value: unknown, projectId: string): ImpactAsses
   }
   const coverage = decodeCoverage(item.coverage);
   if (coverage.warnings?.some((warning) => warning.reference !== item.before_reference)) invalid();
-  return { ...item, coverage } as ImpactAssessment;
+  const delta = item.supersession_delta == null ? item.supersession_delta : decodeSupersessionDelta(
+    item.supersession_delta, item.before_reference as string, item.after_reference as string, String(item.trigger));
+  return { ...item, coverage, ...(delta === undefined ? {} : { supersession_delta: delta }) } as ImpactAssessment;
 }
 export function decodeDisposition(value: unknown, projectId: string, assessmentId: string): ImpactDisposition {
   const item = objectValue(value);

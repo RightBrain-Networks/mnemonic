@@ -94,3 +94,13 @@ test("incoming related links require dispositions without asserting causal depen
     assert.throws(() => decodeAssessmentDetail({ ...assessment, candidates: [malformed] }, project, id));
   }
 });
+
+test("unknown supersession extent and reason remain an explicit pinned coverage warning", () => {
+  const warning = { code: "supersession_extent_reason_unknown", reference: detail.before_reference,
+    message: "Inspect the exact superseding revision and its predecessor." };
+  const page = { ...detail, trigger: "supersession", coverage: { ...coverage, warnings: [warning] } };
+  assert.deepEqual(decodeAssessmentDetail(page, project, id).coverage.warnings, [warning]);
+  for (const change of [{ code: "invented" }, { reference: "ADR-00003-0" }]) {
+    assert.throws(() => decodeAssessmentDetail({ ...page, coverage: { ...coverage, warnings: [{ ...warning, ...change }] } }, project, id));
+  }
+});

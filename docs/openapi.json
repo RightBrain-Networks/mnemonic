@@ -10595,6 +10595,16 @@
             "title": "Status",
             "type": "string"
           },
+          "supersession_delta": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SupersessionDelta"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "total": {
             "title": "Total",
             "type": "integer"
@@ -10735,6 +10745,16 @@
             ],
             "title": "Status",
             "type": "string"
+          },
+          "supersession_delta": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SupersessionDelta"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "trigger": {
             "enum": [
@@ -11697,7 +11717,10 @@
         "additionalProperties": false,
         "properties": {
           "code": {
-            "const": "origin_has_no_linked_commits",
+            "enum": [
+              "origin_has_no_linked_commits",
+              "supersession_extent_reason_unknown"
+            ],
             "title": "Code",
             "type": "string"
           },
@@ -16631,6 +16654,173 @@
           "after"
         ],
         "title": "SummaryChange",
+        "type": "object"
+      },
+      "SupersedesSection": {
+        "additionalProperties": false,
+        "properties": {
+          "found": {
+            "title": "Found",
+            "type": "boolean"
+          },
+          "section_count": {
+            "minimum": 0.0,
+            "title": "Section Count",
+            "type": "integer"
+          },
+          "source_characters_scanned": {
+            "maximum": 65536.0,
+            "minimum": 0.0,
+            "title": "Source Characters Scanned",
+            "type": "integer"
+          },
+          "text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Text"
+          },
+          "truncated": {
+            "title": "Truncated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "found",
+          "section_count",
+          "truncated",
+          "source_characters_scanned"
+        ],
+        "title": "SupersedesSection",
+        "type": "object"
+      },
+      "SupersessionDelta": {
+        "additionalProperties": false,
+        "properties": {
+          "after_reference": {
+            "pattern": "^[A-Z]{1,5}-[0-9]{5,19}-[0-9]{1,10}$",
+            "title": "After Reference",
+            "type": "string"
+          },
+          "before_reference": {
+            "anyOf": [
+              {
+                "pattern": "^[A-Z]{1,5}-[0-9]{5,19}-[0-9]{1,10}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Before Reference"
+          },
+          "details_after": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SupersessionDetail"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "details_before": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SupersessionDetail"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "diff_byte_limit": {
+            "const": 16384,
+            "default": 16384,
+            "title": "Diff Byte Limit",
+            "type": "integer"
+          },
+          "interpretation": {
+            "const": "Supersedes headings are evidence aids; read exact revisions to establish rule scope.",
+            "default": "Supersedes headings are evidence aids; read exact revisions to establish rule scope.",
+            "title": "Interpretation",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "new-supersession",
+              "continued-supersession"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "metadata_changed": {
+            "title": "Metadata Changed",
+            "type": "boolean"
+          },
+          "section_after": {
+            "$ref": "#/components/schemas/SupersedesSection"
+          },
+          "section_before": {
+            "$ref": "#/components/schemas/SupersedesSection"
+          },
+          "section_byte_limit": {
+            "const": 8192,
+            "default": 8192,
+            "title": "Section Byte Limit",
+            "type": "integer"
+          },
+          "section_scan_limit": {
+            "const": 65536,
+            "default": 65536,
+            "title": "Section Scan Limit",
+            "type": "integer"
+          },
+          "source": {
+            "const": "read-projection",
+            "default": "read-projection",
+            "title": "Source",
+            "type": "string"
+          },
+          "target_reference": {
+            "pattern": "^[A-Z]{1,5}-[0-9]{5,19}-[0-9]{1,10}$",
+            "title": "Target Reference",
+            "type": "string"
+          },
+          "truncated": {
+            "title": "Truncated",
+            "type": "boolean"
+          },
+          "unified_diff": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unified Diff"
+          }
+        },
+        "required": [
+          "target_reference",
+          "before_reference",
+          "after_reference",
+          "kind",
+          "details_before",
+          "details_after",
+          "metadata_changed",
+          "section_before",
+          "section_after",
+          "truncated"
+        ],
+        "title": "SupersessionDelta",
         "type": "object"
       },
       "SupersessionDetail": {
