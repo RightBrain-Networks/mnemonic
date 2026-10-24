@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { decodeAssessmentDetail, decodeImpact, decodeDisposition } from "../lib/knowledge-impact.ts";
+import { decodeAssessmentDetail, decodeImpact, decodeDisposition, decodeImpactCandidate } from "../lib/knowledge-impact.ts";
 import { decodeScope } from "../lib/knowledge.ts";
 const project = "11111111-1111-4111-8111-111111111111", id = "22222222-2222-4222-8222-222222222222";
 const author = (reference) => ({ reference, author_kind: "agent", agent_session_id: "native-session", model_id: "test-model", authored_at: "2026-10-22T11:00:00Z", work_observed_at: "2026-10-22T12:00:00Z", active_work_items: [], active_work_items_truncated: false });
@@ -8,6 +8,14 @@ const coverage = { traversal_complete: false, provenance_complete: false, max_de
 const candidate = { decision_id: "ADR-00002", reference: "ADR-00002-0", revision: 0, title: "Dependent decision", state: "accepted", is_current: true, relationship: "depends-on", path: ["ADR-00001-0", "ADR-00002-0"], rationale: "Uses the original transport protocol", scopes: [{ id, revision: 0, commit_hash: "a".repeat(40), repository: null, completion_report_id: null, merged_commit_hashes: [], work_item_id: null, agent_session_id: "native-session" }], related_work_item_ids: [], related_artifact_ids: [], evidence_truncated: false };
 const disposition = { id, project_id: project, assessment_id: id, version: 1, candidate_reference: candidate.reference, disposition: "change-required", reason: "Replace the old transport adapter", remediation_work_item_id: id, actor: { actor_client: "dashboard", actor_session_id: "browser-session", actor_model: null }, created_at: "2026-10-22T12:00:00Z" };
 const detail = { kind: "code-impact", total: 1, context_count: 0, before_author: author("ADR-00001-0"), after_author: author("ADR-00001-1"), id, project_id: project, trigger: "revision", before_reference: "ADR-00001-0", after_reference: "ADR-00001-1", extent: null, reason: null, diff: { changed_fields: ["sha256"], before_sha256: "a".repeat(64), after_sha256: "b".repeat(64), unified_diff: "-old\n+new", truncated: false }, candidate_count: 1, coverage, created_at: disposition.created_at, version: 1, candidates: [candidate], dispositions: [disposition], disposition_history_total: 1, limit: 25, offset: 0, next_offset: null };
+
+test("optional citation excerpts preserve source hashes and Unicode character limits", () => {
+  const evidence = { source_sha256: "a".repeat(64), excerpts: ["🙂".repeat(400)], truncated: true };
+  assert.deepEqual(decodeImpactCandidate({ ...candidate, citation_excerpts: evidence }).citation_excerpts, evidence);
+  for (const citation_excerpts of [null, { ...evidence, source_sha256: "a" }, { ...evidence, excerpts: ["🙂".repeat(401)] }, { ...evidence, excerpts: ["x", "x", "x", "x"] }, { ...evidence, truncated: "false" }]) {
+    assert.throws(() => decodeImpactCandidate({ ...candidate, citation_excerpts }));
+  }
+});
 
 test("impact preserves pinned paths, unknown repository coverage and traversal limits", () => {
   const page = { kind: "code-impact", candidate_count: 1, context_count: 0, origin_author: author("ADR-00001-0"), project_id: project, origin_reference: "ADR-00001-0", items: [candidate], total: 1, limit: 25, offset: 0, next_offset: null, coverage };

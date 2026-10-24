@@ -39,6 +39,7 @@ from mnemonic_api.models import (
 )
 from mnemonic_api.review_scope_schemas import ExtendedDecisionReview
 from mnemonic_api.services.assessment_progress import renew_assessment_progress
+from mnemonic_api.services.decision_citation_excerpts import hydrate_citation_excerpts
 from mnemonic_api.services.decision_dependencies import superseded_ids
 from mnemonic_api.services.decision_impact_graph import (
     candidate,
@@ -79,14 +80,17 @@ def read_impact(
              if is_code_impact(node.relationship, node.related_direction)
              == (filters.kind == "code-impact")]
     items = [
-        candidate(database, node) for node in nodes[filters.offset : filters.offset + filters.limit]
+        candidate_read(candidate(database, node), filters)
+        for node in nodes[filters.offset : filters.offset + filters.limit]
     ]
+    if filters.include_citation_excerpts:
+        items = hydrate_citation_excerpts(database, project_id, items)
     end = filters.offset + len(items)
     return ImpactRead(
         project_id=project_id,
         origin_reference=reference(document, revision, domain),
         origin_author=author_read(revision_author_context(database, revision), filters),
-        items=[candidate_read(item, filters) for item in items],
+        items=items,
         projection=projection(filters),
         kind=filters.kind,
         candidate_count=candidate_count,
@@ -431,9 +435,11 @@ def assessment_detail(
                 if is_code_impact(item["relationship"], item.get("related_direction"))
                 == (filters.kind == "code-impact")]
     candidates = [
-        ImpactCandidate.model_validate(item)
+        candidate_read(ImpactCandidate.model_validate(item), filters)
         for item in selected[filters.offset : filters.offset + filters.limit]
     ]
+    if filters.include_citation_excerpts:
+        candidates = hydrate_citation_excerpts(database, project_id, candidates)
     latest = database.scalars(
         select(DecisionImpactDisposition)
         .where(
@@ -452,7 +458,7 @@ def assessment_detail(
         **value.model_dump(),
         kind=filters.kind,
         total=len(selected),
-        candidates=[candidate_read(item, filters) for item in candidates],
+        candidates=candidates,
         dispositions=[disposition_projection(disposition_read(item), filters) for item in latest],
         disposition_history_total=value.version,
         limit=filters.limit,

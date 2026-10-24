@@ -41,6 +41,7 @@ def is_code_impact(relationship: str, related_direction: str | None = None) -> b
 
 
 class ImpactPageQuery(ImpactProjection):
+    include_citation_excerpts: bool = False
     kind: ImpactKind = "code-impact"
     limit: Annotated[int, Field(ge=1, le=100)] = 50
     offset: Annotated[int, Field(ge=0)] = 0
@@ -91,8 +92,17 @@ class ImpactScopeSummary(APIModel):
     evidence_truncated: bool
 
 
+class CitationExcerpts(APIModel):
+    source_sha256: Annotated[str, StringConstraints(pattern=r"^[a-f0-9]{64}$")]
+    excerpts: Annotated[list[Annotated[str, StringConstraints(min_length=1, max_length=400)]],
+                        Field(max_length=3)]
+    truncated: bool
+
+
 class ImpactCandidateRead(APIModel):
     """Read projection only: persisted candidates retain their complete original schema."""
+
+    citation_excerpts: CitationExcerpts | MISSING = MISSING
 
     decision_id: str
     reference: str

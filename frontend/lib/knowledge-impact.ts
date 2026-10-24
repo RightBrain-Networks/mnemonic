@@ -12,6 +12,7 @@ export type ImpactCandidate = {
   related_direction?: "incoming" | "outgoing" | null;
   rationale: string | null; scopes: ImpactScope[]; related_work_item_ids: string[];
   related_artifact_ids: string[]; evidence_truncated: boolean;
+  citation_excerpts?: { source_sha256: string; excerpts: string[]; truncated: boolean };
 };
 export type ImpactCoverage = {
   traversal_complete: boolean; provenance_complete: false; max_depth: number; snapshot_at?: string | null; notes?: string[];
@@ -77,6 +78,12 @@ export function decodeImpactCandidate(value: unknown): ImpactCandidate {
         && nullableUuid(scope.work_item_id) && (scope.agent_session_id === null || typeof scope.agent_session_id === "string") && validScopeProvenance(scope, 10);
     }) || !strings(item.related_work_item_ids) || !item.related_work_item_ids.every(validUuid)
     || !strings(item.related_artifact_ids) || !item.related_artifact_ids.every(validUuid) || typeof item.evidence_truncated !== "boolean") invalid();
+  if (item.citation_excerpts !== undefined) {
+    const evidence = objectValue(item.citation_excerpts);
+    if (!evidence || typeof evidence.source_sha256 !== "string" || !/^[a-f0-9]{64}$/.test(evidence.source_sha256)
+      || !strings(evidence.excerpts) || evidence.excerpts.length > 3 || !evidence.excerpts.every(text => text.length > 0 && Array.from(text).length <= 400)
+      || typeof evidence.truncated !== "boolean") invalid();
+  }
   return item as ImpactCandidate;
 }
 export function decodeImpact(value: unknown, projectId: string, originReference?: string, kind: ImpactKind = "code-impact"): DecisionImpact {

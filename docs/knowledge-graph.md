@@ -582,3 +582,23 @@ and indirect dependencies remain unknown coverage. Bulk changes use explicit
 classification and grouping; operators can disable automation before an import,
 without creating a backlog when it is enabled again. Existing completed or promoted
 reviews and their evidence remain intact.
+
+### Literal citation excerpts
+
+`decision_impact` and `decision_assessment_get` accept optional
+`include_citation_excerpts=true`. Defaults omit this evidence to preserve existing
+payloads and compact-read budgets. Each candidate then includes `citation_excerpts`
+with the exact revision's `source_sha256`, up to three literal `excerpts` of at
+most 400 Unicode characters each, and `truncated`. Matches use stable decision IDs
+on the candidate's explanatory path, excluding the candidate's own stable ID
+even when an earlier revision of that document occurs on the path. Each
+match includes a neighboring sentence where the cap permits; Markdown line breaks
+also delimit sentences. Long context is clipped around the citation, and omitted
+matches or clipped context set `truncated=true`.
+
+Assessment excerpts come from the captured candidate revision, including when a
+newer revision exists. They are computed on reads and never modify stored snapshots,
+dispositions, or completion obligations. Empty excerpts do not establish that a
+candidate is unaffected: text can discuss a rule without naming its decision ID.
+Use the pinned full decision text whenever an excerpt is insufficient. Smaller
+candidate pages can keep explicitly requested evidence within the client's budget.

@@ -2534,6 +2534,37 @@
         "title": "CheckpointRead",
         "type": "object"
       },
+      "CitationExcerpts": {
+        "additionalProperties": false,
+        "properties": {
+          "excerpts": {
+            "items": {
+              "maxLength": 400,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 3,
+            "title": "Excerpts",
+            "type": "array"
+          },
+          "source_sha256": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Source Sha256",
+            "type": "string"
+          },
+          "truncated": {
+            "title": "Truncated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "source_sha256",
+          "excerpts",
+          "truncated"
+        ],
+        "title": "CitationExcerpts",
+        "type": "object"
+      },
       "ClaimAndRecall": {
         "additionalProperties": false,
         "properties": {
@@ -10480,6 +10511,10 @@
         "additionalProperties": false,
         "description": "Read projection only: persisted candidates retain their complete original schema.",
         "properties": {
+          "citation_excerpts": {
+            "$ref": "#/components/schemas/CitationExcerpts",
+            "title": "Citation Excerpts"
+          },
           "decision_id": {
             "title": "Decision Id",
             "type": "string"
@@ -22208,7 +22243,7 @@
   "info": {
     "description": "Durable project-scoped work with immutable agent checkpoints.",
     "title": "Mnemonic API",
-    "version": "0.97.0"
+    "version": "0.98.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -24559,6 +24594,16 @@
           },
           {
             "in": "query",
+            "name": "include_citation_excerpts",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Include Citation Excerpts",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
             "name": "kind",
             "required": false,
             "schema": {
@@ -25503,6 +25548,16 @@
               ],
               "title": "Include Scopes",
               "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "include_citation_excerpts",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Include Citation Excerpts",
+              "type": "boolean"
             }
           },
           {

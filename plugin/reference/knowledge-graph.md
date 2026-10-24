@@ -375,6 +375,17 @@ with no driver while preserving the original lineage. That held change still
 requires explicit owner admission. Work detail's `decision_change_projects` map
 locates inherited changes; use each change's own project for reads and actions.
 
+## Literal citation evidence
+
+Use `include_citation_excerpts=true` on `decision_impact` or
+`decision_assessment_get` to retrieve bounded literal citations from each exact
+candidate revision. The optional `citation_excerpts` object includes its source
+SHA-256, up to three 400-character excerpts, and a truncation flag. Defaults omit
+excerpts. They are navigation evidence, not verdicts: absent decision-ID mentions
+do not establish irrelevance, and every required candidate still needs its own
+evidenced disposition. Read pinned full text when the excerpt is insufficient.
+Historical assessment text remains pinned even after a new revision is written.
+
 ## Preserve exact writes across uncertainty
 
 All knowledge mutations use receipt-protected operation IDs. Fresh MCP calls

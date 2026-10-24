@@ -1,5 +1,10 @@
 # Operating Mnemonic
 
+Release 0.98.0 and plugin 0.61.0 add opt-in citation excerpts to impact candidate
+reads. Excerpts use exact pinned text and compose with compact projections;
+stored snapshots and default response shapes are unchanged. No new configuration
+or migration is required beyond `0062_review_scope_notices`.
+
 Release 0.97.0 and plugin 0.60.0 add persistent review-scope growth notices and
 readable scope-extension checkpoints. Migration `0062_review_scope_notices`
 records the exact order of newly attached episodes; historical unknown boundaries

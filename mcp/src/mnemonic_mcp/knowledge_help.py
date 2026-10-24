@@ -84,19 +84,17 @@ KNOWLEDGE_GUIDES: dict[str, tuple[str, str, str]] = {
         "remain outside this provenance record."),
     ),
     "decision_impact": (
-        "Knowledge", "Trace exact revision dependencies and recorded implementation impact.",
-        ("Pin revision or use a revision-qualified ID; current is the default. Follow next_offset. "
-        "kind=code-impact returns the origin, reverse depends_on dependents, and incoming "
-        "related-only citations (related_direction=incoming, causality unknown). "
-        "kind=context returns prerequisites and outward references for contradiction "
-        "checks; they are not downstream code. Each result explains its path and registered scope. "
-        "Page each kind independently. Inspect missing-code warnings, authorship/current active-work "
-        "context, coverage and evidence_truncated. No linked commits means unknown implementation: "
-        "inspect commit messages, files named in the decision, and source mentions of its stable ID. "
-        "Use detail=compact with include_scopes=summary for smaller navigation reads, or "
-        "include_scopes=none to omit scope evidence. Summary counts describe captured rows, not "
-        "complete live scope; evidence_truncated remains explicit. Full defaults are unchanged. "
-        "Traversal completeness never proves all provenance is registered. No execution authority."),
+        "Knowledge", "Trace declared decision dependencies and implementation evidence.",
+        ("Pin origin_reference and follow next_offset. kind=code-impact selects origin, reverse "
+        "dependencies and incoming related-only citations; causality of related links is unknown. "
+        "kind=context separately pages prerequisites and outward references. Inspect coverage, "
+        "evidence_truncated and missing-commit warnings; search repository history, declared files "
+        "and source IDs for missing provenance. detail=compact and include_scopes=summary or none "
+        "reduce navigation detail; summaries count captured rows, not complete live scope. "
+        "include_citation_excerpts=true adds up to three literal 400-character hints from each "
+        "pinned candidate, with source hash and truncation. Empty hints prove nothing; inspect "
+        "full text and scope before a verdict. Defaults remain full without excerpts. No execution "
+        "authority; traversal cannot establish exhaustive impact."),
     ),
     "decision_assessments": (
         "Knowledge", "List captured reassessment episodes after decision changes.",
@@ -107,18 +105,18 @@ KNOWLEDGE_GUIDES: dict[str, tuple[str, str, str]] = {
         "A change does not automatically invalidate dependent code or authorize remediation."),
     ),
     "decision_assessment_get": (
-        "Knowledge", "Read an assessment's captured candidates and latest dispositions.",
-        ("Follow next_offset; retain version and inspect coverage/evidence_truncated. "
+        "Knowledge", "Read captured candidates and latest dispositions.",
+        ("Follow next_offset, retain version and inspect coverage/evidence_truncated. "
         "kind=code-impact requires origin/dependent and incoming related-only conclusions; "
-        "causality remains unknown. kind=context is optional, including historical related-only "
-        "rows without direction. Snapshots exclude later registrations: compare decision_impact. "
-        "Read exact before/after text to classify rule, scope or reference changes. "
-        "Opt in with detail=compact, include_diff=false, include_scopes=summary (or none). "
-        "Projection metadata states omissions: candidate prose/links, author work titles, "
-        "disposition reasons/attribution and unified diff. Hashes, changed fields, coverage, "
-        "counts and the complete candidate ledger remain. Scope summaries count captured rows, "
-        "not complete live scope. Retrieve full detail, decision_assessment_history and "
-        "decision_scope before relying on omitted evidence. Defaults remain full."),
+        "related causality stays unknown. kind=context is optional, including historical "
+        "related-only rows without direction. Snapshots exclude later registrations: compare "
+        "decision_impact. Read full before/after text to classify rule, scope or reference changes. "
+        "detail=compact, include_diff=false and include_scopes=summary or none omit prose and "
+        "attribution while retaining identities, hashes, coverage and obligations. Retrieve "
+        "full detail/history/scope before relying on omitted evidence. "
+        "include_citation_excerpts=true adds bounded literal hints from each exact captured "
+        "candidate revision; source hashes and truncation stay explicit. Empty hints do not "
+        "establish irrelevance. Defaults remain full without excerpts."),
     ),
     "decision_assessment_history": (
         "Knowledge", "Read the immutable history of impact dispositions.",

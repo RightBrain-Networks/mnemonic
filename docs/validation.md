@@ -1,5 +1,21 @@
 # Mnemonic validation record
 
+## Literal citation excerpts (0.98.0)
+
+Opt-in excerpts come from the exact captured candidate revision, with its text
+hash, a three-excerpt/400-character bound and explicit truncation. They compose
+with full and compact reads without changing stored candidate snapshots. A
+revisited decision's own heading is excluded from citation hints across the
+whole path; empty hints never establish that a candidate is irrelevant.
+
+The full backend suite passed 5,460 tests on isolated PostgreSQL/RabbitMQ. The
+full MCP run passed 2,447 tests with one stale status-field inventory assertion
+collected before its correction; all 80 affected lease, notice and help tests
+passed after that correction. Focused excerpt checks passed 22 backend and 57
+MCP cases. Dashboard validation passed 599 tests, type checking and production
+build. Backend/MCP Ruff and types, OpenAPI, 71 plugin tests (one optional external
+CLI check skipped) and the gitleaks hook pass. No production services changed.
+
 ## Review scope growth notices (0.97.0)
 
 Release 0.97.0, plugin 0.60.0 and migration `0062_review_scope_notices` retain an
