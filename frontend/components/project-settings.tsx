@@ -26,6 +26,7 @@ type Props = {
   backupMaximumBytes: number;
   onBackupPendingChange: (pending: boolean) => void;
   onPromptPendingChange: (pending: boolean) => void;
+  onKnowledgePendingChange: (pending: boolean) => void;
 };
 
 type ProjectDetailsDraft = {
@@ -58,7 +59,8 @@ export default function ProjectSettingsPanel({
   onNotice,
   backupMaximumBytes,
   onBackupPendingChange,
-  onPromptPendingChange
+  onPromptPendingChange,
+  onKnowledgePendingChange
 }: Props) {
   const [projectDetails, setProjectDetails] = useState(() => detailsFromProject(project));
   const lastProject = useRef(project);
@@ -244,7 +246,7 @@ export default function ProjectSettingsPanel({
       projectId={selectedProject.id} onNotice={onNotice} />}
     {section === "workspace" && <AutomaticDecisionReviewSettings key={`decision-reviews-${selectedProject.id}`}
       projectId={selectedProject.id} settings={settings} loading={loading} loadError={loadError}
-      onSaved={onSaved} onRetry={onRetry} onNotice={onNotice} />}
+      onSaved={onSaved} onRetry={onRetry} onNotice={onNotice} onPendingChange={onKnowledgePendingChange} />}
     {section === "prompts" && <PromptLibrary key={selectedProject.id} project={selectedProject} onNotice={onNotice} onPendingChange={onPromptPendingChange} />}
     {section === "backups" && <ProjectBackupsPanel key={selectedProject.id} project={selectedProject} maximumBytes={backupMaximumBytes} onPendingChange={onBackupPendingChange} />}
   </div>;

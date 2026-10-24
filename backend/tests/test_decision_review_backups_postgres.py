@@ -41,6 +41,65 @@ def test_roundtrip_retains_decision_review_origin_policy_and_pinned_prompt(
     assert policy["decision_review_priority"] == 41
 
 
+def test_backup_roundtrip_retains_domain_review_override(api, project, postgres_engine):
+    target = domain(api, project)
+    path = f"/api/v1/projects/{project['id']}/knowledge/domains/{target['id']}"
+    changed_domain = api.patch(path, json={
+        "expected_version": target["version"], "automatic_decision_reviews": "off",
+        "client_operation_id": str(uuid4()),
+    })
+    assert changed_domain.status_code == 200, changed_domain.text
+    backup = _export(postgres_engine, project)
+    changed_again = api.patch(path, json={
+        "expected_version": changed_domain.json()["version"], "automatic_decision_reviews": "on",
+        "client_operation_id": str(uuid4()),
+    })
+    assert changed_again.status_code == 200, changed_again.text
+    restore_project(postgres_engine, UUID(project["id"]), io.BytesIO(backup))
+    domains = api.get(f"/api/v1/projects/{project['id']}/knowledge/domains").json()["items"]
+    restored = next(item for item in domains if item["id"] == target["id"])
+    assert restored == changed_domain.json()
+
+
+def test_backup_rejects_invalid_domain_review_override(api, project, postgres_engine):
+    target = domain(api, project)
+    before = _snapshot(postgres_engine, project)
+    backup = _export(postgres_engine, project)
+
+    def corrupt(_header, rows):
+        next(row for row in rows["knowledge_domains"] if row["id"] == target["id"])[
+            "automatic_decision_reviews"
+        ] = "unknown"
+
+    with pytest.raises(BackupError):
+        restore_project(postgres_engine, UUID(project["id"]), io.BytesIO(_rewrite(backup, corrupt)))
+    assert _snapshot(postgres_engine, project) == before
+
+
+@pytest.mark.parametrize("kind", ["create_knowledge_domain", "rename_knowledge_domain"])
+@pytest.mark.parametrize("value", ["invalid", None, True, 0, {}])
+def test_backup_rejects_invalid_domain_policy_in_receipt(
+    api, project, postgres_engine, kind, value,
+):
+    target = domain(api, project)
+    path = f"/api/v1/projects/{project['id']}/knowledge/domains/{target['id']}"
+    updated = api.patch(path, json={
+        "expected_version": target["version"], "automatic_decision_reviews": "off",
+        "client_operation_id": str(uuid4()),
+    })
+    assert updated.status_code == 200, updated.text
+    before = _snapshot(postgres_engine, project)
+    backup = _export(postgres_engine, project)
+
+    def corrupt(_header, rows):
+        receipt = next(row for row in rows["client_operations"] if row["operation_kind"] == kind)
+        receipt["response_body"]["automatic_decision_reviews"] = value
+
+    with pytest.raises(BackupError, match="integrity"):
+        restore_project(postgres_engine, UUID(project["id"]), io.BytesIO(_rewrite(backup, corrupt)))
+    assert _snapshot(postgres_engine, project) == before
+
+
 @pytest.mark.parametrize("damage", [
     "marker", "source-session", "source-project", "decision-reference", "missing-assessments",
     "foreign-assessment", "malformed-assessments", "prompt-hash", "priority",

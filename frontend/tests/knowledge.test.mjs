@@ -8,7 +8,7 @@ const domainId = "2b7f6231-9bb8-45a5-b98e-865cd2b5fd70";
 const id = "3b7f6231-9bb8-45a5-b98e-865cd2b5fd70";
 const timestamp = "2026-10-21T12:00:00Z";
 const content = "# A decision\n\nPreserve café ☕.\n";
-const domain = { id: domainId, project_id: project, name: "Architecture", prefix: "ADR", version: 1, created_at: timestamp, updated_at: timestamp, decision_count: 1 };
+const domain = { id: domainId, project_id: project, name: "Architecture", prefix: "ADR", version: 1, created_at: timestamp, updated_at: timestamp, decision_count: 1, automatic_decision_reviews: "inherit" };
 const decision = { id, project_id: project, domain_id: domainId, domain_name: "Architecture", prefix: "ADR", ordinal: 194, decision_id: "ADR-00194", reference: "ADR-00194-0", revision: 0, title: "A decision", state: "accepted", media_type: "text/markdown", size_bytes: Buffer.byteLength(content), sha256: createHash("sha256").update(content).digest("hex"), created_at: timestamp, updated_at: timestamp, author_kind: "agent", agent_session_id: "native-thread", model_id: "codex", related_decision_ids: ["ODR-00002"], related_work_item_ids: [], related_artifact_ids: [], supersedes: [], superseded_by: ["ADR-00195-1"], referenced_by: ["ODR-00002-0"], scope_count: 1 };
 
 test("domain prefixes normalize to uppercase ASCII with one through five letters", () => {
@@ -18,6 +18,12 @@ test("domain prefixes normalize to uppercase ASCII with one through five letters
   assert.throws(() => decodeDomain({ ...domain, project_id: domainId }, project));
   assert.throws(() => decodeDomain({ ...domain, prefix: "adr" }, project));
   assert.throws(() => decodeDomain({ ...domain, version: 0 }, project));
+  for (const value of ["inherit", "on", "off"]) {
+    assert.equal(decodeDomain({ ...domain, automatic_decision_reviews: value }, project).automatic_decision_reviews, value);
+  }
+  for (const value of [undefined, null, true, false, "enabled", "ON", 1]) {
+    assert.throws(() => decodeDomain({ ...domain, automatic_decision_reviews: value }, project));
+  }
 });
 
 test("decision reads pin project, document and zero-based revision with inverse graph references", () => {

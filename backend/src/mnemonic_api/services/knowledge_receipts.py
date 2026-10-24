@@ -5,6 +5,8 @@ from collections.abc import Mapping
 from typing import cast
 from uuid import UUID
 
+from pydantic.experimental.missing_sentinel import MISSING
+
 from mnemonic_api.knowledge_schemas import (
     DecisionPutRequest,
     DecisionPutResult,
@@ -30,6 +32,9 @@ def created_domain_matches(
         and result.name == request.name
         and result.prefix == request.prefix
         and result.version == 1
+        and (result.automatic_decision_reviews == request.automatic_decision_reviews
+             or result.automatic_decision_reviews is MISSING
+             and request.automatic_decision_reviews == "inherit")
     )
 
 
@@ -43,7 +48,9 @@ def renamed_domain_matches(
     return (
         result.project_id == project_id
         and str(result.id) == target.get("domain_id")
-        and result.name == request.name
+        and (request.name is MISSING or result.name == request.name)
+        and (request.automatic_decision_reviews is MISSING
+             or result.automatic_decision_reviews == request.automatic_decision_reviews)
         and result.version in {request.expected_version, request.expected_version + 1}
     )
 

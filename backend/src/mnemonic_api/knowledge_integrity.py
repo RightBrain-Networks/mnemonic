@@ -86,6 +86,23 @@ _SCOPE_MATCH = f"""
 """
 
 
+DOMAIN_REVIEW_FINDINGS = {
+    "invalid_knowledge_domain_review_settings": """
+        SELECT count(*) FROM knowledge_domains
+        WHERE automatic_decision_reviews IS NULL
+           OR automatic_decision_reviews NOT IN ('inherit', 'on', 'off')
+    """,
+    "invalid_knowledge_domain_review_receipts": """
+        SELECT count(*) FROM client_operations
+        WHERE operation_kind IN ('create_knowledge_domain', 'rename_knowledge_domain')
+          AND state='completed'
+          AND response_body ? 'automatic_decision_reviews'
+          AND response_body->'automatic_decision_reviews' NOT IN
+              ('"inherit"'::jsonb, '"on"'::jsonb, '"off"'::jsonb)
+    """,
+}
+
+
 KNOWLEDGE_FINDINGS = {
     "invalid_knowledge_ordinals": """
         SELECT count(*) FROM knowledge_domains domain

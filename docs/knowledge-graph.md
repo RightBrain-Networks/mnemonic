@@ -1,5 +1,9 @@
 # Knowledge graph
 
+Release 0.93.0, plugin 0.56.0 and migration `0059_domain_decision_reviews` add
+per-domain automatic review overrides. Existing and new domains default to
+`inherit`, preserving the project policy until explicitly changed.
+
 Release 0.92.0, plugin 0.55.0 and migration `0058_decision_changes` group reviews by
 explicit decision change, preserve inherited review boundaries, and require owner
 admission before a closed review-derived change starts another cycle. See
@@ -19,7 +23,8 @@ artifact storage remain separate. Database backups include decision text and his
 
 A domain has a case-insensitively unique name and a unique prefix within its project. Prefixes are uppercased
 and must match `[A-Z]{1,5}`; the prefix cannot change after creation. Domain names
-can be renamed using their current version. Domain deletion is not supported.
+and review overrides can be updated together using their current version.
+Domain deletion is not supported.
 Each domain allocates increasing ordinals starting at 1. Ordinals are padded to a
 minimum of five digits, never recycled, and can grow beyond five digits. Revision
 numbers start at 0: `ADR-00194-0` identifies one immutable revision, while
@@ -304,12 +309,27 @@ approval to interrupt services. No filesystem content migration is needed.
 
 ## Automatic decision impact reviews
 
-Release 0.89.0 adds **Automatic decision impact reviews** to `/settings/workspace`.
-The project setting defaults to off. Enabling it reveals the priority for new
-investigations, an integer from 0 through 100 with a default of 40. Disabling
-the setting hides the priority input and stops future automatic creation; it
-does not cancel existing work. Changing settings does not backfill earlier
-decision changes.
+**Automatic decision impact reviews** are configured in `/settings/workspace`.
+The project setting defaults to off. Each knowledge domain has an
+`automatic_decision_reviews` override: `inherit` follows the project switch,
+`on` enables reviews even when the project switch is off, and `off` prevents
+that domain from opening reviews. The changed record's domain governs, including
+when dependencies reach records in other domains. Supersession retains its existing
+same-domain restriction. For example, project on with ADR inherit
+and PDR off enables ADR-triggered reviews while disabling PDR-triggered reviews.
+New investigation priority stays project-wide, from 0 through 100, default 40.
+
+Domain creation defaults to `inherit`; domain reads expose the override. REST
+`PATCH /projects/{project_id}/knowledge/domains/{domain_id}` and MCP
+`rename_knowledge_domain` accept `expected_version` and a name and/or
+`automatic_decision_reviews` setting. Empty updates and null settings are invalid;
+prefixes remain immutable. Settings changes do not backfill earlier changes or
+cancel existing work. Substantive assessment episodes are captured even when
+review creation is disabled; an existing grouped review still accumulates its
+obligations. Unanswered PDR questions remain maintenance; accepted answers can
+open reviews according to the PDR domain policy and existing admission rules.
+
+![Workspace settings with ADR reviews on and PDR reviews off](images/domain-decision-reviews.png)
 
 When enabled, a substantive decision change has one native change identity and
 at most one ordinary Pending review driver. Related revisions recording that
@@ -393,7 +413,7 @@ expose `admit`. REST uses one receipt-protected
 `GET /projects/{project_id}/knowledge/changes/{change_id}` for reads.
 
 Deploy aligned API, worker, MCP and dashboard with migration
-`0058_decision_changes`. It preserves historical assessments, dispositions and
+`0059_domain_decision_reviews`. It preserves historical assessments, dispositions and
 terminal work without creating a review backlog. No new service or environment
 variable is required.
 

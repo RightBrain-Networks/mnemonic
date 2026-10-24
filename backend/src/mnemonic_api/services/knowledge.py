@@ -86,6 +86,7 @@ def domain_read(database: Session, domain: KnowledgeDomain) -> KnowledgeDomainRe
         project_id=domain.project_id,
         name=domain.name,
         prefix=domain.prefix,
+        automatic_decision_reviews=domain.automatic_decision_reviews,
         version=domain.version,
         created_at=domain.created_at,
         updated_at=domain.updated_at,
@@ -127,7 +128,10 @@ def create_domain(
         raise conflict(
             "knowledge_domain_prefix_conflict", "Domain prefixes must be unique per project."
         )
-    domain = KnowledgeDomain(project_id=project_id, name=payload.name, prefix=payload.prefix)
+    domain = KnowledgeDomain(
+        project_id=project_id, name=payload.name, prefix=payload.prefix,
+        automatic_decision_reviews=payload.automatic_decision_reviews,
+    )
     database.add(domain)
     database.flush()
     return domain_read(database, domain)
@@ -142,11 +146,14 @@ def rename_domain(
     domain = require_domain(database, project_id, domain_id)
     if domain.version != payload.expected_version:
         raise conflict(
-            "knowledge_domain_version_conflict", "Read the current domain before renaming."
+            "knowledge_domain_version_conflict", "Read the current domain before updating it."
         )
-    _check_domain_name(database, project_id, payload.name, domain_id)
-    if domain.name != payload.name:
-        domain.name = payload.name
+    changes = payload.model_dump(include={"name", "automatic_decision_reviews"})
+    if "name" in changes:
+        _check_domain_name(database, project_id, changes["name"], domain_id)
+    if any(getattr(domain, name) != value for name, value in changes.items()):
+        for name, value in changes.items():
+            setattr(domain, name, value)
         domain.version += 1
         domain.updated_at = datetime.now(UTC)
         database.flush()

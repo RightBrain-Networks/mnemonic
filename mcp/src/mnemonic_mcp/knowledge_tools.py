@@ -14,6 +14,7 @@ from .decision_change_models import DecisionChangeInput
 from .impact_models import DecisionDependency, SupersessionDetail
 from .input_errors import InputValidationError
 from .knowledge_models import (
+    AutomaticDecisionReviews,
     DecisionIdentifier,
     DecisionMediaType,
     DecisionPut,
@@ -50,7 +51,7 @@ _WRITE = ToolAnnotations(readOnlyHint=False, destructiveHint=False,
 _INPUT_GUIDANCE = {
     DomainCreate: "Supply a nonblank name (at most 120 characters) and a prefix that becomes "
                   "one to five uppercase ASCII letters. See help(topic='create_knowledge_domain').",
-    DomainRename: "Supply a nonblank name and the current positive expected_version from "
+    DomainRename: "Supply a name or automatic_decision_reviews (inherit/on/off), and expected_version from "
                   "list_knowledge_domains. See help(topic='rename_knowledge_domain').",
     DecisionTextQuery: "Line numbers are one-based and inclusive; line_end must not precede "
                        "line_start. See help(topic='decision_get').",
@@ -114,7 +115,8 @@ def _register_domains(server: FastMCP, api: MnemonicAPI) -> None:
         return await _read(
             api, f"projects/{project_id}/knowledge/domains", KnowledgePage[KnowledgeDomainRead],
             lambda page: page.limit == limit and page.offset == offset
-            and all(item.project_id == project_id for item in page.items),
+            and all(item.project_id == project_id and item.automatic_decision_reviews is not MISSING
+                    for item in page.items),
             {"limit": limit, "offset": offset},
         )
 
@@ -122,30 +124,40 @@ def _register_domains(server: FastMCP, api: MnemonicAPI) -> None:
     async def create_knowledge_domain(
         project_id: UUID, name: Name, prefix: Annotated[str, Field(min_length=1, max_length=5)],
         client_operation_id: UUID,
+        automatic_decision_reviews: AutomaticDecisionReviews = "inherit",
     ) -> KnowledgeDomainRead:
-        """Create a decision domain with a unique project name and permanent prefix. Prefix becomes uppercase and must match [A-Z]{1,5}; it can never change. List domains before creating. Omit client_operation_id for automatic UUID minting and retain the returned ID with every argument for an exact uncertain retry. Never repeat a keyless call after losing its response."""
+        """Create a decision domain with a unique project name and permanent prefix. automatic_decision_reviews defaults to inherit; on/off override the project switch. Prefix becomes uppercase and must match [A-Z]{1,5}; it can never change. List domains before creating. Omit client_operation_id for automatic UUID minting and retain the returned ID with every argument for an exact uncertain retry. Never repeat a keyless call after losing its response."""
         intent = _validated(DomainCreate, {"name": name, "prefix": prefix,
+                                          "automatic_decision_reviews": automatic_decision_reviews,
                                           "client_operation_id": client_operation_id})
         return await _write(
             api, "POST", f"projects/{project_id}/knowledge/domains", KnowledgeDomainRead, intent,
             lambda item: item.project_id == project_id and item.name == intent.name
-            and item.prefix == intent.prefix and item.version == 1 and item.decision_count == 0,
+            and item.prefix == intent.prefix and item.version == 1 and item.decision_count == 0
+            and (item.automatic_decision_reviews == intent.automatic_decision_reviews
+                 or (item.automatic_decision_reviews is MISSING
+                     and intent.automatic_decision_reviews == "inherit")),
             expected_status=201,
         )
 
     @server.tool(annotations=_WRITE)
     async def rename_knowledge_domain(
-        project_id: UUID, domain_id: UUID, name: Name,
+        project_id: UUID, domain_id: UUID,
         expected_version: Annotated[StrictInt, Field(ge=1)], client_operation_id: UUID,
+        name: Name | MISSING = MISSING,
+        automatic_decision_reviews: AutomaticDecisionReviews | MISSING = MISSING,
     ) -> KnowledgeDomainRead:
-        """Rename a domain at its current version from list_knowledge_domains; its prefix and decision identifiers remain unchanged. No domain deletion or prefix change is available. Omit client_operation_id for automatic UUID minting; retain the returned ID and exact arguments for an uncertain retry. A version conflict requires reading current domains before a new intent."""
+        """Update a domain name and/or automatic_decision_reviews (inherit/on/off) at the current version from list_knowledge_domains. The changed record domain governs future review creation; no backfill or cancellation. Its prefix and decision identifiers remain unchanged. No domain deletion or prefix change is available. Omit client_operation_id for automatic UUID minting; retain the returned ID and exact arguments for an uncertain retry. A version conflict requires reading current domains before a new intent."""
         intent = _validated(DomainRename, {"name": name, "expected_version": expected_version,
+                                          "automatic_decision_reviews": automatic_decision_reviews,
                                           "client_operation_id": client_operation_id})
         return await _write(
             api, "PATCH", f"projects/{project_id}/knowledge/domains/{domain_id}",
             KnowledgeDomainRead, intent,
-            lambda item: (item.project_id, item.id, item.name)
-            == (project_id, domain_id, intent.name)
+            lambda item: (item.project_id, item.id) == (project_id, domain_id)
+            and (intent.name is MISSING or item.name == intent.name)
+            and (intent.automatic_decision_reviews is MISSING
+                 or item.automatic_decision_reviews == intent.automatic_decision_reviews)
             and item.version in {expected_version, expected_version + 1},
         )
 

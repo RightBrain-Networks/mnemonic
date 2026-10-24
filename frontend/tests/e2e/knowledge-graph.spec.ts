@@ -18,7 +18,7 @@ async function seed(api: APIRequestContext) {
   }
   const architecture = await domain("Architecture", "ADR");
   const owners = await domain("Owner decisions", "ODR");
-  const input = { domain_id: architecture.id, title: "Keep a durable decision history", content: "Original plain text decision.\n", media_type: "text/plain", state: "proposed", author_kind: "agent", agent_session_id: "knowledge-acceptance-session", model_id: "codex" };
+  const input = { domain_id: architecture.id, title: "Keep a durable decision history", content: "Original plain text decision.\n", media_type: "text/plain", state: "proposed", author_kind: "agent", agent_session_id: "knowledge-acceptance-session", model_id: "codex", source_work_item_id: null };
   const initial = await api.put(`${path}/decisions`, { data: { ...input, client_operation_id: crypto.randomUUID() } });
   expect(initial.ok(), await initial.text()).toBe(true);
   const previous = (await initial.json()).decision as Decision;

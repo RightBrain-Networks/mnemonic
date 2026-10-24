@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import Link from "@/components/dashboard-link";
+import DomainDecisionReviewSettings from "@/components/domain-decision-review-settings";
 import { api, ApiError, errorMessage } from "@/lib/api";
 import { parseDecisionReviewPriority } from "@/lib/automatic-decision-reviews";
 import { decodeProjectSettings } from "@/lib/job-completion-reports";
@@ -15,7 +16,7 @@ const fromSettings = (settings: ProjectSettings): Draft => ({
 const sameDraft = (left: Draft, right: Draft) => left.enabled === right.enabled && left.priority === right.priority;
 
 export default function AutomaticDecisionReviewSettings({
-  projectId, settings, loading, loadError, onSaved, onRetry, onNotice
+  projectId, settings, loading, loadError, onSaved, onRetry, onNotice, onPendingChange
 }: {
   projectId: string;
   settings: ProjectSettings | null;
@@ -24,6 +25,7 @@ export default function AutomaticDecisionReviewSettings({
   onSaved: (settings: ProjectSettings) => void;
   onRetry: () => void;
   onNotice: (message: string, error?: boolean) => void;
+  onPendingChange: (pending: boolean) => void;
 }) {
   const available = settings?.project_id === projectId ? settings : null;
   const [draft, setDraft] = useState<Draft | null>(() => available ? fromSettings(available) : null);
@@ -108,14 +110,14 @@ export default function AutomaticDecisionReviewSettings({
                 priority: priority === null && !event.target.checked ? String(available.decision_review_priority) : draft.priority });
               setError("");
             }} />
-          <strong>Automatically create a review work item when a decision document changes.</strong>
+          <strong>Project default: automatically create a review work item when a decision document changes.</strong>
         </label>
         <p className="settings-intro" id="automatic-decision-reviews-description">
           This spawned work item will contain a &quot;decision impact review&quot; task to review code that was written
           against the previous version of the decision document. This ensures that when decisions change,
-          if necessary, that downstream code changes too.
+          if necessary, that downstream code changes too. Each knowledge domain can override this default below.
         </p>
-        {draft.enabled && <div className="field decision-review-priority">
+        <div className="field decision-review-priority">
           <label htmlFor="decision-review-priority">Decision impact review priority</label>
           <input id="decision-review-priority" type="number" min={0} max={100} step={1}
             required value={draft.priority} disabled={disabled}
@@ -123,10 +125,10 @@ export default function AutomaticDecisionReviewSettings({
             aria-invalid={priority === null || undefined}
             onChange={(event) => { setDraft({ ...draft, priority: event.target.value }); setError(""); }} />
           <span className="field-hint" id="decision-review-priority-hint">
-            Enter the priority for new decision impact review work items, from 0 to 100. Higher values are more urgent.
+            Enter the priority for new decision impact review work items in every domain, from 0 to 100. Higher values are more urgent.
           </span>
           {priority === null && <p className="field-hint" role="alert">Enter a whole number from 0 to 100.</p>}
-        </div>}
+        </div>
         <p className="field-hint">Edit the investigation instructions in <Link href="/settings/prompts">Prompts</Link>.</p>
         {conflict && <div className="error-notice" role="alert">
           <p>Settings changed or the save outcome is uncertain. Your draft has been kept. Compare it with the saved settings before saving again.</p>
@@ -144,5 +146,7 @@ export default function AutomaticDecisionReviewSettings({
         <div className="settings-actions"><button type="submit" className="button button-primary"
           disabled={disabled || !dirty || priority === null}>{saving ? "Saving…" : "Save decision impact review settings"}</button></div>
       </form>}
+    {available && <DomainDecisionReviewSettings projectId={projectId}
+      projectEnabled={available.automatic_decision_reviews} onNotice={onNotice} onPendingChange={onPendingChange} />}
   </section>;
 }

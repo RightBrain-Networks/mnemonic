@@ -43,6 +43,18 @@ def migrate(engine, target, *, downgrade=False):
         (command.downgrade if downgrade else command.upgrade)(config, target)
 
 
+def _legacy_create_domain(database, project_id, payload):
+    # Keep the registered mutation/receipt path, but seed only 0055 columns.
+    # The current ORM deliberately cannot execute against a historical schema.
+    row = database.execute(text("""
+        INSERT INTO knowledge_domains (id, project_id, name, prefix)
+        VALUES (:id, :project_id, :name, :prefix)
+        RETURNING id, project_id, name, prefix, version, created_at, updated_at
+    """), {"id": uuid4(), "project_id": project_id, "name": payload.name,
+           "prefix": payload.prefix}).mappings().one()
+    return KnowledgeDomainRead(**row, decision_count=0)
+
+
 @contextmanager
 def _legacy_behavior(monkeypatch):
     # Exercise the existing 0055 gate protocol without calling the new document
@@ -52,6 +64,7 @@ def _legacy_behavior(monkeypatch):
     monkeypatch.setattr(product_decisions, "gate_decision_read", lambda *args: None)
     monkeypatch.setattr(product_decisions, "decision_gate_read", lambda *args: None)
     monkeypatch.setattr(knowledge, "require_no_knowledge_links", lambda *args: None)
+    monkeypatch.setattr(knowledge, "create_domain", _legacy_create_domain)
     monkeypatch.setattr(knowledge, "domain_read", lambda database, domain: KnowledgeDomainRead(
         **{key: getattr(domain, key) for key in (
             "id", "project_id", "name", "prefix", "version", "created_at", "updated_at",

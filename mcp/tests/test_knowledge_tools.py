@@ -51,6 +51,7 @@ def arguments():
 def domain(**changes):
     return {
         "id": DOMAIN_ID, "project_id": PROJECT_ID, "name": "Architecture", "prefix": "ADR",
+        "automatic_decision_reviews": "inherit",
         "version": 1, "created_at": NOW, "updated_at": NOW, "decision_count": 0, **changes,
     }
 
@@ -203,6 +204,82 @@ async def test_domains_uppercase_prefix_and_rename_preserves_identity(settings):
         "expected_version": 1, "client_operation_id": CLIENT_OPERATION_ID,
     }))
     assert result["prefix"] == "ADR" and result["version"] == 2
+
+
+@pytest.mark.parametrize("setting", ["inherit", "on", "off"])
+async def test_domain_review_setting_can_change_without_rename(settings, setting):
+    def handler(request):
+        body = json.loads(request.content)
+        assert body == {"automatic_decision_reviews": setting, "expected_version": 1,
+                        "client_operation_id": CLIENT_OPERATION_ID}
+        return httpx.Response(200, json=domain(automatic_decision_reviews=setting, version=2))
+
+    result = structured(await adapter(settings, handler).call_tool("rename_knowledge_domain", {
+        "project_id": PROJECT_ID, "domain_id": DOMAIN_ID, "expected_version": 1,
+        "automatic_decision_reviews": setting, "client_operation_id": CLIENT_OPERATION_ID,
+    }))
+    assert result["automatic_decision_reviews"] == setting
+    assert result["name"] == "Architecture"
+
+
+@pytest.mark.parametrize("changes", [{}, {"name": None}, {"automatic_decision_reviews": None},
+                                     {"automatic_decision_reviews": True},
+                                     {"automatic_decision_reviews": "enabled"}])
+async def test_domain_patch_rejects_empty_null_and_invalid_overrides(settings, changes):
+    def reject(request):
+        pytest.fail("Invalid domain update must not reach HTTP")
+
+    with pytest.raises(ToolError):
+        await adapter(settings, reject).call_tool("rename_knowledge_domain", {
+            "project_id": PROJECT_ID, "domain_id": DOMAIN_ID, "expected_version": 1,
+            "client_operation_id": CLIENT_OPERATION_ID, **changes,
+        })
+
+
+async def test_domain_setting_mismatch_retains_unknown_write_outcome(settings):
+    server = adapter(settings, lambda request: httpx.Response(
+        200, json=domain(automatic_decision_reviews="on", version=2),
+    ))
+    with pytest.raises(ToolError, match=UNKNOWN_IDEMPOTENT_MUTATION_OUTCOME):
+        await server.call_tool("rename_knowledge_domain", {
+            "project_id": PROJECT_ID, "domain_id": DOMAIN_ID, "expected_version": 1,
+            "automatic_decision_reviews": "off", "client_operation_id": CLIENT_OPERATION_ID,
+        })
+
+
+async def test_domain_create_forwards_override_and_historical_replays_stay_sparse(settings):
+    def handler(request):
+        body = json.loads(request.content)
+        assert body["automatic_decision_reviews"] == "on"
+        return httpx.Response(201, json=domain(automatic_decision_reviews="on"))
+
+    result = structured(await adapter(settings, handler).call_tool("create_knowledge_domain", {
+        "project_id": PROJECT_ID, "name": "Architecture", "prefix": "adr",
+        "automatic_decision_reviews": "on", "client_operation_id": CLIENT_OPERATION_ID,
+    }))
+    assert result["automatic_decision_reviews"] == "on"
+    historical = domain()
+    historical.pop("automatic_decision_reviews")
+
+    def replay(request):
+        assert "automatic_decision_reviews" not in json.loads(request.content)
+        return httpx.Response(201, json=historical)
+
+    result = structured(await adapter(settings, replay).call_tool("create_knowledge_domain", {
+        "project_id": PROJECT_ID, "name": "Architecture", "prefix": "ADR",
+        "client_operation_id": CLIENT_OPERATION_ID,
+    }))
+    assert "automatic_decision_reviews" not in result
+
+
+async def test_domain_list_requires_current_policy_field(settings):
+    historical = domain()
+    historical.pop("automatic_decision_reviews")
+    server = adapter(settings, lambda request: httpx.Response(200, json={
+        "items": [historical], "total": 1, "limit": 50, "offset": 0,
+    }))
+    with pytest.raises(ToolError):
+        await server.call_tool("list_knowledge_domains", {"project_id": PROJECT_ID})
 
 
 async def test_automatic_uuid_is_retained_on_uncertain_put_without_automatic_retry(settings):

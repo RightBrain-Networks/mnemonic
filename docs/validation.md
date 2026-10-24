@@ -1,5 +1,29 @@
 # Mnemonic validation record
 
+## Domain decision review overrides (0.93.0)
+
+Migration 0059 and the versioned domain APIs cover all six project/default and
+domain-policy combinations, accepted PDR answers, cross-domain dependency impact,
+future-only enablement, retained review obligations, sparse historical receipt
+replay, and downgrade integrity. Backup checks cover round trips and malformed
+domain settings in both live rows and permanent receipts.
+
+Validation used Python 3.14, Node 24, isolated PostgreSQL 17 and RabbitMQ. The
+complete backend and MCP suites were exercised. The initial backend run exhausted
+shared temporary-storage quota; after moving scratch files to disk, installing
+the separate worktree environments and fixing historical migration fixtures,
+all 200 failed/error cases passed. All six broker integration checks passed
+separately. The sole MCP full-suite failure was environment-dependent type
+checking; the final 55-check MCP contract/type fixture run passed. Backend/MCP
+lint and types, OpenAPI checks, 71 plugin tests and nine packaging checks passed.
+
+The dashboard passed 595 unit tests, type checking and production build. Desktop
+and narrow browser checks cover persisted overrides, effective values, stale
+versions, exact retries and preservation of a pending row across page refresh.
+One existing live-scope polling case missed its timeout in a 15/16 run; it and
+the new domain cases passed a fresh six-case rerun. The Settings screenshot is
+included in the knowledge documentation.
+
 ## Bounded decision impact review cycles (0.92.0)
 
 Explicit change identities group review obligations and carry through discovered

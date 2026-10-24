@@ -1,4 +1,5 @@
 import { decodeDecisionRevisionChange, type DecisionRevisionChange } from "./decision-changes.ts";
+import { validDomainDecisionReviewSetting, type DomainDecisionReviewSetting } from "./automatic-decision-reviews.ts";
 import { ApiError, detailMessage } from "./api.ts";
 import { readBoundedJson } from "./bounded-json.ts";
 import { exactKeys, finiteInteger, objectValue, sameUuid, validUuid } from "./wire-guards.ts";
@@ -8,6 +9,7 @@ export type DecisionState = typeof decisionStates[number];
 export type KnowledgeDomain = {
   id: string; project_id: string; name: string; prefix: string; version: number;
   created_at: string; updated_at: string; decision_count: number;
+  automatic_decision_reviews: DomainDecisionReviewSetting;
   is_product_decision_domain?: boolean;
 };
 export type Decision = {
@@ -66,6 +68,7 @@ export function decodeDomain(value: unknown, projectId: string): KnowledgeDomain
     || !/^[A-Z]{1,5}$/.test(item.prefix) || !finiteInteger(item.version, 1)
     || !finiteInteger(item.decision_count) || typeof item.created_at !== "string"
     || typeof item.updated_at !== "string"
+    || !validDomainDecisionReviewSetting(item.automatic_decision_reviews)
     || item.is_product_decision_domain !== undefined && typeof item.is_product_decision_domain !== "boolean"
     || item.is_product_decision_domain === true && item.prefix !== "PDR") invalid();
   return item as KnowledgeDomain;

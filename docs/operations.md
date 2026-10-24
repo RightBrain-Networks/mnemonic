@@ -3,6 +3,14 @@
 Use [unified search](search.md) to retrieve work, artifacts, and transcripts in one
 ranked, filtered, paginated read through REST or MCP.
 
+Release 0.93.0 adds per-domain automatic decision review overrides (`inherit`,
+`on`, `off`) in Workspace settings, REST and MCP. Deploy aligned API, worker, MCP
+and dashboard with plugin 0.56.0 and migration `0059_domain_decision_reviews`
+after an authorized backup and migration. Existing domains migrate to `inherit`,
+preserving behavior. Priority remains project-wide. No new service, environment
+variable or review backlog is introduced. Backups retain the domain override;
+downgrade requires resetting every override to `inherit` to avoid losing policy.
+
 Release 0.92.0 adds explicit decision-change grouping and a human admission boundary
 for recursive review-derived changes. Deploy API, worker, MCP and dashboard together,
 with plugin 0.55.0 and migration `0058_decision_changes`, after the usual authorized
