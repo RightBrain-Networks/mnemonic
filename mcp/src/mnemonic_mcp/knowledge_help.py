@@ -131,7 +131,23 @@ KNOWLEDGE_GUIDES: dict[str, tuple[str, str, str]] = {
         "Context-only records allow short truthful contradiction notes and do not each require a "
         "verdict. Every change-required result still needs remediation before review Done. "
         "This appends history without changing decision state, completing work, or resolving a "
-        "human question. A definitive stale version requires rereading before a new intent."),
+        "human question. An optional active implementation lease_token renews an associated current "
+        "review driver on fresh success, clamped to its project lease bounds. Token-free writes "
+        "and exact retries do not renew. A definitive stale version requires rereading before "
+        "a new intent."),
+    ),
+    "decision_assessment_append_batch": (
+        "Knowledge", "Atomically record 1–100 evidenced dispositions for one assessment episode.",
+        ("Supply one current expected_version, shared actor, and ordered items with unique exact "
+        "candidate_reference, disposition, concrete reason, and optional remediation_work_item_id. "
+        "Every item uses the singleton validation and receives the next consecutive version. "
+        "Any invalid item rolls back the whole batch and any optional lease renewal. One operation "
+        "UUID protects the entire request; preserve item order and every argument on an uncertain "
+        "retry. A definitive conflict requires rereading decision_assessment_get. Optional "
+        "lease_token must belong to an associated current review driver with an active implementation "
+        "lease; fresh success renews its last granted duration within current project bounds. "
+        "No token or an exact replay never renews. Candidate and episode Done requirements remain "
+        "unchanged. Never copy judgments between distinct assessment episodes."),
     ),
     "decision_commit_lookup": (
         "Knowledge", "Find decision citations for an original or merged repository commit.",

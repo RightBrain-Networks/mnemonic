@@ -685,7 +685,7 @@ async def test_tool_catalog_schemas_and_annotations(settings):
         "list_knowledge_domains", "create_knowledge_domain", "rename_knowledge_domain",
         "decision_get", "decision_put", "decision_scope_append", "decision_history", "decision_scope",
         "decision_impact", "decision_assessments", "decision_assessment_get",
-        "decision_assessment_history", "decision_assessment_append",
+        "decision_assessment_history", "decision_assessment_append", "decision_assessment_append_batch",
         "decision_commit_lookup", "decision_scope_reconcile",
         "decision_change_get", "decision_change_update",
         "help", "generate_uuid", "search",
@@ -793,7 +793,7 @@ async def test_tool_catalog_schemas_and_annotations(settings):
     protected |= {"upload_artifact", "replace_artifact", "delete_artifact", "update_artifact"}
     protected |= {
         "create_knowledge_domain", "rename_knowledge_domain", "decision_put", "decision_scope_append",
-        "decision_assessment_append", "decision_scope_reconcile", "decision_change_update",
+        "decision_assessment_append", "decision_assessment_append_batch", "decision_scope_reconcile", "decision_change_update",
     }
     mutating = protected | {
         "create_project",
@@ -809,7 +809,7 @@ async def test_tool_catalog_schemas_and_annotations(settings):
         "remove_relationship",
         "merge_work",
     }
-    assert len(tools) == 76
+    assert len(tools) == 77
     for name in mutating:
         assert tools[name].annotations.idempotentHint is False
     for name in tools.keys() - mutating - {"authorize_artifact_download", "generate_uuid"}:
@@ -835,7 +835,7 @@ async def test_tool_catalog_operation_and_claim_schemas(settings):
     tools = {tool.name: tool for tool in await server.list_tools()}
     protected = {
         "create_knowledge_domain", "rename_knowledge_domain", "decision_put", "decision_scope_append",
-        "decision_assessment_append", "decision_scope_reconcile", "decision_change_update",
+        "decision_assessment_append", "decision_assessment_append_batch", "decision_scope_reconcile", "decision_change_update",
         "upload_artifact", "replace_artifact", "delete_artifact", "update_artifact",
         "respond_to_work_follow_up", "complete_code_review",
         "create_work",

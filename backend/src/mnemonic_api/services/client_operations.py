@@ -33,6 +33,9 @@ from mnemonic_api.errors import (
     client_operation_unavailable,
 )
 from mnemonic_api.impact_schemas import (
+    ImpactDispositionBatchCreate,
+    ImpactDispositionBatchRead,
+    ImpactDispositionBatchRequest,
     ImpactDispositionCreate,
     ImpactDispositionRead,
     ImpactDispositionRequest,
@@ -105,7 +108,7 @@ from mnemonic_api.schemas import (
 )
 from mnemonic_api.services.decision_change_receipts import change_matches
 from mnemonic_api.services.decision_provenance import reconciled_scope_matches
-from mnemonic_api.services.impact_receipts import disposition_matches
+from mnemonic_api.services.impact_receipts import disposition_batch_matches, disposition_matches
 from mnemonic_api.services.knowledge_receipts import (
     appended_scope_matches,
     created_domain_matches,
@@ -114,7 +117,8 @@ from mnemonic_api.services.knowledge_receipts import (
 )
 
 type OperationKind = Literal[
-    "update_decision_change", "assess_decision_impact", "reconcile_decision_scope",
+    "update_decision_change", "assess_decision_impact", "assess_decision_impact_batch",
+    "reconcile_decision_scope",
     "create_knowledge_domain", "rename_knowledge_domain", "put_decision", "append_decision_scope",
     "create_work",
     "add_checkpoint",
@@ -135,7 +139,8 @@ type OperationKind = Literal[
     "respond_to_work_follow_up", "complete_code_review",
 ]
 REGISTERED_OPERATION_KINDS: tuple[OperationKind, ...] = (
-    "update_decision_change", "assess_decision_impact", "reconcile_decision_scope",
+    "update_decision_change", "assess_decision_impact", "assess_decision_impact_batch",
+    "reconcile_decision_scope",
     "create_knowledge_domain", "rename_knowledge_domain", "put_decision", "append_decision_scope",
     "respond_to_work_follow_up", "complete_code_review",
     "create_work",
@@ -244,6 +249,10 @@ _REGISTRY: dict[OperationKind, OperationSpec] = {
     "assess_decision_impact": _spec(
         "assess_decision_impact", ImpactDispositionCreate, ImpactDispositionRead, 201,
         "assessment_id", domain_model=ImpactDispositionRequest,
+    ),
+    "assess_decision_impact_batch": _spec(
+        "assess_decision_impact_batch", ImpactDispositionBatchCreate, ImpactDispositionBatchRead,
+        201, "assessment_id", domain_model=ImpactDispositionBatchRequest,
     ),
     "reconcile_decision_scope": _spec(
         "reconcile_decision_scope", CommitReconcileCreate, CommitReconcileResult, 200,
@@ -528,6 +537,7 @@ def prepare_client_operation(
             cast(WorkCompletionCreate, payload),
             known_secret_values=known_secret_values,
         )
+    reject_disposition_secret_substrings(payload, known_secret_values=known_secret_values)
     reject_report_secret_substrings(payload, known_secret_values=known_secret_values)
     reject_review_secret_substrings(payload, known_secret_values=known_secret_values)
     reject_reference_secret_substrings(payload, known_secret_values=known_secret_values)
@@ -641,6 +651,19 @@ def reject_review_secret_substrings(
                 spelling in value.casefold() for spelling in spellings
             ):
                 raise client_operation_secret_echo()
+
+
+def reject_disposition_secret_substrings(
+    payload: APIModel, *, known_secret_values: Iterable[str] = (),
+) -> None:
+    if not isinstance(payload, (ImpactDispositionCreate, ImpactDispositionBatchCreate)):
+        return
+    values = {secret for secret in known_secret_values if secret}
+    if payload.lease_token:
+        values.add(payload.lease_token)
+    content = payload.model_dump(mode="json", exclude={"lease_token", "client_operation_id"})
+    if any(secret in value for value in _nested_strings(content) for secret in values):
+        raise client_operation_secret_echo()
 
 
 def reject_report_secret_substrings(
@@ -1457,6 +1480,7 @@ _RESPONSE_MATCHERS: Mapping[OperationKind, ResponseMatcher] = MappingProxyType(
     {
         "update_decision_change": change_matches,
         "assess_decision_impact": disposition_matches,
+        "assess_decision_impact_batch": disposition_batch_matches,
         "reconcile_decision_scope": reconciled_scope_matches,
         "create_knowledge_domain": created_domain_matches,
         "rename_knowledge_domain": renamed_domain_matches,

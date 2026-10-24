@@ -287,6 +287,28 @@ unrecorded downstream code was inspected. Earlier judgments remain available
 through `decision_assessment_history`; page history and reread the assessment
 version when concurrent changes matter.
 
+For several inspected candidates in the same episode, use
+`decision_assessment_append_batch(project_id, assessment_id, expected_version,
+items, actor, client_operation_id?)`. Supply 1–100 ordered items, each with a
+unique exact `candidate_reference`, `disposition`, concrete `reason`, and optional
+`remediation_work_item_id`. The actor and starting version apply to the entire
+batch. Versions advance consecutively in input order; the result returns the
+ordered dispositions and final version. An invalid item rolls back all items.
+One operation UUID protects the batch: retain it and every argument, including
+item order, for an exact uncertain retry. A definitive version conflict requires
+reading the current assessment before a new intent. Batch entry does not change
+Done requirements or justify copying judgments between distinct episodes.
+
+Both the single and batch tool accept an optional private `lease_token`. Supply
+the active implementation capability of a current review driver associated with
+the episode, including an adopted review or one moved to another project. When
+several changes share the episode, the token identifies the matching driver. A
+fresh successful append renews that lease using its last granted duration within
+its current project bounds. Invalid writes roll back renewal; token-free writes
+and exact receipt replays do not renew. Unrelated and code-review capabilities
+are refused. Never put tokens in a reason or actor field. Use `renew_claim` when
+your remaining-time estimate changes.
+
 ## Investigate an assigned decision impact review
 
 Read `decision_review_change_id` from the work. If present, call

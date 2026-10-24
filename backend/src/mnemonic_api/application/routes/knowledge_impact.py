@@ -14,6 +14,8 @@ from mnemonic_api.impact_schemas import (
     ImpactAssessmentDetail,
     ImpactAssessmentQuery,
     ImpactAssessmentRead,
+    ImpactDispositionBatchCreate,
+    ImpactDispositionBatchRead,
     ImpactDispositionCreate,
     ImpactDispositionRead,
     ImpactPageQuery,
@@ -122,5 +124,23 @@ def assess_decision_impact(
         payload=payload,
         execute=lambda body: decision_impact.append_disposition(
             database, project_id, assessment_id, body
+        ),
+    )
+
+
+@router.post(
+    _PREFIX + "/assessments/{assessment_id}/dispositions/batch",
+    response_model=ImpactDispositionBatchRead,
+    status_code=201,
+)
+def assess_decision_impact_batch(
+    project_id: UUID, assessment_id: UUID, payload: ImpactDispositionBatchCreate,
+    request: Request, database: Database,
+) -> JSONResponse:
+    return run_registered_mutation(
+        "assess_decision_impact_batch", request=request, database=database,
+        project_id=project_id, target={"assessment_id": assessment_id}, payload=payload,
+        execute=lambda body: decision_impact.append_disposition_batch(
+            database, project_id, assessment_id, body,
         ),
     )

@@ -11,7 +11,7 @@ from mnemonic_api.decision_link_schemas import DecisionDependency as DecisionDep
 from mnemonic_api.decision_link_schemas import SupersessionDetail as SupersessionDetail
 from mnemonic_api.decision_scope_schemas import ScopeCompletionCitation
 from mnemonic_api.revision_author_schemas import RevisionAuthorWork
-from mnemonic_api.schemas import APIModel, MutationActor
+from mnemonic_api.schemas import APIModel, LeaseToken, MutationActor
 
 Identifier = Annotated[str, StringConstraints(pattern=r"^[A-Z]{1,5}-[0-9]{5,19}$")]
 Reference = Annotated[str, StringConstraints(pattern=r"^[A-Z]{1,5}-[0-9]{5,19}-[0-9]{1,10}$")]
@@ -167,18 +167,24 @@ class ImpactRead(APIModel):
 Disposition = Literal["still-valid", "change-required", "not-affected", "resolved"]
 
 
-class ImpactDispositionRequest(APIModel):
+class ImpactDispositionItem(APIModel):
     candidate_reference: Reference
-    expected_version: Annotated[StrictInt, Field(ge=0)]
     disposition: Disposition
     reason: Reason
     remediation_work_item_id: UUID | None = None
-    actor: MutationActor
 
     @field_validator("reason")
     @classmethod
     def valid_reason(cls, value: str) -> str:
         return DecisionDependency.valid_reason(value)
+
+
+class ImpactDispositionRequest(ImpactDispositionItem):
+    expected_version: Annotated[StrictInt, Field(ge=0)]
+    actor: MutationActor
+    lease_token: LeaseToken | None = Field(
+        default=None, repr=False, exclude_if=lambda value: value is None,
+    )
 
 
 class ImpactDispositionCreate(ImpactDispositionRequest):
@@ -196,6 +202,33 @@ class ImpactDispositionRead(APIModel):
     remediation_work_item_id: UUID | None
     actor: MutationActor
     created_at: datetime
+
+
+class ImpactDispositionBatchRequest(APIModel):
+    expected_version: Annotated[StrictInt, Field(ge=0)]
+    items: Annotated[list[ImpactDispositionItem], Field(min_length=1, max_length=100)]
+    actor: MutationActor
+    lease_token: LeaseToken | None = Field(
+        default=None, repr=False, exclude_if=lambda value: value is None,
+    )
+
+    @field_validator("items")
+    @classmethod
+    def unique_candidates(cls, items: list[ImpactDispositionItem]) -> list[ImpactDispositionItem]:
+        if len({item.candidate_reference for item in items}) != len(items):
+            raise ValueError("A batch must name each candidate at most once")
+        return items
+
+
+class ImpactDispositionBatchCreate(ImpactDispositionBatchRequest):
+    client_operation_id: UUID
+
+
+class ImpactDispositionBatchRead(APIModel):
+    project_id: UUID
+    assessment_id: UUID
+    version: Annotated[StrictInt, Field(ge=1)]
+    items: Annotated[list[ImpactDispositionRead], Field(min_length=1, max_length=100)]
 
 
 class ImpactDiff(APIModel):

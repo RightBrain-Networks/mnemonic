@@ -300,6 +300,36 @@ changes document lifecycle nor completes work, resolves human questions, or
 grants execution authority. A definitive version conflict requires a fresh read
 before a new operation; uncertain retries preserve the original full intent.
 
+`decision_assessment_append_batch` records 1–100 dispositions for one episode in
+one transaction. Supply `assessment_id`, the current `expected_version`, one
+truthful `actor`, and ordered `items` with unique exact `candidate_reference`,
+`disposition`, concrete `reason`, and optional `remediation_work_item_id`. Each
+item uses the same validation as the single append and receives the next version
+in input order. An invalid item rolls back every disposition. The result returns
+`project_id`, `assessment_id`, final `version`, and the ordered immutable `items`.
+One operation UUID protects the whole batch: preserve every argument and item
+order for an exact retry. Batches do not reduce the per-candidate, per-episode
+requirements for review Done or copy dispositions to another episode.
+
+Both append tools accept an optional private `lease_token`. A fresh successful
+write renews only the matching active implementation lease of a current review
+driver associated with the episode. An episode may belong to several changes;
+the token selects the matching driver, including an adopted review or work moved
+to another project. The duration is its last granted duration clamped to that
+work project's current minimum and maximum. Unrelated tokens and code-review
+capabilities are refused. Invalid writes roll back renewal; token-free writes
+and exact receipt replays never renew. Tokens are omitted from results and must
+never be included in reasons or actor fields. Use `renew_claim` explicitly when
+the estimated remaining time changes.
+
+REST retains the single `POST /projects/{project_id}/knowledge/assessments/{id}/dispositions`
+and adds `POST .../dispositions/batch`, with receipt kind `assess_decision_impact_batch`.
+The batch endpoint is available to authenticated machine clients and is not
+registered as a dashboard mutation. Migration `0061_batch_dispositions` admits
+the new receipt kind. Backup integrity checks bind every retained disposition to
+exactly one single or batch receipt and validate batch membership, order and
+consecutive versions. Downgrade refuses to discard existing batch receipts.
+
 ## MCP workflow
 
 1. Call `list_knowledge_domains` and select a domain. Create one with

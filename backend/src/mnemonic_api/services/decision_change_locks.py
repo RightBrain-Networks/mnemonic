@@ -19,6 +19,7 @@ from mnemonic_api.schemas import APIModel
 
 KINDS = frozenset({
     "put_decision", "update_decision_change", "request_human_input", "resolve_human_input",
+    "assess_decision_impact", "assess_decision_impact_batch",
 })
 
 
@@ -40,7 +41,7 @@ def _sources(kind: str, target: Mapping[str, UUID], payload: APIModel) -> set[UU
 
 
 def _memberships(
-    database: Session, work_ids: set[UUID], payload: APIModel,
+    database: Session, work_ids: set[UUID], payload: APIModel, target: Mapping[str, UUID],
 ) -> tuple[set[UUID], list[tuple[str, ...]]]:
     declaration = getattr(payload, "change", None)
     change_ids = _identities(getattr(payload, "change_id", None),
@@ -51,7 +52,9 @@ def _memberships(
     ).where(DecisionChangeWork.work_item_id.in_(work_ids))):
         change_ids.add(change_id)
         witnesses.append(("lineage", str(work_id), str(change_id)))
-    assessments = getattr(payload, "assessment_ids", ())
+    assessments = {
+        *getattr(payload, "assessment_ids", ()), *_identities(target.get("assessment_id")),
+    }
     for assessment_id, change_id in database.execute(select(
         DecisionChangeAssessment.assessment_id, DecisionChangeAssessment.change_id,
     ).where(DecisionChangeAssessment.assessment_id.in_(assessments))):
@@ -66,7 +69,7 @@ def discover_scope(
     if kind not in KINDS:
         return None
     work_ids = _sources(kind, target, payload)
-    change_ids, witnesses = _memberships(database, work_ids, payload)
+    change_ids, witnesses = _memberships(database, work_ids, payload, target)
     held_sources = database.scalars(select(DecisionRevisionChange.source_work_item_id).where(
         DecisionRevisionChange.change_id.in_(change_ids),
         DecisionRevisionChange.requires_admission.is_(True),

@@ -194,6 +194,7 @@ On a fresh call the adapter generates it when omitted; retain the returned
 - `decision_put`;
 - `decision_scope_append`;
 - `decision_assessment_append`;
+- `decision_assessment_append_batch`;
 - `decision_scope_reconcile`.
 
 For callers supplying the UUID explicitly, generate it once before the first attempt.
