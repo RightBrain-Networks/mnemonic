@@ -130,7 +130,9 @@ async def test_catalog_exposes_optional_nonnullable_duration_and_two_exact_read_
     assert output["type"] == "object"
     assert set(output["$defs"]["WorkStatusRead"]["properties"]) == {
         "work_item_id", "project_id", "status", "version", "readiness", "lease_settings",
+        "review_scope_changed",
     }
+    assert "review_scope_changed" not in output["$defs"]["WorkStatusRead"]["required"]
     assert "lease_settings" in tools["recall_work"].outputSchema["required"]
 
 
