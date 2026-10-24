@@ -33,6 +33,23 @@ test("append-only disposition evidence requires actor, nonblank reason and a val
   assert.deepEqual(decodeDisposition(disposition, project, id), disposition);
   for (const change of [{ actor: null }, { reason: " " }, { remediation_work_item_id: "not-work" }, { candidate_reference: "ADR-00002" }, { disposition: "approved" }, { version: 0 }]) assert.throws(() => decodeDisposition({ ...disposition, ...change }, project, id));
 });
+
+test("finding metadata and summaries survive strict assessment and history decoding", () => {
+  const labelled = { ...disposition, finding_id: "transport:rule", remediation_target: "decision-record" };
+  assert.deepEqual(decodeDisposition(labelled, project, id), labelled);
+  const summary = { named_finding_count: 1, unlabelled_change_required_count: 0, change_required_row_count: 1 };
+  const page = { ...detail, dispositions: [labelled], finding_summary: summary,
+    unassessed_count: 0, change_required_count: 1, status: "change-required" };
+  assert.deepEqual(decodeAssessmentDetail(page, project, id).finding_summary, summary);
+  for (const change of [{ finding_id: "bad label" }, { finding_id: 1 }, { finding_id: "a\n" },
+    { remediation_target: ["code"] }, { disposition: "resolved", remediation_target: "code" }]) {
+    assert.throws(() => decodeDisposition({ ...labelled, ...change }, project, id));
+  }
+  for (const change of [{ named_finding_count: 0 }, { change_required_row_count: 2 },
+    { unlabelled_change_required_count: 2 }, { extra: true }]) {
+    assert.throws(() => decodeAssessmentDetail({ ...page, finding_summary: { ...summary, ...change } }, project, id));
+  }
+});
 test("commit lookup decodes repository identity and reconciled full hashes without inventing missing identity", () => {
   const scope = { ...candidate.scopes[0], project_id: project, decision_id: candidate.decision_id, created_at: disposition.created_at };
   assert.equal(decodeScope(scope, project).repository, null);

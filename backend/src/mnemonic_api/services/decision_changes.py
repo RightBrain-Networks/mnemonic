@@ -66,6 +66,7 @@ def require_open(database: Session, change: DecisionChange) -> None:
 
 def read_change(database: Session, change: DecisionChange) -> DecisionChangeRead:
     from mnemonic_api.services.decision_impact import _revision_reference
+    from mnemonic_api.services.impact_findings import change_findings
 
     revisions = select(DecisionRevisionChange.revision_id).where(
         DecisionRevisionChange.change_id == change.id,
@@ -89,6 +90,7 @@ def read_change(database: Session, change: DecisionChange) -> DecisionChangeRead
         scope_version=change.scope_version,
         acknowledged_scope_version=change.acknowledged_scope_version,
         assessment_count=change.scope_version, revision_count=count,
+        finding_summary=change_findings(database, change.id),
         pending_revision_count=len(pending_revisions(database, change.id)),
         created_at=change.created_at, updated_at=change.updated_at,
     )

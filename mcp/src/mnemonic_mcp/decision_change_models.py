@@ -6,7 +6,7 @@ from uuid import UUID
 
 from pydantic import Field, StrictBool, StrictInt, StringConstraints, model_validator
 
-from .impact_models import ImpactActor, ImpactModel, Reference
+from .impact_models import ImpactActor, ImpactFindingSummary, ImpactModel, Reference
 
 ChangeReason = Annotated[
     str, StringConstraints(strip_whitespace=True, min_length=1, max_length=8000)
@@ -51,6 +51,9 @@ class DecisionRevisionChange(DecisionChangeInput):
 
 
 class DecisionChangeRead(ImpactModel):
+    finding_summary: ImpactFindingSummary | None = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
     id: UUID
     project_id: UUID
     origin_reference: Reference | None

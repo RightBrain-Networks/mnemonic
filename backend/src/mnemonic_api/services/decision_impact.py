@@ -50,6 +50,7 @@ from mnemonic_api.services.decision_impact_graph import (
 )
 from mnemonic_api.services.decision_scope_notices import extended_review, pending_scope_notice
 from mnemonic_api.services.decision_supersession_reuse import reusable_supersession, same_evidence
+from mnemonic_api.services.impact_findings import findings_for_latest
 from mnemonic_api.services.impact_read_projections import (
     author_read,
     candidate_read,
@@ -374,6 +375,7 @@ def assessment_read(
             "version": _version(database, row.id),
             "unassessed_count": unassessed,
             "change_required_count": changes,
+            "finding_summary": findings_for_latest(latest),
             "status": "change-required" if changes else "pending" if unassessed else "resolved",
         }
     )
@@ -552,6 +554,8 @@ def _append_disposition(
         reason=payload.reason,
         remediation_work_item_id=payload.remediation_work_item_id,
         actor=payload.actor.model_dump(mode="json"),
+        finding_id=payload.finding_id,
+        remediation_target=payload.remediation_target,
     )
     database.add(row)
     database.flush()

@@ -30,6 +30,8 @@ def disposition_matches(
                 "reason",
                 "remediation_work_item_id",
                 "actor",
+                "finding_id",
+                "remediation_target",
             )
         )
     )

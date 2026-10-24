@@ -418,6 +418,29 @@ historical episodes, diffs, coverage snapshots and dispositions remain immutable
 Compact reads may omit section text and diff prose while retaining identity,
 structured details, bounds and coverage metadata.
 
+Dispositions may include `finding_id`, an authored, case-sensitive key of 1–100
+ASCII letters, digits, dots, colons, underscores or hyphens, beginning with a letter
+or digit. Reuse a key only when the evidence establishes the same finding across
+candidates or episodes in the selected change. It is an opaque grouping key, not a
+work ID or inferred equivalence. On `change-required` dispositions,
+`remediation_target` may be `code`, `decision-record`, or `both`. A decision-record
+target distinguishes a wording correction from a code change; it does not grant
+authority to make either change or remove the remediation requirement.
+
+Assessment and change reads expose `finding_summary`. `named_finding_count`
+counts distinct explicit IDs among the latest change-required dispositions;
+`unlabelled_change_required_count` counts rows without an ID whose relationship
+to other findings is unknown; `change_required_row_count` retains the total
+number of those rows. Thus 19 rows naming one finding plus two unlabelled rows
+report one named finding, two unlabelled rows and 21 change-required rows.
+Unlabelled rows are never deduplicated by shared remediation work, similar reasons
+or candidates. These summaries do not change candidate counts, required verdicts
+or review Done checks. Corrections append new version-checked dispositions;
+summaries use their latest values and history retains the previous metadata.
+Historical rows and receipt bodies keep their original shape, with absent
+finding metadata remaining unknown. The dashboard shows the same distinction
+and offers optional finding and remediation-target fields when recording a verdict.
+
 ## MCP workflow
 
 1. Call `list_knowledge_domains` and select a domain. Create one with

@@ -6,6 +6,7 @@ from uuid import UUID
 
 from pydantic import Field, StringConstraints, field_validator, model_validator
 
+from mnemonic_api.impact_finding_schemas import ImpactFindingSummary
 from mnemonic_api.schemas import APIModel
 
 Reason = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=8000)]
@@ -85,6 +86,9 @@ class DecisionChangeRead(APIModel):
     acknowledged_scope_version: int = Field(ge=0)
     assessment_count: int = Field(ge=0)
     revision_count: int = Field(ge=0)
+    finding_summary: ImpactFindingSummary | None = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
     created_at: datetime
     updated_at: datetime
 

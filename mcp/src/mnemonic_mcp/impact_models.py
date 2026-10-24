@@ -29,6 +29,10 @@ class ImpactModel(BaseModel):
 Identifier = Annotated[str, StringConstraints(pattern=r"^[A-Z]{1,5}-[0-9]{5,19}$")]
 Reference = Annotated[str, StringConstraints(pattern=r"^[A-Z]{1,5}-[0-9]{5,19}-[0-9]{1,10}$")]
 Revision = Annotated[StrictInt, Field(ge=0, le=2_147_483_647)]
+FindingIdentifier = Annotated[str, StringConstraints(
+    min_length=1, max_length=100, pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,99}$",
+)]
+RemediationTarget = Literal["code", "decision-record", "both"]
 Reason = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=4000)]
 
 
@@ -376,6 +380,19 @@ class ImpactDispositionItem(ImpactModel):
     def valid_reason(cls, value: str) -> str:
         return DecisionDependency.valid_reason(value)
 
+    finding_id: FindingIdentifier | None = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
+    remediation_target: RemediationTarget | None = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
+
+    @model_validator(mode="after")
+    def target_matches_disposition(self) -> Self:
+        if self.remediation_target is not None and self.disposition != "change-required":
+            raise ValueError("A remediation target applies only to change-required dispositions")
+        return self
+
 
 class ImpactDispositionRequest(ImpactDispositionItem):
     expected_version: Annotated[StrictInt, Field(ge=0)]
@@ -401,6 +418,19 @@ class ImpactDispositionRead(ImpactModel):
     review_scope_changed: ReviewScopeChanged | SkipJsonSchema[None] = Field(
         default=None, exclude_if=lambda value: value is None,
     )
+
+    finding_id: FindingIdentifier | None = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
+    remediation_target: RemediationTarget | None = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
+
+    @model_validator(mode="after")
+    def target_matches_disposition(self) -> Self:
+        if self.remediation_target is not None and self.disposition != "change-required":
+            raise ValueError("A remediation target applies only to change-required dispositions")
+        return self
 
 
 class ImpactDispositionBatchRequest(ImpactModel):
@@ -446,6 +476,21 @@ class ImpactDispositionBatchRead(ImpactModel):
         return self
 
 
+class ImpactFindingSummary(ImpactModel):
+    named_finding_count: Annotated[StrictInt, Field(ge=0)]
+    unlabelled_change_required_count: Annotated[StrictInt, Field(ge=0)]
+    change_required_row_count: Annotated[StrictInt, Field(ge=0)]
+
+    @model_validator(mode="after")
+    def coherent_counts(self) -> Self:
+        labelled = self.change_required_row_count - self.unlabelled_change_required_count
+        if not 0 <= self.named_finding_count <= labelled or (
+            bool(self.named_finding_count) != bool(labelled)
+        ):
+            raise ValueError("Finding counts disagree with labelled and unlabelled rows")
+        return self
+
+
 class ImpactDiff(ImpactModel):
     changed_fields: list[str]
     before_sha256: Annotated[str, Field(pattern=r"^[a-f0-9]{64}$")]
@@ -479,6 +524,19 @@ class ImpactDispositionProjection(ImpactModel):
             "id", "project_id", "assessment_id", "reason", "actor", "created_at",
         ), options.detail == "full")
 
+    finding_id: FindingIdentifier | None = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
+    remediation_target: RemediationTarget | None = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
+
+    @model_validator(mode="after")
+    def target_matches_disposition(self) -> Self:
+        if self.remediation_target is not None and self.disposition != "change-required":
+            raise ValueError("A remediation target applies only to change-required dispositions")
+        return self
+
 
 class ImpactAssessmentRead(ImpactModel):
     id: UUID
@@ -502,6 +560,9 @@ class ImpactAssessmentRead(ImpactModel):
     version: Annotated[StrictInt, Field(ge=0)]
     unassessed_count: Annotated[StrictInt, Field(ge=0)]
     change_required_count: Annotated[StrictInt, Field(ge=0)]
+    finding_summary: ImpactFindingSummary | None = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
     status: Literal["pending", "change-required", "resolved"]
 
     @model_validator(mode="after")
@@ -516,6 +577,10 @@ class ImpactAssessmentRead(ImpactModel):
 
     @model_validator(mode="after")
     def coherent_status(self) -> Self:
+        if self.finding_summary is not None and (
+            self.finding_summary.change_required_row_count != self.change_required_count
+        ):
+            raise ValueError("Finding summary must retain the change-required row count")
         if self.supersession_delta is not None and (
             self.trigger != "supersession"
             or (self.supersession_delta.target_reference, self.supersession_delta.after_reference)

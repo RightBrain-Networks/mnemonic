@@ -79,6 +79,9 @@ test("decision impact traces exact revisions and appends auditable dispositions 
     await form.getByRole("combobox", { name: "Disposition", exact: true }).selectOption("change-required");
     await form.getByRole("textbox", { name: "Reason", exact: true }).fill("The gateway must switch to remote registration before the old adapter is removed.");
     await form.getByRole("textbox", { name: "Remediation work item ID (optional)", exact: true }).fill(remediation.id);
+    await form.getByRole("textbox", { name: "Finding ID (optional)", exact: true }).fill("remote-registration");
+    await form.getByRole("combobox", { name: "Remediation target (optional)", exact: true }).selectOption("both");
+    await page.screenshot({ path: testInfo.outputPath("impact-finding-form.png"), animations: "disabled" });
     const bodies: string[] = [];
     await page.route(`**/api/mnemonic/projects/${project.id}/knowledge/assessments/*/dispositions`, async (route) => {
       if (route.request().method() !== "POST") return route.continue();
@@ -92,6 +95,8 @@ test("decision impact traces exact revisions and appends auditable dispositions 
     await form.getByRole("button", { name: "Save disposition", exact: true }).click();
     await expect(form.getByRole("alert")).toContainText("outcome is unconfirmed");
     await expect(form.getByRole("textbox", { name: "Reason", exact: true })).toBeDisabled();
+    await expect(form.getByRole("textbox", { name: "Finding ID (optional)", exact: true })).toBeDisabled();
+    await expect(form.getByRole("combobox", { name: "Remediation target (optional)", exact: true })).toBeDisabled();
     await expect(drawer.getByRole("button", { name: "Close preview" })).toBeDisabled();
     await expect(drawer.getByRole("button", { name: "Document", exact: true })).toBeDisabled();
     await expect(drawer.getByRole("button", { name: "Related context (1)", exact: true })).toBeDisabled();
@@ -99,8 +104,12 @@ test("decision impact traces exact revisions and appends auditable dispositions 
     await page.keyboard.press("Escape"); await expect(drawer).toBeVisible();
     await form.getByRole("button", { name: "Retry pending disposition" }).click();
     await expect(form).toHaveCount(0); expect(bodies).toHaveLength(2); expect(bodies[1]).toBe(bodies[0]);
+    expect(JSON.parse(bodies[0])).toMatchObject({ finding_id: "remote-registration", remediation_target: "both" });
     await expect(drawer.getByRole("link", { name: `Remediation work ${remediation.id}` })).toBeVisible();
     await expect(drawer.locator(".impact-assessment-status")).toContainText("Changes required");
+    await expect(drawer.locator(".impact-assessment-status")).toContainText("1 named finding");
+    await expect(drawer).toContainText("Remediation target: both");
+    await page.screenshot({ path: testInfo.outputPath("impact-finding-summary.png"), animations: "disabled" });
     await drawer.getByRole("button", { name: `Record disposition for ${dependent.reference}`, exact: true }).click();
     await form.getByRole("combobox", { name: "Disposition", exact: true }).selectOption("resolved");
     await form.getByRole("textbox", { name: "Reason", exact: true }).fill("The linked remediation updated the gateway and passed its transport tests.");

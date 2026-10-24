@@ -6,6 +6,7 @@ from uuid import UUID
 
 from pydantic import Field, StrictInt, model_validator
 
+from mnemonic_api.impact_finding_schemas import FindingIdentifier, RemediationTarget
 from mnemonic_api.impact_schemas import Disposition, Identifier, Reference
 from mnemonic_api.schemas import APIModel
 
@@ -32,6 +33,19 @@ class CandidateDispositionSummary(APIModel):
     version: Annotated[StrictInt, Field(ge=1)]
     disposition: Disposition
     remediation_work_item_id: UUID | None
+
+    finding_id: FindingIdentifier | None = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
+    remediation_target: RemediationTarget | None = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
+
+    @model_validator(mode="after")
+    def target_matches_disposition(self) -> Self:
+        if self.remediation_target is not None and self.disposition != "change-required":
+            raise ValueError("A remediation target applies only to change-required dispositions")
+        return self
 
 
 class DecisionCandidateOccurrence(APIModel):

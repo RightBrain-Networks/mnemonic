@@ -2,6 +2,7 @@ import { decodeSupersessionDelta, type SupersessionDelta } from "./supersession-
 import { decisionIdPattern, referencePattern, decisionStates, decodeKnowledgePage, validCommitHash, validScopeProvenance, type KnowledgePage, type DecisionScope, type DecisionState } from "./knowledge.ts";
 import { boundedText, finiteInteger, nullableUuid, objectValue, sameUuid, validUuid } from "./wire-guards.ts";
 import { validRevisionAuthor, type RevisionAuthorContext } from "./revision-authors.ts";
+import { validFindingMetadata, validFindingSummary, type FindingSummary, type RemediationTarget } from "./impact-findings.ts";
 
 export const impactDispositions = ["still-valid", "change-required", "not-affected", "resolved"] as const;
 export type ImpactDispositionName = typeof impactDispositions[number];
@@ -24,6 +25,7 @@ export type ImpactCoverage = {
 export type DecisionImpact = KnowledgePage<ImpactCandidate> & { project_id: string; origin_reference: string; origin_author: RevisionAuthorContext; kind: ImpactKind; candidate_count: number; context_count: number; coverage: ImpactCoverage };
 export type ImpactDiff = { changed_fields: string[]; before_sha256: string; after_sha256: string; unified_diff: string; truncated: boolean };
 export type ImpactAssessment = {
+  finding_summary?: FindingSummary | null;
   id: string; project_id: string; trigger: "revision" | "supersession"; before_reference: string;
   after_reference: string; extent: "full" | "partial" | null; reason: string | null;
   before_author: RevisionAuthorContext; after_author: RevisionAuthorContext; context_count: number;
@@ -31,6 +33,7 @@ export type ImpactAssessment = {
   diff: ImpactDiff; candidate_count: number; unassessed_count?: number; change_required_count?: number; status?: "pending" | "change-required" | "resolved"; coverage: ImpactCoverage; created_at: string; version: number;
 };
 export type ImpactDisposition = {
+  finding_id?: string | null; remediation_target?: RemediationTarget | null;
   id: string; project_id: string; assessment_id: string; version: number; candidate_reference: string;
   disposition: ImpactDispositionName; reason: string; remediation_work_item_id: string | null; created_at: string;
   actor: { actor_client: string; actor_session_id: string; actor_model?: string | null };
@@ -116,6 +119,7 @@ export function decodeAssessment(value: unknown, projectId: string): ImpactAsses
       || !finiteInteger(item.change_required_count, 0, (item.candidate_count as number) + (item.context_count as number) - item.unassessed_count)
       || item.status !== (item.change_required_count > 0 ? "change-required" : item.unassessed_count > 0 ? "pending" : "resolved")) invalid();
   }
+  if (item.finding_summary != null && !validFindingSummary(item.finding_summary, item.change_required_count)) invalid();
   const coverage = decodeCoverage(item.coverage);
   if (coverage.warnings?.some((warning) => warning.reference !== item.before_reference)) invalid();
   const delta = item.supersession_delta == null ? item.supersession_delta : decodeSupersessionDelta(
@@ -130,6 +134,7 @@ export function decodeDisposition(value: unknown, projectId: string, assessmentI
     || !nullableUuid(item.remediation_work_item_id) || typeof item.created_at !== "string"
     || !boundedText(objectValue(item.actor)?.actor_client, 80) || !boundedText(objectValue(item.actor)?.actor_session_id, 200)
     || !(objectValue(item.actor)?.actor_model == null || boundedText(objectValue(item.actor)?.actor_model, 120))) invalid();
+  if (!validFindingMetadata(item)) invalid();
   return item as ImpactDisposition;
 }
 export function decodeAssessmentDetail(value: unknown, projectId: string, assessmentId: string, kind: ImpactKind = "code-impact"): AssessmentDetail {

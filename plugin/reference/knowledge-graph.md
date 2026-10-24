@@ -370,6 +370,21 @@ historical episodes, diffs, coverage snapshots and dispositions remain immutable
 Compact reads may omit section text and diff prose while retaining identity,
 structured details, bounds and coverage metadata.
 
+Optional `finding_id` groups an explicitly established finding across candidate
+rows and episodes in one change. Use a stable, case-sensitive ASCII key of 1–100
+characters, beginning with a letter or digit and otherwise containing only
+letters, digits, dots, colons, underscores or hyphens. Do not reuse a key for
+unrelated findings. `remediation_target` is optional on `change-required` only:
+`code`, `decision-record`, or `both`. A decision-record correction still requires
+tracked remediation and the appropriate authority; the field does not authorize it.
+Assessment/change `finding_summary` separates distinct named findings from
+unlabelled change-required rows, whose grouping remains unknown. The row total
+and every per-candidate obligation remain intact. Shared remediation work or
+similar prose never deduplicates unlabelled rows. Correct metadata through a new
+disposition; earlier labels and targets remain in immutable history. Report named
+findings, unlabelled rows and required rows separately rather than calling every
+row a distinct defect.
+
 ## Investigate an assigned decision impact review
 
 Read `decision_review_change_id` from the work. If present, call

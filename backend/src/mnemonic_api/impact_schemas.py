@@ -1,16 +1,21 @@
 """Pinned decision dependencies and explicit, auditable impact reassessment."""
 
 from datetime import datetime
-from typing import Annotated, Literal
+from typing import Annotated, Literal, Self
 from uuid import UUID
 
-from pydantic import Field, StrictInt, StringConstraints, field_validator
+from pydantic import Field, StrictInt, StringConstraints, field_validator, model_validator
 from pydantic.experimental.missing_sentinel import MISSING
 from pydantic.json_schema import SkipJsonSchema
 
 from mnemonic_api.decision_link_schemas import DecisionDependency as DecisionDependency
 from mnemonic_api.decision_link_schemas import SupersessionDetail as SupersessionDetail
 from mnemonic_api.decision_scope_schemas import ScopeCompletionCitation
+from mnemonic_api.impact_finding_schemas import (
+    FindingIdentifier,
+    ImpactFindingSummary,
+    RemediationTarget,
+)
 from mnemonic_api.review_scope_schemas import ReviewScopeChanged
 from mnemonic_api.revision_author_schemas import RevisionAuthorWork
 from mnemonic_api.schemas import APIModel, LeaseToken, MutationActor
@@ -191,6 +196,19 @@ class ImpactDispositionItem(APIModel):
     def valid_reason(cls, value: str) -> str:
         return DecisionDependency.valid_reason(value)
 
+    finding_id: FindingIdentifier | None = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
+    remediation_target: RemediationTarget | None = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
+
+    @model_validator(mode="after")
+    def target_matches_disposition(self) -> Self:
+        if self.remediation_target is not None and self.disposition != "change-required":
+            raise ValueError("A remediation target applies only to change-required dispositions")
+        return self
+
 
 class ImpactDispositionRequest(ImpactDispositionItem):
     expected_version: Annotated[StrictInt, Field(ge=0)]
@@ -216,6 +234,13 @@ class ImpactDispositionRead(APIModel):
     actor: MutationActor
     created_at: datetime
     review_scope_changed: ReviewScopeChanged | SkipJsonSchema[None] = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
+
+    finding_id: FindingIdentifier | None = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
+    remediation_target: RemediationTarget | None = Field(
         default=None, exclude_if=lambda value: value is None,
     )
 
@@ -278,6 +303,13 @@ class ImpactDispositionProjection(APIModel):
     actor: MutationActor | MISSING = MISSING
     created_at: datetime | MISSING = MISSING
 
+    finding_id: FindingIdentifier | None = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
+    remediation_target: RemediationTarget | None = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
+
 
 class ImpactAssessmentRead(APIModel):
     id: UUID
@@ -301,6 +333,9 @@ class ImpactAssessmentRead(APIModel):
     version: int
     unassessed_count: int
     change_required_count: int
+    finding_summary: ImpactFindingSummary | None = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
     status: Literal["pending", "change-required", "resolved"]
 
 

@@ -9,6 +9,7 @@ import { KnowledgePagination, KnowledgeReadError } from "@/components/knowledge-
 import { errorMessage } from "@/lib/api";
 import { dashboardSessionId } from "@/lib/dashboard-session";
 import type { DecisionChange } from "@/lib/decision-changes";
+import { findingSummaryLabel } from "@/lib/impact-findings";
 import { knowledgePath } from "@/lib/knowledge";
 import { changeAssessmentsOptions, decisionChangeOptions, knowledgeKeys } from "@/lib/knowledge-queries";
 import { mutationWorkKey, useMutationIntentRegistry, useMutationScope } from "@/lib/mutation-intent";
@@ -56,6 +57,7 @@ function LoadedScope({ work, change, disabled, execute }: {
     <p><strong>{change.origin_reference ?? "Adopted decision assessments"}</strong> · Scope version {change.scope_version} · {change.revision_count} {change.revision_count === 1 ? "revision" : "revisions"} · {change.assessment_count} {change.assessment_count === 1 ? "assessment" : "assessments"}</p>
     <p className="field-hint">{acknowledged ? `Scope version ${change.scope_version} acknowledged.` : `Acknowledged version ${change.acknowledged_scope_version}; current scope needs review.`}</p>
     <p className="field-hint">Change <code>{change.id}</code>{change.parent_change_id && <> · Successor of <code>{change.parent_change_id}</code></>}</p>
+    {change.finding_summary && <p>{findingSummaryLabel(change.finding_summary)} · {change.finding_summary.change_required_row_count} rows require changes</p>}
     {change.pending_revision_count > 0 && <p>{change.pending_revision_count} accepted decision {change.pending_revision_count === 1 ? "revision is" : "revisions are"} retained awaiting owner admission. Admission adds their assessment obligations to the new review cycle.</p>}
     {!driver && change.review_work_item_id && <Link href={`/work-items?project=${change.review_work_project_id ?? change.project_id}&work=${change.review_work_item_id}`}>Open the review work item</Link>}
     {selected ? <>
