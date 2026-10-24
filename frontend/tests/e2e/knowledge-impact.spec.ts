@@ -36,7 +36,7 @@ async function fixture(api: APIRequestContext) {
   expect(storedRepository).toBe("https://github.com/acceptance/transport");
   const mapping = await json(await api.post(`${path}/commits/reconcile`, { data: { repository: storedRepository, original_commit_hash: originalHash, merged_commit_hash: mergedHash, client_operation_id: crypto.randomUUID() } }));
   expect(mapping.repository).toBe(storedRepository);
-  const current = await decision(origin.title, "# Transport catalog\n\nUse remotely registered transport adapters.\n", { decision_id: origin.decision_id, expected_revision: 0, depends_on: dependencies, author_kind: "agent", agent_session_id: "revision-author-session", model_id: "acceptance-model" });
+  const current = await decision(origin.title, "# Transport catalog\n\nUse remotely registered transport adapters.\n", { decision_id: origin.decision_id, expected_revision: 0, depends_on: dependencies, author_kind: "agent", agent_session_id: "revision-author-session", model_id: "acceptance-model", source_work_item_id: authorWork.id });
   const replacement = await decision("Replace local adapter discovery", "# Discovery\n\nReplace only the catalog discovery protocol.\n", { supersession_details: [{ decision_id: origin.decision_id, revision: current.revision, extent: "partial", reason: "Replace discovery; retain the catalog identity rules." }] });
   return { project, prerequisite, origin, dependent, related, current, replacement, remediation, authorWork, path, storedRepository };
 }
