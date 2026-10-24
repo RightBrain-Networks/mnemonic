@@ -1,5 +1,39 @@
 # Mnemonic validation record
 
+## Explicit decision-change inheritance (0.103.0)
+
+Fresh work can retain its true discovery origin while excluding that exact edge
+from decision-change inheritance with an explicit reason. Alternate paths,
+explicit adoption and existing memberships remain effective. Migration
+`0064_work_change_inheritance` seals the creation receipt, selected checkpoint and
+reason without backfill; downgrade refuses to discard retained exclusions.
+
+Validation used Python 3.14, Node 24 and isolated PostgreSQL/RabbitMQ. The final
+full backend suite passed **5,582 tests**. All 180 affected historical receipt,
+migration, reset, audit and validation-vocabulary checks passed after fixture
+repairs. Two migration regressions verify unchanged prior rows, sparse receipts
+and inherited lineage across 0063 → 0064, plus atomic refusal of a lossy downgrade.
+Fresh and restored 0064 catalogs pass all nine integrity categories.
+A paired cross-project regression confirms that default inheritance retains the
+closed-cycle admission requirement, while an excluded child can originate its
+own change without altering the original closed group or assessment snapshots.
+Both discovery edges remain, and the aggregate integrity audit passes.
+
+The full MCP run reached **2,566 passing tests** with one vocabulary assertion
+collected before its correction; all 25 corrected vocabulary checks passed.
+The carried-forward scope-extension checkpoint correction separately passed all
+seven PostgreSQL scope-notice checks, requiring fresh code-impact comparisons
+and context contradiction checks for each added episode. Backend/MCP Ruff and
+type checks pass.
+
+The dashboard passed **640 unit tests**, type checking and production build.
+Two desktop/narrow acceptance cases verify retained inheritance explanations,
+literal text, newlines and long-reference wrapping; all isolated backup fault
+and recovery checks pass. Inspected [desktop](images/work-change-inheritance/desktop.png)
+and [narrow](images/work-change-inheritance/narrow.png) captures are retained.
+Plugin validation passed 71 tests with one optional external CLI check skipped.
+The gitleaks hook passes. No production services were changed.
+
 ## Shared impact findings and remediation targets (0.102.0)
 
 Optional finding IDs group explicitly established causes across candidate rows
