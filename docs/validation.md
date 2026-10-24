@@ -34,6 +34,13 @@ and [narrow](images/work-change-inheritance/narrow.png) captures are retained.
 Plugin validation passed 71 tests with one optional external CLI check skipped.
 The gitleaks hook passes. No production services were changed.
 
+After rebasing onto the merged finding release, all 38 focused backend and 30
+MCP integration checks pass. These cover the additional finding metadata tests
+together with inheritance, migration preservation, admission, reset guards and
+the external-reference downgrade race. The final tree retains both releases'
+screenshots, corrected browser fixtures and the ten-second migration completion
+allowance, with no divergent runtime change introduced by the rebase.
+
 ## Shared impact findings and remediation targets (0.102.0)
 
 Optional finding IDs group explicitly established causes across candidate rows
