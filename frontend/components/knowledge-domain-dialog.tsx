@@ -55,4 +55,3 @@ export default function DomainDialog({ projectId, domain, onClose, onSaved, onPe
     </form></div>
   </dialog>;
 }
-
