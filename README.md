@@ -2,7 +2,7 @@
 
 > The single-user, multi-agent coordination plane built for experienced engineers rather vibe coders.
 
-**`mnemonic`** is a single-user, self-hosted coordination plane for LLM coding agents. Its core thesis: agent sessions are temporary, failure-prone, and locally smart but globally blind. Durable work should live in a *work graph* that survives sessions, rather than in Markdown scratch files, suggested task chips, or an issue tracker flooded with AI-generated tickets. With a strong human-in-the-loop philosophy, it is designed to increase the code quality and throughput of experienced developers using AI, rather than replace their thinking.
+**`mnemonic`** is a single-user, self-hosted coordination plane for LLM coding agents. Its core thesis: agent sessions are temporary, failure-prone, and locally smart but globally blind. Durable work should live in a *work graph* that survives sessions, rather than in Markdown scratch files, suggested task chips, or an issue tracker flooded with AI-generated tickets. With a strong human-in-the-loop philosophy, it is designed to increase the code quality and throughput of experienced developers building with AI, rather than replace their thinking.
 
 Additionally, `mnemonic` maintains a *knowledge graph* containing a versioned history of decisions made by both the human operator and agents. When a decision changes, any previously written code that was downstream of those decision is automatically discoverable. No more "grepping and hoping" when product requirements shift, even on a large codebase.
 
