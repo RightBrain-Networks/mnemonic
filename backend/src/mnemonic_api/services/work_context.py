@@ -413,6 +413,14 @@ def assemble_work_context(
                     'title', w.title, 'summary', w.summary,
                     'external_references', w.external_references,
                     'manual_review_request', w.manual_review_request,
+                    'decision_change_inheritance_exclusion', (
+                        SELECT jsonb_build_object(
+                            'origin_work_item_id', exclusion.origin_work_item_id,
+                            'origin_context_checkpoint_id', exclusion.origin_context_checkpoint_id,
+                            'reason', exclusion.reason, 'created_at', exclusion.created_at
+                        ) FROM work_change_inheritance_exclusions exclusion
+                        WHERE exclusion.work_item_id=w.id
+                    ),
                     'decision_review_revision_id', w.decision_review_revision_id,
                     'decision_change_projects', COALESCE((
                         SELECT jsonb_object_agg(member.change_id, change.project_id)

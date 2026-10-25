@@ -136,6 +136,8 @@ _APPLICATION_ERRORS = {
     "lease_purpose_mismatch": "This capability does not authorize that purpose, review episode, or mode.",
     "code_review_obligation_outstanding": "An outstanding review/question requires exact explicit reopen and supersession first.",
     "code_review_provenance_merge_forbidden": "Remediation work cannot be merged in either direction; its ancestry must remain immutable.",
+    "invalid_decision_change_inheritance": "False inheritance requires the declared non-null "
+    "origin and a nonblank reason; true inheritance accepts no reason. Preserve retry arguments.",
     "initial_status_must_be_pending": "Fresh work must start pending before a report-bearing closeout.",
     "job_completion_report_required": (
         "Every fresh Done, Won't do, or Promoted closeout requires a job completion report. "

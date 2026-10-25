@@ -113,6 +113,7 @@ def run_registered_mutation[Payload: APIModel, Result: APIModel](
     database.info["client_operation_keyed"] = (
         getattr(payload, "client_operation_id", None) is not None
     )
+    database.info["client_operation_receipt_id"] = getattr(operation, "receipt_id", None)
     if callable(additional_project_ids):
         scope_factory = cast(Callable[[], Iterable[UUID]], additional_project_ids)
         mutation_project_ids = scope_factory()

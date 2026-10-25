@@ -157,6 +157,7 @@ from .transcript_models import (
 )
 from .transport import BoundedMCPIngressMiddleware
 from .validation import SanitizedFastMCP, install_sdk_validation_log_filter
+from .work_inheritance_schemas import InheritanceReason
 
 _DUPLICATE_POSIX_WHITESPACE = re.compile(r"[\t\n\v\f\r ]+")
 _ASCII_LOWERCASE = str.maketrans(
@@ -399,8 +400,22 @@ def _creation_matches_request(
     initial_relationships: list[InitialRelationshipInput] | None,
     discovered_from_work_item_id: UUID | None | MISSING = MISSING,
     external_references: ExternalReferences = [],  # noqa: B006
+    inherit_decision_change: bool = True,
+    decision_change_inheritance_reason: str | None = None,
 ) -> bool:
     work_item = response.work_item
+    exclusion = work_item.decision_change_inheritance_exclusion
+    if inherit_decision_change:
+        if exclusion is not None or decision_change_inheritance_reason is not None:
+            return False
+    elif (exclusion is None or exclusion.origin_work_item_id != discovered_from_work_item_id
+          or exclusion.reason != decision_change_inheritance_reason
+          or exclusion.created_at != work_item.created_at
+          or not any(edge.relationship_type == "discovered-from"
+                     and edge.target_work_item_id == exclusion.origin_work_item_id
+                     and edge.context_checkpoint_id == exclusion.origin_context_checkpoint_id
+                     for edge in response.initial_relationships)):
+        return False
     checkpoint = response.initial_checkpoint
     initial_relationships = _creation_lineage_requests(
         response, initial_relationships, discovered_from_work_item_id,
@@ -1054,8 +1069,12 @@ def _register_project_tools(server: FastMCP, api: MnemonicAPI) -> None:
             list[InitialRelationshipInput] | None, Field(max_length=10)
         ] = None,
         external_references: ExternalReferences = [],  # noqa: B006
+        inherit_decision_change: Annotated[bool, Field(strict=True, description=
+            "False excludes only the declared origin edge from decision-change inheritance; "
+            "requires a non-null origin and recorded reason. Other paths/adoption still apply.")] = True,
+        decision_change_inheritance_reason: InheritanceReason | None = None,
     ) -> WorkCreation:
-        """Every fresh create_work declares discovered_from_work_item_id: the exact session-origin work, or null for a human/external trigger; later reads never change origin. Omission is only for historical receipt replay. Create pending work, initial context and up to ten relationships atomically. Search first to avoid duplicates; get_prompt with priority-rubric supplies scoring guidance. Fresh terminal creation and duplicate-of are refused; retire/promote through update_work with a report, merge through merge_work after reading both exact contexts. source_session_id is the native agent session ID when exposed, otherwise one retained Mnemonic session UUID; never a transport identity or an invented verified commit. affected_paths is an ordered declaration of repository dependencies; nonempty scope requires the inspected verified_against commit; omission/[] means no scope, ** means all eligible paths. The server and MCP adapter do not inspect Git. external_references declares up to ten credential-free links, never execution/closeout authority. Only incoming parent-child attaches work to a parent; requires_child_closeout=true requires child closure before parent closeout. discovered-from needs target-owned context. Omit client_operation_id on fresh calls for an automatic UUID; retain it with the complete immutable tool arguments. Unknown outcomes retry with every argument unchanged; never invent a replacement if the UUID or arguments were lost: stop for direction. A new intent requires a new UUID. Replay is the historical original result; read again for current state. Use help({"topic":"create_work details"}) for the complete contract."""
+        """Every fresh create_work declares discovered_from_work_item_id: the exact session-origin work, or null for a human/external trigger; later reads never change origin. inherit_decision_change=false with a nonblank decision_change_inheritance_reason excludes only that declared origin edge, preserving discovery provenance; other paths and explicit adoption remain effective. Omission is only for historical receipt replay. Create pending work, initial context and up to ten relationships atomically. Search first to avoid duplicates; get_prompt with priority-rubric supplies scoring guidance. Fresh terminal creation and duplicate-of are refused; retire/promote through update_work with a report, merge through merge_work after reading both exact contexts. source_session_id is the native agent session ID when exposed, otherwise one retained Mnemonic session UUID; never a transport identity or an invented verified commit. affected_paths is an ordered declaration of repository dependencies; nonempty scope requires the inspected verified_against commit; omission/[] means no scope, ** means all eligible paths. The server and MCP adapter do not inspect Git. external_references declares up to ten credential-free links, never execution/closeout authority. Only incoming parent-child attaches work to a parent; requires_child_closeout=true requires child closure before parent closeout. discovered-from needs target-owned context. Omit client_operation_id on fresh calls for an automatic UUID; retain it with the complete immutable tool arguments. Unknown outcomes retry with every argument unchanged; never invent a replacement if the UUID or arguments were lost: stop for direction. A new intent requires a new UUID. Replay is the historical original result; read again for current state. Use help({"topic":"create_work details"}) for the complete contract."""
         payload = _client_operation_payload(
             client_operation_id,
             {
@@ -1066,6 +1085,10 @@ def _register_project_tools(server: FastMCP, api: MnemonicAPI) -> None:
                 "initial_checkpoint": _checkpoint_payload(initial_checkpoint),
             },
         )
+        if not inherit_decision_change:
+            payload["inherit_decision_change"] = False
+        if decision_change_inheritance_reason is not None:
+            payload["decision_change_inheritance_reason"] = decision_change_inheritance_reason
         if discovered_from_work_item_id is not MISSING:
             payload["discovered_from_work_item_id"] = (
                 str(discovered_from_work_item_id) if discovered_from_work_item_id else None
@@ -1099,6 +1122,8 @@ def _register_project_tools(server: FastMCP, api: MnemonicAPI) -> None:
                     initial_checkpoint=initial_checkpoint,
                     initial_relationships=initial_relationships,
                     discovered_from_work_item_id=discovered_from_work_item_id,
+                    inherit_decision_change=inherit_decision_change,
+                    decision_change_inheritance_reason=decision_change_inheritance_reason,
                     external_references=external_references,
                 ),
             ),

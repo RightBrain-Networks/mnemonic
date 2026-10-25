@@ -210,6 +210,17 @@ caller-selected origin-owned checkpoint. Up to ten additional
 `initial_relationships` remain available. Add an incoming `parent-child` edge
 only when the new work also belongs under a hierarchy parent.
 
+For independent new work, `inherit_decision_change=false` requires a nonblank
+`decision_change_inheritance_reason` (at most 4,000 Unicode characters). Keep the
+actual non-null session origin: the discovery edge and its selected checkpoint
+remain durable. The immutable exclusion applies only to that child-to-origin edge
+for current and future propagation. Other discovery edges/paths and explicit
+adoption still bind change lineage; existing memberships are never removed.
+This choice grants no execution authority and does not detach existing work.
+Omitting the flag (or true) preserves inheritance and accepts no reason. Full
+work reads retain the exclusion for inspection. Freeze the flag/reason as well
+as the origin on exact retries.
+
 Freeze the origin ID or null with the complete creation intent and retry UUID.
 Fresh omission is rejected; unchanged sparse requests exist only to replay
 completed historical receipts. Existing lineage is not guessed or backfilled.

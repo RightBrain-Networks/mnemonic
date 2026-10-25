@@ -60,7 +60,8 @@ PUBLIC_LOCATION_SEGMENTS = frozenset(
     code_review_required_min_priority code_review_optional_min_priority
     allow_remediation_code_reviews automatic_decision_reviews decision_review_priority
     decision_review_revision_id decision_review_change_id decision_change_ids
-    decision_review_project_id
+    decision_review_project_id inherit_decision_change decision_change_inheritance_reason
+    decision_change_inheritance_exclusion origin_work_item_id origin_context_checkpoint_id
     change change_id assessment_ids expected_scope_version expected_work_version governing_reference
     requires_admission
     lease_minutes lease_default_minutes

@@ -2690,6 +2690,7 @@ html:not([data-hide-nemo="false"]) .sidebar-note { display: none; }
 .decision-change-panel > .impact-assessment { margin-top: 12px; }
 .decision-change-panel .impact-assessment + .impact-assessment { border-top: 1px solid var(--line); padding-top: 12px; }
 .decision-change-panel code { overflow-wrap: anywhere; }
+.decision-change-panel .preserve-whitespace { white-space: pre-wrap; overflow-wrap: anywhere; }
 .decision-change-panel .toggle-field { display: flex; gap: 8px; align-items: flex-start; }
 .decision-change-panel .toggle-field input { flex: none; margin-top: 3px; }
 .decision-review-priority input { max-width: 140px; }

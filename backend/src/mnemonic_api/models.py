@@ -41,6 +41,7 @@ from mnemonic_api import phase12_db_tables as phase12
 from mnemonic_api import product_decision_db as product_decisions
 from mnemonic_api import provenance_db as provenance
 from mnemonic_api import transcript_db_tables as transcripts
+from mnemonic_api import work_inheritance_db as work_inheritance
 from mnemonic_api.artifact_passage_db import (
     TEXT_HASH_EXPRESSION,
     passage_elements,
@@ -78,6 +79,10 @@ DECISION_CHANGE_TABLE = Table(
 )
 DECISION_CHANGE_WORK_TABLE = Table(
     "decision_change_work", Base.metadata, *decision_changes.work_elements(),
+)
+
+WORK_INHERITANCE_TABLE = Table(
+    "work_change_inheritance_exclusions", Base.metadata, *work_inheritance.elements(),
 )
 
 
@@ -341,6 +346,15 @@ class WorkItem(Base):
     remediation_id: Mapped[UUID | None] = mapped_column()
     decision_review_revision_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("decision_revisions.id", ondelete="RESTRICT"), unique=True,
+    )
+    decision_change_inheritance_exclusion: Mapped[dict[str, Any] | None] = column_property(
+        select(func.jsonb_build_object(
+            "origin_work_item_id", WORK_INHERITANCE_TABLE.c.origin_work_item_id,
+            "origin_context_checkpoint_id", WORK_INHERITANCE_TABLE.c.origin_context_checkpoint_id,
+            "reason", WORK_INHERITANCE_TABLE.c.reason,
+            "created_at", WORK_INHERITANCE_TABLE.c.created_at,
+        )).where(WORK_INHERITANCE_TABLE.c.work_item_id == id)
+        .correlate_except(WORK_INHERITANCE_TABLE).scalar_subquery()
     )
     decision_review_change_id: Mapped[UUID | None] = column_property(
         select(DECISION_CHANGE_TABLE.c.id)
@@ -2572,6 +2586,17 @@ class DecisionChangeAssessment(Base):
     change_id: Mapped[UUID]
     assessment_id: Mapped[UUID]
     attachment_scope_version: Mapped[int | None]
+    created_at: Mapped[datetime]
+
+
+class WorkChangeInheritanceExclusion(Base):
+    __table__ = WORK_INHERITANCE_TABLE
+
+    work_item_id: Mapped[UUID]
+    origin_work_item_id: Mapped[UUID]
+    origin_context_checkpoint_id: Mapped[UUID]
+    reason: Mapped[str]
+    creation_receipt_id: Mapped[int]
     created_at: Mapped[datetime]
 
 

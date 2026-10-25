@@ -415,6 +415,7 @@ def _merge_receipt_body(connection: Connection, merge_id: UUID) -> dict[str, Any
                 defer(WorkItem.decision_review_project_id),
                 defer(WorkItem.decision_change_ids),
                 defer(WorkItem.decision_change_projects),
+                defer(WorkItem.decision_change_inheritance_exclusion),
             ),
         )
         destination = database.get(
@@ -434,6 +435,7 @@ def _merge_receipt_body(connection: Connection, merge_id: UUID) -> dict[str, Any
                 defer(WorkItem.decision_review_project_id),
                 defer(WorkItem.decision_change_ids),
                 defer(WorkItem.decision_change_projects),
+                defer(WorkItem.decision_change_inheritance_exclusion),
             ),
         )
         relationship = database.get(WorkRelationship, merge.duplicate_relationship_id,

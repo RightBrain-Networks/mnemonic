@@ -130,7 +130,9 @@ def pending_revisions(database: Session, change_id: UUID | None) -> list[Decisio
 
 
 def inherit_changes(database: Session, work_id: UUID, source_id: UUID | None) -> None:
-    if source_id is None:
+    from mnemonic_api.services.work_inheritance import excludes_inheritance
+
+    if source_id is None or excludes_inheritance(database, work_id, source_id):
         return
     for change_id in database.scalars(select(DecisionChangeWork.change_id).where(
         DecisionChangeWork.work_item_id == source_id,
@@ -147,7 +149,11 @@ def bind_work(database: Session, work_id: UUID, change_id: UUID) -> None:
             UNION
             SELECT edge.source_work_item_id FROM work_relationships edge
             JOIN descendants parent ON edge.target_work_item_id=parent.id
-            WHERE edge.relationship_type='discovered-from'
+            WHERE edge.relationship_type='discovered-from' AND NOT EXISTS (
+                SELECT 1 FROM work_change_inheritance_exclusions exclusion
+                WHERE exclusion.work_item_id=edge.source_work_item_id
+                  AND exclusion.origin_work_item_id=edge.target_work_item_id
+            )
         ) INSERT INTO decision_change_work(work_item_id,change_id)
           SELECT id,CAST(:change_id AS uuid) FROM descendants ORDER BY id
           ON CONFLICT DO NOTHING RETURNING work_item_id

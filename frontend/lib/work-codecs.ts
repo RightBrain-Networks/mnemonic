@@ -1,3 +1,4 @@
+import { validInheritanceExclusion } from "./work-inheritance.ts";
 import { decodeManualReviewRequest } from "./manual-reviews.ts";
 import { validSparseReferences, referenceKeys } from "./external-references.ts";
 import type { WorkIdentityPointer, WorkItem, WorkStatus, WorkSummary } from "./types.ts";
@@ -15,7 +16,7 @@ import {
 
 const WORK_ITEM_FIELDS = [
   "id", "project_id", "title", "summary", "status", "priority", "initial_checkpoint_id",
-  "version", "created_at", "updated_at", "external_references", "manual_review_request", "decision_review_revision_id", "decision_review_change_id", "decision_change_ids", "decision_review_project_id", "decision_change_projects"
+  "version", "created_at", "updated_at", "external_references", "manual_review_request", "decision_review_revision_id", "decision_review_change_id", "decision_change_ids", "decision_review_project_id", "decision_change_projects", "decision_change_inheritance_exclusion"
 ] as const;
 
 const WORK_STATUSES = new Set<WorkStatus>([
@@ -45,7 +46,8 @@ export function decodeWorkItem(
   if (
     !item
     || !validSparseReferences(item)
-    || !exactKeys(item, referenceKeys(item, WORK_ITEM_FIELDS.filter((key) => key !== "external_references" && (!["manual_review_request", "decision_review_revision_id", "decision_review_change_id", "decision_change_ids", "decision_review_project_id", "decision_change_projects"].includes(key) || Object.hasOwn(item, key)))))
+    || !validInheritanceExclusion(item)
+    || !exactKeys(item, referenceKeys(item, WORK_ITEM_FIELDS.filter((key) => key !== "external_references" && (!["manual_review_request", "decision_review_revision_id", "decision_review_change_id", "decision_change_ids", "decision_review_project_id", "decision_change_projects", "decision_change_inheritance_exclusion"].includes(key) || Object.hasOwn(item, key)))))
     || item.decision_change_projects !== undefined && (!changeProjects
       || !Object.entries(changeProjects).every(([id, project]) => validUuid(id) && validUuid(project)))
     || item.decision_review_project_id != null && !validUuid(item.decision_review_project_id)
