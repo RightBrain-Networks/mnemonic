@@ -19,6 +19,23 @@ env:
   UV_NO_PROGRESS: "1"
 
 jobs:
+  changes:
+    name: CI scope
+    runs-on: ubuntu-latest
+    outputs:
+      full_ci: ${{ steps.scope.outputs.full_ci }}
+    steps:
+      - name: Check out complete history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Test CI scope selection
+        run: python3 -m unittest discover -s scripts/tests -p 'test_ci_*.py'
+      - name: Select checks from the complete diff
+        id: scope
+        run: python3 scripts/ci_scope.py
+
   gitleaks:
     name: Gitleaks
     runs-on: ubuntu-latest
@@ -65,6 +82,8 @@ jobs:
 
   ruff:
     name: Ruff
+    needs: changes
+    if: ${{ needs.changes.outputs.full_ci == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - name: Check out source
@@ -100,6 +119,8 @@ jobs:
             scripts/reclaim_transcript_copies.py \
             scripts/recover_transcript_paths.py \
             scripts/check_transcript_access.py \
+            scripts/ci_scope.py \
+            scripts/tests/test_ci_scope.py \
             scripts/setup.py \
             scripts/export_agent_skills.py \
             scripts/download_artifact.py \
@@ -115,6 +136,8 @@ jobs:
 
   ty:
     name: ty
+    needs: changes
+    if: ${{ needs.changes.outputs.full_ci == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - name: Check out source
@@ -143,6 +166,8 @@ jobs:
 
   backend-tests:
     name: Backend tests
+    needs: changes
+    if: ${{ needs.changes.outputs.full_ci == 'true' }}
     runs-on: ubuntu-latest
     services:
       rabbitmq:
@@ -198,6 +223,8 @@ jobs:
 
   mcp-tests:
     name: MCP tests
+    needs: changes
+    if: ${{ needs.changes.outputs.full_ci == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - name: Check out source
@@ -221,6 +248,8 @@ jobs:
 
   repository-freshness-runtime:
     name: Repository freshness runtime
+    needs: changes
+    if: ${{ needs.changes.outputs.full_ci == 'true' }}
     runs-on: macos-15
     steps:
       - name: Check out source
@@ -236,6 +265,8 @@ jobs:
 
   frontend:
     name: Frontend checks
+    needs: changes
+    if: ${{ needs.changes.outputs.full_ci == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - name: Check out source
@@ -269,11 +300,13 @@ jobs:
     name: Required checks
     if: ${{ always() }}
     needs:
-      [gitleaks, ruff, ty, backend-tests, mcp-tests, repository-freshness-runtime, frontend]
+      [changes, gitleaks, ruff, ty, backend-tests, mcp-tests, repository-freshness-runtime, frontend]
     runs-on: ubuntu-latest
     steps:
       - name: Verify required jobs succeeded
         env:
+          CHANGES_RESULT: ${{ needs.changes.result }}
+          FULL_CI: ${{ needs.changes.outputs.full_ci }}
           GITLEAKS_RESULT: ${{ needs.gitleaks.result }}
           RUFF_RESULT: ${{ needs.ruff.result }}
           TY_RESULT: ${{ needs.ty.result }}
@@ -282,8 +315,14 @@ jobs:
           REPOSITORY_FRESHNESS_RUNTIME_RESULT: ${{ needs.repository-freshness-runtime.result }}
           FRONTEND_RESULT: ${{ needs.frontend.result }}
         run: |
+          test "$CHANGES_RESULT" = "success" || exit 1
+          test "$GITLEAKS_RESULT" = "success" || exit 1
+          case "$FULL_CI" in
+            true) expected=success ;;
+            false) expected=skipped ;;
+            *) exit 1 ;;
+          esac
           for result in \
-            "$GITLEAKS_RESULT" \
             "$RUFF_RESULT" \
             "$TY_RESULT" \
             "$BACKEND_RESULT" \
@@ -291,5 +330,5 @@ jobs:
             "$REPOSITORY_FRESHNESS_RUNTIME_RESULT" \
             "$FRONTEND_RESULT"
           do
-            test "$result" = "success" || exit 1
+            test "$result" = "$expected" || exit 1
           done
