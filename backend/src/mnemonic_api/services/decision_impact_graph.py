@@ -61,7 +61,8 @@ def _dependents(database: Session, frontier: list[UUID]):
         .join(DecisionRevision, DecisionRevision.id == DecisionDependency.revision_id)
         .join(DecisionDocument, DecisionDocument.id == DecisionRevision.document_id)
         .join(KnowledgeDomain, KnowledgeDomain.id == DecisionDocument.domain_id)
-        .where(DecisionDependency.target_revision_id.in_(frontier))
+        .where(DecisionDependency.target_revision_id.in_(frontier),
+               DecisionDocument.deleted_at.is_(None), KnowledgeDomain.deleted_at.is_(None))
         .order_by(
             KnowledgeDomain.prefix,
             DecisionDocument.ordinal,
@@ -143,7 +144,8 @@ def _related_rows(
         .join(DecisionDocument, DecisionDocument.id == linked)
         .join(DecisionRevision, selected)
         .join(KnowledgeDomain, KnowledgeDomain.id == DecisionDocument.domain_id)
-        .where(condition, DecisionRelationship.kind == "related", target.is_not(None))
+        .where(condition, DecisionRelationship.kind == "related", target.is_not(None),
+               DecisionDocument.deleted_at.is_(None), KnowledgeDomain.deleted_at.is_(None))
         .order_by(KnowledgeDomain.prefix, DecisionDocument.ordinal, DecisionRevision.revision)
         .limit(MAX_CANDIDATES + 1)
     ).all()
@@ -155,7 +157,8 @@ def _prerequisites(database: Session, traversal: Traversal) -> dict[UUID, Node]:
         .join(DecisionRevision, DecisionRevision.id == DecisionDependency.target_revision_id)
         .join(DecisionDocument, DecisionDocument.id == DecisionRevision.document_id)
         .join(KnowledgeDomain, KnowledgeDomain.id == DecisionDocument.domain_id)
-        .where(DecisionDependency.revision_id.in_(traversal.nodes))
+        .where(DecisionDependency.revision_id.in_(traversal.nodes),
+               DecisionDocument.deleted_at.is_(None), KnowledgeDomain.deleted_at.is_(None))
         .order_by(KnowledgeDomain.prefix, DecisionDocument.ordinal, DecisionRevision.revision,
                   DecisionDependency.revision_id)
         .limit(MAX_EDGES + 1)

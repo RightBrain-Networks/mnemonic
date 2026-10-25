@@ -55,9 +55,11 @@ class KnowledgePagination(APIModel):
 class DomainCreateRequest(APIModel):
     name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=120)]
     prefix: Annotated[str, StringConstraints(min_length=1, max_length=5)]
-    automatic_decision_reviews: DomainReviewPolicy = Field(
-        default="inherit", exclude_if=lambda value: value == "inherit"
+    automatic_decision_reviews: DomainReviewPolicy | MISSING = Field(
+        default=MISSING, exclude_if=lambda value: value == "inherit"
     )
+
+    decision_review_priority: Annotated[StrictInt, Field(ge=0, le=100)] | MISSING = MISSING
 
     @field_validator("name")
     @classmethod
@@ -82,6 +84,7 @@ class DomainRenameRequest(APIModel):
         str, StringConstraints(strip_whitespace=True, min_length=1, max_length=120)
     ] | MISSING = MISSING
     automatic_decision_reviews: DomainReviewPolicy | MISSING = MISSING
+    decision_review_priority: Annotated[StrictInt, Field(ge=0, le=100)] | MISSING = MISSING
     expected_version: Annotated[StrictInt, Field(ge=1)]
 
     @field_validator("name")
@@ -91,8 +94,9 @@ class DomainRenameRequest(APIModel):
 
     @model_validator(mode="after")
     def require_change(self) -> Self:
-        if self.name is MISSING and self.automatic_decision_reviews is MISSING:
-            raise ValueError("Supply a domain name or automatic decision review setting")
+        if (self.name is MISSING and self.automatic_decision_reviews is MISSING
+                and self.decision_review_priority is MISSING):
+            raise ValueError("Supply a domain name, automatic review setting, or priority")
         return self
 
 
@@ -108,6 +112,7 @@ class KnowledgeDomainRead(APIModel):
     prefix: str
     # Permanent receipts predating domain policy retain their original sparse shape.
     automatic_decision_reviews: DomainReviewPolicy | MISSING = MISSING
+    decision_review_priority: Annotated[StrictInt, Field(ge=0, le=100)] | MISSING = MISSING
     version: int
     created_at: datetime
     updated_at: datetime

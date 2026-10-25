@@ -1,5 +1,5 @@
 import { expect, request, test, type APIRequestContext } from "@playwright/test";
-import type { ProjectSettings, WorkItem } from "../../lib/types";
+import type { WorkItem } from "../../lib/types";
 import type { Decision } from "../../lib/knowledge";
 import { selectWork, workCard } from "./surface";
 import { claim, createWork } from "./task-fixtures";
@@ -20,201 +20,81 @@ async function createProject(api: APIRequestContext) {
     data: { name: `Automatic decision impact reviews ${crypto.randomUUID().slice(0, 8)}` }
   })) as { id: string; name: string };
 }
-async function getSettings(api: APIRequestContext, projectId: string): Promise<ProjectSettings> {
-  return await json(await api.get(`/api/v1/projects/${projectId}/settings`));
+async function configureDomain(api: APIRequestContext, projectId: string, prefix: string, enabled: boolean, priority = 40) {
+  const path = `/api/v1/projects/${projectId}/knowledge/domains`;
+  const domains = await json(await api.get(path));
+  const current = domains.items.find((item: { prefix: string }) => item.prefix === prefix);
+  return json(await api.patch(`${path}/${current.id}`, { data: {
+    expected_version: current.version, automatic_decision_reviews: enabled ? "on" : "off",
+    decision_review_priority: priority, client_operation_id: crypto.randomUUID()
+  } }));
 }
-async function configure(api: APIRequestContext, projectId: string, values: Partial<ProjectSettings>) {
-  const current = await getSettings(api, projectId);
-  return json(await api.patch(`/api/v1/projects/${projectId}/settings`, {
-    data: { expected_revision: current.revision, ...values }
-  }));
-}
 
-test("automatic decision impact reviews keep a shared priority and preserve project settings", async ({ page }, testInfo) => {
-  const api = await apiClient();
-  try {
-    const selected = await createProject(api), other = await createProject(api);
-    expect(await getSettings(api, selected.id)).toMatchObject({ automatic_decision_reviews: false, decision_review_priority: 40 });
-    await page.goto(`/settings/workspace?project=${selected.id}`);
-    await page.locator("#project-select").selectOption(selected.id);
-    const card = page.getByRole("region", { name: "Automatic decision impact reviews", exact: true });
-    const toggle = card.getByRole("switch");
-    const priority = card.getByRole("spinbutton", { name: "Decision impact review priority", exact: true });
-    const save = card.getByRole("button", { name: "Save decision impact review settings" });
-    await expect(toggle).not.toBeChecked();
-    await expect(priority).toHaveValue("40");
-    await expect(save).toBeDisabled();
-    await toggle.check();
-    await expect(priority).toHaveValue("40");
-    await card.scrollIntoViewIfNeeded();
-    const screenshot = testInfo.outputPath(`automatic-decision-impact-reviews-${testInfo.project.name}.png`);
-    await card.screenshot({ path: screenshot });
-    await testInfo.attach("Automatic decision impact reviews settings", { path: screenshot, contentType: "image/png" });
-    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-    for (const invalid of ["", "-1", "101", "40.5"]) {
-      await priority.fill(invalid);
-      await expect(save).toBeDisabled();
-      await expect(card.getByRole("alert")).toContainText("whole number from 0 to 100");
-    }
-    await priority.fill("55");
-    await save.click();
-    await expect(save).toBeDisabled();
-    expect(await getSettings(api, selected.id)).toMatchObject({ automatic_decision_reviews: true, decision_review_priority: 55 });
-    await page.reload();
-    await expect(toggle).toBeChecked();
-    await expect(priority).toHaveValue("55");
-    await page.locator("#project-select").selectOption(other.id);
-    await expect(toggle).not.toBeChecked();
-    await expect(priority).toHaveValue("40");
-    await toggle.check();
-    await expect(priority).toHaveValue("40");
-    await page.locator("#project-select").selectOption(selected.id);
-    await expect(priority).toHaveValue("55");
-    await priority.fill("");
-    await expect(save).toBeDisabled();
-    await toggle.uncheck();
-    await expect(priority).toHaveValue("55");
-    await expect(save).toBeEnabled();
-    await save.click();
-    await expect(save).toBeDisabled();
-    expect(await getSettings(api, selected.id)).toMatchObject({ automatic_decision_reviews: false, decision_review_priority: 55 });
-  } finally { await api.dispose(); }
-});
-
-test("automatic decision impact review drafts survive concurrent settings changes", async ({ page }) => {
-  const api = await apiClient();
-  try {
-    const selected = await createProject(api);
-    await page.routeWebSocket(/\/api\/mnemonic\/sync$/, () => {});
-    await page.goto(`/settings/workspace?project=${selected.id}`);
-    await page.locator("#project-select").selectOption(selected.id);
-    const card = page.getByRole("region", { name: "Automatic decision impact reviews", exact: true });
-    const toggle = card.getByRole("switch");
-    const priority = card.getByRole("spinbutton", { name: "Decision impact review priority", exact: true });
-    const save = card.getByRole("button", { name: "Save decision impact review settings" });
-    await toggle.check();
-    await priority.fill("65");
-    await configure(api, selected.id, { automatic_decision_reviews: true, decision_review_priority: 25 });
-    await save.click();
-    await expect(card.getByText("Saved settings: automatic decision impact reviews on; priority 25.")).toBeVisible();
-    await expect(priority).toHaveValue("65");
-    await expect(save).toBeDisabled();
-    await card.getByRole("button", { name: "I reviewed the saved decision impact review settings" }).click();
-    await save.click();
-    await expect(save).toBeDisabled();
-    expect(await getSettings(api, selected.id)).toMatchObject({ automatic_decision_reviews: true, decision_review_priority: 65 });
-  } finally { await api.dispose(); }
-});
-
-test("knowledge domains override and inherit the project review default", async ({ page }, testInfo) => {
+test("automatic reviews and priority are local to each knowledge domain", async ({ page }, testInfo) => {
+  if (testInfo.project.name === "chromium-desktop") await page.setViewportSize({ width: 1440, height: 1100 });
   const api = await apiClient();
   try {
     const selected = await createProject(api);
     const path = `/api/v1/projects/${selected.id}/knowledge/domains`;
-    const adr = await json(await api.post(path, { data: {
-      name: "Architecture decisions", prefix: "ADR", client_operation_id: crypto.randomUUID()
-    } }));
-    expect(adr.automatic_decision_reviews).toBe("inherit");
-    await page.goto(`/settings/workspace?project=${selected.id}`);
-    await page.locator("#project-select").selectOption(selected.id);
-    const card = page.getByRole("region", { name: "Automatic decision impact reviews", exact: true });
-    const architecture = card.getByRole("form", { name: "ADR automatic decision impact reviews", exact: true });
-    const product = card.getByRole("form", { name: "PDR automatic decision impact reviews", exact: true });
-    await expect(architecture.getByRole("combobox")).toHaveValue("inherit");
-    await expect(product.getByRole("combobox")).toHaveValue("inherit");
-    await card.getByRole("switch").check();
-    await card.getByRole("button", { name: "Save decision impact review settings", exact: true }).click();
-    await expect(architecture.getByText("Saved effective setting: On (inherits project default).")).toBeVisible();
-    await product.getByRole("combobox").selectOption("off");
-    await product.getByRole("button", { name: "Save PDR setting" }).click();
-    await expect(product.getByText("Saved effective setting: Off (domain override).")).toBeVisible();
-    await card.getByRole("switch").uncheck();
-    await card.getByRole("button", { name: "Save decision impact review settings", exact: true }).click();
-    await expect(architecture.getByText("Saved effective setting: Off (inherits project default).")).toBeVisible();
-    await architecture.getByRole("combobox").selectOption("on");
-    await architecture.getByRole("button", { name: "Save ADR setting" }).click();
-    await expect(architecture.getByText("Saved effective setting: On (domain override).")).toBeVisible();
-    await expect(card.getByRole("spinbutton", { name: "Decision impact review priority", exact: true })).toBeVisible();
+    const adr = await json(await api.post(path, { data: { name: "Architecture", prefix: "ADR", client_operation_id: crypto.randomUUID() } }));
+    expect(adr).toMatchObject({ automatic_decision_reviews: "off", decision_review_priority: 40 });
+    await page.goto(`/knowledge/domains?project=${selected.id}`);
+    const architecture = page.getByRole("form", { name: "ADR automatic decision impact reviews", exact: true });
+    const product = page.getByRole("form", { name: "PDR automatic decision impact reviews", exact: true });
+    await expect(architecture.getByRole("switch")).not.toBeChecked();
+    await expect(product.getByRole("switch")).not.toBeChecked();
+    await architecture.getByRole("switch").check();
+    const priority = architecture.getByRole("spinbutton", { name: "Review priority" });
+    const save = architecture.getByRole("button", { name: "Save ADR settings" });
+    for (const invalid of ["", "-1", "101", "40.5"]) { await priority.fill(invalid); await expect(save).toBeDisabled(); }
+    await priority.fill("55"); await save.click();
+    await expect(save).toBeDisabled();
+    await expect(product.getByRole("spinbutton")).toHaveValue("40");
     await page.reload();
-    await expect(card.getByRole("switch")).not.toBeChecked();
-    await expect(architecture.getByRole("combobox")).toHaveValue("on");
-    await expect(product.getByRole("combobox")).toHaveValue("off");
-    const retained = await json(await api.get(path));
-    expect(retained.items.find((item: { id: string }) => item.id === adr.id).automatic_decision_reviews).toBe("on");
-    expect(retained.items.find((item: { prefix: string }) => item.prefix === "PDR").automatic_decision_reviews).toBe("off");
-    const screenshot = testInfo.outputPath(`domain-decision-impact-reviews-${testInfo.project.name}.png`);
-    const domainSettings = card.locator(".domain-decision-review-settings");
-    await domainSettings.scrollIntoViewIfNeeded();
-    await domainSettings.screenshot({ path: screenshot, animations: "disabled" });
-    await testInfo.attach("Per-domain automatic decision impact review settings", { path: screenshot, contentType: "image/png" });
-    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await expect(architecture.getByRole("switch")).toBeChecked();
+    await expect(priority).toHaveValue("55");
+    await expect(product.getByRole("switch")).not.toBeChecked();
+    await page.screenshot({ path: testInfo.outputPath("knowledge-domain-review-settings.png"), fullPage: true, animations: "disabled" });
+    await page.goto(`/settings/workspace?project=${selected.id}`);
+    await expect(page.getByText("Automatic decision impact reviews", { exact: true })).toHaveCount(0);
   } finally { await api.dispose(); }
 });
 
-test("domain review settings preserve drafts on conflicts and retry the exact uncertain save", async ({ page }) => {
-  await page.clock.install();
+test("domain review drafts survive conflicts and uncertain saves retain the exact request", async ({ page }) => {
   const api = await apiClient();
   try {
     const selected = await createProject(api);
     const path = `/api/v1/projects/${selected.id}/knowledge/domains`;
-    const adr = await json(await api.post(path, { data: {
-      name: "Architecture", prefix: "ADR", client_operation_id: crypto.randomUUID()
-    } }));
+    const adr = await json(await api.post(path, { data: { name: "Architecture", prefix: "ADR", client_operation_id: crypto.randomUUID() } }));
     await page.routeWebSocket(/\/api\/mnemonic\/sync$/, () => {});
-    await page.goto(`/settings/workspace?project=${selected.id}`);
-    await page.locator("#project-select").selectOption(selected.id);
+    await page.goto(`/knowledge/domains?project=${selected.id}`);
     const row = page.getByRole("form", { name: "ADR automatic decision impact reviews", exact: true });
-    await row.getByRole("combobox").selectOption("on");
-    await json(await api.patch(`${path}/${adr.id}`, { data: {
-      expected_version: adr.version, automatic_decision_reviews: "off", client_operation_id: crypto.randomUUID()
-    } }));
-    await row.getByRole("button", { name: "Save ADR setting" }).click();
-    await expect(row.getByText("This domain changed. Your draft has been kept. Saved setting: off.")).toBeVisible();
-    await expect(row.getByRole("combobox")).toHaveValue("on");
-    await expect(row.getByRole("button", { name: "Save ADR setting" })).toBeDisabled();
+    await row.getByRole("switch").check();
+    await row.getByRole("spinbutton").fill("65");
+    await configureDomain(api, selected.id, "ADR", false, 25);
+    await row.getByRole("button", { name: "Save ADR settings" }).click();
+    await expect(row.getByText("This domain changed. Your draft has been kept. Saved setting: off; priority 25.")).toBeVisible();
+    await expect(row.getByRole("spinbutton")).toHaveValue("65");
     await row.getByRole("button", { name: "I reviewed the saved ADR setting" }).click();
     const bodies: string[] = [];
     await page.route(`**/api/mnemonic/projects/${selected.id}/knowledge/domains/${adr.id}`, async (route) => {
       if (route.request().method() !== "PATCH") return route.continue();
       bodies.push(route.request().postData()!);
       if (bodies.length === 1) {
-        const response = await route.fetch();
-        const saved = await response.json();
-        await route.fulfill({ response, json: { ...saved, automatic_decision_reviews: "off" } });
+        const response = await route.fetch(); expect(response.ok()).toBe(true);
+        return route.fulfill({ status: 503, json: { detail: "Interrupted after saving." } });
       }
-      else await route.continue();
+      return route.continue();
     });
-    await row.getByRole("button", { name: "Save ADR setting" }).click();
-    await expect(row.getByText("Mnemonic returned an inconsistent domain setting. Retry this exact action.")).toBeVisible();
+    await row.getByRole("button", { name: "Save ADR settings" }).click();
     await expect(row.getByText("The outcome is unconfirmed. Keep this page open and retry the saved action.")).toBeVisible();
-    await expect(row.getByRole("combobox")).toBeDisabled();
     await expect(page.locator("#project-select")).toBeDisabled();
-    // A concurrent rename can move the pending row off the loaded pages. The
-    // exact retry must survive that list refresh while navigation stays blocked.
-    let refreshes = 0;
-    const domainPages = new RegExp(`/api/mnemonic/projects/${selected.id}/knowledge/domains\\?`);
-    await page.route(domainPages, async (route) => {
-      const response = await route.fetch();
-      const listed = await response.json();
-      const items = listed.items.filter((item: { id: string }) => item.id !== adr.id);
-      refreshes += 1;
-      await route.fulfill({ response, json: { ...listed, items, total: items.length } });
-    });
-    await page.clock.fastForward(30_001);
-    await expect.poll(() => refreshes).toBeGreaterThan(0);
-    await expect(row.getByRole("button", { name: "Retry pending ADR setting" })).toBeVisible();
-    await expect(page.locator("#project-select")).toBeDisabled();
-    await page.unroute(domainPages);
     await row.getByRole("button", { name: "Retry pending ADR setting" }).click();
-    await expect(row.getByText("Saved effective setting: On (domain override).")).toBeVisible();
-    await expect(row.getByRole("combobox")).toBeEnabled();
+    await expect(row.getByRole("switch")).toBeEnabled();
     await expect(page.locator("#project-select")).toBeEnabled();
-    expect(bodies).toHaveLength(2);
-    expect(bodies[1]).toBe(bodies[0]);
+    expect(bodies).toHaveLength(2); expect(bodies[1]).toBe(bodies[0]);
     const retained = await json(await api.get(path));
-    expect(retained.items.find((item: { id: string }) => item.id === adr.id)).toMatchObject({
-      automatic_decision_reviews: "on", version: adr.version + 2
-    });
+    expect(retained.items.find((item: { id: string }) => item.id === adr.id)).toMatchObject({ automatic_decision_reviews: "on", decision_review_priority: 65 });
   } finally { await api.dispose(); }
 });
 
@@ -222,7 +102,6 @@ test("changed decisions create ordinary investigation tasks with editable instru
   const api = await apiClient();
   try {
     const selected = await createProject(api);
-    await configure(api, selected.id, { automatic_decision_reviews: true, decision_review_priority: 55 });
     await page.goto(`/settings/prompts?project=${selected.id}`);
     await page.locator("#project-select").selectOption(selected.id);
     await page.getByRole("button", { name: "Decision impact review", exact: true }).click();
@@ -237,6 +116,7 @@ test("changed decisions create ordinary investigation tasks with editable instru
     const domain = await json(await api.post(`${path}/domains`, {
       data: { name: "Architecture", prefix: "ADR", client_operation_id: crypto.randomUUID() }
     }));
+    await configureDomain(api, selected.id, "ADR", true, 55);
     const fields = { domain_id: domain.id, title: "Use durable transport adapters", state: "accepted", media_type: "text/markdown", author_kind: "human" };
     const original = (await json(await api.put(`${path}/decisions`, {
       data: { ...fields, content: "Use local transport adapters.", client_operation_id: crypto.randomUUID() }
@@ -289,7 +169,7 @@ test("changed decisions create ordinary investigation tasks with editable instru
     await claim(api, selected.id, investigation.id);
     await page.goto(`/?project=${selected.id}`);
     await expect(page.locator(".task-card").filter({ hasText: investigation.title }).getByText("DECISION IMPACT REVIEW", { exact: true })).toBeVisible();
-    await configure(api, selected.id, { automatic_decision_reviews: false });
+    await configureDomain(api, selected.id, "ADR", false);
     await json(await api.put(`${path}/decisions`, {
       data: { ...fields, content: "Retain remote transport registration with retries.", decision_id: original.decision_id,
         expected_revision: extended.revision, client_operation_id: crypto.randomUUID() }
@@ -347,7 +227,7 @@ test("ordinary work adopts assessments and closed reviews require explicit owner
       job_completion_report: await reportForFixture(api, project.id)
     } }));
     const destination = await createProject(api);
-    await configure(api, destination.id, { automatic_decision_reviews: true });
+    await configureDomain(api, destination.id, "PDR", true);
     await json(await api.post(`/api/v1/projects/${project.id}/work-items/${child.id}/move`, { data: {
       target_project_id: destination.id, expected_version: child.version, client_operation_id: crypto.randomUUID(),
       actor: { actor_client: "dashboard", actor_session_id: "adoption-browser-test", actor_model: null }

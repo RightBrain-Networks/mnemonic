@@ -27,8 +27,15 @@ _ROUTES = (
      {"GET": "repository commit_hash limit offset"}),
     ("knowledge_domains", rf"{PROJECT}/knowledge/domains", {"GET": "limit offset", "POST": ""}),
     ("knowledge_domain", rf"{PROJECT}/knowledge/domains/{UUID}", {"PATCH": ""}),
+    ("knowledge_domain_delete", rf"{PROJECT}/knowledge/domains/{UUID}/delete", {"POST": ""}),
+    ("knowledge_domain_preview", rf"{PROJECT}/knowledge/domains/{UUID}/deletion-preview",
+     {"GET": ""}),
+    ("knowledge_domain_export", rf"{PROJECT}/knowledge/domains/{UUID}/export", {"GET": ""}),
     ("knowledge_decisions", rf"{PROJECT}/knowledge/decisions",
-     {"GET": "domain_id state q limit offset"}),
+     {"GET": "domain_id state q limit offset", "PUT": ""}),
+    ("knowledge_decision_delete", rf"{DECISION}/delete", {"POST": ""}),
+    ("knowledge_decision_preview", rf"{DECISION}/deletion-preview", {"GET": ""}),
+    ("knowledge_decision_download", rf"{DECISION}/download", {"GET": "revision"}),
     ("knowledge_decision", rf"{DECISION}(?:-[0-9]{{1,10}})?",
      {"GET": "revision line_start line_end"}),
     ("knowledge_history", rf"{DECISION}/history",
@@ -119,6 +126,9 @@ PROTECTED_MUTATIONS = frozenset(
     {
         ("knowledge_domains", "POST"),
         ("knowledge_domain", "PATCH"),
+        ("knowledge_decisions", "PUT"),
+        ("knowledge_domain_delete", "POST"),
+        ("knowledge_decision_delete", "POST"),
         ("knowledge_dispositions", "POST"),
         ("knowledge_changes", "POST"),
         ("follow_up_answer", "POST"),
@@ -169,6 +179,9 @@ def valid_query_values(key: str, values: list[str]) -> bool:
 
 
 def proxy_body_limit_bytes(path: str) -> int:
+    if route_name(path, "PUT") == "knowledge_decisions":
+        # A 1 MiB UTF-8 text may grow sixfold when JSON-escaped.
+        return 7 * 1_048_576
     name = route_name(path, "POST")
     if name == "search":
         return 16_384

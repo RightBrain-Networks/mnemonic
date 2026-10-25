@@ -11,6 +11,7 @@ from fastapi.routing import APIRoute
 
 from mnemonic_api.application import routes
 from mnemonic_api.application.browser_runtime import runtime_config
+from mnemonic_api.application.routes import knowledge_management
 
 BROWSER_PREFIX = "/api/mnemonic"
 _ADMITTED = object()
@@ -28,6 +29,7 @@ BROWSER_HANDLERS = {
         "list_knowledge_domains", "create_knowledge_domain", "rename_knowledge_domain",
         "list_knowledge_decisions", "get_knowledge_decision", "get_knowledge_decision_history",
         "get_knowledge_decision_scope",
+        "put_knowledge_decision",
     ),
     "projects": (
         "list_projects", "create_project", "get_project", "update_project",
@@ -75,6 +77,7 @@ def browser_router() -> APIRouter:
         include_in_schema=False,
     )
     router.add_api_route("/runtime-config", runtime_config, methods=["GET"])
+    router.include_router(knowledge_management.router)
     for module_name, names in BROWSER_HANDLERS.items():
         source = getattr(routes, module_name).router
         selected = [route for route in source.routes

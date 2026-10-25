@@ -36,14 +36,15 @@ async function seed(api: APIRequestContext) {
 }
 
 test("knowledge graph browses domains, immutable revisions and revision-pinned code scope", async ({ page }, testInfo) => {
+  if (testInfo.project.name === "chromium-desktop") await page.setViewportSize({ width: 1440, height: 1100 });
   const api = await apiClient();
   try {
     const { project, current, downstream } = await seed(api);
     await page.goto(`/knowledge?project=${project.id}`);
-    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Knowledge graph.");
-    await expect(page.getByRole("link", { name: "Knowledge graph", exact: true })).toHaveAttribute("aria-current", "page");
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Decision documents.");
+    await expect(page.getByRole("link", { name: "Decision documents", exact: true })).toHaveAttribute("aria-current", "page");
     await expect(page.getByRole("button", { name: current.title, exact: true })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Upload", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Upload", exact: true })).toBeVisible();
     await expect(page.locator('input[type="file"]')).toHaveCount(0);
     await page.getByRole("group", { name: "Filter by domain" }).getByRole("button", { name: /Owner decisions/ }).click();
     await expect(page.getByRole("button", { name: current.title, exact: true })).toHaveCount(0);
@@ -81,11 +82,11 @@ test("knowledge graph browses domains, immutable revisions and revision-pinned c
   } finally { await api.dispose(); }
 });
 
-test("domain management normalizes prefixes, preserves uncertain retries and supports rename only", async ({ page }) => {
+test("domain management normalizes prefixes and preserves uncertain retries", async ({ page }) => {
   const api = await apiClient();
   try {
     const { project } = await seed(api);
-    await page.goto(`/knowledge?project=${project.id}`);
+    await page.goto(`/knowledge/domains?project=${project.id}`);
     await page.getByRole("button", { name: "Add domain", exact: true }).click();
     let dialog = page.getByRole("dialog", { name: "Add domain", exact: true });
     await dialog.getByRole("textbox", { name: "Domain name", exact: true }).fill("Bookkeeping");
@@ -113,15 +114,149 @@ test("domain management normalizes prefixes, preserves uncertain retries and sup
     await expect(dialog).toBeHidden();
     expect(bodies).toHaveLength(2);
     expect(bodies[1]).toBe(bodies[0]);
-    await expect(page.getByRole("group", { name: "Filter by domain" }).getByRole("button", { name: /Bookkeeping/ })).toHaveAttribute("aria-pressed", "true");
-    await page.getByRole("button", { name: "Rename domain", exact: true }).click();
+    await expect(page.getByRole("region", { name: "Bookkeeping domain", exact: true })).toBeVisible();
+    await page.getByRole("region", { name: "Bookkeeping domain", exact: true }).getByRole("button", { name: "Rename", exact: true }).click();
     dialog = page.getByRole("dialog", { name: "Rename domain", exact: true });
     await expect(dialog.getByRole("textbox", { name: "Decision prefix" })).toHaveValue("BDR");
     await expect(dialog.getByRole("textbox", { name: "Decision prefix" })).toBeDisabled();
     await dialog.getByRole("textbox", { name: "Domain name", exact: true }).fill("Finance decisions");
     await dialog.getByRole("button", { name: "Save name", exact: true }).click();
     await expect(dialog).toBeHidden();
-    await expect(page.getByRole("group", { name: "Filter by domain" }).getByRole("button", { name: /Finance decisions/ })).toBeVisible();
-    await expect(page.getByRole("button", { name: /Delete domain/ })).toHaveCount(0);
+    await expect(page.getByRole("region", { name: "Finance decisions domain", exact: true })).toBeVisible();
+    await expect(page.getByRole("region", { name: "Finance decisions domain", exact: true }).getByRole("button", { name: "Delete", exact: true })).toBeEnabled();
+  } finally { await api.dispose(); }
+});
+
+test("humans upload, filter, edit with revision conflicts, replace and download decisions", async ({ page }, testInfo) => {
+  const api = await apiClient();
+  try {
+    const { project, architecture } = await seed(api);
+    await page.addInitScript(() => Object.defineProperty(window, "showSaveFilePicker", { value: undefined, configurable: true }));
+    await page.goto(`/knowledge/decisions?project=${project.id}`);
+    await page.getByRole("button", { name: "Upload", exact: true }).click();
+    let dialog = page.getByRole("dialog", { name: "Upload decision document", exact: true });
+    await dialog.getByRole("combobox", { name: "Knowledge domain" }).selectOption(architecture.id);
+    await dialog.getByLabel("Document file").setInputFiles({ name: "Human policy.md", mimeType: "text/markdown", buffer: Buffer.from("# Human policy\n\nInitial ruling.\n") });
+    await expect(dialog.getByRole("textbox", { name: "Document title", exact: true })).toHaveValue("Human policy");
+    await dialog.getByRole("button", { name: "Upload document", exact: true }).click();
+    await expect(dialog).toBeHidden();
+    const row = page.getByRole("row").filter({ has: page.getByRole("button", { name: "Human policy", exact: true }) });
+    await expect(row).toContainText("Proposed");
+    const path = `/api/v1/projects/${project.id}/knowledge`;
+    const list = await api.get(`${path}/decisions?q=Human%20policy`);
+    expect(list.ok()).toBe(true);
+    const created = (await list.json()).items[0] as Decision;
+    await page.getByRole("group", { name: "Filter decisions by state" }).getByRole("button", { name: "Accepted", exact: true }).click();
+    await expect(row).toHaveCount(0);
+    await page.getByRole("group", { name: "Filter decisions by state" }).getByRole("button", { name: "Proposed", exact: true }).click();
+    await row.getByRole("button", { name: `Edit ${created.reference}` }).click();
+    dialog = page.getByRole("dialog", { name: "Edit decision document", exact: true });
+    await expect(dialog.getByRole("textbox", { name: "Document contents", exact: true })).toHaveValue(/Initial ruling/);
+    await dialog.getByRole("textbox", { name: "Document contents", exact: true }).fill("# Human draft\n\nMy updated ruling.\n");
+    const updated = await api.put(`${path}/decisions`, { data: {
+      domain_id: architecture.id, decision_id: created.decision_id, expected_revision: 0,
+      title: created.title, content: "# Agent revision\n\nPreserve this concurrent clarification.\n", media_type: "text/markdown", state: "proposed",
+      author_kind: "agent", agent_session_id: "concurrent-edit", model_id: "codex", source_work_item_id: null, client_operation_id: crypto.randomUUID()
+    } });
+    expect(updated.ok(), await updated.text()).toBe(true);
+    await dialog.getByRole("button", { name: "Save revision", exact: true }).click();
+    await expect(dialog.getByRole("textbox", { name: "Document contents", exact: true })).toHaveValue(/My updated ruling/);
+    await expect(dialog.getByRole("textbox", { name: "Current saved contents", exact: true })).toHaveValue(/concurrent clarification/);
+    await expect(dialog.getByRole("button", { name: "Save revision", exact: true })).toBeDisabled();
+    await dialog.screenshot({ path: testInfo.outputPath("knowledge-human-agent-conflict.png"), animations: "disabled" });
+    await dialog.getByRole("textbox", { name: "Document contents", exact: true }).fill("# Merged ruling\n\nMy updated ruling with the concurrent clarification.\n");
+    await dialog.getByRole("button", { name: "I incorporated the current revision into my draft", exact: true }).click();
+    await dialog.getByRole("button", { name: "Save revision", exact: true }).click();
+    await expect(dialog).toBeHidden();
+    await expect(row).toContainText(`${created.decision_id}-2`);
+    await row.getByRole("button", { name: `Replace ${created.decision_id}-2`, exact: true }).click();
+    dialog = page.getByRole("dialog", { name: "Replace decision document", exact: true });
+    await expect(dialog.getByLabel("Replacement file")).toBeEnabled();
+    await dialog.getByLabel("Replacement file").setInputFiles({ name: "replacement.txt", mimeType: "text/plain", buffer: Buffer.from("Atomic replacement.\n") });
+    await expect(dialog.getByRole("textbox", { name: "Document contents", exact: true })).toHaveValue("Atomic replacement.\n");
+    await dialog.getByRole("button", { name: "Replace document", exact: true }).click();
+    await expect(dialog).toBeHidden();
+    await expect(row).toContainText(`${created.decision_id}-3`);
+    const download = page.waitForEvent("download");
+    await row.getByRole("button", { name: `Download ${created.decision_id}-3`, exact: true }).click();
+    expect((await download).suggestedFilename()).toBe(`${created.decision_id}-3.txt`);
+    // An explicit replacement creates one revision even for identical bytes;
+    // an interrupted response retries the same operation without another revision.
+    const replacementBodies: string[] = [];
+    await page.route(`**/api/mnemonic/projects/${project.id}/knowledge/decisions`, async (route) => {
+      if (route.request().method() !== "PUT") return route.continue();
+      replacementBodies.push(route.request().postData()!);
+      if (replacementBodies.length === 1) {
+        const response = await route.fetch(); expect(response.ok()).toBe(true);
+        return route.fulfill({ status: 503, json: { detail: "Interrupted after replacement." } });
+      }
+      return route.continue();
+    });
+    await row.getByRole("button", { name: `Replace ${created.decision_id}-3`, exact: true }).click();
+    dialog = page.getByRole("dialog", { name: "Replace decision document", exact: true });
+    await expect(dialog.getByLabel("Replacement file")).toBeEnabled();
+    await dialog.getByLabel("Replacement file").setInputFiles({ name: "replacement.txt", mimeType: "text/plain", buffer: Buffer.from("Atomic replacement.\n") });
+    await dialog.getByRole("button", { name: "Replace document", exact: true }).click();
+    await expect(dialog.getByText("The outcome is unconfirmed. Keep this page open and retry the saved action.")).toBeVisible();
+    await dialog.getByRole("button", { name: "Retry pending save", exact: true }).click();
+    await expect(dialog).toBeHidden();
+    await expect(row).toContainText(`${created.decision_id}-4`);
+    expect(replacementBodies).toHaveLength(2); expect(replacementBodies[1]).toBe(replacementBodies[0]);
+  } finally { await api.dispose(); }
+});
+
+test("domain export and deletions show counted relationships and protect changed previews", async ({ page }, testInfo) => {
+  const api = await apiClient();
+  try {
+    const { project, architecture, current, downstream } = await seed(api);
+    const path = `/api/v1/projects/${project.id}/knowledge`;
+    await page.addInitScript(() => Object.defineProperty(window, "showSaveFilePicker", { value: undefined, configurable: true }));
+    await page.goto(`/knowledge/domains?project=${project.id}`);
+    const card = page.getByRole("region", { name: "Architecture domain", exact: true });
+    const download = page.waitForEvent("download");
+    await card.getByRole("button", { name: "Export", exact: true }).click();
+    expect((await download).suggestedFilename()).toBe("ADR-decisions.tar.gz");
+    await card.getByRole("button", { name: "Delete", exact: true }).click();
+    let dialog = page.getByRole("dialog", { name: "Delete domain?", exact: true });
+    await expect(dialog.getByRole("checkbox")).toBeVisible();
+    await expect(dialog.getByRole("button", { name: "Delete permanently", exact: true })).toBeDisabled();
+    await dialog.screenshot({ path: testInfo.outputPath("knowledge-domain-delete-confirmation.png"), animations: "disabled" });
+    await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+    await page.goto(`/knowledge/decisions?project=${project.id}`);
+    await page.getByRole("button", { name: `Delete ${downstream.reference}`, exact: true }).click();
+    dialog = page.getByRole("dialog", { name: "Delete decision document?", exact: true });
+    await dialog.getByRole("checkbox").check();
+    await dialog.getByRole("button", { name: "Delete permanently", exact: true }).click();
+    await expect(dialog).toBeHidden();
+    const tombstone = await api.get(`${path}/decisions/${downstream.decision_id}`);
+    expect(tombstone.status()).toBe(410);
+    await page.goto(`/knowledge/domains?project=${project.id}`);
+    const orphan = await api.post(`${path}/domains`, { data: { name: "Orphaned", prefix: "TMP", client_operation_id: crypto.randomUUID() } });
+    expect(orphan.ok()).toBe(true);
+    await page.reload();
+    await page.getByRole("region", { name: "Orphaned domain", exact: true }).getByRole("button", { name: "Delete", exact: true }).click();
+    dialog = page.getByRole("dialog", { name: "Delete domain?", exact: true });
+    await expect(dialog.getByRole("button", { name: "Delete permanently", exact: true })).toBeEnabled();
+    await expect(dialog.getByRole("checkbox")).toHaveCount(0);
+    await dialog.getByRole("button", { name: "Delete permanently", exact: true }).click();
+    await expect(dialog).toBeHidden();
+    await expect(page.getByRole("region", { name: "Orphaned domain", exact: true })).toHaveCount(0);
+    const raceResponse = await api.post(`${path}/domains`, { data: { name: "Changing domain", prefix: "RACE", client_operation_id: crypto.randomUUID() } });
+    expect(raceResponse.ok()).toBe(true);
+    const raceDomain = await raceResponse.json();
+    await page.reload();
+    await page.getByRole("region", { name: "Changing domain domain", exact: true }).getByRole("button", { name: "Delete", exact: true }).click();
+    dialog = page.getByRole("dialog", { name: "Delete domain?", exact: true });
+    await expect(dialog.getByRole("button", { name: "Delete permanently", exact: true })).toBeEnabled();
+    const incoming = await api.put(`${path}/decisions`, { data: { domain_id: raceDomain.id, title: "New linked decision", content: "Added after preview", media_type: "text/plain", state: "proposed", author_kind: "human", related_decision_ids: [current.decision_id], client_operation_id: crypto.randomUUID() } });
+    expect(incoming.ok(), await incoming.text()).toBe(true);
+    await dialog.getByRole("button", { name: "Delete permanently", exact: true }).click();
+    await expect(dialog.getByRole("checkbox")).toBeVisible();
+    await expect(dialog.getByRole("checkbox")).not.toBeChecked();
+    await expect(dialog.getByRole("button", { name: "Delete permanently", exact: true })).toBeDisabled();
+    await dialog.getByRole("checkbox").check();
+    await dialog.getByRole("button", { name: "Delete permanently", exact: true }).click();
+    await expect(dialog).toBeHidden();
+    expect((await api.get(`${path}/decisions/${current.decision_id}`)).ok()).toBe(true);
   } finally { await api.dispose(); }
 });

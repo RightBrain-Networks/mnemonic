@@ -1393,12 +1393,6 @@ class ProjectSettingsPatch(APIModel):
     allow_remediation_code_reviews: StrictBool | SkipJsonSchema[None] = Field(
         default=None, exclude_if=lambda value: value is None,
     )
-    automatic_decision_reviews: StrictBool | SkipJsonSchema[None] = Field(
-        default=None, exclude_if=lambda value: value is None,
-    )
-    decision_review_priority: (
-        Annotated[StrictInt, Field(ge=0, le=100)] | SkipJsonSchema[None]
-    ) = Field(default=None, exclude_if=lambda value: value is None)
 
     @model_validator(mode="before")
     @classmethod
@@ -1406,8 +1400,7 @@ class ProjectSettingsPatch(APIModel):
         return _reject_explicit_null(data, "code_review_required_min_priority",
                                      "code_review_optional_min_priority",
                                      "allow_remediation_code_reviews", "lease_default_minutes",
-                                     "lease_minimum_minutes", "lease_maximum_minutes",
-                                     "automatic_decision_reviews", "decision_review_priority")
+                                     "lease_minimum_minutes", "lease_maximum_minutes")
 
     @model_validator(mode="after")
     def editable_setting(self) -> Self:
@@ -1430,8 +1423,6 @@ class ProjectSettingsRead(APIModel):
     code_review_required_min_priority: ReviewThreshold
     code_review_optional_min_priority: ReviewThreshold
     allow_remediation_code_reviews: StrictBool
-    automatic_decision_reviews: StrictBool
-    decision_review_priority: Annotated[StrictInt, Field(ge=0, le=100)]
 
 
 class CheckpointPayload(APIModel):

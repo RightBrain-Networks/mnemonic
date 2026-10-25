@@ -49,11 +49,57 @@ artifact storage remain separate. Database backups include decision text and his
 A domain has a case-insensitively unique name and a unique prefix within its project. Prefixes are uppercased
 and must match `[A-Z]{1,5}`; the prefix cannot change after creation. Domain names
 and review overrides can be updated together using their current version.
-Domain deletion is not supported.
+Domain deletion is available only through the dashboard; agents cannot delete domains.
 Each domain allocates increasing ordinals starting at 1. Ordinals are padded to a
 minimum of five digits, never recycled, and can grow beyond five digits. Revision
 numbers start at 0: `ADR-00194-0` identifies one immutable revision, while
 `ADR-00194` identifies the document and defaults to its current revision.
+
+## Dashboard document and domain management
+
+Knowledge graph is a top-level navigation group with **Decision documents**
+(`/knowledge/decisions`) followed by **Manage domains** (`/knowledge/domains`).
+The previous `/knowledge` URL still opens decision documents. Document state tabs
+use the work list filter pattern. Commit lookup uses the selected project's
+Repository URL from Project settings; it has no separate repository identity input.
+
+Humans can upload UTF-8 Markdown or plain text, edit a document, replace its text
+from a file, and download its current revision. Upload and revision writes use the
+existing receipt-protected decision PUT with human authorship. Editing and replacing
+pin the revision that was loaded. A concurrent agent write wins: the stale human
+save returns a conflict, retains the draft, and displays the current revision for
+explicit review before another save. Both text and metadata commit atomically.
+Managed Product Decision Records continue to use the Needs Attention workflow.
+
+Each domain can export its current documents as a `.tar.gz`. Every document has a
+Markdown member and a JSON metadata sidecar, named with its stable decision ID.
+Exports read a coherent database snapshot. Downloads invoke the browser's save
+picker when supported, with the normal browser download behavior as fallback.
+
+Dashboard deletion first loads a preview with the document count, relationship
+counts, active impact reviews, and a fingerprint of the documents, revisions and edges. Confirmation
+shows the affected relationship total and requires acknowledgement only when that
+total is nonzero. Active impact reviews retain their captured audit evidence and
+remain actionable; the confirmation warns when their original documents will
+become unavailable. An empty or orphaned resource still requires modal confirmation.
+The server rechecks the preview in the mutation transaction, so new documents,
+revisions or relationships require another review. There are no MCP deletion tools
+or machine API deletion routes.
+
+Deletion removes live decision, dependency, supersession, artifact, work and commit
+edges in one transaction. Immutable edge snapshots are archived against the deletion
+receipt for historical integrity checks and project backups. Domain/document
+identities and immutable revision history remain as tombstones. Deleted references
+return `knowledge_domain_deleted` or `decision_deleted` with their deletion time;
+lists, unified search and commit lookups exclude them. Prefixes and ordinals are
+never reused. The built-in PDR domain and documents managed by Needs Attention are
+protected so pending questions and their accepted answers remain usable.
+
+Migration `0065_knowledge_management` adds deletion timestamps, the edge archive,
+and local domain review priorities. Upgrade existing deployments only with the
+normal production-operation authorization; older processes must not run against
+the new schema. Existing review inheritance is resolved to each domain's effective
+setting during migration. New domains default to reviews off and priority 40.
 
 ## Product decisions and Needs Attention
 
@@ -115,12 +161,14 @@ template or headings.
 Every write supplies a title and one of `proposed`, `rejected`, `accepted`,
 `superseded`, or `partially-superseded`. There is no default state. Each revision
 retains text, metadata, timestamps, and the author: human, or an agent with its
-native session ID and model ID. Old revisions remain retrievable indefinitely.
+native session ID and model ID. Old revisions remain retrievable until a human
+deletes the document; deletion retains audit history but returns a tombstone to readers.
 
 A fresh upload with a content hash already in that domain returns the existing
 revision without changing its metadata. To revise a specific decision, provide
-its stable `decision_id` and `expected_revision`. Identical content and metadata
-are a no-op; changing content or metadata appends a revision. A stale expected
+its stable `decision_id` and `expected_revision`. Identical agent content and metadata
+are a no-op; fresh human saves always append a revision, including identical replacements.
+Changing agent content or metadata also appends a revision. A stale expected
 revision fails rather than overwriting another author's changes. Mutation receipts
 also support exact retries with the original operation ID and unchanged arguments.
 
@@ -477,15 +525,16 @@ pagination. Follow `next_offset`, including when a page is shortened by the shar
 
 ## Dashboard and deployment
 
-Resources > Knowledge graph provides a document list, domain tabs, domain creation
-and rename, and a shared document preview drawer with Markdown rendering, revision
+Knowledge graph > Decision documents provides a document list and domain tabs;
+Manage domains provides domain administration. The shared document preview drawer has Markdown rendering, revision
 history, pinned dependencies, supersession details, and commit scope. The impact
 panel shows candidate paths, evidence, immutable assessment snapshots, and
 reassessment history. Users can append a reasoned disposition and optional
 remediation work link. Reverse lookup finds the decisions cited by a repository
 and commit. The Done form collects the required provenance declaration.
-General document uploads/edits and domain removal in the dashboard are deferred;
-human answers are authored through the existing Needs Attention surface.
+Human document uploads, revision edits, replacements, downloads and deletions are
+available in Decision documents; domain export and deletion live in Manage domains.
+Managed human answers are authored through the existing Needs Attention surface.
 
 Apply `0056_product_decisions` after `0055_decision_provenance` through the normal
 authorized deployment process. Existing revisions, scopes and mutation receipts
@@ -500,27 +549,29 @@ approval to interrupt services. No filesystem content migration is needed.
 
 ## Automatic decision impact reviews
 
-**Automatic decision impact reviews** are configured in `/settings/workspace`.
-The project setting defaults to off. Each knowledge domain has an
-`automatic_decision_reviews` override: `inherit` follows the project switch,
-`on` enables reviews even when the project switch is off, and `off` prevents
-that domain from opening reviews. The changed record's domain governs, including
-when dependencies reach records in other domains. Supersession retains its existing
-same-domain restriction. For example, project on with ADR inherit
-and PDR off enables ADR-triggered reviews while disabling PDR-triggered reviews.
-New investigation priority stays project-wide, from 0 through 100, default 40.
+**Automatic decision impact reviews** are configured for each domain in
+**Knowledge graph > Manage domains**. New domains default to `off`, with
+`decision_review_priority` 40 (integer 0–100). Set `automatic_decision_reviews`
+to `on` to create investigations for that domain. The changed record's domain
+governs, including when dependencies reach records in other domains.
+Supersession retains its existing same-domain restriction.
 
-Domain creation defaults to `inherit`; domain reads expose the override. REST
-`PATCH /projects/{project_id}/knowledge/domains/{domain_id}` and MCP
-`rename_knowledge_domain` accept `expected_version` and a name and/or
-`automatic_decision_reviews` setting. Empty updates and null settings are invalid;
-prefixes remain immutable. Settings changes do not backfill earlier changes or
-cancel existing work. Substantive assessment episodes are captured even when
-review creation is disabled; an existing grouped review still accumulates its
-obligations. Unanswered PDR questions remain maintenance; accepted answers can
-open reviews according to the PDR domain policy and existing admission rules.
+REST `PATCH /projects/{project_id}/knowledge/domains/{domain_id}` and MCP
+`rename_knowledge_domain` accept `expected_version` and any of a name,
+`automatic_decision_reviews`, and `decision_review_priority`. Empty updates and
+null settings are invalid; prefixes remain immutable. `inherit` is retained only
+for exact historical receipt replay and is rejected on fresh writes. The project
+settings API no longer exposes or edits these controls.
 
-![Workspace settings with ADR reviews on and PDR reviews off](images/domain-decision-reviews.png)
+Migration `0065_knowledge_management` resolves existing inherited policies to
+their prior effective on/off setting and copies the prior project priority into
+each domain. New domains always start off unless explicitly enabled. Historical
+project columns remain solely to retain backup history; review creation never
+reads them. Policy changes do not backfill earlier changes or cancel existing work.
+Substantive assessment episodes are captured even when review creation is disabled;
+an existing grouped review still accumulates its obligations. Unanswered PDR
+questions remain maintenance; accepted answers can open reviews according to the
+PDR domain policy and existing admission rules.
 
 When enabled, a substantive decision change has one native change identity and
 at most one ordinary Pending review driver. Related revisions recording that
@@ -640,8 +691,8 @@ inspect files named by the decision, and search source text for its ID with
 proof of decision use; absent local matches do not prove remote or unregistered
 implementation is absent. The report retains search and provenance limitations.
 
-REST project settings and MCP `get_project_settings` expose
-`automatic_decision_reviews` and `decision_review_priority`. Work detail, task
+REST knowledge domain reads and MCP `list_knowledge_domains` expose
+`automatic_decision_reviews` and `decision_review_priority` for each domain. Work detail, task
 summaries, ready pointers and compact search expose `decision_review_change_id`
 for native drivers and `decision_change_ids` for lineage. Historical
 `decision_review_revision_id` markers remain readable and still display the chip.
@@ -699,7 +750,7 @@ expose `admit`. REST uses one receipt-protected
 `GET /projects/{project_id}/knowledge/changes/{change_id}` for reads.
 
 Deploy aligned API, worker, MCP and dashboard with migration
-`0064_work_change_inheritance`. It preserves historical assessments, dispositions and
+`0065_knowledge_management`. It preserves historical assessments, dispositions and
 terminal work without creating a review backlog. No new service or environment
 variable is required. Migration 0064 refuses downgrade while inheritance exclusions
 remain; 0063 refuses downgrade while dispositions retain finding IDs or remediation

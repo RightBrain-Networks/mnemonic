@@ -211,8 +211,6 @@ class ProjectSettingsValues(Phase12Wire):
     code_review_required_min_priority: Annotated[StrictInt, Field(ge=0, le=100, multiple_of=5)]
     code_review_optional_min_priority: Annotated[StrictInt, Field(ge=0, le=100, multiple_of=5)]
     allow_remediation_code_reviews: StrictBool
-    automatic_decision_reviews: StrictBool
-    decision_review_priority: Annotated[StrictInt, Field(ge=0, le=100)]
     project_id: UUID
     revision: PositiveDecimalString
 

@@ -21,6 +21,7 @@ def domain(api, project, prefix="ADR", name="Architecture"):
         json={
             "name": name,
             "prefix": prefix,
+            **getattr(api, "decision_domain_test_settings", {}).get(project["id"], {}),
             "client_operation_id": str(uuid4()),
         },
     )
@@ -446,7 +447,7 @@ def test_invalid_unicode_metadata_is_rejected_before_database_execution(api, pro
     assert response.status_code == 422, response.text
 
 
-def test_dashboard_can_manage_domains_and_read_but_cannot_write_decisions(api, project):
+def test_dashboard_can_manage_domains_and_read_but_cannot_impersonate_agents(api, project):
     headers = {"Host": "localhost:3000", "Origin": "http://localhost:3000"}
     browser = path(project).replace("/api/v1/", "/api/mnemonic/")
     response = api.post(
@@ -467,7 +468,7 @@ def test_dashboard_can_manage_domains_and_read_but_cannot_write_decisions(api, p
         api.put(
             browser + "/decisions", headers=headers, json=put_body(target_domain, "Forbidden")
         ).status_code
-        == 404
+        == 400
     )
     assert (
         api.post(

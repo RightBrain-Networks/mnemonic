@@ -17,8 +17,7 @@ const settings = (id = projectId) => ({
   job_completion_report_prompt: "Summarize the completed work.",
   code_review_required_min_priority: 100, code_review_optional_min_priority: 100,
   allow_remediation_code_reviews: false,
-  automatic_decision_reviews: false, decision_review_priority: 40,
-  lease_default_minutes: 15, lease_minimum_minutes: 10, lease_maximum_minutes: 120
+    lease_default_minutes: 15, lease_minimum_minutes: 10, lease_maximum_minutes: 120
 });
 const catalog = (items = [], total = items.length, offset = 0) => ({ items, total, limit: 100, offset });
 

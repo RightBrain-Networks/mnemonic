@@ -12,7 +12,7 @@ from mnemonic_backup.archive import BackupError, restore_project
 
 from .test_decision_impact_postgres import changed, decision
 from .test_decision_review_backups_postgres import review
-from .test_decision_reviews_postgres import finish
+from .test_decision_reviews_postgres import finish, settings
 from .test_duplicate_handling_postgres import merge_work
 from .test_knowledge_postgres import domain
 from .test_product_decision_migration_postgres import migrate
@@ -156,6 +156,8 @@ def test_migration_backfills_exact_legacy_reviews_without_reclassifying_history(
     target = domain(api, project, "BDR", "Another historic decision domain")
     before = decision(api, project, target, "Independent old decision")
     changed(api, project, target, before)
+    # Keep domain policy reversible so this exercises the older change backfill.
+    settings(api, project, automatic_decision_reviews=False, decision_review_priority=40)
     _remove_only_change_metadata(postgres_engine)
     preserved = _snapshot(postgres_engine, project)
     migrate(postgres_engine, "0057_automatic_decision_reviews", downgrade=True)

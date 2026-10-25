@@ -16,7 +16,7 @@ async function work(api: APIRequestContext, projectId: string, title: string) {
     initial_checkpoint: { prompt: "Implement the recorded transport decision.", source_client: "playwright-api", source_session_id: "impact-fixture", tags: [], source_metadata: {} } } }))).work_item as { id: string; title: string; version: number };
 }
 async function fixture(api: APIRequestContext) {
-  const project = await json(await api.post("/api/v1/projects", { data: { name: `Decision impact ${crypto.randomUUID().slice(0, 8)}` } }));
+  const project = await json(await api.post("/api/v1/projects", { data: { name: `Decision impact ${crypto.randomUUID().slice(0, 8)}`, repository_url: `https://${repository}` } }));
   const path = `/api/v1/projects/${project.id}/knowledge`;
   const domain = await json(await api.post(`${path}/domains`, { data: { name: "Architecture", prefix: "ADR", client_operation_id: crypto.randomUUID() } }));
   const base = { domain_id: domain.id, state: "accepted", media_type: "text/markdown", author_kind: "human" };
@@ -134,7 +134,7 @@ test("decision impact traces exact revisions and appends auditable dispositions 
     await expect(drawer).toContainText("Replace discovery; retain the catalog identity rules.");
     await drawer.getByRole("button", { name: "Close preview" }).click();
     await page.getByText("Find decisions cited by a commit", { exact: true }).click();
-    await page.getByRole("textbox", { name: "Repository identity", exact: true }).fill(repository);
+    await expect(page.getByRole("textbox", { name: "Repository identity", exact: true })).toHaveCount(0);
     await page.getByRole("textbox", { name: "Commit hash", exact: true }).fill(mergedHash);
     await page.getByRole("button", { name: "Find citations", exact: true }).click();
     const lookup = page.locator(".knowledge-commit-lookup");

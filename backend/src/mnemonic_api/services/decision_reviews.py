@@ -14,7 +14,6 @@ from mnemonic_api.models import (
     DecisionImpactAssessment,
     DecisionImpactDisposition,
     DecisionRevision,
-    ProjectSettings,
     WorkItem,
 )
 from mnemonic_api.schemas import InitialCheckpointCreate, WorkItemCreate
@@ -81,13 +80,10 @@ def create_decision_review(
     *, change: DecisionChange,
 ) -> None:
     """The revision write/receipt transaction owns both the work and its unique trigger."""
-    settings = database.get(ProjectSettings, document.project_id)
-    if change.review_work_item_id is not None or not episodes or settings is None:
+    if change.review_work_item_id is not None or not episodes:
         return
     domain = knowledge.require_domain(database, document.project_id, document.domain_id)
-    if not (domain.automatic_decision_reviews == "on" or (
-        domain.automatic_decision_reviews == "inherit" and settings.automatic_decision_reviews
-    )):
+    if domain.automatic_decision_reviews != "on":
         return
     replacement = reference(document, revision, domain)
     work_id = uuid4()
@@ -100,7 +96,7 @@ def create_decision_review(
     )[:maximum]
     template = storage_for(database).read(document.project_id, "decision-impact-review")
     prompt = _prompt(
-        database, document.project_id, work_id, title, summary, settings.decision_review_priority,
+        database, document.project_id, work_id, title, summary, domain.decision_review_priority,
         template.content, _scope(database, episodes, replacement)
         + f"\n\nDecision change: `{change.id}`. Current scope version: {change.scope_version}. "
         "Read decision_change_get and page decision_assessments with change_id; acknowledge "
@@ -110,7 +106,7 @@ def create_decision_review(
     create_work_records(
         database, document.project_id,
         WorkItemCreate(
-            title=title, summary=summary, priority=settings.decision_review_priority,
+            title=title, summary=summary, priority=domain.decision_review_priority,
             discovered_from_work_item_id=None,
             initial_checkpoint=InitialCheckpointCreate(
                 prompt=prompt, source_client="mnemonic",

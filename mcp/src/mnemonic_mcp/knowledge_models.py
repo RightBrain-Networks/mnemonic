@@ -63,9 +63,9 @@ class KnowledgePagination(KnowledgeModel):
 class DomainCreateRequest(KnowledgeModel):
     name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=120)]
     prefix: Annotated[str, StringConstraints(min_length=1, max_length=5)]
-    automatic_decision_reviews: AutomaticDecisionReviews = Field(
-        default="inherit", exclude_if=lambda value: value == "inherit",
-    )
+    automatic_decision_reviews: AutomaticDecisionReviews | MISSING = MISSING
+
+    decision_review_priority: Annotated[StrictInt, Field(ge=0, le=100)] | MISSING = MISSING
 
     @field_validator("prefix")
     @classmethod
@@ -85,12 +85,14 @@ class DomainRenameRequest(KnowledgeModel):
         str, StringConstraints(strip_whitespace=True, min_length=1, max_length=120)
     ] | MISSING = MISSING
     automatic_decision_reviews: AutomaticDecisionReviews | MISSING = MISSING
+    decision_review_priority: Annotated[StrictInt, Field(ge=0, le=100)] | MISSING = MISSING
     expected_version: Annotated[StrictInt, Field(ge=1)]
 
     @model_validator(mode="after")
     def has_changes(self) -> Self:
-        if self.name is MISSING and self.automatic_decision_reviews is MISSING:
-            raise ValueError("Supply a name or automatic_decision_reviews setting")
+        if (self.name is MISSING and self.automatic_decision_reviews is MISSING
+                and self.decision_review_priority is MISSING):
+            raise ValueError("Supply a name, automatic_decision_reviews setting, or decision_review_priority")
         return self
 
 
@@ -103,6 +105,7 @@ class KnowledgeDomainRead(KnowledgeModel):
     project_id: UUID
     name: str
     automatic_decision_reviews: AutomaticDecisionReviews | MISSING = MISSING
+    decision_review_priority: Annotated[StrictInt, Field(ge=0, le=100)] | MISSING = MISSING
     prefix: Annotated[str, Field(pattern=r"^[A-Z]{1,5}$")]
     version: Annotated[StrictInt, Field(ge=1)]
     created_at: datetime

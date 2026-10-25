@@ -27,11 +27,23 @@ pytestmark = pytest.mark.postgres
 
 
 def settings(api, project, **changes):
-    endpoint = f"/api/v1/projects/{project['id']}/settings"
-    current = api.get(endpoint).json()
-    result = api.patch(endpoint, json={"expected_revision": current["revision"], **changes})
-    assert result.status_code == 200, result.text
-    return result.json()
+    """Arrange local policy on this test's current and subsequently created domains."""
+    configured = getattr(api, "decision_domain_test_settings", {})
+    policy = dict(configured.get(project["id"], {}))
+    if "automatic_decision_reviews" in changes:
+        policy["automatic_decision_reviews"] = (
+            "on" if changes["automatic_decision_reviews"] else "off"
+        )
+    if "decision_review_priority" in changes:
+        policy["decision_review_priority"] = changes["decision_review_priority"]
+    configured[project["id"]] = policy
+    api.decision_domain_test_settings = configured
+    for target in api.get(path(project) + "/domains").json()["items"]:
+        result = api.patch(path(project) + f"/domains/{target['id']}", json={
+            "expected_version": target["version"], **policy, "client_operation_id": str(uuid4()),
+        })
+        assert result.status_code == 200, result.text
+    return policy
 
 
 def reviews(api, project):

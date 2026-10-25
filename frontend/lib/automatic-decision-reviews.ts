@@ -1,12 +1,8 @@
-export const domainDecisionReviewSettings = ["inherit", "on", "off"] as const;
+export const domainDecisionReviewSettings = ["on", "off"] as const;
 export type DomainDecisionReviewSetting = typeof domainDecisionReviewSettings[number];
 
 export function validDomainDecisionReviewSetting(value: unknown): value is DomainDecisionReviewSetting {
   return domainDecisionReviewSettings.includes(value as DomainDecisionReviewSetting);
-}
-
-export function effectiveDecisionReviews(setting: DomainDecisionReviewSetting, projectEnabled: boolean): boolean {
-  return setting === "inherit" ? projectEnabled : setting === "on";
 }
 
 export function validDecisionReviewPriority(value: unknown): value is number {

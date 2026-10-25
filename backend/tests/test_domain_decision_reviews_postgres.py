@@ -8,7 +8,7 @@ from sqlalchemy.exc import IntegrityError
 
 from .test_artifact_extraction_migration_postgres import migrate
 from .test_decision_impact_postgres import assessments, changed, decision, dependency
-from .test_decision_reviews_postgres import context, reviews, settings
+from .test_decision_reviews_postgres import context, reviews
 from .test_human_gates_postgres import create_work, gate_path, gate_request, resolution_payload
 from .test_knowledge_postgres import domain, path
 from .test_project_activity_audit_postgres import _audit
@@ -25,21 +25,20 @@ def policy(api, project, target, value, **changes):
     return result.json()
 
 
-@pytest.mark.parametrize("project_enabled,domain_policy,expected", [
-    (False, "inherit", False), (True, "inherit", True),
-    (False, "on", True), (True, "on", True),
-    (False, "off", False), (True, "off", False),
-])
-def test_effective_domain_policy_gates_reviews_but_retains_assessments(
-    api, project, project_enabled, domain_policy, expected,
+@pytest.mark.parametrize("domain_policy,expected", [("on", True), ("off", False)])
+def test_local_domain_policy_gates_reviews_but_retains_assessments(
+    api, project, domain_policy, expected,
 ):
-    settings(api, project, automatic_decision_reviews=project_enabled)
     target = domain(api, project)
-    assert target["automatic_decision_reviews"] == "inherit"
-    target = policy(api, project, target, domain_policy)
+    assert target["automatic_decision_reviews"] == "off"
+    assert target["decision_review_priority"] == 40
+    target = policy(api, project, target, domain_policy, decision_review_priority=37)
     original = decision(api, project, target, "Initial decision")
     changed(api, project, target, original, "Revised decision")
-    assert len(reviews(api, project)) == int(expected)
+    spawned = reviews(api, project)
+    assert len(spawned) == int(expected)
+    if expected:
+        assert context(api, project, spawned[0]["work_item_id"])["work_item"]["priority"] == 37
     assert len(assessments(api, project)) == 1
 
 
@@ -60,13 +59,13 @@ def test_domain_policy_writes_are_versioned_receipted_and_project_scoped(api, pr
     renamed = policy(api, project, unchanged, "off", name="Engineering")
     assert renamed["version"] == 3 and renamed["name"] == "Engineering"
     assert renamed["prefix"] == "ADR"
-    reset = policy(api, project, renamed, "inherit")
-    assert reset["version"] == 4
+    reset = policy(api, project, renamed, "off", decision_review_priority=32)
+    assert reset["version"] == 4 and reset["decision_review_priority"] == 32
     other = api.post("/api/v1/projects", json={"name": "Other domain policies"}).json()
     assert api.patch(path(other) + f"/domains/{target['id']}", json={
         **intent, "client_operation_id": str(uuid4()),
     }).status_code == 404
-    assert all(item["automatic_decision_reviews"] == "inherit"
+    assert all(item["automatic_decision_reviews"] == "off"
                for item in api.get(path(other) + "/domains").json()["items"])
 
 
@@ -108,7 +107,6 @@ def test_domain_policy_changes_only_future_creation_and_preserves_review_scope(a
 def test_cross_domain_impact_uses_only_changed_document_domain(
     api, project, source_policy, target_policy, expected,
 ):
-    settings(api, project, automatic_decision_reviews=True)
     adr = policy(api, project, domain(api, project), target_policy)
     bdr = policy(api, project, domain(api, project, "BDR", "Business"), source_policy)
     original = decision(api, project, bdr, "Business rule")
@@ -124,7 +122,6 @@ def test_cross_domain_impact_uses_only_changed_document_domain(
 def test_pdr_answer_uses_domain_override_and_questions_remain_maintenance(
     api, project, work_payload, domain_policy, expected,
 ):
-    settings(api, project, automatic_decision_reviews=not expected)
     pdr, = api.get(path(project) + "/domains").json()["items"]
     policy(api, project, pdr, domain_policy)
     work = create_work(api, project, work_payload, title="Choose review behavior")
@@ -162,22 +159,45 @@ def test_domain_database_guard_requires_valid_policy_and_exact_version(
 
 
 @pytest.mark.parametrize("enabled", [False, True])
-def test_migration_preserves_existing_project_behavior(api, project, postgres_engine, enabled):
-    settings(api, project, automatic_decision_reviews=enabled)
+def test_migration_preserves_existing_effective_behavior(api, project, postgres_engine, enabled):
     target = domain(api, project)
-    migrate(postgres_engine, "0058_decision_changes", downgrade=True)
-    assert _audit(postgres_engine, "0058_decision_changes")["result"] == "pass"
+    migrate(postgres_engine, "0064_work_change_inheritance", downgrade=True)
+    with postgres_engine.begin() as connection:
+        connection.execute(text("UPDATE project_settings SET automatic_decision_reviews=:enabled, "
+                                "decision_review_priority=47, revision=revision+1 "
+                                "WHERE project_id=:id"),
+                           {"enabled": enabled, "id": project["id"]})
     migrate(postgres_engine, "head")
     domains = api.get(path(project) + "/domains").json()["items"]
-    assert all(item["automatic_decision_reviews"] == "inherit" for item in domains)
+    expected = "on" if enabled else "off"
+    assert all(item["automatic_decision_reviews"] == expected for item in domains)
+    assert all(item["decision_review_priority"] == 47 for item in domains)
     original = decision(api, project, target, "Existing project")
     changed(api, project, target, original)
     assert len(reviews(api, project)) == int(enabled)
-    target = policy(api, project, target, "on")
+    audit = _audit(postgres_engine)
+    assert audit["result"] == "pass", audit["blocking_findings"]
     with pytest.raises(RuntimeError, match="cannot be safely downgraded"):
-        migrate(postgres_engine, "0058_decision_changes", downgrade=True)
-    assert next(item for item in api.get(path(project) + "/domains").json()["items"]
-                if item["id"] == target["id"])["automatic_decision_reviews"] == "on"
+        migrate(postgres_engine, "0064_work_change_inheritance", downgrade=True)
+
+
+def test_new_domains_do_not_inherit_another_domain_policy(api, project):
+    target = policy(api, project, domain(api, project), "on", decision_review_priority=17)
+    new = domain(api, project, "BDR", "Business")
+    assert new["automatic_decision_reviews"] == "off" and new["decision_review_priority"] == 40
+    before = decision(api, project, new, "Independent domain")
+    changed(api, project, new, before)
+    assert reviews(api, project) == []
+    assert target["automatic_decision_reviews"] == "on"
+
+
+def test_fresh_domain_inheritance_is_rejected(api, project):
+    target = domain(api, project)
+    result = api.patch(path(project) + f"/domains/{target['id']}", json={
+        "automatic_decision_reviews": "inherit", "expected_version": target["version"],
+        "client_operation_id": str(uuid4()),
+    })
+    assert result.status_code == 422, result.text
 
 
 def test_historical_domain_receipts_replay_the_exact_sparse_response(api, project, postgres_engine):
@@ -198,3 +218,23 @@ def test_historical_domain_receipts_replay_the_exact_sparse_response(api, projec
     renamed.pop("automatic_decision_reviews")
     assert api.post(path(project) + "/domains", json=create).json() == created
     assert api.patch(endpoint, json=rename).json() == renamed
+
+
+@pytest.mark.parametrize("table", ["knowledge_domains", "decision_documents"])
+def test_tombstone_updates_require_a_deletion_receipt(api, project, postgres_engine, table):
+    target = domain(api, project)
+    original = decision(api, project, target, "Retained decision")
+    identity = target["id"] if table == "knowledge_domains" else original["id"]
+    version = ",version=version+1" if table == "knowledge_domains" else ""
+    with pytest.raises(IntegrityError), postgres_engine.begin() as connection:
+        connection.execute(text(f"UPDATE {table} SET deleted_at=clock_timestamp(){version} "
+                                "WHERE id=:id"), {"id": identity})
+    assert api.get(path(project) + f"/decisions/{original['decision_id']}").status_code == 200
+
+
+def test_domains_cannot_be_inserted_as_tombstones(project, postgres_engine):
+    with pytest.raises(IntegrityError), postgres_engine.begin() as connection:
+        connection.execute(text("""
+            INSERT INTO knowledge_domains(id,project_id,name,prefix,deleted_at)
+            VALUES (:id,:project,'Never existed','DEL',clock_timestamp())
+        """), {"id": uuid4(), "project": project["id"]})

@@ -51,7 +51,7 @@ _WRITE = ToolAnnotations(readOnlyHint=False, destructiveHint=False,
 _INPUT_GUIDANCE = {
     DomainCreate: "Supply a nonblank name (at most 120 characters) and a prefix that becomes "
                   "one to five uppercase ASCII letters. See help(topic='create_knowledge_domain').",
-    DomainRename: "Supply a name or automatic_decision_reviews (inherit/on/off), and expected_version from "
+    DomainRename: "Supply a name, automatic_decision_reviews (on/off), or decision_review_priority, and expected_version from "
                   "list_knowledge_domains. See help(topic='rename_knowledge_domain').",
     DecisionTextQuery: "Line numbers are one-based and inclusive; line_end must not precede "
                        "line_start. See help(topic='decision_get').",
@@ -115,8 +115,9 @@ def _register_domains(server: FastMCP, api: MnemonicAPI) -> None:
         return await _read(
             api, f"projects/{project_id}/knowledge/domains", KnowledgePage[KnowledgeDomainRead],
             lambda page: page.limit == limit and page.offset == offset
-            and all(item.project_id == project_id and item.automatic_decision_reviews is not MISSING
-                    for item in page.items),
+            and all(item.project_id == project_id
+                    and item.automatic_decision_reviews in {"on", "off"}
+                    and item.decision_review_priority is not MISSING for item in page.items),
             {"limit": limit, "offset": offset},
         )
 
@@ -124,19 +125,27 @@ def _register_domains(server: FastMCP, api: MnemonicAPI) -> None:
     async def create_knowledge_domain(
         project_id: UUID, name: Name, prefix: Annotated[str, Field(min_length=1, max_length=5)],
         client_operation_id: UUID,
-        automatic_decision_reviews: AutomaticDecisionReviews = "inherit",
+        automatic_decision_reviews: AutomaticDecisionReviews | MISSING = MISSING,
+        decision_review_priority: Annotated[StrictInt, Field(ge=0, le=100)] | MISSING = MISSING,
     ) -> KnowledgeDomainRead:
-        """Create a decision domain with a unique project name and permanent prefix. automatic_decision_reviews defaults to inherit; on/off override the project switch. Prefix becomes uppercase and must match [A-Z]{1,5}; it can never change. List domains before creating. Omit client_operation_id for automatic UUID minting and retain the returned ID with every argument for an exact uncertain retry. Never repeat a keyless call after losing its response."""
+        """Create a decision domain with a unique project name and permanent prefix. automatic_decision_reviews defaults to off; set on to create future reviews, with domain-local decision_review_priority (0–100, default 40). Prefix becomes uppercase and must match [A-Z]{1,5}; it can never change. List domains before creating. Omit client_operation_id for automatic UUID minting and retain the returned ID with every argument for an exact uncertain retry. Never repeat a keyless call after losing its response."""
         intent = _validated(DomainCreate, {"name": name, "prefix": prefix,
                                           "automatic_decision_reviews": automatic_decision_reviews,
+                                          "decision_review_priority": decision_review_priority,
                                           "client_operation_id": client_operation_id})
         return await _write(
             api, "POST", f"projects/{project_id}/knowledge/domains", KnowledgeDomainRead, intent,
             lambda item: item.project_id == project_id and item.name == intent.name
             and item.prefix == intent.prefix and item.version == 1 and item.decision_count == 0
-            and (item.automatic_decision_reviews == intent.automatic_decision_reviews
+            and (intent.automatic_decision_reviews is MISSING
+                 and (item.automatic_decision_reviews is MISSING
+                      or item.automatic_decision_reviews in {"off", "inherit"})
+                 or item.automatic_decision_reviews == intent.automatic_decision_reviews
                  or (item.automatic_decision_reviews is MISSING
-                     and intent.automatic_decision_reviews == "inherit")),
+                     and intent.automatic_decision_reviews == "inherit"))
+            and (intent.decision_review_priority is MISSING
+                 and (item.decision_review_priority is MISSING or item.decision_review_priority == 40)
+                 or item.decision_review_priority == intent.decision_review_priority),
             expected_status=201,
         )
 
@@ -146,10 +155,12 @@ def _register_domains(server: FastMCP, api: MnemonicAPI) -> None:
         expected_version: Annotated[StrictInt, Field(ge=1)], client_operation_id: UUID,
         name: Name | MISSING = MISSING,
         automatic_decision_reviews: AutomaticDecisionReviews | MISSING = MISSING,
+        decision_review_priority: Annotated[StrictInt, Field(ge=0, le=100)] | MISSING = MISSING,
     ) -> KnowledgeDomainRead:
-        """Update a domain name and/or automatic_decision_reviews (inherit/on/off) at the current version from list_knowledge_domains. The changed record domain governs future review creation; no backfill or cancellation. Its prefix and decision identifiers remain unchanged. No domain deletion or prefix change is available. Omit client_operation_id for automatic UUID minting; retain the returned ID and exact arguments for an uncertain retry. A version conflict requires reading current domains before a new intent."""
+        """Update a domain name, automatic_decision_reviews (on/off), and/or decision_review_priority (0–100) at the current version from list_knowledge_domains. The changed record domain governs future review creation; no backfill or cancellation. Its prefix and decision identifiers remain unchanged. Deletion is dashboard-only; no prefix change is available. Omit client_operation_id for automatic UUID minting; retain the returned ID and exact arguments for an uncertain retry. A version conflict requires reading current domains before a new intent."""
         intent = _validated(DomainRename, {"name": name, "expected_version": expected_version,
                                           "automatic_decision_reviews": automatic_decision_reviews,
+                                          "decision_review_priority": decision_review_priority,
                                           "client_operation_id": client_operation_id})
         return await _write(
             api, "PATCH", f"projects/{project_id}/knowledge/domains/{domain_id}",
@@ -158,6 +169,8 @@ def _register_domains(server: FastMCP, api: MnemonicAPI) -> None:
             and (intent.name is MISSING or item.name == intent.name)
             and (intent.automatic_decision_reviews is MISSING
                  or item.automatic_decision_reviews == intent.automatic_decision_reviews)
+            and (intent.decision_review_priority is MISSING
+                 or item.decision_review_priority == intent.decision_review_priority)
             and item.version in {expected_version, expected_version + 1},
         )
 

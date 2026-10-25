@@ -50,6 +50,7 @@ from mnemonic_api.artifact_passage_db import (
 from mnemonic_api.background_job_db import job_elements
 from mnemonic_api.duplicate_embedding_db import refresh_elements
 from mnemonic_api.impact_finding_db import finding_elements
+from mnemonic_api.knowledge_deletion_db import deleted_edge_elements
 from mnemonic_api.priority_rubric import PRIORITY_RUBRIC_CHECK, PRIORITY_RUBRIC_DEFAULT_SQL
 from mnemonic_api.transcript_health_db import diagnostic_columns, worker_health_elements
 from mnemonic_api.transcript_metadata_db import metadata_columns
@@ -196,7 +197,7 @@ class ClientOperation(Base):
             "'respond_to_work_follow_up', 'complete_code_review', 'create_knowledge_domain', "
             "'rename_knowledge_domain', 'put_decision', 'append_decision_scope', "
             "'assess_decision_impact', 'reconcile_decision_scope', 'update_decision_change', "
-            "'assess_decision_impact_batch')",
+            "'assess_decision_impact_batch', 'delete_knowledge_domain', 'delete_decision')",
             name="operation_kind_valid",
         ),
         CheckConstraint(
@@ -2425,7 +2426,8 @@ class TranscriptWorkerHealth(Base):
 
 class KnowledgeDomain(Base):
     __table__ = Table(
-        "knowledge_domains", Base.metadata, *knowledge.domain_elements(review_policy=True)
+        "knowledge_domains", Base.metadata,
+        *knowledge.domain_elements(review_policy=True, management=True),
     )
 
     id: Mapped[UUID]
@@ -2434,19 +2436,24 @@ class KnowledgeDomain(Base):
     prefix: Mapped[str]
     version: Mapped[int]
     next_ordinal: Mapped[int]
-    automatic_decision_reviews: Mapped[Literal["inherit", "on", "off"]]
+    automatic_decision_reviews: Mapped[Literal["on", "off"]]
+    decision_review_priority: Mapped[int]
+    deleted_at: Mapped[datetime | None]
     created_at: Mapped[datetime]
     updated_at: Mapped[datetime]
 
 
 class DecisionDocument(Base):
-    __table__ = Table("decision_documents", Base.metadata, *knowledge.document_elements())
+    __table__ = Table(
+        "decision_documents", Base.metadata, *knowledge.document_elements(management=True),
+    )
 
     id: Mapped[UUID]
     project_id: Mapped[UUID]
     domain_id: Mapped[UUID]
     ordinal: Mapped[int]
     current_revision: Mapped[int]
+    deleted_at: Mapped[datetime | None]
     created_at: Mapped[datetime]
     updated_at: Mapped[datetime]
 
@@ -2673,3 +2680,14 @@ class ProductDecisionRequest(Base):
     project_id: Mapped[UUID]
     document_id: Mapped[UUID]
     backfilled_revision_count: Mapped[int]
+
+
+class KnowledgeDeletedEdge(Base):
+    __table__ = Table("knowledge_deleted_edges", Base.metadata, *deleted_edge_elements())
+
+    receipt_id: Mapped[int]
+    table_name: Mapped[str]
+    edge_key: Mapped[str]
+    project_id: Mapped[UUID]
+    row_data: Mapped[dict]
+    deleted_at: Mapped[datetime]

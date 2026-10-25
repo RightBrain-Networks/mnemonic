@@ -270,7 +270,7 @@ def test_expanded_report_history_is_retained_and_prevents_lossy_downgrade(
     with postgres_engine.connect() as connection:
         assert (
             connection.scalar(text("SELECT version_num FROM alembic_version"))
-            == "0064_work_change_inheritance"
+            == "0065_knowledge_management"
         )
 
 

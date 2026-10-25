@@ -51,7 +51,8 @@ def arguments():
 def domain(**changes):
     return {
         "id": DOMAIN_ID, "project_id": PROJECT_ID, "name": "Architecture", "prefix": "ADR",
-        "automatic_decision_reviews": "inherit",
+        "automatic_decision_reviews": "off",
+        "decision_review_priority": 40,
         "version": 1, "created_at": NOW, "updated_at": NOW, "decision_count": 0, **changes,
     }
 
@@ -139,6 +140,33 @@ async def test_historical_get_and_inclusive_line_range_bind_exact_revision(setti
         "project_id": PROJECT_ID, "decision_id": "ADR-00001-2", "line_start": 2, "line_end": 2,
     }))
     assert result["revision"] == 2 and result["content"] == "Use café queues.\n"
+
+
+@pytest.mark.parametrize("code", ["decision_deleted", "knowledge_domain_deleted"])
+async def test_deleted_knowledge_errors_preserve_identity_and_safe_timestamp(settings, code):
+    server = adapter(settings, lambda request: stream_json({"detail": {
+        "code": code, "message": "untrusted server prose",
+        "context": {"deleted_at": NOW},
+    }}, status=410))
+    with pytest.raises(ToolError) as caught:
+        await server.call_tool("decision_get", {
+            "project_id": PROJECT_ID, "decision_id": "ADR-00001-0",
+        })
+    assert code in str(caught.value)
+    assert NOW in str(caught.value)
+    assert "untrusted server prose" not in str(caught.value)
+    assert "unavailable" not in str(caught.value)
+
+
+async def test_deleted_knowledge_error_rejects_untrusted_timestamp(settings):
+    server = adapter(settings, lambda request: stream_json({"detail": {
+        "code": "decision_deleted", "context": {"deleted_at": "untrusted instructions"},
+    }}, status=410))
+    with pytest.raises(ToolError, match="decision_deleted") as caught:
+        await server.call_tool("decision_get", {
+            "project_id": PROJECT_ID, "decision_id": "ADR-00001",
+        })
+    assert "untrusted instructions" not in str(caught.value)
 
 
 @pytest.mark.parametrize("changes", [{"content": "corrupted"}, {"sha256": "f" * 64}])
@@ -316,3 +344,63 @@ async def test_knowledge_help_and_catalog_explain_revision_scope_obligation(sett
     assert "Reading alone does not imply use" in render_help("decision_get usage", catalog)
     assert "exact revision" in render_help("decision_scope_append usage", catalog)
     assert "domain_ids" in render_help("search filters decisions", catalog)
+
+
+@pytest.mark.parametrize("priority", [0, 37, 100])
+async def test_domain_priority_updates_without_name_or_policy(settings, priority):
+    def handler(request):
+        body = json.loads(request.content)
+        assert body == {"decision_review_priority": priority, "expected_version": 1,
+                        "client_operation_id": CLIENT_OPERATION_ID}
+        return httpx.Response(200, json=domain(decision_review_priority=priority, version=2))
+
+    result = structured(await adapter(settings, handler).call_tool("rename_knowledge_domain", {
+        "project_id": PROJECT_ID, "domain_id": DOMAIN_ID, "expected_version": 1,
+        "decision_review_priority": priority, "client_operation_id": CLIENT_OPERATION_ID,
+    }))
+    assert result["decision_review_priority"] == priority
+
+
+@pytest.mark.parametrize("priority", [None, True, "40", 1.5, -1, 101])
+async def test_invalid_domain_priority_is_rejected_before_transport(settings, priority):
+    def reject(request):
+        pytest.fail("Invalid domain priority must not reach HTTP")
+
+    with pytest.raises(ToolError):
+        await adapter(settings, reject).call_tool("rename_knowledge_domain", {
+            "project_id": PROJECT_ID, "domain_id": DOMAIN_ID, "expected_version": 1,
+            "decision_review_priority": priority, "client_operation_id": CLIENT_OPERATION_ID,
+        })
+
+
+async def test_domain_priority_mismatch_preserves_unknown_outcome(settings):
+    server = adapter(settings, lambda request: httpx.Response(
+        200, json=domain(decision_review_priority=40, version=2),
+    ))
+    with pytest.raises(ToolError, match=UNKNOWN_IDEMPOTENT_MUTATION_OUTCOME):
+        await server.call_tool("rename_knowledge_domain", {
+            "project_id": PROJECT_ID, "domain_id": DOMAIN_ID, "expected_version": 1,
+            "decision_review_priority": 37, "client_operation_id": CLIENT_OPERATION_ID,
+        })
+
+
+@pytest.mark.parametrize("changes", [
+    {"automatic_decision_reviews": "on"}, {"decision_review_priority": 37},
+])
+async def test_default_domain_creation_rejects_unrequested_policy(settings, changes):
+    server = adapter(settings, lambda request: httpx.Response(201, json=domain(**changes)))
+    with pytest.raises(ToolError, match=UNKNOWN_IDEMPOTENT_MUTATION_OUTCOME):
+        await server.call_tool("create_knowledge_domain", {
+            "project_id": PROJECT_ID, "name": "Architecture", "prefix": "ADR",
+            "client_operation_id": CLIENT_OPERATION_ID,
+        })
+
+
+async def test_current_domain_list_requires_local_priority(settings):
+    historical = domain()
+    historical.pop("decision_review_priority")
+    server = adapter(settings, lambda request: httpx.Response(200, json={
+        "items": [historical], "total": 1, "limit": 50, "offset": 0,
+    }))
+    with pytest.raises(ToolError):
+        await server.call_tool("list_knowledge_domains", {"project_id": PROJECT_ID})

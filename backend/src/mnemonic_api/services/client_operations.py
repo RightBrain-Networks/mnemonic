@@ -40,6 +40,13 @@ from mnemonic_api.impact_schemas import (
     ImpactDispositionRead,
     ImpactDispositionRequest,
 )
+from mnemonic_api.knowledge_management_schemas import (
+    DecisionDeletion,
+    DecisionDeletionRequest,
+    DomainDeletion,
+    DomainDeletionRequest,
+    KnowledgeDeletionRead,
+)
 from mnemonic_api.knowledge_schemas import (
     DecisionPut,
     DecisionPutRequest,
@@ -110,6 +117,7 @@ from mnemonic_api.schemas import (
 from mnemonic_api.services.decision_change_receipts import change_matches
 from mnemonic_api.services.decision_provenance import reconciled_scope_matches
 from mnemonic_api.services.impact_receipts import disposition_batch_matches, disposition_matches
+from mnemonic_api.services.knowledge_deletion import deletion_matches
 from mnemonic_api.services.knowledge_receipts import (
     appended_scope_matches,
     created_domain_matches,
@@ -118,6 +126,7 @@ from mnemonic_api.services.knowledge_receipts import (
 )
 
 type OperationKind = Literal[
+    "delete_knowledge_domain", "delete_decision",
     "update_decision_change", "assess_decision_impact", "assess_decision_impact_batch",
     "reconcile_decision_scope",
     "create_knowledge_domain", "rename_knowledge_domain", "put_decision", "append_decision_scope",
@@ -140,6 +149,7 @@ type OperationKind = Literal[
     "respond_to_work_follow_up", "complete_code_review",
 ]
 REGISTERED_OPERATION_KINDS: tuple[OperationKind, ...] = (
+    "delete_knowledge_domain", "delete_decision",
     "update_decision_change", "assess_decision_impact", "assess_decision_impact_batch",
     "reconcile_decision_scope",
     "create_knowledge_domain", "rename_knowledge_domain", "put_decision", "append_decision_scope",
@@ -243,6 +253,14 @@ def _spec(
 
 
 _REGISTRY: dict[OperationKind, OperationSpec] = {
+    "delete_knowledge_domain": _spec(
+        "delete_knowledge_domain", DomainDeletion, KnowledgeDeletionRead, 200, "domain_id",
+        domain_model=DomainDeletionRequest,
+    ),
+    "delete_decision": _spec(
+        "delete_decision", DecisionDeletion, KnowledgeDeletionRead, 200, "document_id",
+        domain_model=DecisionDeletionRequest,
+    ),
     "update_decision_change": _spec(
         "update_decision_change", DecisionChangeUpdate, DecisionChangeRead, 200,
         domain_model=DecisionChangeUpdateRequest,
@@ -1494,6 +1512,8 @@ def _follow_up_matches(project_id: UUID, target: Mapping[str, str],
 
 _RESPONSE_MATCHERS: Mapping[OperationKind, ResponseMatcher] = MappingProxyType(
     {
+        "delete_knowledge_domain": deletion_matches,
+        "delete_decision": deletion_matches,
         "update_decision_change": change_matches,
         "assess_decision_impact": disposition_matches,
         "assess_decision_impact_batch": disposition_batch_matches,

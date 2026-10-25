@@ -11,6 +11,7 @@ from mnemonic_backup.archive import BackupError, restore_project
 from .test_assessment_batch_postgres import audit_dispositions, batch_body, endpoint
 from .test_assessment_progress_postgres import review_claim
 from .test_decision_changes_postgres import group
+from .test_decision_reviews_postgres import settings
 from .test_impact_findings_postgres import detail, review, summary
 from .test_knowledge_postgres import path
 from .test_product_decision_migration_postgres import migrate
@@ -106,6 +107,8 @@ def test_batch_legacy_omitted_finding_fields_survive_migration_restore_and_exact
     url, saved = save_batch(api, project, episode, body)
     assert all("finding_id" not in row and "remediation_target" not in row
                for row in saved["items"])
+    # Existing review obligations remain; disable new creation before a historical downgrade.
+    settings(api, project, automatic_decision_reviews=False, decision_review_priority=40)
     original = _snapshot(postgres_engine, project)
     migrate(postgres_engine, "0062_review_scope_notices", downgrade=True)
     migrate(postgres_engine, "head")

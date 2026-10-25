@@ -28,7 +28,8 @@ from mnemonic_api.application.browser_policy.transport import (
 from mnemonic_api.application.browser_policy.values import JsonObject, checkpoint, uuid
 from mnemonic_api.decision_change_schemas import DecisionChangeUpdate
 from mnemonic_api.impact_schemas import ImpactDispositionCreate
-from mnemonic_api.knowledge_schemas import DomainCreate, DomainRename
+from mnemonic_api.knowledge_management_schemas import DecisionDeletion, DomainDeletion
+from mnemonic_api.knowledge_schemas import DecisionPut, DomainCreate, DomainRename
 
 __all__ = [
     "DEFINITIVE_PROXY_ERRORS",
@@ -142,6 +143,21 @@ def _special_error(name: str | None, path: str, method: str, body: JsonObject) -
     return None
 
 
+def _knowledge_management_error(name: str | None, method: str, body: JsonObject) -> str | None:
+    models = {"knowledge_domain_delete": DomainDeletion,
+              "knowledge_decision_delete": DecisionDeletion}
+    try:
+        if name in models:
+            models[name].model_validate(body)
+        if name == "knowledge_decisions" and method == "PUT":
+            parsed = DecisionPut.model_validate(body)
+            if parsed.author_kind != "human":
+                return "Dashboard decision edits must use a human author."
+    except ValueError:
+        return "Provide a valid decision request and its current reviewed version."
+    return None
+
+
 def invalid_mutation_body(path: str, method: str, body: Any) -> str | None:
     if not isinstance(body, dict):
         return DEFINITIVE_PROXY_ERRORS["jsonObjectRequired"].detail
@@ -150,7 +166,8 @@ def invalid_mutation_body(path: str, method: str, body: Any) -> str | None:
         return error
     if name == "knowledge_changes" and (error := _change_error(body)):
         return error
-    if error := _special_error(name, path, method, body):
+    if error := (_knowledge_management_error(name, method, body)
+                 or _special_error(name, path, method, body)):
         return error
     entry = _VALIDATORS.get((name or "", method))
     if entry is not None and not entry[0](body):

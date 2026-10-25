@@ -65,8 +65,6 @@ export interface ProjectSettings {
   code_review_required_min_priority: number;
   code_review_optional_min_priority: number;
   allow_remediation_code_reviews: boolean;
-  automatic_decision_reviews: boolean;
-  decision_review_priority: number;
 }
 
 export interface Page<T> {

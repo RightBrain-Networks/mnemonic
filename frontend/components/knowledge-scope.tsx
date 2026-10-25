@@ -29,8 +29,8 @@ export function ScopeEvidence({ entry, projectId }: { entry: Pick<DecisionScope,
   </div>;
 }
 
-export default function CommitLookup({ projectId, onDecision }: { projectId: string; onDecision: (id: string, revision: number) => void }) {
-  const [repository, setRepository] = useState("");
+export default function CommitLookup({ projectId, repositoryUrl, onDecision }: { projectId: string; repositoryUrl: string | null; onDecision: (id: string, revision: number) => void }) {
+  const repository = repositoryUrl?.trim() ?? "";
   const [hash, setHash] = useState("");
   const [query, setQuery] = useState<{ repository: string; hash: string } | null>(null);
   const [offset, setOffset] = useState(0);
@@ -38,16 +38,16 @@ export default function CommitLookup({ projectId, onDecision }: { projectId: str
   const result = useQuery(commitLookupOptions(projectId, query?.repository ?? "", query?.hash ?? "", offset, Boolean(query)));
   function submit(event: FormEvent) {
     event.preventDefault();
-    if (!repository.trim() || !validCommitHash(hash.trim())) { setError("Enter the registered repository identity and a full 40- or 64-character commit hash."); return; }
+    if (!repository.trim() || !validCommitHash(hash.trim())) { setError("Set a Repository URL in Project settings and enter a full 40- or 64-character commit hash."); return; }
     setError(""); setOffset(0); setQuery({ repository: repository.trim(), hash: hash.trim() });
   }
   return <details className="knowledge-commit-lookup">
     <summary>Find decisions cited by a commit</summary>
     <p className="field-hint">Search a registered repository and original or merged commit hash. These are recorded citations; Mnemonic does not verify Git history. Older records without a repository cannot appear in this lookup.</p>
     <form className="form-stack" onSubmit={submit}>
-      <label className="field">Repository identity<input value={repository} onChange={(event) => setRepository(event.target.value)} required maxLength={500} placeholder="github.com/organization/repository" /></label>
+      <p className="field-hint">{repository ? <>Repository: <strong>{repository}</strong></> : "No Repository URL has been configured."} <Link href="/settings/workspace">Project settings</Link></p>
       <label className="field">Commit hash<input value={hash} onChange={(event) => setHash(event.target.value)} required maxLength={64} className="mono" /></label>
-      <button type="submit" className="button button-secondary">Find citations</button>
+      <button type="submit" className="button button-secondary" disabled={!repository}>Find citations</button>
     </form>
     {error && <p role="alert" className="error-notice">{error}</p>}
     {query && (result.isError ? <KnowledgeReadError error={result.error} retry={() => void result.refetch()} /> : result.isPending ? <p role="status">Looking up citations…</p> : <>

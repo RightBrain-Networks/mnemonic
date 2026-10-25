@@ -338,9 +338,9 @@ test("current human questions require coherent PDR identity while historical rec
   assert.throws(() => decodeHumanGate(historical), /invalid human gate/);
   assert.equal(decodeHumanGate(historical, { allowHistoricalReceipt: true }).decision, undefined);
   assert.throws(() => decodeHumanGate({ ...historical, decision: null }, { allowHistoricalReceipt: true }), /product decision/);
-  assert.equal(humanGateDecisionPath(current), `/knowledge?project=${project}&decision=PDR-00001&revision=0`);
-  assert.equal(humanGateDecisionPath(resolvedGate({ question_version: 2 }), 1), `/knowledge?project=${project}&decision=PDR-00001&revision=0`);
-  assert.equal(humanGateDecisionPath(resolvedGate()), `/knowledge?project=${project}&decision=PDR-00001&revision=1`);
+  assert.equal(humanGateDecisionPath(current), `/knowledge/decisions?project=${project}&decision=PDR-00001&revision=0`);
+  assert.equal(humanGateDecisionPath(resolvedGate({ question_version: 2 }), 1), `/knowledge/decisions?project=${project}&decision=PDR-00001&revision=0`);
+  assert.equal(humanGateDecisionPath(resolvedGate()), `/knowledge/decisions?project=${project}&decision=PDR-00001&revision=1`);
   assert.equal(humanGateDecisionPath(historical), null);
 });
 
@@ -350,7 +350,7 @@ test("historical resolved PDRs retain their project when the originating work pr
     metadata: { ...resolved.decision.metadata, related_work_item_ids: [] } };
   const moved = { ...resolved, decision };
   assert.equal(decodeHumanGate(moved).decision.originating_work_project_id, otherProject);
-  assert.equal(humanGateDecisionPath(moved), `/knowledge?project=${project}&decision=PDR-00001&revision=1`);
+  assert.equal(humanGateDecisionPath(moved), `/knowledge/decisions?project=${project}&decision=PDR-00001&revision=1`);
   assert.equal(decodeHumanGatePage({ items: [moved], total: 1, limit: 30, next_cursor: null }, otherProject, work).items[0].project_id, project);
   for (const originating_work_project_id of [undefined, null, "bad", project]) {
     assert.throws(() => decodeHumanGate({ ...moved, decision: { ...decision, originating_work_project_id } }), /product decision/);

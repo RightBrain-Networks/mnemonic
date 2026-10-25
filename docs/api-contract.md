@@ -14,12 +14,12 @@ previous bundled rubric. Edits are retained in PostgreSQL and project backups.
 Use [unified search](search.md) to retrieve work, artifacts, transcripts, and decisions in one
 ranked, filtered, paginated read through REST or MCP.
 
-This is application/API/MCP/dashboard `0.104.0`, plugin `0.66.0`, and migration
-`0064_work_change_inheritance`. See [knowledge graph](knowledge-graph.md) for retained
+This is application/API/MCP/dashboard `0.105.0`, plugin `0.67.0`, and migration
+`0065_knowledge_management`. See [knowledge graph](knowledge-graph.md) for retained
 decision revisions and commit provenance, and [dependency cycles](dependency-cycles.md) for explicit
 parent closure requirements, cycle refusal, and honest deadlock display. The catalog has exactly 78 MCP tools, 25
-protected MCP writes, 32 REST receipt kinds, 25 protected browser mutations and
-24 work-event types. The 32 REST receipt kinds comprise 18 work operations, eight knowledge operations, four artifact operations
+protected MCP writes, 34 REST receipt kinds, 28 protected browser mutations and
+24 work-event types. The 34 REST receipt kinds comprise 18 work operations, ten knowledge operations, four artifact operations
 with filesystem recovery journals, and two transcript operations (rebuild and import). See
 [artifact contracts](artifacts.md) for binary routes, retention and work discovery.
 Relationship identity and graph invariants are global;
@@ -2144,19 +2144,53 @@ MCP callers may omit top-level retry IDs on fresh calls. The adapter mints and
 returns them before using these unchanged REST receipt contracts. See
 [Automatic MCP UUIDs](automatic-uuids.md) for recovery and `generate_uuid`.
 
+### Dashboard knowledge management
+
+Under `/api/mnemonic/projects/{project_id}/knowledge`, the dashboard admits:
+
+- `PUT /decisions`: the existing decision write contract, restricted to human
+  authorship. Uploads deduplicate; explicit-target human saves require the current
+  `expected_revision` and always append a revision. Stale saves return
+  `decision_revision_conflict` without changing the newer document.
+- `GET /domains/{domain_id}/export`: coherent `.tar.gz` snapshot of all current
+  documents as Markdown plus JSON metadata sidecars and `domain.json`.
+- `GET /decisions/{decision_id}/download?revision=N`: UTF-8 attachment, optionally
+  pinned to a retained revision.
+- `GET /domains/{domain_id}/deletion-preview` and
+  `GET /decisions/{decision_id}/deletion-preview`: exact graph fingerprints,
+  current version/revision, document count, removed-edge counts and affected
+  active review counts. `blocked_reason` explains system PDR protection.
+- `POST /domains/{domain_id}/delete` and `POST /decisions/{decision_id}/delete`:
+  receipt-protected, dashboard-only deletion with `client_operation_id`,
+  `expected_preview`, `acknowledge_relationships`, and the relevant
+  `expected_version` or `expected_revision`. The preview must still match;
+  acknowledgement is required when any graph edge or active review is affected.
+
+Deletion handlers are absent from `/api/v1` and MCP. The response records
+`deleted_at`, `document_count`, `removed_relationship_count`,
+`affected_review_count`, total `relationship_count`, and per-kind `relationships`.
+Removed edges have immutable archival witnesses tied to that receipt; active
+review snapshots retain their audit history and can still be completed.
+`knowledge_deletion_preview_conflict` requires a fresh preview;
+`knowledge_deletion_protected` rejects managed PDR records.
+Exact reads/writes of deleted identities return HTTP 410 with
+`knowledge_domain_deleted` or `decision_deleted` and an ISO `deleted_at` context.
+The MCP adapter preserves that deletion timestamp. Completed operation receipts
+remain replayable after deletion; replay does not restore a document or an edge.
+
 ### Automatic decision impact reviews
 
-Project settings add `automatic_decision_reviews` (default false) and
-`decision_review_priority` (integer 0–100, default 40). The existing revision-checked
-PATCH controls them. The managed prompt ID is `decision-impact-review`.
-Knowledge domain reads expose `automatic_decision_reviews` as `inherit`, `on`,
-or `off`. Domain creation defaults to `inherit`. The existing domain PATCH and
-MCP `rename_knowledge_domain` accept a name and/or that setting with
-`expected_version`; null and empty updates are rejected. `on` and `off` override
-the project boolean, and the changed record's domain governs review creation.
+Knowledge domain reads expose `automatic_decision_reviews` (`on` or `off`,
+default `off`) and `decision_review_priority` (integer 0–100, default 40).
+Domain creation and the version-checked domain PATCH / MCP
+`rename_knowledge_domain` accept both settings. The changed record's domain
+governs review creation and priority. Global project settings no longer expose
+or accept either setting. The managed prompt ID remains `decision-impact-review`.
+Null and empty updates are rejected. Fresh `inherit` policy writes return 422;
+historical operation receipts still replay their exact stored request/response.
 Assessment capture and existing review obligations remain intact; toggles do not
-backfill work. Priority stays project-wide. Historical operation receipts replay
-their exact stored response, which may predate the domain setting field.
+backfill work. Migration 0065 resolves previous inheritance and priorities into
+each existing domain before retiring the project controls.
 Generated ordinary work exposes an immutable optional `decision_review_revision_id`.
 One investigation per substantive decision change shares the existing impact-assessment
 ledger. Done fails with 409 `decision_impact_review_incomplete` while pinned

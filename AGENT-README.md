@@ -538,10 +538,10 @@ startup/investigation and estimate remaining session time for later lease reques
 within the current project bounds. Preserve exact `lease_minutes` arguments on
 uncertain claim retries.
 
-Application/API/MCP/dashboard 0.104.0, plugin 0.66.0 and Alembic
-`0064_work_change_inheritance` ship together: 78 MCP tools, 25
+Application/API/MCP/dashboard 0.105.0, plugin 0.67.0 and Alembic
+`0065_knowledge_management` ship together: 78 MCP tools, 25
 receipt-protected MCP writes,
-32 REST receipt kinds, 25 protected browser mutations, 24 event types and three
+34 REST receipt kinds, 28 protected browser mutations, 24 event types and three
 plugin skills. Existing projects default to Never/Never/off review settings;
 do not infer historical review requests. `search_work(status="to-review")` finds
 Done implementation with a requested review or pending recommendation; `done`
@@ -668,9 +668,12 @@ retain original attribution. See [knowledge graph](docs/knowledge-graph.md) and 
 [shared agent workflow](plugin/reference/knowledge-graph.md) for all knowledge tools,
 coverage limits, exact retries, and the local Git helper.
 
-Automatic decision impact reviews use a project default in Settings > Workspace,
-off with priority 40. Domain overrides inherit/on/off govern future review creation
-from the changed record domain; settings do not backfill work or cancel obligations. Explicit decision changes own one ordinary review;
+Automatic decision impact reviews are configured independently in Knowledge graph >
+Manage domains. Each domain defaults to off with priority 40; fresh settings accept
+on/off and a local decision_review_priority from 0 to 100. There is no global
+switch or priority. Migration preserves each existing domain's effective policy.
+The changed record domain governs new reviews; settings do not backfill work or
+cancel existing obligations. Explicit decision changes own one ordinary review;
 related revisions extend its immutable assessment membership and invalidate scope
 acknowledgement. Use decision_change_get and page decision_assessments(change_id=...),
 then acknowledge the current scope before Done. Fresh agent decision_put declares

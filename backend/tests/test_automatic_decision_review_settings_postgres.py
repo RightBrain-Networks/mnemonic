@@ -17,33 +17,15 @@ def settings_path(project):
     return f"/api/v1/projects/{project['id']}/settings"
 
 
-def test_defaults_policy_round_trip_revision_and_project_isolation(api, project):
+def test_project_policy_is_absent_and_updates_are_rejected(api, project):
     endpoint = settings_path(project)
     initial = api.get(endpoint).json()
-    assert initial["automatic_decision_reviews"] is False
-    assert initial["decision_review_priority"] == 40
-    changes = {"automatic_decision_reviews": True, "decision_review_priority": 41}
-    response = api.patch(endpoint, json={"expected_revision": initial["revision"], **changes})
-    assert response.status_code == 200, response.text
-    saved = response.json()
-    assert all(saved[key] == value for key, value in changes.items())
-    assert int(saved["revision"]) == int(initial["revision"]) + 1
-    assert api.get(endpoint).json() == saved
-    assert api.patch(endpoint, json={
-        "expected_revision": saved["revision"], **changes,
-    }).json() == saved
-    assert api.patch(endpoint, json={
-        "expected_revision": initial["revision"], "automatic_decision_reviews": False,
-    }).status_code == 409
-    disabled = api.patch(endpoint, json={
-        "expected_revision": saved["revision"], "automatic_decision_reviews": False,
-    }).json()
-    assert disabled["automatic_decision_reviews"] is False
-    assert disabled["decision_review_priority"] == 41
-    other = api.post("/api/v1/projects", json={"name": "Independent review policy"}).json()
-    other_settings = api.get(settings_path(other)).json()
-    assert other_settings["automatic_decision_reviews"] is False
-    assert other_settings["decision_review_priority"] == 40
+    assert "automatic_decision_reviews" not in initial
+    assert "decision_review_priority" not in initial
+    for changes in ({"automatic_decision_reviews": True}, {"decision_review_priority": 41}):
+        response = api.patch(endpoint, json={"expected_revision": initial["revision"], **changes})
+        assert response.status_code == 422, response.text
+    assert api.get(endpoint).json() == initial
 
 
 @pytest.mark.parametrize("assignment", [
@@ -59,23 +41,12 @@ def test_database_requires_valid_policy_and_exact_revision(postgres_engine, proj
         ), {"id": project["id"]})
 
 
-def test_migration_defaults_existing_projects_and_preserves_saved_policy(
-    api, project, postgres_engine,
-):
+def test_migration_defaults_existing_domains_to_off(api, project, postgres_engine):
     migrate(postgres_engine, "0056_product_decisions", downgrade=True)
     migrate(postgres_engine, "head")
-    settings = api.get(settings_path(project)).json()
-    assert settings["automatic_decision_reviews"] is False
-    assert settings["decision_review_priority"] == 40
-    changed = api.patch(settings_path(project), json={
-        "expected_revision": settings["revision"], "automatic_decision_reviews": True,
-    })
-    assert changed.status_code == 200, changed.text
-    migrate(postgres_engine, "head")
-    assert api.get(settings_path(project)).json() == changed.json()
-    with pytest.raises(RuntimeError, match="cannot be safely downgraded"):
-        migrate(postgres_engine, "0056_product_decisions", downgrade=True)
-    assert api.get(settings_path(project)).json() == changed.json()
+    domains = api.get(f"/api/v1/projects/{project['id']}/knowledge/domains").json()["items"]
+    assert all(row["automatic_decision_reviews"] == "off" for row in domains)
+    assert all(row["decision_review_priority"] == 40 for row in domains)
 
 
 def test_decision_review_prompt_is_editable_isolated_and_renders_work(api, project, work_payload):

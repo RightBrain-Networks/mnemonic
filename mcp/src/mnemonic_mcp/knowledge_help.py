@@ -10,16 +10,16 @@ KNOWLEDGE_GUIDES: dict[str, tuple[str, str, str]] = {
     "create_knowledge_domain": (
         "Knowledge", "Create a named decision domain with a permanent prefix.",
         ("Supply name and a prefix of one to five ASCII letters; the prefix becomes uppercase. "
-        "automatic_decision_reviews defaults to inherit (project policy); on/off override it. "
-        "List domains first to avoid name or prefix conflicts. Domain deletion is unavailable."),
+        "automatic_decision_reviews defaults to off; on/off and decision_review_priority (0–100, default 40) are local to the domain. "
+        "List domains first to avoid name or prefix conflicts. Domain deletion is dashboard-only; agents cannot delete domains."),
     ),
     "rename_knowledge_domain": (
         "Knowledge", "Update a domain name or automatic decision review override.",
         ("Use the exact domain_id from list_knowledge_domains. Renaming preserves all document "
         "identifiers, revisions, and references; the prefix cannot change. Supply expected_version "
-        "and name and/or automatic_decision_reviews (inherit, on, off). The changed record's domain "
+        "and name, automatic_decision_reviews (on/off), and/or decision_review_priority. The changed record's domain "
         "governs whether later revisions open reviews; existing reviews retain their obligations. "
-        "Priority remains project-wide. Changes do not backfill reviews."),
+        "Priority is local to this domain. Changes do not backfill reviews."),
     ),
     "decision_change_candidates": (
         "Knowledge", "Group a change's required candidates while retaining per-episode obligations.",

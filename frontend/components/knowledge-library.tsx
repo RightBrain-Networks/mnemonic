@@ -1,23 +1,25 @@
 "use client";
 
-import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { DecisionImpactView, DecisionAssessments } from "@/components/knowledge-impact";
 import CommitLookup, { ScopeEvidence } from "@/components/knowledge-scope";
 import Link from "@/components/dashboard-link";
 import DocumentPreviewDrawer, { DocumentPreviewText } from "@/components/document-preview-drawer";
 import { DecisionStateBadge, KnowledgePagination, KnowledgeReadError as ReadError, stateLabel } from "@/components/knowledge-shared";
-import { ApiError, errorMessage } from "@/lib/api";
+import DecisionEditor from "@/components/knowledge-decision-editor";
+import KnowledgeDeleteDialog from "@/components/knowledge-delete-dialog";
+import { downloadKnowledgeFile } from "@/lib/knowledge-management";
+import { errorMessage } from "@/lib/api";
 import { formatArtifactSize, artifactLibraryPath } from "@/lib/artifacts";
 import { formatDateTime } from "@/lib/display-time";
-import { decodeDomain, decisionStates, knowledgeJson, knowledgeLibraryPath, knowledgeNextOffset, knowledgePath, normalizeDomainPrefix, selectedDecision, type Decision, type DecisionState, type KnowledgeDomain } from "@/lib/knowledge";
+import { decisionStates, knowledgeLibraryPath, knowledgeNextOffset, knowledgePath, selectedDecision, type Decision, type DecisionState } from "@/lib/knowledge";
 import { decisionContentOptions, decisionHistoryOptions, decisionsOptions, decisionScopeOptions, knowledgeKeys, readDomainPage } from "@/lib/knowledge-queries";
 
 type Selection = { id: string; revision?: number };
-type DomainIntent = { path: string; method: "POST" | "PATCH"; body: string };
 
-export default function KnowledgeLibrary({ projectId, query = "", onPendingChange }: {
-  projectId: string; query?: string; onPendingChange: (pending: boolean) => void;
+export default function KnowledgeLibrary({ projectId, repositoryUrl, query = "", onPendingChange }: {
+  projectId: string; repositoryUrl: string | null; query?: string; onPendingChange: (pending: boolean) => void;
 }) {
   const client = useQueryClient();
   const [domainId, setDomainId] = useState("");
@@ -26,7 +28,10 @@ export default function KnowledgeLibrary({ projectId, query = "", onPendingChang
   const [search, setSearch] = useState("");
   const [offset, setOffset] = useState(0);
   const [selected, setSelected] = useState<Selection | null>(() => selectedDecision(query));
-  const [editingDomain, setEditingDomain] = useState<KnowledgeDomain | "new" | null>(null);
+  const [editing, setEditing] = useState<{ decision?: Decision; replace?: boolean } | null>(null);
+  const [deleting, setDeleting] = useState<Decision | null>(null);
+  const [pending, setPending] = useState(false);
+  const changePending = (value: boolean) => { setPending(value); onPendingChange(value); };
   const [notice, setNotice] = useState("");
   const domains = useInfiniteQuery({
     queryKey: knowledgeKeys.domains(projectId), initialPageParam: 0,
@@ -43,7 +48,7 @@ export default function KnowledgeLibrary({ projectId, query = "", onPendingChang
   function chooseDomain(id: string) { setDomainId(id); setOffset(0); }
   function submitSearch(event: FormEvent) { event.preventDefault(); setSearch(draft.trim()); setOffset(0); }
 
-  return <section className="artifact-library knowledge-library" aria-label="Knowledge graph">
+  return <section className="artifact-library knowledge-library" aria-label="Decision documents">
     <div className="artifact-search-panel">
       <label className="section-label" htmlFor="decision-search">Find a decision</label>
       <form className="artifact-search" onSubmit={submitSearch}>
@@ -56,24 +61,25 @@ export default function KnowledgeLibrary({ projectId, query = "", onPendingChang
         </div>
       </form>
     </div>
-    <CommitLookup projectId={projectId} onDecision={(id, revision) => setSelected({ id, revision })} />
+    <CommitLookup projectId={projectId} repositoryUrl={repositoryUrl} onDecision={(id, revision) => setSelected({ id, revision })} />
     <div className="filter-row knowledge-domain-bar">
       <div className="status-filters knowledge-domain-tabs" role="group" aria-label="Filter by domain">
         <button type="button" className={`filter-button ${!domainId ? "selected" : ""}`} aria-pressed={!domainId} onClick={() => chooseDomain("")}>All domains</button>
         {allDomains.map((item) => <button key={item.id} type="button" className={`filter-button ${domainId === item.id ? "selected" : ""}`} aria-pressed={domainId === item.id} onClick={() => chooseDomain(item.id)} title={`${item.prefix} · ${item.decision_count} decisions`}>{item.name}<span className="knowledge-prefix">{item.prefix}</span></button>)}
         {domains.hasNextPage && <button type="button" className="filter-button" disabled={domains.isFetchingNextPage} onClick={() => void domains.fetchNextPage()}>More domains</button>}
       </div>
-      <button className="button button-secondary" type="button" onClick={() => { setNotice(""); setEditingDomain("new"); }}>Add domain</button>
+      <button className="button button-primary" type="button" disabled={pending || !allDomains.length} onClick={() => { setNotice(""); setEditing({}); }}>Upload</button>
     </div>
     {domains.isError && <ReadError error={domains.error} retry={() => void domains.refetch()} />}
     {notice && <p className="artifact-notice" role="status">{notice}</p>}
     <div className="artifact-directory-heading">
       <h2>{domain?.name ?? "Project decisions"}{page && <span className="artifact-count">{page.total}</span>}
-        {domain && <button className="text-button knowledge-rename" type="button" onClick={() => { setNotice(""); setEditingDomain(domain); }}>Rename domain</button>}
       </h2>
-      <label>State<select aria-label="Filter decisions by state" value={state} onChange={(event) => { setState(event.target.value as DecisionState | ""); setOffset(0); }}>
-        <option value="">All states</option>{decisionStates.map((value) => <option key={value} value={value}>{stateLabel(value)}</option>)}
-      </select></label>
+
+    </div>
+    <div className="status-filters knowledge-state-filters" role="group" aria-label="Filter decisions by state">
+      <button type="button" className={`filter-button ${!state ? "selected" : ""}`} aria-pressed={!state} onClick={() => { setState(""); setOffset(0); }}>All states</button>
+      {decisionStates.map((value) => <button key={value} type="button" className={`filter-button ${state === value ? "selected" : ""}`} aria-pressed={state === value} onClick={() => { setState(value); setOffset(0); }}>{stateLabel(value)}</button>)}
     </div>
     <p className="artifact-history-note knowledge-current-note">Current revisions. Open a decision to view its retained history and the code that cites it.</p>
     {domain?.is_product_decision_domain && <p className="artifact-history-note">Needs Attention questions and recorded answers live in this domain. <Link href={`/attention?project=${projectId}`}>Review waiting product decisions</Link>.</p>}
@@ -83,74 +89,30 @@ export default function KnowledgeLibrary({ projectId, query = "", onPendingChang
           <tbody>{page?.items.map((decision) => <tr key={decision.id}>
             <td><button className="artifact-name" aria-haspopup="dialog" onClick={() => setSelected({ id: decision.decision_id, revision: decision.revision })}><svg width="19" height="22" viewBox="0 0 20 24" fill="none" stroke="currentColor" aria-hidden="true"><path d="M3 1h8l6 6v16H3zM11 1v7h6M6 13h8M6 17h6" /></svg><span>{decision.title}</span></button><span className="artifact-type"><code>{decision.reference}</code> · {decision.domain_name}</span></td>
             <td><DecisionStateBadge state={decision.state} /></td><td>{decision.scope_count}</td><td><time dateTime={decision.updated_at}>{formatDateTime(decision.updated_at)}</time></td>
-            <td><div className="artifact-actions"><button className="button button-secondary" aria-label={`View ${decision.reference}`} onClick={() => setSelected({ id: decision.decision_id, revision: decision.revision })}>View</button></div></td>
+            <td><div className="artifact-actions knowledge-row-actions"><button className="button button-secondary" aria-label={`View ${decision.reference}`} onClick={() => setSelected({ id: decision.decision_id, revision: decision.revision })}>View</button>
+              <button className="button button-secondary" disabled={pending} aria-label={`Edit ${decision.reference}`} onClick={() => setEditing({ decision })}>Edit</button>
+              <button className="button button-secondary" aria-label={`Download ${decision.reference}`} onClick={() => void downloadKnowledgeFile(knowledgePath(projectId, `/decisions/${decision.decision_id}/download?revision=${decision.revision}`), `${decision.reference}.${decision.media_type === "text/markdown" ? "md" : "txt"}`).catch((failure) => setNotice(errorMessage(failure)))}>Download</button>
+              <button className="button button-secondary" disabled={pending} aria-label={`Replace ${decision.reference}`} onClick={() => setEditing({ decision, replace: true })}>Replace</button>
+              <button className="button button-danger" disabled={pending} aria-label={`Delete ${decision.reference}`} onClick={() => setDeleting(decision)}>Delete</button>
+            </div></td>
           </tr>)}</tbody>
         </table>
       </div>
       {decisions.isPending && <div className="loading-state" role="status">Loading decisions…</div>}
-      {page && !page.items.length && <div className="artifact-empty"><h2>{search || state ? "No matching decisions." : allDomains.length ? "Decisions belong here." : "Start with a decision domain."}</h2><p>{search || state ? "Try another search or state filter." : allDomains.length ? "Documents added by your agents will appear here with their revision history and code references." : "Group architecture, product, or other decisions under a name and permanent prefix."}</p></div>}
+      {page && !page.items.length && <div className="artifact-empty"><h2>{search || state ? "No matching decisions." : allDomains.length ? "Decisions belong here." : "Start with a decision domain."}</h2><p>{search || state ? "Try another search or state filter." : allDomains.length ? "Upload a Markdown or plain text file, or ask an agent to add a decision." : "Group architecture, product, or other decisions under a name and permanent prefix."}</p></div>}
       {page && <KnowledgePagination page={page} noun="decisions" busy={decisions.isFetching} onOffset={setOffset} />}
     </>}
-    {editingDomain && <DomainDialog projectId={projectId} domain={editingDomain === "new" ? undefined : editingDomain}
-      onPendingChange={onPendingChange} onClose={() => setEditingDomain(null)} onSaved={(saved) => {
-        setEditingDomain(null); chooseDomain(saved.id); setNotice(`Domain “${saved.name}” saved.`);
+    {editing && <DecisionEditor projectId={projectId} domains={allDomains} initialDomainId={domainId} decision={editing.decision} replace={editing.replace}
+      onPendingChange={changePending} onClose={() => setEditing(null)} onSaved={(saved) => {
+        setEditing(null); setNotice(`Decision “${saved.title}” saved as revision ${saved.revision}.`);
         void client.invalidateQueries({ queryKey: knowledgeKeys.root(projectId) });
       }} />}
+    {deleting && <KnowledgeDeleteDialog projectId={projectId} target={{ kind: "decision", id: deleting.decision_id, name: deleting.title }} onPendingChange={changePending}
+      onClose={() => setDeleting(null)} onDeleted={() => { setDeleting(null); setNotice("Decision deleted. Its deletion record remains available to agents."); void client.invalidateQueries({ queryKey: knowledgeKeys.root(projectId) }); }} />}
     {selected && <DecisionDrawer projectId={projectId} onPendingChange={onPendingChange} selected={selected} onSelect={setSelected} onClose={() => setSelected(null)} />}
   </section>;
 }
 
-function DomainDialog({ projectId, domain, onClose, onSaved, onPendingChange }: {
-  projectId: string; domain?: KnowledgeDomain; onClose: () => void; onSaved: (domain: KnowledgeDomain) => void; onPendingChange: (pending: boolean) => void;
-}) {
-  const ref = useRef<HTMLDialogElement>(null);
-  const titleId = useId();
-  const [name, setName] = useState(domain?.name ?? "");
-  const [prefix, setPrefix] = useState(domain?.prefix ?? "");
-  const [pending, setPending] = useState<DomainIntent | null>(null);
-  const [busy, setBusy] = useState(false);
-  const dispatching = useRef(false);
-  const [error, setError] = useState("");
-  useEffect(() => {
-    const dialog = ref.current!;
-    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    dialog.showModal();
-    return () => { dialog.close(); previous?.focus({ preventScroll: true }); };
-  }, []);
-
-  async function execute(intent: DomainIntent) {
-    if (dispatching.current) return;
-    dispatching.current = true; setBusy(true); setError(""); setPending(intent); onPendingChange(true);
-    try {
-      const saved = decodeDomain(await knowledgeJson(intent.path, { method: intent.method, body: intent.body }), projectId);
-      if (domain && saved.id !== domain.id) throw new Error("Mnemonic returned a different domain. Retry this exact action.");
-      setPending(null); onPendingChange(false); onSaved(saved);
-    } catch (failure) {
-      const definitive = failure instanceof ApiError && failure.status >= 400 && failure.status < 500 && failure.status !== 408;
-      if (definitive) { setPending(null); onPendingChange(false); }
-      setError(errorMessage(failure));
-    } finally { dispatching.current = false; setBusy(false); }
-  }
-  function save(event: FormEvent) {
-    event.preventDefault();
-    try {
-      const body = domain ? { name: name.trim(), expected_version: domain.version, client_operation_id: crypto.randomUUID() }
-        : { name: name.trim(), prefix: normalizeDomainPrefix(prefix), client_operation_id: crypto.randomUUID() };
-      if (!body.name) throw new Error("Enter a domain name.");
-      void execute({ path: knowledgePath(projectId, `/domains${domain ? `/${domain.id}` : ""}`), method: domain ? "PATCH" : "POST", body: JSON.stringify(body) });
-    } catch (failure) { setError(errorMessage(failure)); }
-  }
-
-  return <dialog ref={ref} className="dialog" aria-labelledby={titleId} onCancel={(event) => { event.preventDefault(); if (!pending) onClose(); }}>
-    <div className="dialog-header"><h2 id={titleId}>{domain ? "Rename domain" : "Add domain"}</h2><button className="icon-button" aria-label="Close dialog" disabled={Boolean(pending)} onClick={onClose}>×</button></div>
-    <div className="dialog-content"><form className="form-stack" onSubmit={save}>
-      <label className="field">Domain name<input required autoFocus maxLength={120} value={name} disabled={Boolean(pending)} onChange={(event) => setName(event.target.value)} placeholder="Architecture decisions" /></label>
-      <label className="field">Decision prefix<input required maxLength={5} pattern="[A-Za-z]{1,5}" value={prefix} disabled={Boolean(domain) || Boolean(pending)} onChange={(event) => setPrefix(event.target.value.toUpperCase())} placeholder="ADR" /><span className="field-hint">One to five letters (A–Z). The prefix is permanent and forms identifiers such as {prefix || "ADR"}-00001-0.</span></label>
-      {error && <div className="error-notice" role="alert"><p>{error}</p>{pending && <><p>The outcome is unconfirmed. Keep this page open and retry the saved action.</p><button type="button" className="button button-secondary" disabled={busy} onClick={() => void execute(pending)}>Retry pending action</button></>}</div>}
-      <div className="dialog-actions"><button type="button" className="button button-secondary" disabled={Boolean(pending)} onClick={onClose}>Cancel</button><button type="submit" className="button button-primary" disabled={Boolean(pending)}>{busy ? "Saving…" : domain ? "Save name" : "Create domain"}</button></div>
-    </form></div>
-  </dialog>;
-}
 
 function DecisionDrawer({ projectId, selected, onSelect, onClose, onPendingChange }: { projectId: string; selected: Selection; onSelect: (selection: Selection) => void; onClose: () => void; onPendingChange: (pending: boolean) => void }) {
   const [pending, setPending] = useState(false);
