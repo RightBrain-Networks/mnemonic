@@ -1,5 +1,13 @@
 # Mnemonic validation record
 
+## Legacy eventless completion audits (0.105.1)
+
+The completion-history checker now recognizes the exact legacy eventless shape
+that migration 0019 preserves. Regression coverage exercises migrated legacy
+records through the aggregate audit and project backup restore while retaining
+rejection of inconsistent modern completion history. No completion checkpoints,
+events, generations, or reports are inferred or rewritten.
+
 ## Knowledge Graph dashboard management (0.105.0)
 
 The dashboard now separates Decision documents and Manage domains, with domain-local

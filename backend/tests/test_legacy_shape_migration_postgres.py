@@ -63,6 +63,15 @@ def _migration_module(revision: str) -> ModuleType:
     return module
 
 
+def _activity_audit_module() -> ModuleType:
+    path = BACKEND_DIR.parent / "scripts" / "audit_project_activity.py"
+    spec = importlib.util.spec_from_file_location("legacy_shape_activity_audit", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def _alembic_config(connection: Connection) -> Config:
     config = Config(str(BACKEND_DIR / "alembic.ini"))
     config.attributes["connection"] = connection
@@ -187,12 +196,84 @@ def test_legacy_row_shapes_migrate_to_head(
     with legacy_engine.connect() as connection:
         transaction = connection.begin()
         try:
+            connection.execute(text("SET TRANSACTION READ ONLY"))
             _scope_to_schema(connection, disposable_schema)
             for expectation in shape["expectations"]:
                 observed = connection.scalar(text(expectation["sql"]), identifiers)
                 assert observed == expectation["equals"], (
                     f"{shape['name']}: {expectation['description']}"
                 )
+            audit = _activity_audit_module().audit_snapshot(connection)
+            assert audit["result"] == "pass", audit["blocking_findings"]
+        finally:
+            transaction.rollback()
+
+
+@pytest.mark.parametrize(
+    ("mutation", "expected"),
+    [
+        ("UPDATE work_items SET completion_generation = 1", 1),
+        (
+            "UPDATE work_events SET event_type = 'checkpoint_added', "
+            "metadata = '{\"checkpoint_kind\": \"context\"}'::jsonb",
+            1,
+        ),
+        (
+            "UPDATE checkpoints SET kind = 'completion', completion_generation = 1",
+            2,
+        ),
+        (
+            "WITH extra AS (INSERT INTO checkpoints "
+            "(id, work_item_id, kind, prompt, source_client, source_session_id) "
+            "SELECT gen_random_uuid(), id, 'context', 'Unpaired completion event.' "
+            ", 'pytest', 'corrupt-history' "
+            "FROM work_items RETURNING id, work_item_id) "
+            "INSERT INTO work_events (project_id, work_item_id, event_type, actor_kind, "
+            "origin, checkpoint_id, metadata, created_at) "
+            "SELECT work.project_id, work.id, 'work_completed', 'unattributed', "
+            "'backfill', extra.id, '{}'::jsonb, work.created_at FROM extra "
+            "JOIN work_items work ON work.id = extra.work_item_id",
+            1,
+        ),
+    ],
+    ids=("nonzero-generation", "no-backfill-proof", "checkpoint-only", "event-only"),
+)
+def test_eventless_completion_audit_exception_requires_exact_legacy_history(
+    legacy_engine: Engine, disposable_schema: str, mutation: str, expected: int,
+):
+    _stage_shape(legacy_engine, disposable_schema, _shape("done-before-the-event-timeline"))
+    _upgrade_to_head(legacy_engine, disposable_schema)
+    audit = _activity_audit_module()._legacy()
+    with legacy_engine.connect() as connection:
+        transaction = connection.begin()
+        try:
+            _scope_to_schema(connection, disposable_schema)
+            assert audit._phase11_batched_generation_violation_count(connection) == 0
+            for table in ("work_items", "work_events", "checkpoints"):
+                connection.execute(text(f"ALTER TABLE {table} DISABLE TRIGGER USER"))
+            # Corruption is injected only inside this rolled-back transaction.
+            connection.execute(text(mutation))
+            assert audit._phase11_batched_generation_violation_count(connection) == expected
+        finally:
+            transaction.rollback()
+
+
+def test_historical_completion_episode_cannot_be_reclassified_as_eventless(
+    legacy_engine: Engine, disposable_schema: str,
+):
+    _stage_shape(
+        legacy_engine, disposable_schema, _shape("completion-checkpoint-before-the-event-timeline")
+    )
+    _upgrade_to_head(legacy_engine, disposable_schema)
+    audit = _activity_audit_module()._legacy()
+    with legacy_engine.connect() as connection:
+        transaction = connection.begin()
+        try:
+            _scope_to_schema(connection, disposable_schema)
+            assert audit._phase11_batched_generation_violation_count(connection) == 0
+            connection.execute(text("ALTER TABLE work_items DISABLE TRIGGER USER"))
+            connection.execute(text("UPDATE work_items SET completion_generation = 0"))
+            assert audit._phase11_batched_generation_violation_count(connection) == 1
         finally:
             transaction.rollback()
 

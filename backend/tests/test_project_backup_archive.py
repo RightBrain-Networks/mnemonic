@@ -32,6 +32,14 @@ from .conftest import _catalog_digest, _disposable_schema
 from .test_artifacts_postgres import headers, upload
 from .test_duplicate_handling_postgres import merge_work
 from .test_human_gates_postgres import gate_path, gate_request
+from .test_legacy_shape_migration_postgres import (
+    _engine_for_schema,
+    _shape,
+    _stage_shape,
+    _upgrade_to_head,
+)
+from .test_legacy_shape_migration_postgres import disposable_schema as disposable_schema
+from .test_legacy_shape_migration_postgres import legacy_engine as legacy_engine
 from .test_relationships_postgres import add_relationship, relationship_payload
 from .test_work_item_moves_postgres import _move_payload
 from .test_work_items_postgres import create_work
@@ -86,6 +94,50 @@ def test_roundtrip_preserves_other_project_and_exact_receipts(api, project, work
     assert replay.status_code == 201, replay.text
     assert replay.json() == created
     create_work(api, project, work_payload, title="Global identity advances after restore")
+
+
+def test_roundtrip_preserves_legacy_done_without_inventing_completion_history(
+    legacy_engine, disposable_schema,
+):
+    identifiers = _stage_shape(
+        legacy_engine, disposable_schema, _shape("done-before-the-event-timeline"),
+    )
+    _upgrade_to_head(legacy_engine, disposable_schema)
+    engine = _engine_for_schema(legacy_engine, disposable_schema)
+    project = {"id": identifiers["project_id"]}
+    try:
+        original = _snapshot(engine, project)
+        content = _export(engine, project)
+        restore_project(engine, UUID(project["id"]), io.BytesIO(content))
+        restored = _snapshot(engine, project)
+        original["project_activity_heads"] = restored["project_activity_heads"]
+        assert restored == original
+        work = restored["work_items"][0]
+        assert work["status"] == "done" and work["completion_generation"] == 0
+        assert [row["kind"] for row in restored["checkpoints"]] == ["context"]
+        assert [(row["event_type"], row["origin"]) for row in restored["work_events"]] == [
+            ("work_created", "backfill"),
+        ]
+    finally:
+        engine.dispose()
+
+
+def test_restore_rejects_modern_done_without_completion_history_atomically(
+    api, project, work_payload, postgres_engine,
+):
+    create_work(api, project, work_payload)
+    original = _snapshot(postgres_engine, project)
+    content = _export(postgres_engine, project)
+
+    def forge_done(_header, rows):
+        rows["work_items"][0]["status"] = "done"
+
+    with pytest.raises(BackupError) as error:
+        restore_project(
+            postgres_engine, UUID(project["id"]), io.BytesIO(_rewrite(content, forge_done)),
+        )
+    assert error.value.code == "backup_integrity_conflict"
+    assert _snapshot(postgres_engine, project) == original
 
 
 def test_restore_missing_project_from_archive(api, project, postgres_engine):

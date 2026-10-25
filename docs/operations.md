@@ -1,5 +1,11 @@
 # Operating Mnemonic
 
+Release 0.105.1 aligns completion-history audits and project backup validation
+with the legacy eventless completion shape explicitly preserved by migration
+0019. Historical records remain unchanged; inconsistent modern completions
+remain invalid. This patch adds no migration or configuration change. Plugin
+0.67.0 and Alembic `0065_knowledge_management` are unchanged.
+
 Release 0.105.0 and plugin 0.67.0 split Knowledge graph into Decision documents
 and Manage domains. Migration `0065_knowledge_management` adds domain-local review
 priorities, deletion tombstones and an immutable archive of removed graph edges.
