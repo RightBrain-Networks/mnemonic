@@ -4,9 +4,12 @@
 
 **`mnemonic`** is a single-user, self-hosted coordination plane for LLM coding agents. Its core thesis: agent sessions are temporary, failure-prone, and locally smart but globally blind. Durable work should live in a *work graph* that survives sessions, rather than in Markdown scratch files, suggested task chips, or an issue tracker flooded with AI-generated tickets. With a strong human-in-the-loop philosophy, it is designed to increase the code quality and throughput of experienced developers using AI, rather than replace their thinking.
 
-The project is a Docker Compose stack that combines a durable backend (*PostgreSQL*) and a RESTful API (*FastAPI*). The API has two consumers: a human-facing, web browser-based dashboard (*React*) and a LLM-facing MCP server. The MCP server ships with preconfigured agent skills so your agent can automatically discover how to interact with `mnemonic`. 
+Additionally, `mnemonic` maintains a *knowledge graph* containing a versioned history of decisions made by both the human operator and agents. When a decision changes, any previously written code that was downstream of those decision is automatically discoverable. No more "grepping and hoping" when product requirements shift, even on a large codebase.
 
 Tested with Claude Code, OpenAI Codex, and OpenCode. Probably works with any similar platform with a MCP client (Cursor, etc). It is designed for a single, local (human) user and supports multiple, concurrent development projects.
+
+### Tech stack
+The project is a Docker Compose stack that combines a durable backend (*PostgreSQL*) and a RESTful API (*FastAPI*). The API has two consumers: a human-facing, web browser-based dashboard (*React*) and a LLM-facing MCP server. The MCP server ships with preconfigured agent skills so your agent can automatically discover how to interact with `mnemonic`. 
 
 ## Is `mnemonic` right for your project?
 
@@ -52,7 +55,7 @@ For non-blocking FYIs, the *"Summaries"* list contain simplified, plain-language
 
 ## Other key features
 
- - **Project-scoped knowledge graph** -- Decisions (both human and clanker) are recorded in Markdown *decision documents* that are centralized, versioned, and saved in the database. Every PR and work item cites the decisions it relied upon when authoring code. This allows you (and agents) to bidirectionally trace the provenance of decisions up and down the tree: 
+ - **Project-scoped knowledge graph** -- Decisions (both human and clanker) are recorded in Markdown *decision documents* that are centralized, versioned, and saved in the database. Every PR and work item cites the decisions it relied upon when authoring code. This allows you (and agents) to bidirectionally trace the provenance of decisions up and down the graph: 
 
    - *"What information did the agent rely upon to decide to implement X instead of Y here?"* 
    - *"If I were to change my mind and decide this app needed to support multiple users, what downstream parts of the architecture needs to be revisited?"*
