@@ -7,8 +7,7 @@ from datetime import UTC, datetime
 from typing import cast
 from uuid import UUID
 
-from fastapi.encoders import jsonable_encoder
-from sqlalchemy import ColumnElement, delete, or_, select, text
+from sqlalchemy import ColumnElement, delete, func, or_, select, text
 from sqlalchemy.orm import Session
 
 from mnemonic_api.errors import conflict
@@ -174,12 +173,14 @@ def _check_preview(preview: KnowledgeDeletionPreview, payload: KnowledgeDeletion
 def _remove_edges(database: Session, document_ids: list[UUID], deleted_at: datetime) -> None:
     for _, model, predicate in _edge_selections(document_ids):
         table = model.__table__
-        for row in database.execute(select(table).where(predicate)).mappings():
-            values = jsonable_encoder(dict(row))
+        # Preserve PostgreSQL's exact JSON spelling for the immutable-evidence guard,
+        # including timestamp fractions that Python's ISO encoder pads with zeros.
+        rows = select(func.to_jsonb(table.table_valued())).where(predicate)
+        for values in database.scalars(rows):
             key = {column.name: values[column.name] for column in table.primary_key.columns}
             database.add(KnowledgeDeletedEdge(
                 receipt_id=database.info["client_operation_receipt_id"],
-                project_id=row["project_id"], table_name=table.name,
+                project_id=UUID(values["project_id"]), table_name=table.name,
                 edge_key=hashlib.sha256(json.dumps(key, sort_keys=True).encode()).hexdigest(),
                 row_data=values, deleted_at=deleted_at,
             ))

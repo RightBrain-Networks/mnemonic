@@ -3,16 +3,18 @@
 import io
 import json
 import tarfile
+from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
 import pytest
-from sqlalchemy import text
+from sqlalchemy import event, text
 from sqlalchemy.exc import DBAPIError
 
 from mnemonic_api.artifact_storage import ArtifactStorage
 from mnemonic_api.impact_integrity import IMPACT_FINDINGS
 from mnemonic_api.knowledge_deletion_integrity import DELETION_FINDINGS, historical_graph_checks
 from mnemonic_api.knowledge_integrity import KNOWLEDGE_FINDINGS
+from mnemonic_api.models import DecisionCommitMapping, DecisionScope
 from mnemonic_backup.archive import restore_project
 
 from .test_knowledge_postgres import domain, path, put, put_body
@@ -37,6 +39,22 @@ def deletion_body(snapshot, *, acknowledge=True):
     key = "expected_revision" if snapshot["decision_id"] else "expected_version"
     return {key: snapshot[key], "expected_preview": snapshot["preview_token"],
             "acknowledge_relationships": acknowledge, "client_operation_id": str(uuid4())}
+
+
+@pytest.fixture
+def fractional_edge_timestamps():
+    def assign_timestamp(_mapper, _connection, target):
+        # PostgreSQL's JSON timestamp trims the final zero; Python isoformat does not.
+        target.created_at = datetime.now(UTC).replace(microsecond=123450)
+
+    models = (DecisionScope, DecisionCommitMapping)
+    for model in models:
+        event.listen(model, "before_insert", assign_timestamp)
+    try:
+        yield
+    finally:
+        for model in models:
+            event.remove(model, "before_insert", assign_timestamp)
 
 
 def test_human_upload_edit_replace_yields_to_agent_revision(api, project):
@@ -94,7 +112,9 @@ def test_export_and_download_include_exact_content_and_metadata(api, project):
     assert pinned.content == content.encode()
 
 
-def test_document_deletion_removes_edges_archives_proof_and_replays(api, project, postgres_engine):
+def test_document_deletion_removes_edges_archives_proof_and_replays(
+    api, project, postgres_engine, fractional_edge_timestamps,
+):
     target = domain(api, project)
     first = put(api, project, put_body(target, "delete-me marker"))["decision"]
     second = put(api, project, put_body(target, "Dependent", related_decision_ids=[
