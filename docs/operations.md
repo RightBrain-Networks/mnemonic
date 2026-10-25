@@ -3,7 +3,9 @@
 Release 0.105.1 aligns completion-history audits and project backup validation
 with the legacy eventless completion shape explicitly preserved by migration
 0019. Historical records remain unchanged; inconsistent modern completions
-remain invalid. This patch adds no migration or configuration change. Plugin
+remain invalid. The 0065 audit catalog also retains previously accepted definitions
+for schema objects that migration 0065 does not change. This patch adds no migration
+or configuration change. Plugin
 0.67.0 and Alembic `0065_knowledge_management` are unchanged.
 
 Release 0.105.0 and plugin 0.67.0 split Knowledge graph into Decision documents

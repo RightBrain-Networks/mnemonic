@@ -6,7 +6,9 @@ The completion-history checker now recognizes the exact legacy eventless shape
 that migration 0019 preserves. Regression coverage exercises migrated legacy
 records through the aggregate audit and project backup restore while retaining
 rejection of inconsistent modern completion history. No completion checkpoints,
-events, generations, or reports are inferred or rewritten.
+events, generations, or reports are inferred or rewritten. The 0065 catalog retains
+accepted historical definitions for unchanged schema objects while rejecting unknown
+definitions and obsolete definitions of objects the migration replaces.
 
 ## Knowledge Graph dashboard management (0.105.0)
 
