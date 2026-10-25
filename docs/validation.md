@@ -1,5 +1,21 @@
 # Mnemonic validation record
 
+## Review event history pages (0.104.0)
+
+The event-list SQL now emits all four stored review/follow-up reference fields,
+matching recall without changing strict event validation or stored history.
+The new PostgreSQL regression failed before the correction. All 58 focused
+backend checks pass, covering cold/warm reviews, follow-up answers, supersession,
+both sort orders, every represented event-type filter and one-row pagination.
+Backend/MCP Ruff and type checks, the OpenAPI snapshot and the Node 24 release
+manifest check pass.
+
+A separate read-only transaction executed the corrected function against the
+original FishFood work item: all 28 events passed 234 page/filter/order checks,
+with the recent 20 matching recall. This verified the candidate query against
+retained production data without deploying or interrupting production services.
+No migration, data repair or plugin change is needed.
+
 ## Explicit decision-change inheritance (0.103.0)
 
 Fresh work can retain its true discovery origin while excluding that exact edge

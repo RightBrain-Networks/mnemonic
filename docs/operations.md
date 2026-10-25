@@ -1,5 +1,11 @@
 # Operating Mnemonic
 
+Release 0.104.0 repairs event-history pages containing review leases, code reviews
+and post-completion follow-ups. The list query now returns the same stored
+reference fields as recall. Validation remains strict, with no migration,
+backfill, configuration change or plugin update. Alembic remains at
+`0064_work_change_inheritance`.
+
 Release 0.103.0 and plugin 0.66.0 let newly created work exclude its declared
 discovery edge from future decision-change inheritance with an explicit reason.
 Migration `0064_work_change_inheritance` adds an immutable declaration table and
