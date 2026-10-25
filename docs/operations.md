@@ -1,5 +1,18 @@
 # Operating Mnemonic
 
+Release 0.105.0 and plugin 0.67.0 split Knowledge graph into Decision documents
+and Manage domains. Migration `0065_knowledge_management` adds domain-local review
+priorities, deletion tombstones and an immutable archive of removed graph edges.
+Existing domain review settings retain their effective behavior; newly created
+domains default to off with priority 40. Project-wide controls are retired.
+Human document revisions use optimistic concurrency and never overwrite a stale
+revision. Domain exports include current Markdown documents and JSON sidecars.
+Deletion is available only through the dashboard, with a fresh relationship preview
+and conditional acknowledgement. Built-in PDR records remain managed by Needs Attention.
+Back up before upgrading API, worker, MCP and dashboard together. Deploying these
+changes requires explicit production-operation authorization. Downgrade refuses
+retained tombstones, deletion receipts or nondefault local review settings.
+
 Release 0.104.0 repairs event-history pages containing review leases, code reviews
 and post-completion follow-ups. The list query now returns the same stored
 reference fields as recall. Validation remains strict, with no migration,
@@ -289,7 +302,7 @@ Migration `0041_artifact_passages` adds rebuildable artifact passage caches; fol
 Explicit [multi-project search](multi-project-search.md) shares one bounded corpus
 and reports coverage for every selected project.
 Inventory exactly 78 MCP tools,
-25 protected MCP writes, 32 REST receipt kinds, 25 protected browser mutations,
+25 protected MCP writes, 34 REST receipt kinds, 28 protected browser mutations,
 and 24 work-event types. Keep older writers stopped: fresh closeouts still
 require a report and operation UUID, fresh work starts Pending, settings use
 revision checks, and relationship endpoint identity, adjacency, graph guards,

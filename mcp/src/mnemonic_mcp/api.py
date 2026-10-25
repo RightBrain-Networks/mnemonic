@@ -38,6 +38,8 @@ class TransportEffect(StrEnum):
 
 
 _APPLICATION_ERRORS = {
+    "knowledge_domain_deleted": "knowledge_domain_deleted: This knowledge domain was deleted by a human. Its identity cannot be reused.",
+    "decision_deleted": "decision_deleted: This decision document was deleted by a human. Its identity cannot be reused.",
     "knowledge_domain_not_found": "Decision domain not found in this project; list_knowledge_domains.",
     "knowledge_domain_name_conflict": "Domain name already exists; list_knowledge_domains before a new intent.",
     "knowledge_domain_prefix_conflict": "Domain prefix already exists and cannot change; list_knowledge_domains.",
@@ -523,6 +525,14 @@ def _application_error_message(code: str, context: dict[str, object]) -> str | N
     return _APPLICATION_ERRORS.get(code)
 
 
+def _knowledge_deletion_message(code: str, context: dict[str, object]) -> str | None:
+    if code not in {"knowledge_domain_deleted", "decision_deleted"}:
+        return None
+    message = _APPLICATION_ERRORS[code]
+    deleted_at = _safe_expiry(context.get("deleted_at"))
+    return message + (f" Deleted at {deleted_at}." if deleted_at else "")
+
+
 def _dependency_error_message(code: str, context: dict[str, object]) -> str:
     if code == "work_children_open":
         child = _safe_uuid(context.get("child_work_item_id"))
@@ -673,7 +683,8 @@ def _raise_application_error_response(
             "Mnemonic rejected the safe read because credential or capability material appeared "
             "in caller context. Remove it and retry with truthful caller context."
         )
-    message = _application_error_message(error_code, error_context)
+    message = (_knowledge_deletion_message(error_code, error_context)
+               or _application_error_message(error_code, error_context))
     if message is not None:
         if response.status_code == 422:
             raise InputValidationError(message)

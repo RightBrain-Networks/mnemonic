@@ -1,5 +1,5 @@
 import { decodeDecisionRevisionChange, type DecisionRevisionChange } from "./decision-changes.ts";
-import { validDomainDecisionReviewSetting, type DomainDecisionReviewSetting } from "./automatic-decision-reviews.ts";
+import { validDomainDecisionReviewSetting, validDecisionReviewPriority, type DomainDecisionReviewSetting } from "./automatic-decision-reviews.ts";
 import { ApiError, detailMessage } from "./api.ts";
 import { readBoundedJson } from "./bounded-json.ts";
 import { exactKeys, finiteInteger, objectValue, sameUuid, validUuid } from "./wire-guards.ts";
@@ -10,6 +10,7 @@ export type KnowledgeDomain = {
   id: string; project_id: string; name: string; prefix: string; version: number;
   created_at: string; updated_at: string; decision_count: number;
   automatic_decision_reviews: DomainDecisionReviewSetting;
+  decision_review_priority: number;
   is_product_decision_domain?: boolean;
 };
 export type Decision = {
@@ -47,7 +48,7 @@ export function knowledgeLibraryPath(projectId: string, decisionId?: string, rev
   const params = new URLSearchParams({ project: projectId });
   if (decisionId) params.set("decision", decisionId);
   if (revision !== undefined) params.set("revision", String(revision));
-  return `/knowledge?${params}`;
+  return `/knowledge/decisions?${params}`;
 }
 
 export function normalizeDomainPrefix(value: string) {
@@ -69,6 +70,7 @@ export function decodeDomain(value: unknown, projectId: string): KnowledgeDomain
     || !finiteInteger(item.decision_count) || typeof item.created_at !== "string"
     || typeof item.updated_at !== "string"
     || !validDomainDecisionReviewSetting(item.automatic_decision_reviews)
+    || !validDecisionReviewPriority(item.decision_review_priority)
     || item.is_product_decision_domain !== undefined && typeof item.is_product_decision_domain !== "boolean"
     || item.is_product_decision_domain === true && item.prefix !== "PDR") invalid();
   return item as KnowledgeDomain;

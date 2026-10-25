@@ -17,6 +17,7 @@ import TranscriptLibrary from "@/components/transcript-library";
 import { transcriptLibraryPath } from "@/lib/transcripts";
 import ArtifactLibrary from "@/components/artifact-library";
 import KnowledgeLibrary from "@/components/knowledge-library";
+import KnowledgeDomains from "@/components/knowledge-domains";
 import { knowledgeLibraryPath } from "@/lib/knowledge";
 import { completionDomainsOptions, invalidateKnowledgeReads } from "@/lib/knowledge-queries";
 import { ARTIFACT_DEFAULT_MAX_BYTES, artifactLibraryPath, artifactLocation } from "@/lib/artifacts";
@@ -335,7 +336,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
   const view = pathname.startsWith("/settings/") ? "settings"
     : pathname === "/summaries" ? "summaries"
       : pathname === "/attention" ? "attention"
-        : pathname === "/knowledge" ? "knowledge"
+        : (pathname === "/knowledge" || pathname.startsWith("/knowledge/")) ? "knowledge"
         : pathname === "/artifacts" ? "artifacts"
           : pathname === "/transcripts" ? "transcripts"
             : pathname === "/code-reviews" ? "reviews"
@@ -887,7 +888,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
       clearSelection();
     }
     if ((view === "knowledge" || view === "artifacts" || view === "transcripts") && id !== activeId) {
-      router.history.replace(view === "knowledge" ? knowledgeLibraryPath(id) : view === "transcripts" ? transcriptLibraryPath(id) : artifactLibraryPath(id), undefined, { ignoreBlocker: true });
+      router.history.replace(view === "knowledge" ? (pathname === "/knowledge/domains" ? `/knowledge/domains?project=${id}` : knowledgeLibraryPath(id)) : view === "transcripts" ? transcriptLibraryPath(id) : artifactLibraryPath(id), undefined, { ignoreBlocker: true });
     }
     if ((view === "library" || view === "reviews") && id !== activeId) {
       router.history.replace(`${pathname}?project=${id}`, undefined, { ignoreBlocker: true });
@@ -2865,13 +2866,20 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
           icon={<Icon name="library" />} onNavigate={blockNavigationWhilePending} />
         <Link className={`nav-item ${view === "attention" ? "active" : ""}`} href="/attention" aria-current={view === "attention" ? "page" : undefined} onClick={blockNavigationWhilePending}><Icon name="attention" /><span>Needs Attention</span>{attentionCount !== null && attentionCount > 0 && <span className="attention-nav-count" aria-label={`${attentionCount} unresolved human question${attentionCount === 1 ? "" : "s"}`}>{attentionCount}</span>}<Icon name="arrow" size={15} /></Link>
         <Link className={`nav-item ${view === "summaries" ? "active" : ""}`} href="/summaries" aria-current={view === "summaries" ? "page" : undefined} onClick={blockNavigationWhilePending}><Icon name="box" /><span>Summaries</span>{reportCount !== null && reportCount !== "0" && <span className="summary-nav-count" aria-label={`${reportCount} undismissed summaries`}>{reportCount}</span>}<Icon name="arrow" size={15} /></Link>
+        <SidebarNavGroup className="knowledge-nav" label="Knowledge graph"
+          storageKey={dashboardStorageKeys.knowledgeMenu}
+          activeId={view === "knowledge" ? (pathname === "/knowledge/domains" ? "domains" : "decisions") : undefined}
+          items={[
+            { id: "decisions", label: "Decision documents", href: activeId ? knowledgeLibraryPath(activeId) : "/knowledge/decisions" },
+            { id: "domains", label: "Manage domains", href: `/knowledge/domains${activeId ? `?project=${activeId}` : ""}` }
+          ]}
+          icon={<Icon name="library" />} onNavigate={blockNavigationWhilePending} />
         <SidebarNavGroup className="resources-nav" label="Resources"
           storageKey={dashboardStorageKeys.resourcesMenu}
-          activeId={view === "knowledge" || view === "artifacts" || view === "transcripts" ? view : undefined}
+          activeId={view === "artifacts" || view === "transcripts" ? view : undefined}
           items={[
             { id: "artifacts", label: "Artifacts", href: activeId ? artifactLibraryPath(activeId) : "/artifacts" },
-            { id: "transcripts", label: "Transcripts", href: activeId ? transcriptLibraryPath(activeId) : "/transcripts" },
-            { id: "knowledge", label: "Knowledge graph", href: activeId ? knowledgeLibraryPath(activeId) : "/knowledge" }
+            { id: "transcripts", label: "Transcripts", href: activeId ? transcriptLibraryPath(activeId) : "/transcripts" }
           ]}
           icon={<Icon name="artifacts" />} onNavigate={blockNavigationWhilePending} />
         <ProjectSettingsNav section={view === "settings" ? settingsSection : undefined} icon={<Icon name="settings" />} onNavigate={blockNavigationWhilePending} />
@@ -2883,7 +2891,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
     {applicationSettingsOpen && <ApplicationSettings onClose={() => setApplicationSettingsOpen(false)} />}
     <main id="main-content" className="main-content">
       <header className="topbar">
-        <div className="breadcrumb"><span>Workspace</span><span className="breadcrumb-slash">/</span><span>{project?.name || "Getting started"}</span><span className="breadcrumb-slash">/</span><span>{view === "dashboard" ? "Dashboard" : view === "library" ? "Work items" : view === "reviews" ? "Code reviews" : view === "transcripts" ? "Transcripts" : view === "knowledge" ? "Knowledge graph" : view === "artifacts" ? "Artifacts" : view === "settings" ? settingsPage.label : view === "summaries" ? "Summaries" : "Needs Attention"}</span></div>
+        <div className="breadcrumb"><span>Workspace</span><span className="breadcrumb-slash">/</span><span>{project?.name || "Getting started"}</span><span className="breadcrumb-slash">/</span><span>{view === "dashboard" ? "Dashboard" : view === "library" ? "Work items" : view === "reviews" ? "Code reviews" : view === "transcripts" ? "Transcripts" : view === "knowledge" ? (pathname === "/knowledge/domains" ? "Manage domains" : "Decision documents") : view === "artifacts" ? "Artifacts" : view === "settings" ? settingsPage.label : view === "summaries" ? "Summaries" : "Needs Attention"}</span></div>
         <div className="topbar-actions">
           {project && <button className="button button-primary" type="button" disabled={createWorkMutationBlocked} onClick={openWorkDialog}><Icon name="plus" size={16} />New work</button>}
           <div className={`sync-status sync-status-${liveSyncStatus}`} role="status" aria-live="polite"><span className="sync-status-dot" />{liveSyncLabels[liveSyncStatus]}</div>
@@ -2906,9 +2914,9 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
           {projectsError && <ErrorNotice message={projectsError}><button className="button button-secondary" onClick={() => refreshProjects()}>Try again</button></ErrorNotice>}
           {project ? <TranscriptLibrary key={`${project.id}:${artifactRoute.workItemId ?? ""}`} projectId={project.id} onPendingChange={setTranscriptPending} /> : <div className="loading-state" role="status">{projectsLoading ? "Opening your workspace…" : "Select or create a project to view transcripts."}</div>}
         </> : view === "knowledge" ? <>
-          <DashboardViewChrome eyebrow="DECISIONS AND THE CODE THEY INFORM" title="Knowledge graph" description={project ? `Explore decisions, their history, and their implementation in the “${project.name}” project.` : "Choose a project to explore its decisions."} />
+          <DashboardViewChrome eyebrow="DECISIONS AND THE CODE THEY INFORM" title={pathname === "/knowledge/domains" ? "Manage domains" : "Decision documents"} description={pathname === "/knowledge/domains" ? "Organize decisions, export documents, and set review policies for each knowledge domain." : project ? `Explore decisions, their history, and their implementation in the “${project.name}” project.` : "Choose a project to explore its decisions."} />
           {projectsError && <ErrorNotice message={projectsError}><button className="button button-secondary" onClick={() => refreshProjects()}>Try again</button></ErrorNotice>}
-          {project ? <KnowledgeLibrary key={project.id} projectId={project.id} query={route.query} onPendingChange={setKnowledgePending} /> : <div className="loading-state" role="status">{projectsLoading ? "Opening your workspace…" : "Select or create a project to view decisions."}</div>}
+          {project ? pathname === "/knowledge/domains" ? <KnowledgeDomains key={project.id} projectId={project.id} onPendingChange={setKnowledgePending} /> : <KnowledgeLibrary key={project.id} projectId={project.id} repositoryUrl={project.repository_url} query={route.query} onPendingChange={setKnowledgePending} /> : <div className="loading-state" role="status">{projectsLoading ? "Opening your workspace…" : "Select or create a project to view decisions."}</div>}
         </> : view === "artifacts" ? <>
           <DashboardViewChrome eyebrow="FILES THAT STAY WITH YOUR WORK — BUT OUT OF YOUR CODEBASE" title="Artifacts" description={project ? `Store documents, binaries and other files in the “${project.name}” project.` : "Choose a project to open its artifact library."} />
           {projectsError && <ErrorNotice message={projectsError}><button className="button button-secondary" onClick={() => refreshProjects()}>Try again</button></ErrorNotice>}
@@ -2935,7 +2943,6 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
               backupMaximumBytes={backupMaxBytes}
               onBackupPendingChange={handleBackupPendingChange}
               onPromptPendingChange={setPromptPending}
-              onKnowledgePendingChange={setKnowledgePending}
             />}
         </> : view === "summaries" ? <>
           <DashboardViewChrome eyebrow="WORK RESULTS FOR PEOPLE" title="Summaries"

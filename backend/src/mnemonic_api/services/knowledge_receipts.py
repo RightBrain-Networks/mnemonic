@@ -33,9 +33,16 @@ def created_domain_matches(
         and result.name == request.name
         and result.prefix == request.prefix
         and result.version == 1
-        and (result.automatic_decision_reviews == request.automatic_decision_reviews
+        and (request.automatic_decision_reviews is MISSING
+             and (result.automatic_decision_reviews is MISSING
+                  or result.automatic_decision_reviews in {"off", "inherit"})
+             or result.automatic_decision_reviews == request.automatic_decision_reviews
              or result.automatic_decision_reviews is MISSING
              and request.automatic_decision_reviews == "inherit")
+        and (request.decision_review_priority is MISSING
+             and (result.decision_review_priority is MISSING
+                  or result.decision_review_priority == 40)
+             or result.decision_review_priority == request.decision_review_priority)
     )
 
 
@@ -51,7 +58,11 @@ def renamed_domain_matches(
         and str(result.id) == target.get("domain_id")
         and (request.name is MISSING or result.name == request.name)
         and (request.automatic_decision_reviews is MISSING
+             and (result.automatic_decision_reviews is MISSING
+                  or result.automatic_decision_reviews in {"off", "inherit"})
              or result.automatic_decision_reviews == request.automatic_decision_reviews)
+        and (request.decision_review_priority is MISSING
+             or result.decision_review_priority == request.decision_review_priority)
         and result.version in {request.expected_version, request.expected_version + 1}
     )
 

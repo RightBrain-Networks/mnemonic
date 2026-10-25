@@ -57,6 +57,7 @@ def _columns(database: Session):
 def _scope(request: SearchRequest, projects: ProjectSelection):
     filters = request.filters.decisions
     clauses = [DecisionRevision.project_id.in_(selected_project_ids(projects)),
+               DecisionDocument.deleted_at.is_(None), KnowledgeDomain.deleted_at.is_(None),
                *date_conditions(filters, DecisionDocument.created_at, DecisionRevision.created_at)]
     if not filters.all_revisions:
         clauses.append(DecisionRevision.revision == DecisionDocument.current_revision)

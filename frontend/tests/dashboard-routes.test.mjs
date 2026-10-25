@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFile } from "node:fs/promises";
 import { canonicalDashboardPath, dashboardPaths, parseDashboardSearch, savedWorkRedirect, stringifyDashboardSearch } from "../lib/dashboard-routes.ts";
 
-test("dashboard routes expose the twelve current paths and exclude the retired settings root", () => {
-  assert.equal(new Set(dashboardPaths).size, 12);
+test("dashboard routes expose the fourteen current paths and exclude the retired settings root", () => {
+  assert.equal(new Set(dashboardPaths).size, 14);
   assert.equal(dashboardPaths.includes("/settings"), false);
   assert.equal(dashboardPaths.includes("/missing"), false);
 });
@@ -35,4 +36,16 @@ test("router search serialization keeps strings, empty values and repeated param
   assert.equal(stringifyDashboardSearch(parsed), query);
   assert.equal(stringifyDashboardSearch({}), "");
   assert.equal(parseDashboardSearch("?__proto__=value").__proto__, "value");
+});
+
+test("nginx serves every dashboard route directly while unknown knowledge paths stay closed", async () => {
+  const nginx = await readFile(new URL("../nginx.conf", import.meta.url), "utf8");
+  const routeLine = nginx.split("\n").find((line) => line.includes("location ~ ^/(?:work-items"));
+  const pattern = new RegExp(routeLine.trim().slice("location ~ ".length, -2).trim());
+  for (const path of dashboardPaths.filter((path) => path !== "/")) {
+    assert.ok(pattern.test(path), `${path} must support a direct page load`);
+    assert.ok(pattern.test(`${path}/`), `${path}/ must support a direct page load`);
+  }
+  assert.equal(pattern.test("/knowledge/private"), false);
+  assert.equal(pattern.test("/settings"), false);
 });

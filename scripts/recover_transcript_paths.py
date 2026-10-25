@@ -40,7 +40,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
-HEAD = "0064_work_change_inheritance"
+HEAD = "0065_knowledge_management"
 MAX_MANIFEST_BYTES = 8 * 1024 * 1024
 
 

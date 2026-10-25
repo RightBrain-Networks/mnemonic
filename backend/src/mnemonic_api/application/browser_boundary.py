@@ -18,6 +18,7 @@ from starlette.requests import ClientDisconnect, Request
 from starlette.responses import Response
 from starlette.types import ASGIApp, Receive, Scope, Send
 
+from mnemonic_api.application.browser_file_transport import execute_file_request
 from mnemonic_api.application.browser_policy import (
     DEFINITIVE_PROXY_ERRORS,
     allowed_query_keys,
@@ -27,6 +28,7 @@ from mnemonic_api.application.browser_policy import (
     trusted_request,
     valid_query_values,
 )
+from mnemonic_api.application.browser_policy.routes import route_name
 from mnemonic_api.application.browser_policy.values import JS_WHITESPACE
 from mnemonic_api.application.browser_responses import (
     UNREACHABLE,
@@ -35,6 +37,7 @@ from mnemonic_api.application.browser_responses import (
     failure,
 )
 from mnemonic_api.application.browser_routes import _ADMITTED, BROWSER_PREFIX
+from mnemonic_api.application.knowledge_file_transport import knowledge_file_policy
 from mnemonic_api.application.state import settings_of
 
 
@@ -191,6 +194,14 @@ class BrowserBoundaryMiddleware:
         request = Request(scope, receive)
         try:
             _admit(request, route)
+            if route_name(route, request.method) in {
+                "knowledge_domain_export", "knowledge_decision_download",
+            }:
+                await execute_file_request(
+                    self.app, _domain_scope(scope, route), receive, send,
+                    policy=knowledge_file_policy(), pending_tasks=self.in_flight,
+                )
+                return
             timeout = request_timeout(route, request.method, request.query_params)
             async with asyncio.timeout(timeout):
                 body = await _bounded_body(request, route)

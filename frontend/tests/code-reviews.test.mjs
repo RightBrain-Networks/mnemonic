@@ -459,8 +459,7 @@ test("settings parse exact strict thresholds and independent fields", () => {
     code_review_required_min_priority: 100,
     code_review_optional_min_priority: 0,
     allow_remediation_code_reviews: false,
-    automatic_decision_reviews: false, decision_review_priority: 40,
-  };
+      };
   assert.deepEqual(decodeProjectSettings(settings, f.project), settings);
   for (const change of [
     { code_review_required_min_priority: true },

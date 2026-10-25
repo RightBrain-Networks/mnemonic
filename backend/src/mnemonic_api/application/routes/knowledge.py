@@ -99,8 +99,8 @@ def put_knowledge_decision(
     """Unicode JSON text is encoded to UTF-8 before hashing and database persistence.
 
     Fresh uploads deduplicate by domain/content hash and return the retained original
-    metadata. Explicit decision_id + expected_revision updates create a new revision
-    for changed content or metadata. Exact content/metadata repeats do not revise.
+    metadata. Explicit human saves always append a revision at expected_revision;
+    agent updates append for changed content or metadata and retain identical repeats.
     """
     return run_registered_mutation(
         "put_decision",
@@ -164,7 +164,7 @@ def append_knowledge_decision_scope(
     request: Request,
     database: Database,
 ) -> JSONResponse:
-    document, domain, pinned = knowledge.require_document(database, project_id, decision_id)
+    document, domain, pinned = knowledge.lookup_document(database, project_id, decision_id)
     if pinned is not None and pinned != payload.revision:
         raise ApplicationError(422, "decision_revision_mismatch", "Revision assertions must agree.")
     return run_registered_mutation(

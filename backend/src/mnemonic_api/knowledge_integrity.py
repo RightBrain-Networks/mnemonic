@@ -90,7 +90,8 @@ DOMAIN_REVIEW_FINDINGS = {
     "invalid_knowledge_domain_review_settings": """
         SELECT count(*) FROM knowledge_domains
         WHERE automatic_decision_reviews IS NULL
-           OR automatic_decision_reviews NOT IN ('inherit', 'on', 'off')
+           OR automatic_decision_reviews NOT IN ('on', 'off')
+           OR decision_review_priority IS NULL OR decision_review_priority NOT BETWEEN 0 AND 100
     """,
     "invalid_knowledge_domain_review_receipts": """
         SELECT count(*) FROM client_operations
@@ -99,6 +100,16 @@ DOMAIN_REVIEW_FINDINGS = {
           AND response_body ? 'automatic_decision_reviews'
           AND response_body->'automatic_decision_reviews' NOT IN
               ('"inherit"'::jsonb, '"on"'::jsonb, '"off"'::jsonb)
+    """,
+}
+
+
+LEGACY_DOMAIN_REVIEW_FINDINGS = {
+    **DOMAIN_REVIEW_FINDINGS,
+    "invalid_knowledge_domain_review_settings": """
+        SELECT count(*) FROM knowledge_domains
+        WHERE automatic_decision_reviews IS NULL
+           OR automatic_decision_reviews NOT IN ('inherit', 'on', 'off')
     """,
 }
 

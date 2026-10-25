@@ -9,6 +9,7 @@ export const dashboardStorageKeys = {
   settingsMenu: "mnemonic.settings-menu",
   tasksMenu: "mnemonic.tasks-menu",
   resourcesMenu: "mnemonic.resources-menu",
+  knowledgeMenu: "mnemonic.knowledge-menu",
   artifactContents: "mnemonic.artifact-contents",
   transcriptContents: "mnemonic.transcript-contents",
   workSplit: "mnemonic.work-split"

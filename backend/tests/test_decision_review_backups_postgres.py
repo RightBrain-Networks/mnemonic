@@ -36,9 +36,9 @@ def test_roundtrip_retains_decision_review_origin_policy_and_pinned_prompt(
     restored = context(api, project, initial["work_item"]["id"])
     assert restored["work_item"] == initial["work_item"]
     assert restored["initial_checkpoint"] == initial["initial_checkpoint"]
-    policy = api.get(f"/api/v1/projects/{project['id']}/settings").json()
-    assert policy["automatic_decision_reviews"] is True
-    assert policy["decision_review_priority"] == 41
+    domains = api.get(f"/api/v1/projects/{project['id']}/knowledge/domains").json()["items"]
+    assert all(row["automatic_decision_reviews"] == "on" for row in domains)
+    assert all(row["decision_review_priority"] == 41 for row in domains)
 
 
 def test_backup_roundtrip_retains_domain_review_override(api, project, postgres_engine):
@@ -127,7 +127,7 @@ def test_backup_cannot_forge_review_origin_or_invalid_policy(
         elif damage == "source-session":
             checkpoint["source_session_id"] = "forged-native-session"
         elif damage == "priority":
-            rows["project_settings"][0]["decision_review_priority"] = 101
+            rows["knowledge_domains"][0]["decision_review_priority"] = 101
         else:
             changes = {
                 "source-project": {"decision_project_id": str(uuid4())},

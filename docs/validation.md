@@ -1,5 +1,26 @@
 # Mnemonic validation record
 
+## Knowledge Graph dashboard management (0.105.0)
+
+The dashboard now separates Decision documents and Manage domains, with domain-local
+review settings, human revision uploads/edits/replacements, revision-pinned downloads,
+and coherent domain archives. Deletion previews pin graph contents and warn about
+active reviews, archive removed edges against durable receipts, and leave timestamped
+tombstones. Managed PDRs remain protected by the Needs Attention workflow.
+
+PostgreSQL regressions cover stale human writes, identical replacements and exact
+receipt retries, domain export metadata, orphan deletion, changed deletion previews,
+all graph edge types, active and moved impact reviews, historical receipt replay,
+MCP tombstone errors, and backup integrity after deletion. Browser tests cover desktop
+and narrow layouts, native download streaming, optimistic conflicts, counted
+confirmations, domain-local settings, direct nginx routes and sidebar navigation.
+
+Screenshots: [documents](images/knowledge-management/decision-documents-desktop.png),
+[domains](images/knowledge-management/manage-domains-desktop.png),
+[edit conflict](images/knowledge-management/edit-conflict-desktop.png),
+[deletion](images/knowledge-management/delete-domain-desktop.png),
+[narrow domains](images/knowledge-management/manage-domains-narrow.png).
+
 ## Review event history pages (0.104.0)
 
 The event-list SQL now emits all four stored review/follow-up reference fields,

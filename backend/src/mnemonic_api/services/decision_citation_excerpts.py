@@ -76,7 +76,8 @@ def hydrate_citation_excerpts(
         .select_from(KnowledgeDomain)
         .join(DecisionDocument, DecisionDocument.domain_id == KnowledgeDomain.id)
         .join(DecisionRevision, DecisionRevision.document_id == DecisionDocument.id)
-        .where(DecisionDocument.project_id == project_id, tuple_(
+        .where(DecisionDocument.project_id == project_id,
+               DecisionDocument.deleted_at.is_(None), KnowledgeDomain.deleted_at.is_(None), tuple_(
             KnowledgeDomain.prefix, DecisionDocument.ordinal, DecisionRevision.revision,
         ).in_(identities))
     ).all()
@@ -84,7 +85,11 @@ def hydrate_citation_excerpts(
                  for prefix, ordinal, revision in rows}
     result = []
     for item in candidates:
-        source = revisions[item.reference]
+        source = revisions.get(item.reference)
+        if source is None:
+            # Immutable assessment snapshots may cite a subsequently deleted decision.
+            result.append(item)
+            continue
         excerpts, truncated = citation_excerpts(source.content, item.path)
         result.append(item.model_copy(update={"citation_excerpts": CitationExcerpts(
             source_sha256=source.sha256, excerpts=excerpts, truncated=truncated,

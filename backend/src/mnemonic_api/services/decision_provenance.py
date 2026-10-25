@@ -76,9 +76,17 @@ def _matching_scopes(project_id: UUID, repository: str, commit_hash: str):
         DecisionCommitMapping.repository == repository,
         DecisionCommitMapping.merged_commit_hash == commit_hash,
     )
-    return select(DecisionScope).where(
+    return _live_scopes().where(
         DecisionScope.project_id == project_id, DecisionScope.repository == repository,
         or_(DecisionScope.commit_hash == commit_hash, DecisionScope.id.in_(mapped)),
+    )
+
+
+def _live_scopes():
+    return select(DecisionScope).join(
+        DecisionDocument, DecisionDocument.id == DecisionScope.document_id,
+    ).join(KnowledgeDomain, KnowledgeDomain.id == DecisionDocument.domain_id).where(
+        DecisionDocument.deleted_at.is_(None), KnowledgeDomain.deleted_at.is_(None),
     )
 
 
@@ -97,7 +105,7 @@ def lookup_commit(
             func.lower(DecisionCommitMapping.repository.collate("C")).in_(aliases),
             DecisionCommitMapping.merged_commit_hash == commit_hash,
         )
-        statement = select(DecisionScope).where(
+        statement = _live_scopes().where(
             DecisionScope.project_id == project_id,
             func.lower(DecisionScope.repository.collate("C")).in_(aliases),
             or_(DecisionScope.commit_hash == commit_hash, DecisionScope.id.in_(mapped)),

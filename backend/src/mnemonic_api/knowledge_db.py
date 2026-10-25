@@ -21,23 +21,30 @@ def _timestamp(name: str = "created_at") -> sa.Column:
     )
 
 
-def domain_review_policy_elements() -> list:
+def domain_review_policy_elements(*, local_policy: bool = False) -> list:
     return [
         sa.Column("automatic_decision_reviews", sa.String(7), nullable=False,
-                  server_default="inherit"),
-        sa.CheckConstraint("automatic_decision_reviews IN ('inherit','on','off')",
-                           name="automatic_decision_reviews"),
+                  server_default="off" if local_policy else "inherit"),
+        sa.CheckConstraint(
+            "automatic_decision_reviews IN ('on','off')" if local_policy else
+            "automatic_decision_reviews IN ('inherit','on','off')",
+            name="automatic_decision_reviews"),
+        *([sa.Column("decision_review_priority", sa.SmallInteger, nullable=False,
+                     server_default="40"),
+           sa.CheckConstraint("decision_review_priority BETWEEN 0 AND 100",
+                              name="decision_review_priority_range")] if local_policy else []),
     ]
 
 
-def domain_elements(*, review_policy: bool = False) -> list:
+def domain_elements(*, review_policy: bool = False, management: bool = False) -> list:
     return [
         *_identity(),
         sa.Column("name", sa.String(120), nullable=False),
         sa.Column("prefix", sa.String(5), nullable=False),
         sa.Column("version", sa.BigInteger, nullable=False, server_default="1"),
         sa.Column("next_ordinal", sa.BigInteger, nullable=False, server_default="1"),
-        *(domain_review_policy_elements() if review_policy else []),
+        *(domain_review_policy_elements(local_policy=management) if review_policy else []),
+        *([sa.Column("deleted_at", sa.DateTime(timezone=True))] if management else []),
         _timestamp(),
         _timestamp("updated_at"),
         sa.UniqueConstraint("project_id", "id", name="uq_knowledge_domains_project_id"),
@@ -49,12 +56,13 @@ def domain_elements(*, review_policy: bool = False) -> list:
     ]
 
 
-def document_elements() -> list:
+def document_elements(*, management: bool = False) -> list:
     return [
         *_identity(),
         sa.Column("domain_id", UUID, nullable=False),
         sa.Column("ordinal", sa.BigInteger, nullable=False),
         sa.Column("current_revision", sa.Integer, nullable=False),
+        *([sa.Column("deleted_at", sa.DateTime(timezone=True))] if management else []),
         _timestamp(),
         _timestamp("updated_at"),
         sa.UniqueConstraint("project_id", "id", name="uq_decision_documents_project_id"),

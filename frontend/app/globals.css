@@ -2800,3 +2800,30 @@ html[data-theme="dark"] :is(.operational-badge.planning-cycle, .dependency-cycle
 .decision-provenance-editor { display:flex; flex-direction:column; gap:12px; border-top:1px solid var(--line); margin-top:14px; padding-top:14px; }
 .job-decision-provenance { border:1px solid var(--line); border-radius:8px; padding:14px; margin:16px 0; }
 @media (max-width:640px) { .impact-candidates > li { padding:12px; } .provenance-citation-row { grid-template-columns:minmax(0,1fr) 75px; } .provenance-citation-row > button { grid-column:1/-1; justify-self:start; } }
+
+/* Decision documents and domain management share the dashboard's form/table patterns. */
+.knowledge-state-filters { margin: 0 0 20px; padding: 0 22px; flex-wrap: wrap; }
+.knowledge-row-actions { flex-wrap: wrap; min-width: 210px; max-width: 300px; }
+.knowledge-row-actions .button { min-height: 32px; padding: 5px 10px; font-size: 12px; }
+.knowledge-domain-grid { display: grid; gap: 24px; }
+.knowledge-domain-card .settings-card-heading { align-items: flex-start; }
+.knowledge-domain-count { color: var(--muted); white-space: nowrap; }
+.knowledge-domain-actions { margin: 18px 0 24px; flex-wrap: wrap; }
+.knowledge-domain-card .domain-decision-review-row { border-top: 1px solid var(--line); padding-top: 22px; }
+.knowledge-domain-card .domain-decision-review-row h3 { margin: 0 0 8px; }
+.knowledge-domain-card .domain-decision-review-controls { align-items: center; gap: 20px; flex-wrap: wrap; }
+.knowledge-domain-card .review-policy-toggle { flex: 1 1 280px; }
+.knowledge-domain-card .decision-review-priority { width: 200px; }
+.knowledge-editor-dialog { width: min(900px, calc(100vw - 32px)); max-width: 900px; }
+.knowledge-editor-metadata { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+.knowledge-editor-content { min-height: 260px; resize: vertical; }
+.knowledge-edit-conflict textarea { width: 100%; resize: vertical; }
+.knowledge-edit-conflict h3 { margin: 0; }
+.knowledge-delete-acknowledgement { display: flex; align-items: flex-start; gap: 12px; line-height: 1.5; }
+.knowledge-delete-acknowledgement input { width: auto; margin-top: 5px; flex: none; }
+.knowledge-deletion-counts { margin: 0; padding-left: 24px; }
+@media (max-width: 640px) {
+  .knowledge-editor-metadata { grid-template-columns: 1fr; }
+  .knowledge-domain-card .domain-decision-review-controls { align-items: stretch; }
+  .knowledge-domain-card .decision-review-priority { width: 100%; }
+}

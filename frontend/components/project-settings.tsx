@@ -4,7 +4,6 @@ import Link from "@/components/dashboard-link";
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import WorkLeaseSettings from "@/components/work-lease-settings";
-import AutomaticDecisionReviewSettings from "@/components/automatic-decision-review-settings";
 import CodeReviewSettingsPanel from "@/components/code-review-settings";
 import ProjectBackupsPanel from "@/components/project-backups";
 import { api, ApiError, errorMessage } from "@/lib/api";
@@ -26,7 +25,6 @@ type Props = {
   backupMaximumBytes: number;
   onBackupPendingChange: (pending: boolean) => void;
   onPromptPendingChange: (pending: boolean) => void;
-  onKnowledgePendingChange: (pending: boolean) => void;
 };
 
 type ProjectDetailsDraft = {
@@ -60,7 +58,6 @@ export default function ProjectSettingsPanel({
   backupMaximumBytes,
   onBackupPendingChange,
   onPromptPendingChange,
-  onKnowledgePendingChange
 }: Props) {
   const [projectDetails, setProjectDetails] = useState(() => detailsFromProject(project));
   const lastProject = useRef(project);
@@ -244,9 +241,7 @@ export default function ProjectSettingsPanel({
     </section>}
     {section === "workspace" && <PriorityRubricSettings key={selectedProject.id}
       projectId={selectedProject.id} onNotice={onNotice} />}
-    {section === "workspace" && <AutomaticDecisionReviewSettings key={`decision-reviews-${selectedProject.id}`}
-      projectId={selectedProject.id} settings={settings} loading={loading} loadError={loadError}
-      onSaved={onSaved} onRetry={onRetry} onNotice={onNotice} onPendingChange={onKnowledgePendingChange} />}
+
     {section === "prompts" && <PromptLibrary key={selectedProject.id} project={selectedProject} onNotice={onNotice} onPendingChange={onPromptPendingChange} />}
     {section === "backups" && <ProjectBackupsPanel key={selectedProject.id} project={selectedProject} maximumBytes={backupMaximumBytes} onPendingChange={onBackupPendingChange} />}
   </div>;

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { effectiveDecisionReviews, parseDecisionReviewPriority, validDecisionReviewPriority, validDomainDecisionReviewSetting } from "../lib/automatic-decision-reviews.ts";
+import { parseDecisionReviewPriority, validDecisionReviewPriority, validDomainDecisionReviewSetting } from "../lib/automatic-decision-reviews.ts";
 import { decodeProjectSettings } from "../lib/job-completion-reports.ts";
 import { decodeWorkItem } from "../lib/work-codecs.ts";
 import { decodeTaskPage } from "../lib/tasks.ts";
@@ -12,36 +12,21 @@ const settings = {
   job_completion_report_prompt: "Describe the outcome.",
   lease_default_minutes: 15, lease_minimum_minutes: 10, lease_maximum_minutes: 120,
   code_review_required_min_priority: 100, code_review_optional_min_priority: 100,
-  allow_remediation_code_reviews: false, automatic_decision_reviews: false, decision_review_priority: 40
+  allow_remediation_code_reviews: false
 };
 
-test("domain settings inherit or override either project default", () => {
-  for (const projectEnabled of [false, true]) {
-    assert.equal(effectiveDecisionReviews("inherit", projectEnabled), projectEnabled);
-    assert.equal(effectiveDecisionReviews("on", projectEnabled), true);
-    assert.equal(effectiveDecisionReviews("off", projectEnabled), false);
-  }
-  for (const value of ["inherit", "on", "off"]) assert.equal(validDomainDecisionReviewSetting(value), true);
-  for (const value of [null, undefined, true, false, "ON", "enabled", 1]) assert.equal(validDomainDecisionReviewSetting(value), false);
-});
-
-test("decision impact review settings enforce a boolean and an integer priority from zero through 100", () => {
+test("domain reviews have explicit on/off settings and a priority from zero through 100", () => {
+  for (const value of ["on", "off"]) assert.equal(validDomainDecisionReviewSetting(value), true);
+  for (const value of ["inherit", null, undefined, true, false, "ON", "enabled", 1]) assert.equal(validDomainDecisionReviewSetting(value), false);
   assert.deepEqual(decodeProjectSettings(settings, fixtures.project), settings);
   for (const value of [0, 1, 40, 99, 100]) {
     assert.equal(validDecisionReviewPriority(value), true);
     assert.equal(parseDecisionReviewPriority(String(value)), value);
-    assert.equal(decodeProjectSettings({ ...settings, decision_review_priority: value }, fixtures.project).decision_review_priority, value);
   }
-  for (const value of [null, undefined, false, true, "40", -1, 101, 40.5, NaN, Infinity]) {
-    assert.equal(validDecisionReviewPriority(value), false);
-    assert.throws(() => decodeProjectSettings({ ...settings, decision_review_priority: value }, fixtures.project));
-  }
-  for (const value of ["", "-1", "101", "40.5", "1e2", " 40", "40 ", "Infinity"]) {
-    assert.equal(parseDecisionReviewPriority(value), null);
-  }
-  for (const value of [null, undefined, "false", 0, 1]) {
-    assert.throws(() => decodeProjectSettings({ ...settings, automatic_decision_reviews: value }, fixtures.project));
-  }
+  for (const value of [null, undefined, false, true, "40", -1, 101, 40.5, NaN, Infinity]) assert.equal(validDecisionReviewPriority(value), false);
+  for (const value of ["", "-1", "101", "40.5", "1e2", " 40", "40 ", "Infinity"]) assert.equal(parseDecisionReviewPriority(value), null);
+  assert.throws(() => decodeProjectSettings({ ...settings, automatic_decision_reviews: false }, fixtures.project));
+  assert.throws(() => decodeProjectSettings({ ...settings, decision_review_priority: 40 }, fixtures.project));
 });
 
 test("decision impact review origin survives work and task decoding without changing their ordinary lifecycle", () => {

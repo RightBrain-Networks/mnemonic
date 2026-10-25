@@ -1,62 +1,13 @@
 "use client";
-
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
+import Link from "@/components/dashboard-link";
 import { ApiError, errorMessage } from "@/lib/api";
-import { effectiveDecisionReviews, type DomainDecisionReviewSetting } from "@/lib/automatic-decision-reviews";
-import { decodeDomain, knowledgeJson, knowledgeNextOffset, knowledgePath, type KnowledgeDomain } from "@/lib/knowledge";
-import { knowledgeKeys, readDomainPage } from "@/lib/knowledge-queries";
+import { parseDecisionReviewPriority, type DomainDecisionReviewSetting } from "@/lib/automatic-decision-reviews";
+import { decodeDomain, knowledgeJson, knowledgePath, type KnowledgeDomain } from "@/lib/knowledge";
+type Intent = { path: string; body: string; setting: DomainDecisionReviewSetting; priority: number; version: number };
 
-type Intent = { path: string; body: string; setting: DomainDecisionReviewSetting; version: number };
-
-export default function DomainDecisionReviewSettings({ projectId, projectEnabled, onNotice, onPendingChange }: {
-  projectId: string;
-  projectEnabled: boolean;
-  onNotice: (message: string, error?: boolean) => void;
-  onPendingChange: (pending: boolean) => void;
-}) {
-  const client = useQueryClient();
-  const [pendingDomain, setPendingDomain] = useState<KnowledgeDomain | null>(null);
-  const domains = useInfiniteQuery({
-    queryKey: knowledgeKeys.domains(projectId), initialPageParam: 0,
-    queryFn: ({ pageParam, signal }) => readDomainPage(projectId, pageParam, signal),
-    getNextPageParam: (last) => knowledgeNextOffset(last), retry: false,
-    refetchInterval: 30_000, refetchIntervalInBackground: false
-  });
-  const items = domains.data?.pages.flatMap((page) => page.items) ?? [];
-  // A refresh can move a domain off the loaded pages. Keep its keyed row mounted
-  // until its frozen mutation has a known outcome, including through read failures.
-  const rows = pendingDomain && !items.some((domain) => domain.id === pendingDomain.id)
-    ? [...items, pendingDomain] : items;
-
-  return <div className="domain-decision-review-settings">
-    <h3>Knowledge domains</h3>
-    <p className="settings-intro">Choose whether changes to records in each domain start automatic impact reviews.
-      Inherit follows the saved project default; On and Off override it. New domains start with Inherit.</p>
-    <p className="field-hint">The changed record’s domain governs. Existing reviews and captured assessments remain available.</p>
-    {domains.isError && <div className="error-notice" role="alert">
-      <p>{errorMessage(domains.error)}</p>
-      <button type="button" className="button button-secondary" onClick={() => void domains.refetch()}>Reload domains</button>
-    </div>}
-    {domains.isPending && <p role="status">Loading knowledge domains…</p>}
-    {rows.map((domain) => <DomainReviewRow key={domain.id} domain={domain} projectEnabled={projectEnabled}
-      unavailable={domains.isError} refreshing={domains.isFetching}
-      blocked={pendingDomain !== null && pendingDomain.id !== domain.id}
-      onPendingChange={(pending) => { setPendingDomain(pending ? domain : null); onPendingChange(pending); }}
-      onReload={() => void domains.refetch()}
-      onSaved={(saved) => {
-        onNotice(`Automatic decision impact reviews for ${saved.name} saved.`);
-        void client.invalidateQueries({ queryKey: knowledgeKeys.root(projectId) });
-      }} />)}
-    {domains.hasNextPage && <button type="button" className="button button-secondary"
-      disabled={domains.isFetchingNextPage} onClick={() => void domains.fetchNextPage()}>More domains</button>}
-    {!domains.isPending && !domains.isError && !rows.length && <p>No knowledge domains are available.</p>}
-  </div>;
-}
-
-function DomainReviewRow({ domain, projectEnabled, unavailable, refreshing, blocked, onPendingChange, onReload, onSaved }: {
+export default function DomainDecisionReviewSettings({ domain, unavailable, refreshing, blocked, onPendingChange, onReload, onSaved }: {
   domain: KnowledgeDomain;
-  projectEnabled: boolean;
   unavailable: boolean;
   refreshing: boolean;
   blocked: boolean;
@@ -66,16 +17,18 @@ function DomainReviewRow({ domain, projectEnabled, unavailable, refreshing, bloc
 }) {
   const [basis, setBasis] = useState(domain);
   const [draft, setDraft] = useState(domain.automatic_decision_reviews);
+  const [priority, setPriority] = useState(String(domain.decision_review_priority));
   const [pending, setPending] = useState<Intent | null>(null);
   const [busy, setBusy] = useState(false);
   const dispatching = useRef(false);
   const [conflict, setConflict] = useState(false);
   const [error, setError] = useState("");
-  const dirty = draft !== basis.automatic_decision_reviews;
+  const parsedPriority = parseDecisionReviewPriority(priority);
+  const dirty = draft !== basis.automatic_decision_reviews || parsedPriority !== basis.decision_review_priority;
 
   useEffect(() => {
     if (pending || domain.version <= basis.version) return;
-    if (!dirty) { setBasis(domain); setDraft(domain.automatic_decision_reviews); }
+    if (!dirty) { setBasis(domain); setDraft(domain.automatic_decision_reviews); setPriority(String(domain.decision_review_priority)); }
     else setConflict(true);
   }, [domain, basis.version, dirty, pending]);
 
@@ -86,11 +39,11 @@ function DomainReviewRow({ domain, projectEnabled, unavailable, refreshing, bloc
     try {
       const saved = decodeDomain(await knowledgeJson(intent.path, { method: "PATCH", body: intent.body }), domain.project_id);
       if (saved.id !== domain.id) throw new Error("Mnemonic returned a different domain. Retry this exact action.");
-      if (saved.automatic_decision_reviews !== intent.setting
+      if (saved.automatic_decision_reviews !== intent.setting || saved.decision_review_priority !== intent.priority
         || saved.version < intent.version || saved.version > intent.version + 1) {
         throw new Error("Mnemonic returned an inconsistent domain setting. Retry this exact action.");
       }
-      setBasis(saved); setDraft(saved.automatic_decision_reviews); setConflict(false);
+      setBasis(saved); setDraft(saved.automatic_decision_reviews); setPriority(String(saved.decision_review_priority)); setConflict(false);
       setPending(null); onPendingChange(false); onSaved(saved);
     } catch (failure) {
       const definitive = failure instanceof ApiError && failure.status >= 400 && failure.status < 500 && failure.status !== 408;
@@ -104,29 +57,34 @@ function DomainReviewRow({ domain, projectEnabled, unavailable, refreshing, bloc
 
   function save(event: FormEvent) {
     event.preventDefault();
-    if (!dirty || pending || conflict || blocked || unavailable) return;
-    void execute({ path: knowledgePath(domain.project_id, `/domains/${domain.id}`), setting: draft, version: basis.version, body: JSON.stringify({
-      expected_version: basis.version, automatic_decision_reviews: draft, client_operation_id: crypto.randomUUID()
+    if (parsedPriority === null || !dirty || pending || conflict || blocked || unavailable) return;
+    void execute({ path: knowledgePath(domain.project_id, `/domains/${domain.id}`), setting: draft, priority: parsedPriority, version: basis.version, body: JSON.stringify({
+      expected_version: basis.version, automatic_decision_reviews: draft, decision_review_priority: parsedPriority, client_operation_id: crypto.randomUUID()
     }) });
   }
 
   const id = `domain-decision-reviews-${domain.id}`;
-  const saved = basis.version > domain.version ? basis : domain;
   return <form className="domain-decision-review-row" onSubmit={save} aria-label={`${domain.prefix} automatic decision impact reviews`}>
+    <h3>Automatic decision impact reviews</h3>
+    <p className="field-hint">Create a review work item when a document in this domain changes. New domains start off.</p>
     <div className="domain-decision-review-controls">
-      <label className="field" htmlFor={id}><strong>{domain.name} <span className="knowledge-prefix">{domain.prefix}</span></strong>
-        <select id={id} value={draft} disabled={Boolean(pending) || blocked || unavailable}
-          aria-describedby={`${id}-effective`} onChange={(event) => { setDraft(event.target.value as DomainDecisionReviewSetting); setError(""); }}>
-          <option value="inherit">Inherit project default</option><option value="on">On</option><option value="off">Off</option>
-        </select>
+      <label className="review-policy-toggle" htmlFor={id}>
+        <input id={id} type="checkbox" role="switch" checked={draft === "on"} disabled={Boolean(pending) || blocked || unavailable}
+          onChange={(event) => { setDraft(event.target.checked ? "on" : "off"); setError(""); }} />
+        <strong>Enable automatic reviews for {domain.prefix}</strong>
+      </label>
+      <label className="field decision-review-priority">Review priority
+        <input type="number" min={0} max={100} step={1} required value={priority}
+          disabled={Boolean(pending) || blocked || unavailable} aria-invalid={parsedPriority === null || undefined}
+          onChange={(event) => { setPriority(event.target.value); setError(""); }} />
+        <span className="field-hint">0–100; higher values are more urgent.</span>
       </label>
       <button type="submit" className="button button-secondary"
-        disabled={!dirty || Boolean(pending) || conflict || blocked || unavailable}>{busy ? "Saving…" : `Save ${domain.prefix} setting`}</button>
+        disabled={!dirty || parsedPriority === null || Boolean(pending) || conflict || blocked || unavailable}>{busy ? "Saving…" : `Save ${domain.prefix} settings`}</button>
     </div>
-    <p className="field-hint" id={`${id}-effective`}>Saved effective setting: {effectiveDecisionReviews(saved.automatic_decision_reviews, projectEnabled) ? "On" : "Off"}
-      {saved.automatic_decision_reviews === "inherit" ? " (inherits project default)." : " (domain override)."}</p>
+    <p className="field-hint">Existing reviews stay available. Edit the investigation instructions in <Link href="/settings/prompts">Prompts</Link>.</p>
     {conflict && <div className="error-notice" role="alert">
-      <p>This domain changed. Your draft has been kept. Saved setting: {domain.automatic_decision_reviews}.</p>
+      <p>This domain changed. Your draft has been kept. Saved setting: {domain.automatic_decision_reviews}; priority {domain.decision_review_priority}.</p>
       <button type="button" className="button button-secondary" disabled={refreshing || unavailable || Boolean(pending)}
         onClick={() => { setBasis(domain); setConflict(false); setError(""); }}>I reviewed the saved {domain.prefix} setting</button>
     </div>}

@@ -110,6 +110,7 @@ def run_registered_mutation[Payload: APIModel, Result: APIModel](
         _record_success(trace, operation)
         return operation.response
     _require_decision_change_declaration(kind, payload)
+    _require_local_domain_policy(kind, payload)
     database.info["client_operation_keyed"] = (
         getattr(payload, "client_operation_id", None) is not None
     )
@@ -156,6 +157,17 @@ def _require_decision_change_declaration(kind: str, payload: APIModel) -> None:
         raise ApplicationError(
             422, "decision_change_source_required",
             "Declare the originating work item, or explicit null for an external trigger.",
+        )
+
+
+def _require_local_domain_policy(kind: str, payload: APIModel) -> None:
+    # Historical inherit requests may replay, but fresh writes have no global policy.
+    if kind in {"create_knowledge_domain", "rename_knowledge_domain"} and (
+        getattr(payload, "automatic_decision_reviews", None) == "inherit"
+    ):
+        raise ApplicationError(
+            422, "domain_review_policy_invalid",
+            "Set automatic_decision_reviews to on or off; domain policies no longer inherit.",
         )
 
 

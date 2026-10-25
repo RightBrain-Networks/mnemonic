@@ -16,14 +16,16 @@ domain, identified by `is_product_decision_domain`; retain the returned ID and
 prefix rather than inferring them from a display name. `create_knowledge_domain` creates an authorized
 domain using a unique name and prefix; prefixes become uppercase and must match
 `[A-Z]{1,5}`. `rename_knowledge_domain` needs the current domain version. A prefix
-cannot change, and domain deletion is unavailable.
+cannot change. Domain deletion is a dashboard-only action; agent tools never delete domains.
 
-Domains expose `automatic_decision_reviews`: `inherit` (the creation default)
-follows the project switch, while `on` and `off` override it. The existing
-`rename_knowledge_domain` tool updates a name and/or this setting with the current
-`expected_version`. The changed record's domain governs future review creation;
-priority remains project-wide. Settings do not backfill reviews or cancel existing
-review obligations, and substantive assessment capture remains independent.
+Domains expose `automatic_decision_reviews`: `off` by default or `on`, and
+`decision_review_priority`: an integer from 0 through 100, default 40. Both are
+local to each domain; there is no project policy to inherit. The existing
+`rename_knowledge_domain` tool updates a name and/or these settings with the
+current `expected_version`. The changed record's domain governs future review
+creation and priority. Settings do not backfill reviews or cancel existing review
+obligations, and substantive assessment capture remains independent. Historical
+`inherit` arguments may be replayed unchanged only for an existing receipt.
 
 Use unified `search` with `facets=["decisions"]` for only decisions, or include
 the other desired sources. `filters.decisions.domain_ids` selects domain UUIDs;
@@ -485,3 +487,13 @@ future change inheritance; other paths and explicit adoption still apply. This
 cannot detach existing memberships or revise an existing work item. Default true
 keeps inheritance. Full work reads expose the immutable exclusion; preserve all
 creation arguments and the operation UUID for receipt replay.
+
+## Human deletion tombstones
+
+The dashboard can delete ordinary domains and documents. Agents have no deletion
+tool. A deleted domain/document reference returns `knowledge_domain_deleted` or
+`decision_deleted`, including its deletion time. Do not recreate a deleted identity
+or treat its absence from search as a new decision. Active impact reviews retain
+their captured evidence and obligations; describe the deletion when assessing
+affected candidates. Exact prior receipt retries remain valid and never restore
+the deleted document. Managed Needs Attention PDRs remain protected.

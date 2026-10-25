@@ -5,6 +5,7 @@ import re
 from datetime import UTC, datetime
 from uuid import UUID
 
+from pydantic.experimental.missing_sentinel import MISSING
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, object_session
 
@@ -66,6 +67,10 @@ def require_domain(database: Session, project_id: UUID, domain_id: UUID) -> Know
     )
     if domain is None:
         raise not_found("knowledge_domain_not_found", "Knowledge domain not found in this project.")
+    if domain.deleted_at is not None:
+        raise ApplicationError(410, "knowledge_domain_deleted",
+                               f"Knowledge domain was deleted at {domain.deleted_at.isoformat()}.",
+                               context={"deleted_at": domain.deleted_at.isoformat()})
     return domain
 
 
@@ -76,6 +81,7 @@ def domain_read(database: Session, domain: KnowledgeDomain) -> KnowledgeDomainRe
             .select_from(DecisionDocument)
             .where(
                 DecisionDocument.domain_id == domain.id,
+                DecisionDocument.deleted_at.is_(None),
             )
         )
         or 0
@@ -88,6 +94,7 @@ def domain_read(database: Session, domain: KnowledgeDomain) -> KnowledgeDomainRe
         name=domain.name,
         prefix=domain.prefix,
         automatic_decision_reviews=domain.automatic_decision_reviews,
+        decision_review_priority=domain.decision_review_priority,
         version=domain.version,
         created_at=domain.created_at,
         updated_at=domain.updated_at,
@@ -131,7 +138,10 @@ def create_domain(
         )
     domain = KnowledgeDomain(
         project_id=project_id, name=payload.name, prefix=payload.prefix,
-        automatic_decision_reviews=payload.automatic_decision_reviews,
+        automatic_decision_reviews=("off" if payload.automatic_decision_reviews is MISSING
+                                    else payload.automatic_decision_reviews),
+        decision_review_priority=(40 if payload.decision_review_priority is MISSING
+                                  else payload.decision_review_priority),
     )
     database.add(domain)
     database.flush()
@@ -149,7 +159,9 @@ def rename_domain(
         raise conflict(
             "knowledge_domain_version_conflict", "Read the current domain before updating it."
         )
-    changes = payload.model_dump(include={"name", "automatic_decision_reviews"})
+    changes = payload.model_dump(
+        include={"name", "automatic_decision_reviews", "decision_review_priority"},
+    )
     if "name" in changes:
         _check_domain_name(database, project_id, changes["name"], domain_id)
     if any(getattr(domain, name) != value for name, value in changes.items()):
@@ -167,7 +179,9 @@ def list_domains(
     filters: KnowledgePagination,
 ) -> KnowledgePage[KnowledgeDomainRead]:
     require_project(database, project_id)
-    statement = select(KnowledgeDomain).where(KnowledgeDomain.project_id == project_id)
+    statement = select(KnowledgeDomain).where(
+        KnowledgeDomain.project_id == project_id, KnowledgeDomain.deleted_at.is_(None),
+    )
     total = database.scalar(select(func.count()).select_from(statement.subquery())) or 0
     domains = database.scalars(
         statement.order_by(func.lower(KnowledgeDomain.name), KnowledgeDomain.id)
@@ -182,16 +196,19 @@ def list_domains(
     )
 
 
-def require_document(
+def lookup_document(
     database: Session,
     project_id: UUID,
     reference: str,
 ) -> tuple[DecisionDocument, KnowledgeDomain, int | None]:
+    """Resolve immutable identity, including tombstones, before a receipt lookup."""
     match = re.fullmatch(r"([A-Z]{1,5})-([0-9]{5,19})(?:-([0-9]{1,10}))?", reference)
     if match is None or int(match[2]) > 9_223_372_036_854_775_807:
         raise ApplicationError(
             422, "decision_reference_invalid", "Use a decision ID or revision reference."
         )
+    if f"{int(match[2]):05d}" != match[2]:
+        raise ApplicationError(422, "decision_reference_invalid", "Use the canonical decision ID.")
     row = database.execute(
         select(DecisionDocument, KnowledgeDomain)
         .join(
@@ -203,13 +220,29 @@ def require_document(
             KnowledgeDomain.prefix == match[1],
             DecisionDocument.ordinal == int(match[2]),
         )
+        .execution_options(populate_existing=True)
     ).first()
     if row is None:
         raise not_found("decision_not_found", "Decision document not found in this project.")
     document, domain = row
-    if f"{int(match[2]):05d}" != match[2]:
-        raise ApplicationError(422, "decision_reference_invalid", "Use the canonical decision ID.")
     return document, domain, None if match[3] is None else int(match[3])
+
+
+def require_document(
+    database: Session, project_id: UUID, reference: str,
+) -> tuple[DecisionDocument, KnowledgeDomain, int | None]:
+    document, domain, pinned = lookup_document(database, project_id, reference)
+    if document.deleted_at is not None:
+        raise ApplicationError(
+            410, "decision_deleted",
+            f"Decision document was deleted at {document.deleted_at.isoformat()}.",
+            context={"deleted_at": document.deleted_at.isoformat()},
+        )
+    if domain.deleted_at is not None:
+        raise ApplicationError(410, "knowledge_domain_deleted",
+                               f"Knowledge domain was deleted at {domain.deleted_at.isoformat()}.",
+                               context={"deleted_at": domain.deleted_at.isoformat()})
+    return document, domain, pinned
 
 
 def require_revision(
@@ -346,6 +379,7 @@ def list_decisions(
         .join(KnowledgeDomain, KnowledgeDomain.id == DecisionDocument.domain_id)
         .where(
             DecisionDocument.project_id == project_id,
+            DecisionDocument.deleted_at.is_(None), KnowledgeDomain.deleted_at.is_(None),
         )
     )
     if filters.domain_id is not None:
@@ -473,7 +507,8 @@ def _put_target(
                 DecisionRevision,
                 DecisionRevision.document_id == DecisionDocument.id,
             )
-            .where(DecisionDocument.domain_id == domain.id, DecisionRevision.sha256 == digest)
+            .where(DecisionDocument.domain_id == domain.id, DecisionRevision.sha256 == digest,
+                   DecisionDocument.deleted_at.is_(None))
             .order_by(DecisionRevision.created_at, DecisionRevision.id)
             .limit(1)
         ).first()
@@ -488,7 +523,11 @@ def _put_target(
     if document.domain_id != domain.id:
         raise ApplicationError(422, "decision_domain_mismatch", "A decision cannot change domains.")
     current = require_revision(database, document)
-    if current.sha256 == digest and _metadata_matches(database, document, current, payload):
+    if payload.author_kind == "human" and document.current_revision != payload.expected_revision:
+        raise conflict("decision_revision_conflict",
+                       "The decision changed while you were editing. Review the current revision.")
+    if (payload.author_kind == "agent" and current.sha256 == digest
+            and _metadata_matches(database, document, current, payload)):
         return document, current
     if document.current_revision != payload.expected_revision:
         raise conflict("decision_revision_conflict", "Read the current revision before updating.")
@@ -678,6 +717,9 @@ def append_scope(
     *, completion_report_id: UUID | None = None,
 ) -> DecisionScopeResult:
     # Fresh execution only: receipt fingerprints and historical response bytes stay raw.
+    document, domain, _ = require_document(
+        database, project_id, decision_identifier(domain, document),
+    )
     payload = payload.model_copy(update={"repository": canonical_repository(payload.repository)})
     require_revision(database, document, payload.revision)
     if payload.work_item_id is not None:

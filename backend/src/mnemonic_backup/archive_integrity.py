@@ -8,6 +8,7 @@ from sqlalchemy import Connection, text
 
 from mnemonic_api.decision_change_integrity import DECISION_CHANGE_FINDINGS
 from mnemonic_api.decision_review_integrity import DECISION_REVIEW_FINDINGS
+from mnemonic_api.knowledge_deletion_integrity import DELETION_FINDINGS, historical_graph_checks
 from mnemonic_api.knowledge_integrity import DOMAIN_REVIEW_FINDINGS, KNOWLEDGE_FINDINGS
 from mnemonic_api.transcript_recovery_db import RECOVERY_FINDINGS
 from mnemonic_api.work_inheritance_db import INHERITANCE_FINDINGS
@@ -46,6 +47,8 @@ def validate_integrity(connection: Connection) -> None:
                  "_MOVE_FINDINGS", "_CROSS_PROJECT_RELATIONSHIP_FINDINGS", "_ARTIFACT_FINDINGS",
                  "_PRECEDENCE_FINDINGS"):
         checks.update(getattr(audit, name))
+    checks = historical_graph_checks(checks)
+    checks.update(DELETION_FINDINGS)
     findings.update({name: connection.scalar(text(query)) for name, query in checks.items()})
     if any(findings.values()):
         raise BackupError(409, "backup_integrity_conflict",
