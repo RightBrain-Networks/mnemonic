@@ -1,6 +1,7 @@
 """Operational Phase 12 audit and restore-incarnation regression coverage."""
 
 import hashlib
+import json
 import runpy
 from uuid import uuid4
 
@@ -62,6 +63,85 @@ def test_recall_default_catalog_preserves_deployed_guards_and_rejects_unknown_ha
         report = _audit(postgres_engine)
         assert report["blocking_findings"].get("catalog_functions_drift", 0) == expected_drift
         assert report["result"] == ("blocked" if expected_drift else "pass")
+    finally:
+        reset_disposable_schema(postgres_engine)
+
+
+def _replace_catalog_definition(connection, category: str, name: str, definition: str):
+    quote = connection.dialect.identifier_preparer.quote_identifier
+    if category == "constraints":
+        table, constraint = map(quote, name.split("."))
+        definition, validated = definition.rsplit(" validated=", 1)
+        assert validated in {"true", "false"}
+        assert definition.endswith(" NOT VALID") == (validated == "false")
+        assert definition.startswith("CHECK ")
+        connection.execute(text(f"ALTER TABLE {table} DROP CONSTRAINT {constraint}"))
+        connection.execute(text(f"ALTER TABLE {table} ADD CONSTRAINT {constraint} {definition}"))
+    elif category == "indexes":
+        connection.execute(text(f"DROP INDEX {quote(name)}"))
+        connection.execute(text(definition))
+    else:
+        assert category == "triggers" and definition.endswith(" enabled=O")
+        table, trigger = map(quote, name.split("."))
+        connection.execute(text(f"DROP TRIGGER {trigger} ON {table}"))
+        connection.execute(text(definition.removesuffix(" enabled=O")))
+
+
+def _reparse_previous_catalog_variants(connection, audit, previous: str):
+    """Replay PostgreSQL's rendered DDL, as pg_dump/restore does, before upgrading."""
+    audit["pin_session_settings"](connection)
+    schema = connection.scalar(text("SELECT current_schema()"))
+    frozen = json.loads(audit["CATALOG_PATH"].read_text())[previous]
+    definitions = {}
+    for category in ("constraints", "indexes", "triggers"):
+        rows = dict(connection.execute(text(audit["CATALOG_STATEMENTS"][category]),
+                                       {"schema": schema}).all())
+        definitions[category] = {
+            name: rows[name] for name, variants in frozen[category].items() if len(variants) > 1
+        }
+        for name, definition in definitions[category].items():
+            _replace_catalog_definition(connection, category, name, definition)
+    return definitions
+
+
+def test_catalog_upgrade_preserves_restored_variants_and_rejects_superseded_guards(
+    postgres_engine: Engine,
+):
+    reset_disposable_schema(postgres_engine)
+    audit = runpy.run_path(str(BACKEND_DIR.parent / "scripts/audit_project_activity.py"))
+    previous = "0064_work_change_inheritance"
+    config = Config(str(BACKEND_DIR / "alembic.ini"))
+    try:
+        with postgres_engine.begin() as connection:
+            config.attributes["connection"] = connection
+            command.downgrade(config, previous)
+            definitions = _reparse_previous_catalog_variants(connection, audit, previous)
+        assert _audit(postgres_engine, previous)["result"] == "pass"
+        with postgres_engine.begin() as connection:
+            config.attributes["connection"] = connection
+            command.upgrade(config, "head")
+        report = _audit(postgres_engine)
+        assert report["result"] == "pass", report["blocking_findings"]
+        constraints = definitions["constraints"]
+        rejected = {
+            name: constraints[name] for name in (
+                "client_operations.ck_client_operations_operation_kind_valid",
+                "knowledge_domains.ck_knowledge_domains_automatic_decision_reviews",
+            )
+        }
+        status_key = "work_items.ck_work_items_status_valid"
+        rejected[status_key] = constraints[status_key].replace("'pending'", "'unknown'")
+        for name, definition in rejected.items():
+            with postgres_engine.connect() as connection:
+                transaction = connection.begin()
+                try:
+                    _replace_catalog_definition(connection, "constraints", name, definition)
+                    drift = audit["_catalog_drift"](connection, audit["HEAD"])
+                    assert {key: value for key, value in drift.items() if value} == {
+                        "catalog_constraints_drift": 1,
+                    }, name
+                finally:
+                    transaction.rollback()
     finally:
         reset_disposable_schema(postgres_engine)
 

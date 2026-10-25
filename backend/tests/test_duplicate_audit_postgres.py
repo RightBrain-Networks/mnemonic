@@ -3385,6 +3385,28 @@ def test_audit_and_downgrade_share_exact_malformed_receipt_corpus(
             transaction.rollback()
 
 
+def test_audit_rejects_live_created_done_work_without_a_completion_episode(
+    project, work_payload, postgres_engine
+):
+    audit = _audit_module()
+    created = history.create_fixture(postgres_engine, project, work_payload)
+    assert created.status_code == 201, created.text
+    work_id = created.json()["work_item"]["id"]
+
+    with postgres_engine.connect() as connection:
+        transaction = connection.begin()
+        try:
+            assert audit._phase11_batched_generation_violation_count(connection) == 0
+            connection.execute(text("ALTER TABLE work_items DISABLE TRIGGER USER"))
+            connection.execute(
+                text("UPDATE work_items SET status = 'done' WHERE id = CAST(:id AS uuid)"),
+                {"id": work_id},
+            )
+            assert audit._phase11_batched_generation_violation_count(connection) == 1
+        finally:
+            transaction.rollback()
+
+
 def test_audit_bigint_minimum_generation_corruption_fails_closed_without_overflow(
     project, work_payload, postgres_engine
 ):

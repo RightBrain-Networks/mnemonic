@@ -555,6 +555,9 @@ def _phase11_batched_evidence_owner_violation_count(connection: Connection) -> i
 
 
 def _phase11_batched_generation_violation_count(connection: Connection) -> int:
+    # 0019 retains pre-timeline Done work at generation zero without inventing a
+    # completion episode. 0010 backfilled its creation event; require that proof
+    # as well as the absence of any episode, so broken modern Done work still fails.
     work_violations = _phase11_batched_violation_count(
         connection,
         "work_items",
@@ -573,6 +576,25 @@ def _phase11_batched_generation_violation_count(connection: Connection) -> int:
                       WHERE completion.work_item_id = work.id
                         AND completion.kind = 'completion'
                         AND completion.completion_generation = work.completion_generation
+                  )
+                  AND NOT (
+                      work.completion_generation = 0
+                      AND EXISTS (
+                          SELECT 1 FROM work_events AS creation
+                          WHERE creation.work_item_id = work.id
+                            AND creation.event_type = 'work_created'
+                            AND creation.origin = 'backfill'
+                      )
+                      AND NOT EXISTS (
+                          SELECT 1 FROM checkpoints AS legacy_completion
+                          WHERE legacy_completion.work_item_id = work.id
+                            AND legacy_completion.kind = 'completion'
+                      )
+                      AND NOT EXISTS (
+                          SELECT 1 FROM work_events AS legacy_completion
+                          WHERE legacy_completion.work_item_id = work.id
+                            AND legacy_completion.event_type = 'work_completed'
+                      )
                   )
               )
               OR (
