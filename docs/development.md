@@ -40,14 +40,58 @@ requests instead use the digest-pinned Gitleaks container, so untrusted runs
 remain blocking without receiving the organization secret. Ensure the
 organization secret's repository access policy includes this public repository.
 
-CI also runs Ruff, `ty`, the complete PostgreSQL-backed API tests, MCP tests,
-and the dashboard's unit, type, and production-build checks. Ruff applies
+For code changes, CI also runs Ruff, `ty`, the complete PostgreSQL-backed API
+tests, MCP tests, the macOS repository freshness tests, and the dashboard's
+unit, type, and production-build checks. Ruff applies
 McCabe `C901` with a maximum complexity of 10 throughout both Python packages,
 with no exclusions. Configure the GitHub ruleset
 for `main` to require pull requests and the stable `Required checks` status,
 and to reject force pushes and branch deletion. That aggregate status fails
-unless Gitleaks, Ruff, `ty`, backend tests, MCP tests, and frontend checks all
-succeed.
+unless scope detection and Gitleaks succeed and every selected application job
+succeeds. An unexpected skipped, failed, or cancelled job blocks a code change.
+
+### Quick documentation updates
+
+Documentation-only pull requests and pushes use a short CI path: scope detection
+and its regression tests, Gitleaks, and `Required checks`. Application jobs are
+skipped when every changed path is one of:
+
+- Root `README.md`, `AGENT-README.md`, or `AGENTS.md`.
+- Markdown (`.md`) anywhere under `docs/`.
+- PNG, JPG, JPEG, GIF, SVG, or WebP images under `docs/images/`.
+
+Keep documentation updates in a separate pull request from code changes. You can
+edit a file on GitHub, select **Create a new branch for this commit and start a
+pull request**, and merge once `Required checks` passes. For local edits, use the
+normal topic branch and pull request workflow:
+
+```sh
+git fetch origin main
+git worktree add ../mnemonic-docs -b work/docs-update origin/main
+cd ../mnemonic-docs
+# Edit the documentation, then stage only the files you changed.
+git add docs/development.md
+git commit -m "Clarify development setup"
+git push -u origin work/docs-update
+gh pr create --base main --fill
+gh pr checks --watch
+gh pr merge --squash
+```
+
+After GitHub confirms the merge, remove the clean linked worktree and topic
+branch, then fast-forward your primary checkout to `origin/main`.
+
+The human-authored root README remains read-only for agents unless its owner
+explicitly requests an edit. The short CI path preserves pull request protection
+and secret scanning; no labels or special commit messages are needed. Avoid
+`[skip ci]`, which leaves required checks pending.
+
+The classifier in `scripts/ci_scope.py` inspects the entire PR diff from its merge
+base or every commit in a push. Renames inspect both paths. Shipped prompts,
+plugin skills, JSON schemas (including `docs/openapi.json`), workflows, scripts,
+and unrecognized paths require full CI even when they look like documentation.
+An unavailable or empty diff also selects full CI. **Actions > CI > Run workflow**
+always runs the full suite, including when the selected revision only edits docs.
 
 ## Backend verification through Phase 12
 
