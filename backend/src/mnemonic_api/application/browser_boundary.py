@@ -194,14 +194,20 @@ class BrowserBoundaryMiddleware:
         request = Request(scope, receive)
         try:
             _admit(request, route)
-            if route_name(route, request.method) in {
-                "knowledge_domain_export", "knowledge_decision_download",
-            }:
-                await execute_file_request(
-                    self.app, _domain_scope(scope, route), receive, send,
-                    policy=knowledge_file_policy(), pending_tasks=self.in_flight,
-                )
-                return
+        except BrowserRejection as exc:
+            await exc.response(scope, receive, send)
+            return
+        if route_name(route, request.method) in {
+            "knowledge_domain_export", "knowledge_decision_download",
+        }:
+            # Once a file starts streaming, failures must terminate that stream.
+            # The JSON error handler below must never send a second response.
+            await execute_file_request(
+                self.app, _domain_scope(scope, route), receive, send,
+                policy=knowledge_file_policy(), pending_tasks=self.in_flight,
+            )
+            return
+        try:
             timeout = request_timeout(route, request.method, request.query_params)
             async with asyncio.timeout(timeout):
                 body = await _bounded_body(request, route)

@@ -14,6 +14,7 @@ from mnemonic_api.services.client_operations import (
 )
 
 from .test_decision_changes_postgres import root_review
+from .test_decision_reviews_postgres import settings
 from .test_product_decision_migration_postgres import migrate
 from .test_project_activity_audit_postgres import _audit
 from .test_work_inheritance_postgres import excluded
@@ -21,7 +22,8 @@ from .test_work_lineage_postgres import collection, create
 
 pytestmark = pytest.mark.postgres
 PREVIOUS = "0063_impact_findings"
-HEAD = "0064_work_change_inheritance"
+MIGRATION = "0064_work_change_inheritance"
+HEAD = "0065_knowledge_management"
 EXCLUSIONS = "work_change_inheritance_exclusions"
 
 
@@ -69,6 +71,10 @@ def test_upgrade_retains_ordinary_work_lineage_and_sparse_creation_receipts(
     change_id = revision["change"]["change_id"]
     assert child["decision_change_ids"] == grandchild["decision_change_ids"] == [change_id]
 
+    # Remove the new local policy before crossing its guarded downgrade boundary.
+    # Retained review and lineage evidence is independent of future scheduling.
+    settings(api, project, automatic_decision_reviews=False, decision_review_priority=40)
+
     # Default behavior has no 0064-specific rows or fields. Freeze it at the actual
     # preceding schema, then use only physical SQL and migrations until upgraded.
     migrate(postgres_engine, PREVIOUS, downgrade=True)
@@ -82,12 +88,13 @@ def test_upgrade_retains_ordinary_work_lineage_and_sparse_creation_receipts(
     assert receipt["operation_kind"] == "create_work" and receipt["state"] == "completed"
     assert "decision_change_inheritance_exclusion" not in receipt["response_body"]["work_item"]
     previous_audit = _audit(postgres_engine, PREVIOUS)
-    assert previous_audit["result"] == "pass", previous_audit
+    assert previous_audit["result"] == "pass", previous_audit["blocking_findings"]
 
-    migrate(postgres_engine, HEAD)
+    migrate(postgres_engine, MIGRATION)
     after = _retained_rows(postgres_engine)
     assert after.pop(EXCLUSIONS) == []
     assert after == before
+    migrate(postgres_engine, HEAD)
     assert create(api, project, sparse) == ordinary
     assert create(api, project, sparse, inherit_decision_change=True) == ordinary
     changed = api.post(collection(project), json={**sparse, "discovered_from_work_item_id": None})

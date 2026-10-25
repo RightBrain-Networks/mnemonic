@@ -9,6 +9,7 @@ from sqlalchemy.exc import DBAPIError
 
 from mnemonic_api.impact_integrity import IMPACT_FINDINGS
 from mnemonic_backup.archive import BackupError, restore_project
+from tests.test_decision_reviews_postgres import settings
 from tests.test_impact_findings_postgres import append, review
 from tests.test_knowledge_postgres import path
 from tests.test_product_decision_migration_postgres import migrate
@@ -29,6 +30,8 @@ def test_nullable_migration_preserves_legacy_receipts_and_allows_empty_metadata_
     _, episodes, remediation = review(api, project, work_payload, revisions=1)
     result, intent = append(api, project, episodes[0], remediation)
     assert "finding_id" not in result.json() and "remediation_target" not in result.json()
+    # Keep the new domain policy neutral while checking older nullable finding columns.
+    settings(api, project, automatic_decision_reviews=False, decision_review_priority=40)
     before = _snapshot(postgres_engine, project)
     receipt = next(row for row in before["client_operations"]
                    if row["client_operation_id"] == intent["client_operation_id"])
@@ -50,6 +53,8 @@ def test_downgrade_refuses_to_discard_either_kind_of_authored_metadata(
 ):
     _, episodes, remediation = review(api, project, work_payload, revisions=1)
     append(api, project, episodes[0], remediation, **metadata)
+    # Refusal must come from authored finding metadata, not a newer policy setting.
+    settings(api, project, automatic_decision_reviews=False, decision_review_priority=40)
     before = _snapshot(postgres_engine, project)
     with pytest.raises(RuntimeError, match="cannot be safely downgraded"):
         migrate(postgres_engine, "0062_review_scope_notices", downgrade=True)

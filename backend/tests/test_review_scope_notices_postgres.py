@@ -12,6 +12,7 @@ from mnemonic_api.decision_change_integrity import DECISION_CHANGE_FINDINGS
 from mnemonic_api.models import DecisionChangeAssessment
 
 from .test_decision_changes_postgres import group, root_review, update
+from .test_decision_reviews_postgres import settings
 from .test_knowledge_postgres import path, put, put_body
 from .test_leases_postgres import claim_payload, item_path
 
@@ -243,6 +244,8 @@ def test_attachment_migration_keeps_legacy_unknowns_and_refuses_loss_of_known_ve
         target, _, current, work = root_review(api, project)
     finally:
         event.remove(DecisionChangeAssessment, "before_insert", historical_attachment)
+    # Domain policy is unrelated to the historical attachment-order migration.
+    settings(api, project, automatic_decision_reviews=False, decision_review_priority=40)
     config = Config(str(BACKEND_DIR / "alembic.ini"))
     with postgres_engine.begin() as connection:
         config.attributes["connection"] = connection

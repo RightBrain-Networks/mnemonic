@@ -92,6 +92,40 @@ def _identity_guards(*, management: bool) -> None:
     """)
 
 
+def _restore_identity_guards() -> None:
+    """Restore the exact deployed 0059/0053 function bodies for catalog audits."""
+    schema = _schema()
+    old = "ROW(OLD.name,OLD.automatic_decision_reviews)"
+    new = "ROW(NEW.name,NEW.automatic_decision_reviews)"
+    same = f"{new} IS NOT DISTINCT FROM {old}"
+    changed = f"{new} IS DISTINCT FROM {old}"
+    op.execute(f"""
+        CREATE OR REPLACE FUNCTION {schema}.mnemonic_knowledge_domain_guard() RETURNS trigger
+        LANGUAGE plpgsql SET search_path = pg_catalog AS $function$
+        BEGIN
+            IF (NEW.id, NEW.project_id, NEW.prefix, NEW.created_at) IS DISTINCT FROM
+               (OLD.id, OLD.project_id, OLD.prefix, OLD.created_at)
+               OR NEW.next_ordinal NOT IN (OLD.next_ordinal, OLD.next_ordinal + 1)
+               OR ({same} AND NEW.version <> OLD.version)
+               OR ({changed} AND NEW.version <> OLD.version + 1) THEN
+                RAISE EXCEPTION USING ERRCODE='23514', MESSAGE='invalid knowledge domain update';
+            END IF;
+            RETURN NEW;
+        END $function$;
+        CREATE OR REPLACE FUNCTION {schema}.mnemonic_knowledge_document_guard() RETURNS trigger
+        LANGUAGE plpgsql SET search_path = pg_catalog AS $function$
+        BEGIN
+            IF (NEW.id, NEW.project_id, NEW.domain_id, NEW.ordinal, NEW.created_at)
+               IS DISTINCT FROM
+               (OLD.id, OLD.project_id, OLD.domain_id, OLD.ordinal, OLD.created_at)
+               OR NEW.current_revision <> OLD.current_revision + 1 THEN
+                RAISE EXCEPTION USING ERRCODE='23514', MESSAGE='invalid decision revision update';
+            END IF;
+            RETURN NEW;
+        END $function$;
+    """)
+
+
 def _edge_guards(*, management: bool) -> None:
     schema = _schema()
     if management:
@@ -296,7 +330,7 @@ def downgrade() -> None:
     op.drop_constraint(op.f("ck_knowledge_domains_automatic_decision_reviews"), "knowledge_domains")
     op.create_check_constraint("automatic_decision_reviews", "knowledge_domains",
                                "automatic_decision_reviews IN ('inherit','on','off')")
-    _identity_guards(management=False)
+    _restore_identity_guards()
     op.execute("ALTER TABLE knowledge_domains DISABLE TRIGGER knowledge_domain_guard")
     op.execute("UPDATE knowledge_domains SET automatic_decision_reviews='inherit'")
     op.execute("ALTER TABLE knowledge_domains ENABLE TRIGGER knowledge_domain_guard")

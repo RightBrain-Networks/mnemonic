@@ -309,3 +309,42 @@ def test_evidence_identity_and_bounded_response():
         assert response_limit(f"projects/{PROJECT}/search", "POST") == 16_777_216
 
     asyncio.run(run())
+
+
+@pytest.mark.parametrize("suffix,filename", [
+    (f"domains/{WORK}/export", "ADR-decisions.tar.gz"),
+    ("decisions/ADR-00001/download", "ADR-00001.md"),
+])
+def test_knowledge_stream_failure_never_sends_a_second_json_response(suffix, filename):
+    async def scenario():
+        sent = []
+        app = FastAPI()
+        app.state.settings = CONFIG
+
+        async def domain(scope, receive, send):
+            await send({"type": "http.response.start", "status": 200, "headers": [
+                (b"content-type", b"application/octet-stream"), (b"content-length", b"6"),
+                (b"content-disposition", f'attachment; filename="{filename}"'.encode()),
+            ]})
+            await send({"type": "http.response.body", "body": b"abc", "more_body": True})
+            raise OSError("file source failed after its first chunk")
+
+        async def receive():
+            await asyncio.Event().wait()
+
+        async def send(message):
+            sent.append(message)
+
+        scope = {"type": "http", "method": "GET", "scheme": "http", "app": app,
+                 "path": f"/api/mnemonic/projects/{PROJECT}/knowledge/{suffix}",
+                 "query_string": b"", "headers": [(b"host", b"localhost:3000"),
+                                                    (b"origin", ORIGIN.encode())]}
+        with pytest.raises(OSError, match="file source failed"):
+            await BrowserBoundaryMiddleware(domain)(scope, receive, send)
+        assert [message["type"] for message in sent] == [
+            "http.response.start", "http.response.body",
+        ]
+        assert sent[-1]["body"] == b"abc"
+        assert sent[-1]["more_body"] is True
+
+    asyncio.run(scenario())

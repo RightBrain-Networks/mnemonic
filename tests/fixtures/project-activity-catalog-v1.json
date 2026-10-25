@@ -382546,6 +382546,7 @@
         "487d3bbd4ce9c228b0fc68b501693e096343001b17d786ea4c78f7b7ec3c9c78"
       ],
       "mnemonic_guard_job_report_settings()": [
+        "4ac747760e0f63e9ba695388597987117136cc9ec3bc66c738ece7ce1f56b5fe",
         "e50d93b495c9291e7d7129668fefcc672ca17e2b0c596ec539deeeb2885afa6d"
       ],
       "mnemonic_guard_job_report_transition()": [
@@ -382606,6 +382607,7 @@
         "d48e5b6c3cdfc9a89f7f5dfebbb0c9f32aa76f82b29884584bbc6da1838613ff"
       ],
       "mnemonic_job_report_project_source()": [
+        "430f8f2b8b57e0aecacbb64442ddcb43fa90ce29641d403e3b4eb92593dca77d",
         "e097f9fcdf37c6401bcb73a3a7513eb4f4447c83ee3cf582263a1ddbb7080dc7"
       ],
       "mnemonic_job_report_slot_sealed(work_id uuid, slot integer)": [
