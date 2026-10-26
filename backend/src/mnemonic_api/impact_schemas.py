@@ -341,7 +341,7 @@ class ImpactAssessmentRead(APIModel):
     created_at: datetime
     version: int
     unassessed_count: int
-    reused_candidate_count: int = 0
+    reused_candidate_count: int = Field(default=0, exclude_if=lambda value: value == 0)
     change_required_count: int
     finding_summary: ImpactFindingSummary | None = Field(
         default=None, exclude_if=lambda value: value is None,

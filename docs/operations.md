@@ -1,5 +1,12 @@
 # Operating Mnemonic
 
+Release 0.109.1 restores MCP assessment list and detail reads when no candidate
+conclusions were reused. The API omits a zero `reused_candidate_count`, matching
+the strict adapter contract; positive counts and pinned source dispositions remain
+present. Deploy the API image to apply this fix. No migration, configuration change,
+or client update is required; plugin 0.68.0 and Alembic `0066_candidate_reuse` remain
+unchanged.
+
 Release 0.109.0 adds collapsible inline help beside the Manage domains and
 Decision documents page descriptions. Each container remembers its expanded or
 collapsed state in browser localStorage; new preferences default to collapsed.
