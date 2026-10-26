@@ -90,7 +90,7 @@ and every argument exactly. Historical receipts replay their original result,
 even after further rewrites or resolution. A stale question version returns
 `409 gate_question_changed`; reread before submitting a new intent.
 
-Upgrade API, MCP, and dashboard together to 0.107.0, plugin 0.68.0, and Alembic
+Upgrade API, MCP, and dashboard together to 0.108.0, plugin 0.68.0, and Alembic
 `0066_candidate_reuse`; old writers cannot maintain the PDR contract. Back up
 first and stop old writers before migrating. Existing question
 versions and answers are imported into immutable PDR revisions with their retained
