@@ -64,8 +64,12 @@ def require_open(database: Session, change: DecisionChange) -> None:
         )
 
 
-def read_change(database: Session, change: DecisionChange) -> DecisionChangeRead:
+def read_change(
+    database: Session, change: DecisionChange, *, lineage_limit: int | None = None,
+    lineage_offset: int = 0,
+) -> DecisionChangeRead:
     from mnemonic_api.services.decision_impact import _revision_reference
+    from mnemonic_api.services.decision_lineage import lineage_page
     from mnemonic_api.services.impact_findings import change_findings
 
     revisions = select(DecisionRevisionChange.revision_id).where(
@@ -81,6 +85,8 @@ def read_change(database: Session, change: DecisionChange) -> DecisionChangeRead
         DecisionChange.parent_change_id == change.id,
     ))
     return DecisionChangeRead(
+        lineage_work=(lineage_page(database, change, lineage_limit, lineage_offset)
+                      if lineage_limit is not None else None),
         id=change.id, project_id=change.project_id,
         origin_reference=(_revision_reference(database, change.origin_revision_id)
                           if change.origin_revision_id else None),

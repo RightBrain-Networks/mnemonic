@@ -671,7 +671,7 @@
     {"args":["projects/e36a7e53-938f-4c8a-b75a-af9c7331711a/knowledge/changes","DELETE"],"result":null},
     {"args":["projects/e36a7e53-938f-4c8a-b75a-af9c7331711a/knowledge/changes","HEAD"],"result":null},
     {"args":["projects/e36a7e53-938f-4c8a-b75a-af9c7331711a/knowledge/changes","OPTIONS"],"result":null},
-    {"args":["projects/e36a7e53-938f-4c8a-b75a-af9c7331711a/knowledge/changes/e36a7e53-938f-4c8a-b75a-af9c7331711a","GET"],"result":[]},
+    {"args":["projects/e36a7e53-938f-4c8a-b75a-af9c7331711a/knowledge/changes/e36a7e53-938f-4c8a-b75a-af9c7331711a","GET"],"result":["lineage_limit","lineage_offset"]},
     {"args":["projects/e36a7e53-938f-4c8a-b75a-af9c7331711a/knowledge/changes/e36a7e53-938f-4c8a-b75a-af9c7331711a","POST"],"result":null},
     {"args":["projects/e36a7e53-938f-4c8a-b75a-af9c7331711a/knowledge/changes/e36a7e53-938f-4c8a-b75a-af9c7331711a","PATCH"],"result":null},
     {"args":["projects/e36a7e53-938f-4c8a-b75a-af9c7331711a/knowledge/changes/e36a7e53-938f-4c8a-b75a-af9c7331711a","PUT"],"result":null},

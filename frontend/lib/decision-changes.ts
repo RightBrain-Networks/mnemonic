@@ -1,5 +1,6 @@
 import { exactKeys, finiteInteger, objectValue, sameUuid, validUtcDateTime, validUuid } from "./wire-guards.ts";
 import { validFindingSummary, type FindingSummary } from "./impact-findings.ts";
+import { decodeLineageWorkPage, type LineageWorkPage } from "./decision-lineage.ts";
 
 export type DecisionRevisionChange = {
   change_id: string | null; kind: "substantive" | "record-existing" | "maintenance";
@@ -8,6 +9,7 @@ export type DecisionRevisionChange = {
   unchanged_supersessions?: { target_reference: string; governing_reference: string; reason: string }[];
 };
 export type DecisionChange = {
+  lineage_work?: LineageWorkPage;
   finding_summary?: FindingSummary | null;
   id: string; project_id: string; origin_reference: string | null;
   review_work_item_id: string | null; parent_change_id: string | null;
@@ -60,7 +62,8 @@ export function decodeDecisionChange(value: unknown, projectId: string, changeId
   if (!row || !exactKeys(row, ["id", "project_id", "origin_reference", "review_work_item_id", "parent_change_id",
     "review_work_project_id", "review_closed", "successor_change_id",
     "scope_version", "acknowledged_scope_version", "assessment_count", "revision_count", "pending_revision_count", "created_at", "updated_at",
-    ...(Object.hasOwn(row, "finding_summary") ? ["finding_summary"] : [])])
+    ...(Object.hasOwn(row, "finding_summary") ? ["finding_summary"] : []),
+    ...(Object.hasOwn(row, "lineage_work") ? ["lineage_work"] : [])])
     || row.finding_summary != null && !validFindingSummary(row.finding_summary)
     || !validUuid(row.id) || !sameUuid(row.project_id, projectId) || changeId !== undefined && !sameUuid(row.id, changeId)
     || !nullableReference(row.origin_reference) || !nullableUuid(row.review_work_item_id) || !nullableUuid(row.parent_change_id)
@@ -71,7 +74,8 @@ export function decodeDecisionChange(value: unknown, projectId: string, changeId
     || !validUtcDateTime(row.created_at) || !validUtcDateTime(row.updated_at)) {
     throw new Error("Mnemonic returned invalid decision review scope.");
   }
-  return row as DecisionChange;
+  return { ...row, ...(Object.hasOwn(row, "lineage_work")
+    ? { lineage_work: decodeLineageWorkPage(row.lineage_work, row.review_work_item_id as string | null) } : {}) } as DecisionChange;
 }
 
 export function matchDecisionChangeMutation(value: unknown, projectId: string, body: Record<string, unknown>): DecisionChange {

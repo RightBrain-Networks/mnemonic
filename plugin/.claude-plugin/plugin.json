@@ -2,7 +2,7 @@
   "name": "mnemonic",
   "displayName": "Mnemonic",
   "description": "Save and retrieve durable work, artifacts, transcripts, and knowledge decisions. Trace revision-pinned dependencies and implementation provenance, assess decision changes, record completion evidence and declared repository scope, review permanent duplicate merges, record human questions and answers as Product Decision Records, and preserve truthful audit history. Includes exact external tracker references and concise closeout reports.",
-  "version": "0.67.0",
+  "version": "0.68.0",
   "author": {
     "name": "Jamie Begin"
   }

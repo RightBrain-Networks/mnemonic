@@ -24,6 +24,7 @@ from mnemonic_api.impact_schemas import (
     ImpactQuery,
     ImpactRead,
     ImpactWarning,
+    ReusedDispositionSource,
     is_code_impact,
 )
 from mnemonic_api.knowledge_schemas import DecisionPutRequest, KnowledgePage, KnowledgePagination
@@ -50,6 +51,7 @@ from mnemonic_api.services.decision_impact_graph import (
 )
 from mnemonic_api.services.decision_scope_notices import extended_review, pending_scope_notice
 from mnemonic_api.services.decision_supersession_reuse import reusable_supersession, same_evidence
+from mnemonic_api.services.effective_dispositions import effective_dispositions
 from mnemonic_api.services.impact_findings import findings_for_latest
 from mnemonic_api.services.impact_read_projections import (
     author_read,
@@ -59,6 +61,7 @@ from mnemonic_api.services.impact_read_projections import (
     projection,
 )
 from mnemonic_api.services.revision_authors import revision_author_context
+from mnemonic_api.services.supersession_candidate_reuse import retain_candidate_conclusions
 from mnemonic_api.services.supersession_delta import supersession_delta
 from mnemonic_api.services.work_items import require_project, require_work_item
 
@@ -284,6 +287,7 @@ def _reuse_identical_assessments(
                 episode = _episode(database, before, current_revision, episode.trigger,
                                    episode.extent, episode.reason)
             database.add(episode)
+            retain_candidate_conclusions(database, current_revision, episode)
             result.append(episode)
     return result
 
@@ -339,14 +343,8 @@ def assessment_read(
     assert before is not None and after is not None
     before_reference = _revision_reference(database, row.origin_revision_id)
     after_reference = _revision_reference(database, row.replacement_revision_id)
-    latest = database.scalars(
-        select(DecisionImpactDisposition)
-        .where(DecisionImpactDisposition.assessment_id == row.id)
-        .distinct(DecisionImpactDisposition.candidate_reference)
-        .order_by(
-            DecisionImpactDisposition.candidate_reference, DecisionImpactDisposition.version.desc()
-        )
-    ).all()
+    effective = effective_dispositions(database, [row.id])
+    latest = [item.row for item in effective]
     required = {item["reference"] for item in row.candidates
                 if is_code_impact(item["relationship"], item.get("related_direction"))}
     unassessed = len(required - {item.candidate_reference for item in latest})
@@ -374,6 +372,7 @@ def assessment_read(
             "created_at": row.created_at,
             "version": _version(database, row.id),
             "unassessed_count": unassessed,
+            "reused_candidate_count": sum(item.reused for item in effective),
             "change_required_count": changes,
             "finding_summary": findings_for_latest(latest),
             "status": "change-required" if changes else "pending" if unassessed else "resolved",
@@ -456,26 +455,22 @@ def assessment_detail(
     ]
     if filters.include_citation_excerpts:
         candidates = hydrate_citation_excerpts(database, project_id, candidates)
-    latest = database.scalars(
-        select(DecisionImpactDisposition)
-        .where(
-            DecisionImpactDisposition.assessment_id == row.id,
-            DecisionImpactDisposition.candidate_reference.in_(
-                [item.reference for item in candidates]
-            ),
-        )
-        .distinct(DecisionImpactDisposition.candidate_reference)
-        .order_by(
-            DecisionImpactDisposition.candidate_reference, DecisionImpactDisposition.version.desc()
-        )
-    ).all()
+    references = {item.reference for item in candidates}
+    latest = [item for item in effective_dispositions(database, [row.id])
+              if item.row.candidate_reference in references]
+    dispositions = []
+    for item in latest:
+        projected = disposition_projection(disposition_read(item.row), filters)
+        if item.source is not None:
+            projected.reused_from = ReusedDispositionSource.model_validate(item.source)
+        dispositions.append(projected)
     end = filters.offset + len(candidates)
     return ImpactAssessmentDetail(
         **value.model_dump(),
         kind=filters.kind,
         total=len(selected),
         candidates=candidates,
-        dispositions=[disposition_projection(disposition_read(item), filters) for item in latest],
+        dispositions=dispositions,
         disposition_history_total=value.version,
         limit=filters.limit,
         offset=filters.offset,

@@ -276,6 +276,20 @@ evidence still creates a fresh episode. Removing/reintroducing a supersession or
 changing its target/extent/reason cannot reuse an older capture. Metadata equality
 alone is not semantic proof. Existing exact governing reuse remains supported;
 without either authority, substantive replacement edits receive fresh assessments.
+With an explicit unchanged-supersession declaration, a fresh episode can reuse
+individual reviewed conclusions when candidate evidence is unchanged, even if
+other candidates have new evidence. Every candidate row stays in the new snapshot.
+The comparison excludes only `is_current` from candidate evidence and `snapshot_at`
+from coverage; changed scopes, completion citations, paths, revisions or relationships
+still require fresh review. Incomplete traversal, truncated evidence or missing
+comparison fields fall back to new obligations. Unreviewed rows never count as reviewed.
+`reused_candidate_count` counts effective reused required rows; each effective
+conclusion carries `reused_from` with the original assessment, disposition ID and
+version. A fresh local disposition overrides reuse for that assessment. The local
+assessment version remains the write guard; a reused conclusion retains its source
+version and is absent from the new assessment's authored disposition history.
+Changed targets, extent/reason or interrupted supersessions remain ineligible.
+
 Use `decision_assessments` (filter `change_id` for grouped review scope), then `decision_assessment_get` and every candidate
 page. Episodes pin before/after revisions, a bounded diff, candidate snapshots,
 and coverage at creation. Fetch both exact texts when the diff is truncated.
@@ -335,8 +349,9 @@ completion rules, including remediation for recorded contextual findings, remain
 Each group retains compact occurrences with assessment ID/version, exact
 before/after and candidate references, captured relationship/direction, and latest
 disposition ID/version/result/remediation link. Read the assessment or history for
-the actual evidence, actor and reason. No judgment is copied, inherited or applied
-to another episode. Historical related-only candidates without captured incoming
+the actual evidence, actor and reason. When a declared unchanged supersession reuses
+a candidate conclusion, `reused_from` pins its source assessment, disposition ID and
+version. This is a reference to immutable history; no verdict text is copied. Historical related-only candidates without captured incoming
 direction remain context; live links never reclassify captured scope.
 
 All counts, groups and occurrences in a response share a coherent database
@@ -452,6 +467,18 @@ If follow-up work moves projects, managed answers may use a local held change
 with no driver while preserving the original lineage. That held change still
 requires explicit owner admission. Work detail's `decision_change_projects` map
 locates inherited changes; use each change's own project for reads and actions.
+
+`decision_change_get` also returns `lineage_work`, a page of other work carrying
+this change identity. It includes current project/work identity, title, lifecycle,
+readiness and safe active-lease facts, decision-source membership, discovery origins,
+and code-review/remediation status. The current review driver is excluded; deleted
+and duplicate members retain explicit identity. Use `lineage_limit` (1–100, default
+20) and `lineage_offset`, following `lineage_work.next_offset` until complete. The
+same query parameters apply to the REST change GET. Discovery origins are bounded
+separately with totals and omitted counts. Mutation receipts do not include this
+live page. Inspect relevant open remediation and source work before conclusions
+and recheck before completion. Membership is an investigation lead, not proof of
+relevance, and this visibility does not create an automatic readiness dependency.
 
 ## Literal citation evidence
 

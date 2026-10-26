@@ -429,8 +429,9 @@ completion rules, including remediation for recorded contextual findings, remain
 Each group retains compact occurrences with assessment ID/version, exact
 before/after and candidate references, captured relationship/direction, and latest
 disposition ID/version/result/remediation link. Read the assessment or history for
-the actual evidence, actor and reason. No judgment is copied, inherited or applied
-to another episode. Historical related-only candidates without captured incoming
+the actual evidence, actor and reason. When a declared unchanged supersession reuses
+a candidate conclusion, `reused_from` pins its source assessment, disposition ID and
+version. This is a reference to immutable history; no verdict text is copied. Historical related-only candidates without captured incoming
 direction remain context; live links never reclassify captured scope.
 
 All counts, groups and occurrences in a response share a coherent database
@@ -615,9 +616,23 @@ through maintenance revisions. Invalid or interrupted declarations are rejected.
 Declarations are immutable, retained with their source revision, and returned in
 `decision_get`/history under `change.unchanged_supersessions`.
 
-Current candidates and coverage must still match that latest capture. New scope,
-incoming citations or changed coverage create a fresh episode with no copied
-dispositions, despite the author's unchanged-ruling declaration. The new revision
+With an explicit unchanged-supersession declaration, a fresh episode can reuse
+individual reviewed conclusions when candidate evidence is unchanged, even if
+other candidates have new evidence. Every candidate row stays in the new snapshot.
+The comparison excludes only `is_current` from candidate evidence and `snapshot_at`
+from coverage; changed scopes, completion citations, paths, revisions or relationships
+still require fresh review. Incomplete traversal, truncated evidence or missing
+comparison fields fall back to new obligations. Unreviewed rows never count as reviewed.
+`reused_candidate_count` counts effective reused required rows; each effective
+conclusion carries `reused_from` with the original assessment, disposition ID and
+version. A fresh local disposition overrides reuse for that assessment. The local
+assessment version remains the write guard; a reused conclusion retains its source
+version and is absent from the new assessment's authored disposition history.
+Changed targets, extent/reason or interrupted supersessions remain ineligible.
+
+Whole-episode reuse requires current candidates and coverage to match the latest
+capture. New scope, incoming citations or changed coverage create a fresh episode;
+only eligible unchanged candidates can reference a prior conclusion as described above. The new revision
 episode always captures the text and metadata transition. An unchanged supersession
 can link the same original immutable episode into a new change; this preserves the
 original conclusion history without creating a duplicate episode. Without an
@@ -749,10 +764,24 @@ expose `admit`. REST uses one receipt-protected
 `POST /projects/{project_id}/knowledge/changes` action surface, with
 `GET /projects/{project_id}/knowledge/changes/{change_id}` for reads.
 
+`decision_change_get` also returns `lineage_work`, a page of other work carrying
+this change identity. It includes current project/work identity, title, lifecycle,
+readiness and safe active-lease facts, decision-source membership, discovery origins,
+and code-review/remediation status. The current review driver is excluded; deleted
+and duplicate members retain explicit identity. Use `lineage_limit` (1–100, default
+20) and `lineage_offset`, following `lineage_work.next_offset` until complete. The
+same query parameters apply to the REST change GET. Discovery origins are bounded
+separately with totals and omitted counts. Mutation receipts do not include this
+live page. Inspect relevant open remediation and source work before conclusions
+and recheck before completion. Membership is an investigation lead, not proof of
+relevance, and this visibility does not create an automatic readiness dependency.
+
 Deploy aligned API, worker, MCP and dashboard with migration
-`0065_knowledge_management`. It preserves historical assessments, dispositions and
+`0066_candidate_reuse`. It adds immutable candidate-conclusion references and preserves
+historical assessments, dispositions and
 terminal work without creating a review backlog. No new service or environment
-variable is required. Migration 0064 refuses downgrade while inheritance exclusions
+variable is required. Migration 0066 refuses downgrade while candidate reuse references
+remain. Migration 0064 refuses downgrade while inheritance exclusions
 remain; 0063 refuses downgrade while dispositions retain finding IDs or remediation
 targets. Earlier migrations also refuse to discard exact attachment versions or
 retained batch receipts.

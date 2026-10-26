@@ -113,7 +113,7 @@ def _install_impact_prompt(storage, project, content):
     return original, path
 
 
-@pytest.mark.parametrize("version", ["v1", "v2"])
+@pytest.mark.parametrize("version", ["v1", "v2", "v3"])
 def test_impact_default_upgrade_preserves_creation_time_and_is_stable(tmp_path, version):
     storage = PromptStorage(tmp_path)
     project = uuid4()
@@ -131,7 +131,8 @@ def test_impact_default_upgrade_preserves_creation_time_and_is_stable(tmp_path, 
 
 
 @pytest.mark.parametrize("content", [b"My review instructions", _old_impact_prompt() + b"\n",
-                                     _old_impact_prompt("v2") + b"\n"])
+                                     _old_impact_prompt("v2") + b"\n",
+                                     _old_impact_prompt("v3") + b"\n"])
 def test_impact_default_upgrade_preserves_customized_bytes(tmp_path, content):
     storage = PromptStorage(tmp_path)
     project = uuid4()

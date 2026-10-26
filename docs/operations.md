@@ -1,5 +1,13 @@
 # Operating Mnemonic
 
+Release 0.106.0 and plugin 0.68.0 add bounded reuse of reviewed candidate
+conclusions for explicitly unchanged supersessions, plus paginated work lineage
+and grouped-navigation guidance. Migration `0066_candidate_reuse` stores immutable
+references to original dispositions without rewriting historical episodes. Deploy
+API, worker, MCP and dashboard together; downgrade is refused while reuse links
+remain. No new services or environment variables are required. Unmodified shipped
+review prompts refresh automatically; customized prompts remain unchanged.
+
 Release 0.105.1 aligns completion-history audits and project backup validation
 with the legacy eventless completion shape explicitly preserved by migration
 0019. Historical records remain unchanged; inconsistent modern completions

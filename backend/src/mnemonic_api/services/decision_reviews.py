@@ -12,13 +12,13 @@ from mnemonic_api.models import (
     DecisionChangeAssessment,
     DecisionDocument,
     DecisionImpactAssessment,
-    DecisionImpactDisposition,
     DecisionRevision,
     WorkItem,
 )
 from mnemonic_api.schemas import InitialCheckpointCreate, WorkItemCreate
 from mnemonic_api.services import knowledge
 from mnemonic_api.services.decision_impact_graph import reference
+from mnemonic_api.services.effective_dispositions import effective_dispositions
 from mnemonic_api.services.prompts import render_prompt, storage_for
 from mnemonic_api.services.revision_authors import revision_author_note
 from mnemonic_api.services.work_items import create_work_records
@@ -151,15 +151,9 @@ def require_decision_impact_review_complete(database: Session, work: WorkItem) -
     candidates = {(episode.id, candidate["reference"])
                   for episode in episodes for candidate in episode.candidates
                   if is_code_impact(candidate["relationship"], candidate.get("related_direction"))}
-    latest = database.scalars(select(DecisionImpactDisposition).where(
-        DecisionImpactDisposition.assessment_id.in_([episode.id for episode in episodes]),
-    ).distinct(
-        DecisionImpactDisposition.assessment_id, DecisionImpactDisposition.candidate_reference,
-    ).order_by(
-        DecisionImpactDisposition.assessment_id, DecisionImpactDisposition.candidate_reference,
-        DecisionImpactDisposition.version.desc(),
-    )).all()
-    reviewed = {(row.assessment_id, row.candidate_reference): row for row in latest}
+    effective = effective_dispositions(database, [episode.id for episode in episodes])
+    latest = [item.row for item in effective]
+    reviewed = {(item.assessment_id, item.row.candidate_reference): item.row for item in effective}
     missing = len(candidates - reviewed.keys())
     remediation_ids = {row.remediation_work_item_id for row in latest
                        if row.disposition == "change-required"}

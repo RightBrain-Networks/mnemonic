@@ -19,7 +19,7 @@ import { findingIdPattern, findingSummaryLabel, type RemediationTarget } from "@
 
 function AssessmentStatus({ assessment }: { assessment: ImpactAssessment }) {
   if (assessment.status === undefined) return <p className="field-hint">Assessment progress not recorded.</p>;
-  return <p className={`impact-assessment-status impact-assessment-${assessment.status}`}><strong>{assessment.status === "resolved" ? "All candidates assessed" : assessment.status === "change-required" ? "Changes required" : "Assessment pending"}</strong> · {assessment.unassessed_count} unassessed · {assessment.change_required_count} require changes{assessment.finding_summary && <> · {findingSummaryLabel(assessment.finding_summary)}</>}</p>;
+  return <p className={`impact-assessment-status impact-assessment-${assessment.status}`}><strong>{assessment.status === "resolved" ? "All candidates assessed" : assessment.status === "change-required" ? "Changes required" : "Assessment pending"}</strong> · {assessment.unassessed_count} unassessed · {assessment.change_required_count} require changes{Boolean(assessment.reused_candidate_count) && <> · {assessment.reused_candidate_count} prior conclusions reused</>}{assessment.finding_summary && <> · {findingSummaryLabel(assessment.finding_summary)}</>}</p>;
 }
 export function CoverageNotice({ coverage }: { coverage: ImpactCoverage }) {
   return <aside className="impact-coverage" aria-label="Impact coverage">
@@ -87,7 +87,9 @@ export function DecisionAssessments({ projectId, decisionId, onDecision, onPendi
   </>;
 }
 function DispositionRecord({ entry, projectId }: { entry: ImpactDisposition; projectId: string }) {
-  return <div className="impact-disposition"><strong>{entry.disposition.replaceAll("-", " ")}</strong><p>{entry.reason}</p>{entry.finding_id && <p>Finding: <code>{entry.finding_id}</code></p>}{entry.remediation_target && <p>Remediation target: {entry.remediation_target.replaceAll("-", " ")}</p>}{entry.remediation_work_item_id && <Link href={`/work-items?project=${projectId}&work=${entry.remediation_work_item_id}`}>Remediation work {entry.remediation_work_item_id}</Link>}<span>Record {entry.version} · {formatDateTime(entry.created_at)} · {entry.actor.actor_client} · {entry.actor.actor_session_id}{entry.actor.actor_model ? ` · ${entry.actor.actor_model}` : ""}</span></div>;
+  return <div className="impact-disposition"><strong>{entry.disposition.replaceAll("-", " ")}</strong>
+    {entry.reused_from && <p className="field-hint">Prior conclusion reused for unchanged evidence. Source assessment <code>{entry.reused_from.assessment_id}</code>, record {entry.reused_from.disposition_version}. A new disposition here replaces this conclusion for this assessment.</p>}
+    <p>{entry.reason}</p>{entry.finding_id && <p>Finding: <code>{entry.finding_id}</code></p>}{entry.remediation_target && <p>Remediation target: {entry.remediation_target.replaceAll("-", " ")}</p>}{entry.remediation_work_item_id && <Link href={`/work-items?project=${projectId}&work=${entry.remediation_work_item_id}`}>Remediation work {entry.remediation_work_item_id}</Link>}<span>Record {entry.version} · {formatDateTime(entry.created_at)} · {entry.actor.actor_client} · {entry.actor.actor_session_id}{entry.actor.actor_model ? ` · ${entry.actor.actor_model}` : ""}</span></div>;
 }
 export function AssessmentView({ projectId, id, onDecision, onPendingChange }: { projectId: string; id: string; onDecision: (reference: string) => void; onPendingChange: (pending: boolean) => void }) {
   const [offset, setOffset] = useState(0);

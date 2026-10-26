@@ -1,5 +1,6 @@
 """Restore-time checks for dependency pins and immutable reassessment evidence."""
 
+from mnemonic_api.candidate_reuse_integrity import CANDIDATE_REUSE_FINDINGS
 from mnemonic_api.impact_disposition_integrity import (
     BATCH_DISPOSITION_FINDINGS,
     DISPOSITION_RECEIPT_ROWS,
@@ -124,3 +125,5 @@ IMPACT_FINDINGS = {
 
 IMPACT_FINDINGS.update(SNAPSHOT_FINDINGS)
 IMPACT_FINDINGS.update(BATCH_DISPOSITION_FINDINGS)
+
+IMPACT_FINDINGS.update(CANDIDATE_REUSE_FINDINGS)

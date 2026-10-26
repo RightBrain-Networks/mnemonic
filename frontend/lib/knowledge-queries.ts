@@ -19,11 +19,17 @@ export function invalidateKnowledgeReads(client: QueryClient, projectId: string 
   });
 }
 
-export function decisionChangeOptions(projectId: string, changeId: string) {
+export function decisionChangeOptions(projectId: string, changeId: string, lineageOffset = 0) {
   return queryOptions({
-    queryKey: [...knowledgeKeys.root(projectId), "change", changeId],
-    queryFn: async ({ signal }) => decodeDecisionChange(await knowledgeJson(knowledgePath(projectId,
-      `/changes/${encodeURIComponent(changeId)}`), { signal }), projectId, changeId),
+    queryKey: [...knowledgeKeys.root(projectId), "change", changeId, lineageOffset],
+    queryFn: async ({ signal }) => {
+      const change = decodeDecisionChange(await knowledgeJson(knowledgePath(projectId,
+        `/changes/${encodeURIComponent(changeId)}?lineage_limit=20&lineage_offset=${lineageOffset}`), { signal }), projectId, changeId);
+      if (change.lineage_work && (change.lineage_work.offset !== lineageOffset || change.lineage_work.limit !== 20)) {
+        throw new Error("Mnemonic returned a different page of work in this decision change.");
+      }
+      return change;
+    },
     retry: false, staleTime: 0, refetchInterval: 30_000, refetchIntervalInBackground: false
   });
 }

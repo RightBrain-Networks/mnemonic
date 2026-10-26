@@ -105,8 +105,8 @@ one-off ID needed before dispatch. Explicit IDs and REST receipts retain their
 contracts; prepared upload intents keep their helper-generated IDs. See
 `docs/automatic-uuids.md`. The tool idempotence hint is false for these calls.
 
-The current application/API/MCP/dashboard release is `0.105.1`, Claude plugin
-`0.67.0`, and Alembic head `0065_knowledge_management`. The catalog is exactly
+The current application/API/MCP/dashboard release is `0.106.0`, Claude plugin
+`0.68.0`, and Alembic head `0066_candidate_reuse`. The catalog is exactly
 78 MCP tools, 25 receipt-protected MCP writes, 34 REST receipt kinds, 28 protected
 browser mutations, 24 work-event types, and three plugin skills. Project priority
 guidance is editable in Settings > Workspace; agents explicitly call
@@ -394,6 +394,15 @@ text changes as rule/scope/reference changes, inspect named missing-commit warni
 and use commit messages, decision-declared files and source-ID searches for gaps.
 Revision author metadata and timed active-work observations are evidence, not
 proof of historical ownership. See docs/knowledge-graph.md#automatic-decision-impact-reviews.
+
+Declared unchanged supersessions can reuse an immutable prior disposition reference
+for a required candidate only when its captured evidence remains equal except
+`is_current`, with complete matching coverage except `snapshot_at`. New or changed
+evidence and unknown/incomplete snapshots need fresh review. Keep every candidate;
+read `reused_from` and use the new assessment version for local writes.
+`decision_change_get.lineage_work` pages other work in the change, including source
+work and code-review remediation. Inspect relevant open work before conclusions and
+again before completion; shared lineage alone proves no defect.
 
 Incoming related-only citations are required code-impact candidates with captured
 `related_direction="incoming"`, while causality remains unknown. Outward references

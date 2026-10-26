@@ -507,7 +507,16 @@ class ImpactDiffRead(ImpactModel):
     truncated: StrictBool
 
 
+class ReusedDispositionSource(ImpactModel):
+    assessment_id: UUID
+    disposition_id: UUID
+    disposition_version: Annotated[StrictInt, Field(ge=1)]
+
+
 class ImpactDispositionProjection(ImpactModel):
+    reused_from: ReusedDispositionSource | None = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
     id: UUID | MISSING = MISSING
     project_id: UUID | MISSING = MISSING
     assessment_id: UUID | MISSING = MISSING
@@ -559,6 +568,9 @@ class ImpactAssessmentRead(ImpactModel):
     created_at: datetime
     version: Annotated[StrictInt, Field(ge=0)]
     unassessed_count: Annotated[StrictInt, Field(ge=0)]
+    reused_candidate_count: Annotated[StrictInt, Field(ge=0)] = Field(
+        default=0, exclude_if=lambda value: value == 0,
+    )
     change_required_count: Annotated[StrictInt, Field(ge=0)]
     finding_summary: ImpactFindingSummary | None = Field(
         default=None, exclude_if=lambda value: value is None,
@@ -577,6 +589,8 @@ class ImpactAssessmentRead(ImpactModel):
 
     @model_validator(mode="after")
     def coherent_status(self) -> Self:
+        if self.reused_candidate_count and self.trigger != "supersession":
+            raise ValueError("Only restated supersessions may reuse candidate conclusions")
         if self.finding_summary is not None and (
             self.finding_summary.change_required_row_count != self.change_required_count
         ):
@@ -593,7 +607,7 @@ class ImpactAssessmentRead(ImpactModel):
             raise ValueError("Revision authors must identify the assessment transition")
         if any(item.reference != self.before_reference for item in self.coverage.warnings):
             raise ValueError("Assessment warnings must identify the captured origin")
-        if self.unassessed_count > self.candidate_count or (
+        if self.reused_candidate_count + self.unassessed_count > self.candidate_count or (
             self.unassessed_count + self.change_required_count
             > self.candidate_count + self.context_count
         ):
@@ -637,14 +651,24 @@ class ImpactAssessmentDetail(ImpactAssessmentRead):
         validate_page_items(self.candidates, total=self.total, limit=self.limit,
                             offset=self.offset, key=lambda item: item.reference)
         if effective_projection(self.projection).detail == "full" and any(
-            item.project_id != self.project_id or item.assessment_id != self.id
-            for item in self.dispositions
+            item.project_id != self.project_id or (
+                item.assessment_id != self.id if item.reused_from is None else (
+                    item.assessment_id != item.reused_from.assessment_id
+                    or item.id != item.reused_from.disposition_id
+                    or item.assessment_id == self.id
+                )
+            ) for item in self.dispositions
         ):
             raise ValueError("Assessment disposition identifies another episode")
         refs = {item.reference for item in self.candidates}
-        if any(item.version > self.version or item.candidate_reference not in refs
-               for item in self.dispositions):
+        if any((item.version > self.version if item.reused_from is None else (
+                    item.version != item.reused_from.disposition_version
+                    or item.reused_from.assessment_id == self.id
+                )) or item.candidate_reference not in refs for item in self.dispositions):
             raise ValueError("Assessment disposition does not match this candidate page")
+        reused = sum(item.reused_from is not None for item in self.dispositions)
+        if reused > self.reused_candidate_count or (self.kind == "context" and reused):
+            raise ValueError("Reused conclusions must match required candidate counts")
         if len({item.candidate_reference for item in self.dispositions}) != len(self.dispositions):
             raise ValueError("Candidate page must contain only the latest disposition")
         next_offset = self.offset + len(self.candidates)

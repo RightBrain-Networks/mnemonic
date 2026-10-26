@@ -46,14 +46,23 @@ _OCCURRENCES = """
             candidate->>'reference' AS candidate_reference,
             candidate->>'relationship' AS relationship,
             candidate->>'related_direction' AS related_direction,
-            CASE WHEN latest.id IS NULL THEN NULL ELSE jsonb_build_object(
+            CASE WHEN latest.id IS NOT NULL THEN jsonb_build_object(
                 'id',latest.id,'version',latest.version,'disposition',latest.disposition,
                 'remediation_work_item_id',latest.remediation_work_item_id,
-                    'finding_id',latest.finding_id, 'remediation_target',latest.remediation_target)
-                END AS latest_disposition
+                'finding_id',latest.finding_id,'remediation_target',latest.remediation_target)
+            WHEN source.id IS NOT NULL THEN jsonb_build_object(
+                'id',source.id,'version',source.version,'disposition',source.disposition,
+                'remediation_work_item_id',source.remediation_work_item_id,
+                'finding_id',source.finding_id,'remediation_target',source.remediation_target,
+                'reused_from',jsonb_build_object('assessment_id',source.assessment_id,
+                    'disposition_id',source.id,'disposition_version',source.version))
+            ELSE NULL END AS latest_disposition
         FROM episodes CROSS JOIN LATERAL jsonb_array_elements(episodes.candidates) candidate
         LEFT JOIN latest ON latest.assessment_id=episodes.id
             AND latest.candidate_reference=candidate->>'reference'
+        LEFT JOIN decision_candidate_reuses reuse ON reuse.assessment_id=episodes.id
+            AND reuse.candidate_reference=candidate->>'reference'
+        LEFT JOIN decision_impact_dispositions source ON source.id=reuse.source_disposition_id
         WHERE candidate->>'relationship' IN ('origin','depends-on')
             OR (candidate->>'relationship'='related-only'
                 AND candidate->>'related_direction'='incoming')

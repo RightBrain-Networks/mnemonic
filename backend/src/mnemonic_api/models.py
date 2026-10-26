@@ -48,6 +48,7 @@ from mnemonic_api.artifact_passage_db import (
     passage_index_elements,
 )
 from mnemonic_api.background_job_db import job_elements
+from mnemonic_api.candidate_reuse_db import candidate_reuse_elements
 from mnemonic_api.duplicate_embedding_db import refresh_elements
 from mnemonic_api.impact_finding_db import finding_elements
 from mnemonic_api.knowledge_deletion_db import deleted_edge_elements
@@ -2541,6 +2542,15 @@ class DecisionImpactDisposition(Base):
     created_at: Mapped[datetime]
     finding_id: Mapped[str | None]
     remediation_target: Mapped[str | None]
+
+
+class DecisionCandidateReuse(Base):
+    __table__ = Table("decision_candidate_reuses", Base.metadata, *candidate_reuse_elements())
+
+    project_id: Mapped[UUID]
+    assessment_id: Mapped[UUID]
+    candidate_reference: Mapped[str]
+    source_disposition_id: Mapped[UUID]
 
 
 class DecisionChange(Base):

@@ -7,7 +7,7 @@ from uuid import UUID
 from pydantic import Field, StrictInt, model_validator
 
 from mnemonic_api.impact_finding_schemas import FindingIdentifier, RemediationTarget
-from mnemonic_api.impact_schemas import Disposition, Identifier, Reference
+from mnemonic_api.impact_schemas import Disposition, Identifier, Reference, ReusedDispositionSource
 from mnemonic_api.schemas import APIModel
 
 Count = Annotated[StrictInt, Field(ge=0)]
@@ -29,6 +29,9 @@ class DecisionChangeCandidatesQuery(APIModel):
 
 
 class CandidateDispositionSummary(APIModel):
+    reused_from: ReusedDispositionSource | None = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
     id: UUID
     version: Annotated[StrictInt, Field(ge=1)]
     disposition: Disposition

@@ -16,8 +16,8 @@ the same live task overview used by the dashboard; zero counts have no pip.
 
 Application/API/MCP/dashboard `0.43.0` and plugin `0.26.0` add one project search
 surface across work items, artifacts, and transcripts. No migration or new
-configuration was required for that release. Current release 0.105.1 uses migration
-`0065_knowledge_management` and also searches decision documents and
+configuration was required for that release. Current release 0.106.0 uses migration
+`0066_candidate_reuse` and also searches decision documents and
 [imported transcripts](transcripts.md#import-existing-transcripts).
 The dashboard retains its separate work, artifact, and transcript interfaces.
 Their searches use the shared API, including the work semantic toggle. Hierarchy

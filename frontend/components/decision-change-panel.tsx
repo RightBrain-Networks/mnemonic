@@ -5,6 +5,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import Link from "@/components/dashboard-link";
 import { AssessmentView } from "@/components/knowledge-impact";
+import { DecisionLineageWork } from "@/components/decision-lineage-work";
 import { KnowledgePagination, KnowledgeReadError } from "@/components/knowledge-shared";
 import { errorMessage } from "@/lib/api";
 import { dashboardSessionId } from "@/lib/dashboard-session";
@@ -21,18 +22,20 @@ function ChangeScope({ work, projectId, changeId, disabled, execute }: {
   work: WorkItem; projectId: string; changeId: string; disabled: boolean;
   execute: (payload: object, targetProjectId: string) => Promise<DecisionChange | undefined>;
 }) {
-  const result = useQuery(decisionChangeOptions(projectId, changeId));
+  const [lineageOffset, setLineageOffset] = useState(0);
+  const result = useQuery(decisionChangeOptions(projectId, changeId, lineageOffset));
   if (result.isError && !result.data) return <KnowledgeReadError error={result.error} retry={() => void result.refetch()} />;
   if (!result.data) return <p role="status">Loading decision review scope…</p>;
   return <>
     {result.isError && <KnowledgeReadError error={result.error} retry={() => void result.refetch()} />}
-    <LoadedScope key={changeId} work={work} change={result.data} disabled={disabled || result.isFetching} execute={execute} />
+    <LoadedScope key={changeId} work={work} change={result.data} disabled={disabled || result.isFetching} execute={execute} onLineageOffset={setLineageOffset} />
   </>;
 }
 
-function LoadedScope({ work, change, disabled, execute }: {
+function LoadedScope({ work, change, disabled, execute, onLineageOffset }: {
   work: WorkItem; change: DecisionChange; disabled: boolean;
   execute: (payload: object, targetProjectId: string) => Promise<DecisionChange | undefined>;
+  onLineageOffset: (offset: number) => void;
 }) {
   const navigate = useNavigate();
   const registry = useMutationIntentRegistry();
@@ -60,6 +63,7 @@ function LoadedScope({ work, change, disabled, execute }: {
     {change.finding_summary && <p>{findingSummaryLabel(change.finding_summary)} · {change.finding_summary.change_required_row_count} rows require changes</p>}
     {change.pending_revision_count > 0 && <p>{change.pending_revision_count} accepted decision {change.pending_revision_count === 1 ? "revision is" : "revisions are"} retained awaiting owner admission. Admission adds their assessment obligations to the new review cycle.</p>}
     {!driver && change.review_work_item_id && <Link href={`/work-items?project=${change.review_work_project_id ?? change.project_id}&work=${change.review_work_item_id}`}>Open the review work item</Link>}
+    {change.lineage_work && <DecisionLineageWork page={change.lineage_work} busy={locked} onOffset={onLineageOffset} />}
     {selected ? <>
       <button type="button" className="text-button" disabled={assessmentPending} onClick={() => setSelected(null)}>← All assessments in this change</button>
       <AssessmentView key={selected} projectId={change.project_id} id={selected} onPendingChange={setAssessmentPending}
@@ -68,7 +72,7 @@ function LoadedScope({ work, change, disabled, execute }: {
       : !episodes.data ? <p role="status">Loading attached assessments…</p> : <>
         <ol className="decision-history">{episodes.data.items.map((episode) => <li key={episode.id}>
           <button type="button" className="text-button" disabled={locked} onClick={() => setSelected(episode.id)}>{episode.before_reference} → {episode.after_reference}</button>
-          <span>{episode.candidate_count} required {episode.candidate_count === 1 ? "candidate" : "candidates"} · {episode.unassessed_count ?? "Unknown"} unassessed · {episode.change_required_count ?? "Unknown"} require changes</span>
+          <span>{episode.candidate_count} required {episode.candidate_count === 1 ? "candidate" : "candidates"} · {episode.unassessed_count ?? "Unknown"} unassessed · {episode.change_required_count ?? "Unknown"} require changes{Boolean(episode.reused_candidate_count) && <> · {episode.reused_candidate_count} prior conclusions reused</>}</span>
           <code>{episode.id}</code>
         </li>)}</ol>
         {!episodes.data.items.length && <p>No assessments in this scope.</p>}

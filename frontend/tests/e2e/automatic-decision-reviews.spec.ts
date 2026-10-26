@@ -30,6 +30,79 @@ async function configureDomain(api: APIRequestContext, projectId: string, prefix
   } }));
 }
 
+test("restated supersessions show reused conclusions and active work in the same change", async ({ page }, testInfo) => {
+  const api = await apiClient();
+  try {
+    const project = await createProject(api), path = `/api/v1/projects/${project.id}/knowledge`;
+    const domain = await json(await api.post(`${path}/domains`, { data: {
+      name: "Architecture", prefix: "ADR", client_operation_id: crypto.randomUUID()
+    } }));
+    const base = { domain_id: domain.id, state: "accepted", media_type: "text/markdown", author_kind: "human" };
+    const put = async (data: object) => (await json(await api.put(`${path}/decisions`, {
+      data: { ...base, ...data, client_operation_id: crypto.randomUUID() }
+    }))).decision;
+    const old = await put({ title: "Earlier transport rule", content: "Use local transport." });
+    const links = { related_decision_ids: [old.decision_id], supersession_details: [{
+      decision_id: old.decision_id, revision: 0, extent: "full", reason: "Replace the transport rule."
+    }] };
+    const replacement = await put({ title: "Durable transport", content: "Use durable transport.", ...links });
+    const original = (await json(await api.get(`${path}/assessments`))).items[0];
+    const captured = await json(await api.get(`${path}/assessments/${original.id}`));
+    let version = original.version;
+    for (const candidate of captured.candidates) {
+      const saved = await json(await api.post(`${path}/assessments/${original.id}/dispositions`, { data: {
+        candidate_reference: candidate.reference, expected_version: version, disposition: "still-valid",
+        reason: "The captured implementation satisfies this unchanged transport rule.",
+        actor: { actor_client: "dashboard", actor_session_id: "candidate-reuse-fixture" },
+        client_operation_id: crypto.randomUUID()
+      } }));
+      version = saved.version;
+    }
+    await configureDomain(api, project.id, "ADR", true);
+    const revised = await put({ title: replacement.title, content: "Use durable transport. Add a provenance note.",
+      decision_id: replacement.decision_id, expected_revision: replacement.revision, ...links,
+      change: { kind: "substantive", unchanged_supersessions: [{ target_reference: old.reference,
+        governing_reference: replacement.reference, reason: "The supersession ruling is unchanged." }] } });
+    const change = await json(await api.get(`${path}/changes/${revised.change.change_id}`));
+    const followUp = (await json(await api.post(`/api/v1/projects/${project.id}/work-items`, { data: {
+      title: "Investigate an open transport defect", summary: "Inspect the known defect before concluding the rule is satisfied.",
+      discovered_from_work_item_id: change.review_work_item_id,
+      initial_checkpoint: { prompt: "Check the transport defect.", source_client: "codex", source_session_id: "candidate-reuse-fixture" }
+    } }))).work_item;
+    await claim(api, project.id, followUp.id);
+    const episodes = await json(await api.get(`${path}/assessments?change_id=${change.id}`));
+    const fresh = episodes.items.find((item: { trigger: string }) => item.trigger === "supersession");
+    expect(fresh).toMatchObject({ candidate_count: 3, reused_candidate_count: 2, unassessed_count: 1, version: 0 });
+    await page.goto(`/work-items?project=${project.id}&work=${change.review_work_item_id}`);
+    const pane = page.locator(".work-detail-pane");
+    const lineage = pane.getByRole("region", { name: "Work in this decision change" });
+    await expect(lineage.getByRole("link", { name: followUp.title, exact: true })).toBeVisible();
+    await expect(lineage.getByText(/Active with codex/)).toBeVisible();
+    await pane.getByRole("button", { name: `${old.reference} → ${revised.reference}`, exact: true }).click();
+    await expect(pane.getByText(/Prior conclusion reused for unchanged evidence/)).toHaveCount(2);
+    await expect(pane.getByText("No disposition recorded.", { exact: true })).toHaveCount(1);
+    await pane.getByRole("button", { name: `Record disposition for ${old.reference}`, exact: true }).click();
+    const form = pane.getByRole("form", { name: `Disposition for ${old.reference}` });
+    await form.getByRole("combobox", { name: "Disposition", exact: true }).selectOption("not-affected");
+    await form.getByRole("textbox", { name: "Reason", exact: true }).fill("Rechecked this candidate against the open defect; its evidence is unrelated.");
+    await form.getByRole("button", { name: "Save disposition", exact: true }).click();
+    await expect(pane.getByText(/Prior conclusion reused for unchanged evidence/)).toHaveCount(1);
+    const saved = await json(await api.get(`${path}/assessments/${fresh.id}`));
+    expect(saved).toMatchObject({ version: 1, reused_candidate_count: 1, unassessed_count: 1 });
+    // Fit the section inside its nested scroll pane before capturing it. An element
+    // screenshot alone cannot reveal content clipped by that pane's viewport.
+    await pane.locator(".impact-diff > summary").click();
+    const captureWidth = testInfo.project.name === "chromium-narrow" ? 390 : 1440;
+    await page.setViewportSize({ width: captureWidth, height: 1100 });
+    const panel = pane.locator(".decision-change-panel");
+    const panelHeight = await panel.evaluate(element => element.getBoundingClientRect().height);
+    await page.setViewportSize({ width: captureWidth, height: Math.ceil(panelHeight) + 500 });
+    await panel.evaluate(element => element.scrollIntoView({ block: "start" }));
+    await expect(panel).toBeInViewport({ ratio: 0.999 }); // Allow subpixel scroll rounding.
+    await panel.screenshot({ path: testInfo.outputPath("candidate-reuse-and-lineage.png"), animations: "disabled" });
+  } finally { await api.dispose(); }
+});
+
 test("automatic reviews and priority are local to each knowledge domain", async ({ page }, testInfo) => {
   if (testInfo.project.name === "chromium-desktop") await page.setViewportSize({ width: 1440, height: 1100 });
   const api = await apiClient();
