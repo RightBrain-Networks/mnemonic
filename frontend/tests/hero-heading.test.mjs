@@ -61,7 +61,7 @@ test("the library hero names the selected project and moves its description inli
   assert.equal((chrome.match(/subject\?: string;/g) ?? []).length, 1);
   assert.equal((chrome.match(/subjectDescription\?: string;/g) ?? []).length, 1);
   assert.equal((chrome.match(/description\?: string;/g) ?? []).length, 1);
-  assert.match(chrome, /\{description && <p>\{description\}<\/p>\}/);
+  assert.match(chrome, /: <p>\{description\}<\/p>/);
 });
 
 test("the description follows the project name after an em dash", () => {

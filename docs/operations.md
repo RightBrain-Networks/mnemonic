@@ -1,5 +1,12 @@
 # Operating Mnemonic
 
+Release 0.109.0 adds collapsible inline help beside the Manage domains and
+Decision documents page descriptions. Each container remembers its expanded or
+collapsed state in browser localStorage; new preferences default to collapsed.
+Deploy only the web image against the existing API, MCP, and worker services.
+There is no migration or configuration change; source package versions advance
+together, while plugin 0.68.0 and Alembic `0066_candidate_reuse` remain unchanged.
+
 Release 0.108.0 replaces the Knowledge graph menu icon with three nodes of
 varied sizes connected by two edges of an obtuse triangle. Deploy only the web
 image against the existing API, MCP, and worker services. There is no migration
