@@ -378064,7 +378064,8 @@
         "ace122db56f75dcfcd3e15e1466029b1ba4c9089e9ab6abf8d13ad2e8c0175e7"
       ],
       "client_operations.ck_client_operations_operation_kind_valid": [
-        "1d93495ede399e2204522d4262344c5998006e6dd2194beb26bd390f031d4517"
+        "1d93495ede399e2204522d4262344c5998006e6dd2194beb26bd390f031d4517",
+        "c66415114b35ba92607ca3be2b3ecb46a44d7a9cd630c9db3d353a7a7c01d7ab"
       ],
       "client_operations.ck_client_operations_request_fingerprint_length": [
         "57f62143249320ff1c4cafeeafdd387efa124ab5931d03e0a47c953e8caf2403"
@@ -378780,7 +378781,8 @@
         "1445f45a9e803134f445a2f9c10ba911b031c4549f8f7fe4934bb91bbb00700a"
       ],
       "knowledge_domains.ck_knowledge_domains_automatic_decision_reviews": [
-        "61b3e81e4d3b8749a892c5e733058da17fbffda3d0bcaf67f05418e3ec65b717"
+        "61b3e81e4d3b8749a892c5e733058da17fbffda3d0bcaf67f05418e3ec65b717",
+        "b8102fd0174ad1dc2b0eaafd4a1e0ed14a3e55d2212cf263c56ae12d13359c76"
       ],
       "knowledge_domains.ck_knowledge_domains_decision_review_priority_range": [
         "4b2406f9c29412c4a8920b58cd6991aa1380846f65aa921d14b46d9f132f4f20"
@@ -389631,7 +389633,8 @@
         "ace122db56f75dcfcd3e15e1466029b1ba4c9089e9ab6abf8d13ad2e8c0175e7"
       ],
       "client_operations.ck_client_operations_operation_kind_valid": [
-        "1d93495ede399e2204522d4262344c5998006e6dd2194beb26bd390f031d4517"
+        "1d93495ede399e2204522d4262344c5998006e6dd2194beb26bd390f031d4517",
+        "c66415114b35ba92607ca3be2b3ecb46a44d7a9cd630c9db3d353a7a7c01d7ab"
       ],
       "client_operations.ck_client_operations_request_fingerprint_length": [
         "57f62143249320ff1c4cafeeafdd387efa124ab5931d03e0a47c953e8caf2403"
@@ -390356,7 +390359,8 @@
         "1445f45a9e803134f445a2f9c10ba911b031c4549f8f7fe4934bb91bbb00700a"
       ],
       "knowledge_domains.ck_knowledge_domains_automatic_decision_reviews": [
-        "61b3e81e4d3b8749a892c5e733058da17fbffda3d0bcaf67f05418e3ec65b717"
+        "61b3e81e4d3b8749a892c5e733058da17fbffda3d0bcaf67f05418e3ec65b717",
+        "b8102fd0174ad1dc2b0eaafd4a1e0ed14a3e55d2212cf263c56ae12d13359c76"
       ],
       "knowledge_domains.ck_knowledge_domains_decision_review_priority_range": [
         "4b2406f9c29412c4a8920b58cd6991aa1380846f65aa921d14b46d9f132f4f20"

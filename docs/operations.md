@@ -1,5 +1,13 @@
 # Operating Mnemonic
 
+Release 0.106.1 adds the independently reproduced PostgreSQL 17 dump/restore
+forms of the two CHECK constraints recreated by migration 0065 to the frozen
+0065 and 0066 audit catalogs. The allowed operation kinds and domain review
+settings are unchanged; obsolete guards and changed values remain rejected.
+This repairs audit failures on healthy databases restored after 0065, including
+their subsequent upgrade to 0066. It adds no migration or configuration change;
+plugin 0.68.0 and Alembic `0066_candidate_reuse` remain unchanged.
+
 Release 0.106.0 and plugin 0.68.0 add bounded reuse of reviewed candidate
 conclusions for explicitly unchanged supersessions, plus paginated work lineage
 and grouped-navigation guidance. Migration `0066_candidate_reuse` stores immutable
