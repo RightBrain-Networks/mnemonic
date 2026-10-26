@@ -1,5 +1,11 @@
 # Operating Mnemonic
 
+Release 0.108.0 replaces the Knowledge graph menu icon with three nodes of
+varied sizes connected by two edges of an obtuse triangle. Deploy only the web
+image against the existing API, MCP, and worker services. There is no migration
+or configuration change; source package versions advance together, while plugin
+0.68.0 and Alembic `0066_candidate_reuse` remain unchanged.
+
 Release 0.107.0 updates dashboard navigation, decision and domain directories,
 artifact ordering, and summary disclosures. It adds no migration, API contract,
 MCP tool, or configuration change. The web image can be updated independently

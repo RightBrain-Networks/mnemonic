@@ -164,7 +164,7 @@ const iconPaths = {
   check: "m5 12 4 4L19 6",
   close: "m6 6 12 12M6 18 18 6",
   library: "M3 3h6v18H3V3Zm10 0h4l4 17-4 1-4-18Z",
-  knowledge: "M12 3 3 8l9 5 9-5-9-5Zm-9 9 9 5 9-5M3 16l9 5 9-5",
+  knowledge: "M5 5 7.5 16 19 18",
   settings: "M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7ZM18.4 13l1.6 1-2 3.5-1.8-1a8 8 0 0 1-2.2 1.3V20h-4v-2.2a8 8 0 0 1-2.2-1.3l-1.8 1L4 14l1.6-1a8 8 0 0 1 0-2L4 10l2-3.5 1.8 1A8 8 0 0 1 10 6.2V4h4v2.2a8 8 0 0 1 2.2 1.3l1.8-1 2 3.5-1.6 1a8 8 0 0 1 0 2Z",
   attention: "M12 3a7 7 0 0 0-7 7v4l-2 3h18l-2-3v-4a7 7 0 0 0-7-7Zm-2 18h4",
   artifacts: "M3 7h7l2-3h9v17H3V7Zm0 4h18",
@@ -174,7 +174,14 @@ const iconPaths = {
 };
 
 function Icon({ name, size = 18 }: { name: keyof typeof iconPaths; size?: number }) {
-  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.65" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={iconPaths[name]} /></svg>;
+  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.65" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d={iconPaths[name]} />
+    {name === "knowledge" && <g fill="currentColor" stroke="none">
+      <circle cx="5" cy="5" r="2.1" />
+      <circle cx="7.5" cy="16" r="2.7" />
+      <circle cx="19" cy="18" r="3.3" />
+    </g>}
+  </svg>;
 }
 
 // The brand mark carries fixed brand colors rather than currentColor, so it
