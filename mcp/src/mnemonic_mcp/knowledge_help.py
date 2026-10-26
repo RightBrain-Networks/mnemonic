@@ -75,10 +75,8 @@ KNOWLEDGE_GUIDES: dict[str, tuple[str, str, str]] = {
         "expected_revision and all desired links. change defaults substantive; record-existing "
         "needs change_id, exact governing_reference and reason; maintenance needs reason. "
         "Closed lineage needs dashboard admission. "
-        "change.unchanged_supersessions needs target_reference, governing_reference "
-        "and reason; reuse requires unchanged ruling/evidence. A fresh episode can pin prior "
-        "conclusions for unchanged candidates while retaining fresh obligations for changed "
-        "or incomplete evidence. is_current alone is display metadata. "
+        "Explicit change.unchanged_supersessions can reuse conclusions only for unchanged "
+        "rulings and complete unchanged candidate evidence. "
         "Managed PDRs use request_human_input. extended_review identifies expanded scope/holder."),
     ),
     "decision_scope_append": (
