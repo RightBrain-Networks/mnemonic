@@ -63,8 +63,8 @@ export default function ArtifactLibrary({ projectId, maximumBytes, onPendingChan
   const [fulltext, setFulltext] = useState(true);
   const [semantic, setSemantic] = useState(false);
   const [workFilter, setWorkFilter] = useState("");
-  const [sort, setSort] = useState<ArtifactSort>("filename");
-  const [order, setOrder] = useState<"asc" | "desc">("asc");
+  const [sort, setSort] = useState<ArtifactSort>("modified_at");
+  const [order, setOrder] = useState<"asc" | "desc">("desc");
   const { offset, setOffset, previousOffset } = usePageOffset();
   const [includeDeleted, setIncludeDeleted] = useState(false);
   const [dragging, setDragging] = useState(false);

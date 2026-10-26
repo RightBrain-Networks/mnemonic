@@ -27,6 +27,7 @@ test("artifact directory supports upload, sorting, downloads, atomic replacement
   expect(download.suggestedFilename()).toBe(filename);
   expect(await readFile((await download.path())!, "utf8")).toBe("Original artifact bytes");
 
+  await expect(page.getByRole("columnheader", { name: "Modified" })).toHaveAttribute("aria-sort", "descending");
   await page.getByRole("button", { name: "Modified", exact: false }).click();
   await expect(page.getByRole("columnheader", { name: "Modified" })).toHaveAttribute("aria-sort", "ascending");
   await page.getByRole("button", { name: "Modified", exact: false }).click();

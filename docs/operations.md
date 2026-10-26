@@ -1,5 +1,12 @@
 # Operating Mnemonic
 
+Release 0.107.0 updates dashboard navigation, decision and domain directories,
+artifact ordering, and summary disclosures. It adds no migration, API contract,
+MCP tool, or configuration change. The web image can be updated independently
+against the existing 0.106.1 API, MCP, and worker services; the source package
+versions advance together. Plugin 0.68.0 and Alembic `0066_candidate_reuse`
+remain unchanged.
+
 Release 0.106.1 adds the independently reproduced PostgreSQL 17 dump/restore
 forms of the two CHECK constraints recreated by migration 0065 to the frozen
 0065 and 0066 audit catalogs. The allowed operation kinds and domain review
