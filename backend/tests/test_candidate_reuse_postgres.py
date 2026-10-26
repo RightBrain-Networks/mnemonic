@@ -175,7 +175,7 @@ def test_incomplete_or_unknown_evidence_keeps_required_review(api, project, monk
         monkeypatch.setattr(decision_impact, "_episode", incomplete_episode)
     _, fresh = restate(api, project, target, old, links, replacement)
     current = detail(api, project, fresh)
-    assert current["reused_candidate_count"] == 0 and current["unassessed_count"] == 3
+    assert "reused_candidate_count" not in current and current["unassessed_count"] == 3
 
 
 def test_reused_change_required_conclusion_preserves_completion_guard_and_findings(
