@@ -164,6 +164,7 @@ const iconPaths = {
   check: "m5 12 4 4L19 6",
   close: "m6 6 12 12M6 18 18 6",
   library: "M3 3h6v18H3V3Zm10 0h4l4 17-4 1-4-18Z",
+  knowledge: "M12 3 3 8l9 5 9-5-9-5Zm-9 9 9 5 9-5M3 16l9 5 9-5",
   settings: "M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7ZM18.4 13l1.6 1-2 3.5-1.8-1a8 8 0 0 1-2.2 1.3V20h-4v-2.2a8 8 0 0 1-2.2-1.3l-1.8 1L4 14l1.6-1a8 8 0 0 1 0-2L4 10l2-3.5 1.8 1A8 8 0 0 1 10 6.2V4h4v2.2a8 8 0 0 1 2.2 1.3l1.8-1 2 3.5-1.6 1a8 8 0 0 1 0 2Z",
   attention: "M12 3a7 7 0 0 0-7 7v4l-2 3h18l-2-3v-4a7 7 0 0 0-7-7Zm-2 18h4",
   artifacts: "M3 7h7l2-3h9v17H3V7Zm0 4h18",
@@ -2864,16 +2865,16 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
           activeId={view === "library" ? "work-items" : view === "reviews" ? "code-reviews" : undefined}
           items={[{ id: "work-items", label: "Work items", href: "/work-items", pendingCount: sidebarTasks?.work_items.pending }, { id: "code-reviews", label: "Code reviews", href: "/code-reviews", pendingCount: sidebarTasks?.code_reviews.pending }]}
           icon={<Icon name="library" />} onNavigate={blockNavigationWhilePending} />
-        <Link className={`nav-item ${view === "attention" ? "active" : ""}`} href="/attention" aria-current={view === "attention" ? "page" : undefined} onClick={blockNavigationWhilePending}><Icon name="attention" /><span>Needs Attention</span>{attentionCount !== null && attentionCount > 0 && <span className="attention-nav-count" aria-label={`${attentionCount} unresolved human question${attentionCount === 1 ? "" : "s"}`}>{attentionCount}</span>}<Icon name="arrow" size={15} /></Link>
-        <Link className={`nav-item ${view === "summaries" ? "active" : ""}`} href="/summaries" aria-current={view === "summaries" ? "page" : undefined} onClick={blockNavigationWhilePending}><Icon name="box" /><span>Summaries</span>{reportCount !== null && reportCount !== "0" && <span className="summary-nav-count" aria-label={`${reportCount} undismissed summaries`}>{reportCount}</span>}<Icon name="arrow" size={15} /></Link>
         <SidebarNavGroup className="knowledge-nav" label="Knowledge graph"
           storageKey={dashboardStorageKeys.knowledgeMenu}
           activeId={view === "knowledge" ? (pathname === "/knowledge/domains" ? "domains" : "decisions") : undefined}
           items={[
-            { id: "decisions", label: "Decision documents", href: activeId ? knowledgeLibraryPath(activeId) : "/knowledge/decisions" },
-            { id: "domains", label: "Manage domains", href: `/knowledge/domains${activeId ? `?project=${activeId}` : ""}` }
+            { id: "domains", label: "Manage domains", href: `/knowledge/domains${activeId ? `?project=${activeId}` : ""}` },
+            { id: "decisions", label: "Decision documents", href: activeId ? knowledgeLibraryPath(activeId) : "/knowledge/decisions" }
           ]}
-          icon={<Icon name="library" />} onNavigate={blockNavigationWhilePending} />
+          icon={<Icon name="knowledge" />} onNavigate={blockNavigationWhilePending} />
+        <Link className={`nav-item ${view === "attention" ? "active" : ""}`} href="/attention" aria-current={view === "attention" ? "page" : undefined} onClick={blockNavigationWhilePending}><Icon name="attention" /><span>Needs Attention</span>{attentionCount !== null && attentionCount > 0 && <span className="attention-nav-count" aria-label={`${attentionCount} unresolved human question${attentionCount === 1 ? "" : "s"}`}>{attentionCount}</span>}<Icon name="arrow" size={15} /></Link>
+        <Link className={`nav-item ${view === "summaries" ? "active" : ""}`} href="/summaries" aria-current={view === "summaries" ? "page" : undefined} onClick={blockNavigationWhilePending}><Icon name="box" /><span>Summaries</span>{reportCount !== null && reportCount !== "0" && <span className="summary-nav-count" aria-label={`${reportCount} undismissed summaries`}>{reportCount}</span>}<Icon name="arrow" size={15} /></Link>
         <SidebarNavGroup className="resources-nav" label="Resources"
           storageKey={dashboardStorageKeys.resourcesMenu}
           activeId={view === "artifacts" || view === "transcripts" ? view : undefined}
@@ -2885,7 +2886,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
         <ProjectSettingsNav section={view === "settings" ? settingsSection : undefined} icon={<Icon name="settings" />} onNavigate={blockNavigationWhilePending} />
       </nav>
       <div className="sidebar-note"><img className="note-art" src="/img/robot.svg" alt="" width={115} height={115} aria-hidden="true" /><h2>Keeping your agents on the same page.</h2></div>
-      <div className="sidebar-footer"><span className="local-dot" /><span>Local workspace</span><ThemeSelector /></div>
+      <div className="sidebar-footer"><ThemeSelector /></div>
     </aside>
 
     {applicationSettingsOpen && <ApplicationSettings onClose={() => setApplicationSettingsOpen(false)} />}

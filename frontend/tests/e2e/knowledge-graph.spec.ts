@@ -44,6 +44,8 @@ test("knowledge graph browses domains, immutable revisions and revision-pinned c
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Decision documents.");
     await expect(page.getByRole("link", { name: "Decision documents", exact: true })).toHaveAttribute("aria-current", "page");
     await expect(page.getByRole("button", { name: current.title, exact: true })).toBeVisible();
+    await expect(page.getByRole("columnheader", { name: "Revisions", exact: true })).toBeVisible();
+    await expect(page.getByRole("row").filter({ has: page.getByRole("button", { name: current.title, exact: true }) }).getByRole("cell").nth(2)).toHaveText("2");
     await expect(page.getByRole("button", { name: "Upload", exact: true })).toBeVisible();
     await expect(page.locator('input[type="file"]')).toHaveCount(0);
     await page.getByRole("group", { name: "Filter by domain" }).getByRole("button", { name: /Owner decisions/ }).click();
@@ -114,16 +116,16 @@ test("domain management normalizes prefixes and preserves uncertain retries", as
     await expect(dialog).toBeHidden();
     expect(bodies).toHaveLength(2);
     expect(bodies[1]).toBe(bodies[0]);
-    await expect(page.getByRole("region", { name: "Bookkeeping domain", exact: true })).toBeVisible();
-    await page.getByRole("region", { name: "Bookkeeping domain", exact: true }).getByRole("button", { name: "Rename", exact: true }).click();
+    await expect(page.getByRole("row", { name: "Bookkeeping domain", exact: true })).toBeVisible();
+    await page.getByRole("row", { name: "Bookkeeping domain", exact: true }).getByRole("button", { name: "Rename", exact: true }).click();
     dialog = page.getByRole("dialog", { name: "Rename domain", exact: true });
     await expect(dialog.getByRole("textbox", { name: "Decision prefix" })).toHaveValue("BDR");
     await expect(dialog.getByRole("textbox", { name: "Decision prefix" })).toBeDisabled();
     await dialog.getByRole("textbox", { name: "Domain name", exact: true }).fill("Finance decisions");
     await dialog.getByRole("button", { name: "Save name", exact: true }).click();
     await expect(dialog).toBeHidden();
-    await expect(page.getByRole("region", { name: "Finance decisions domain", exact: true })).toBeVisible();
-    await expect(page.getByRole("region", { name: "Finance decisions domain", exact: true }).getByRole("button", { name: "Delete", exact: true })).toBeEnabled();
+    await expect(page.getByRole("row", { name: "Finance decisions domain", exact: true })).toBeVisible();
+    await expect(page.getByRole("row", { name: "Finance decisions domain", exact: true }).getByRole("button", { name: "Delete", exact: true })).toBeEnabled();
   } finally { await api.dispose(); }
 });
 
@@ -169,7 +171,8 @@ test("humans upload, filter, edit with revision conflicts, replace and download 
     await dialog.getByRole("button", { name: "Save revision", exact: true }).click();
     await expect(dialog).toBeHidden();
     await expect(row).toContainText(`${created.decision_id}-2`);
-    await row.getByRole("button", { name: `Replace ${created.decision_id}-2`, exact: true }).click();
+    await row.getByRole("button", { name: `More actions for ${created.decision_id}-2`, exact: true }).click();
+    await page.getByRole("menuitem", { name: "Replace", exact: true }).click();
     dialog = page.getByRole("dialog", { name: "Replace decision document", exact: true });
     await expect(dialog.getByLabel("Replacement file")).toBeEnabled();
     await dialog.getByLabel("Replacement file").setInputFiles({ name: "replacement.txt", mimeType: "text/plain", buffer: Buffer.from("Atomic replacement.\n") });
@@ -192,7 +195,8 @@ test("humans upload, filter, edit with revision conflicts, replace and download 
       }
       return route.continue();
     });
-    await row.getByRole("button", { name: `Replace ${created.decision_id}-3`, exact: true }).click();
+    await row.getByRole("button", { name: `More actions for ${created.decision_id}-3`, exact: true }).click();
+    await page.getByRole("menuitem", { name: "Replace", exact: true }).click();
     dialog = page.getByRole("dialog", { name: "Replace decision document", exact: true });
     await expect(dialog.getByLabel("Replacement file")).toBeEnabled();
     await dialog.getByLabel("Replacement file").setInputFiles({ name: "replacement.txt", mimeType: "text/plain", buffer: Buffer.from("Atomic replacement.\n") });
@@ -212,7 +216,7 @@ test("domain export and deletions show counted relationships and protect changed
     const path = `/api/v1/projects/${project.id}/knowledge`;
     await page.addInitScript(() => Object.defineProperty(window, "showSaveFilePicker", { value: undefined, configurable: true }));
     await page.goto(`/knowledge/domains?project=${project.id}`);
-    const card = page.getByRole("region", { name: "Architecture domain", exact: true });
+    const card = page.getByRole("row", { name: "Architecture domain", exact: true });
     const download = page.waitForEvent("download");
     await card.getByRole("button", { name: "Export", exact: true }).click();
     expect((await download).suggestedFilename()).toBe("ADR-decisions.tar.gz");
@@ -223,7 +227,8 @@ test("domain export and deletions show counted relationships and protect changed
     await dialog.screenshot({ path: testInfo.outputPath("knowledge-domain-delete-confirmation.png"), animations: "disabled" });
     await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
     await page.goto(`/knowledge/decisions?project=${project.id}`);
-    await page.getByRole("button", { name: `Delete ${downstream.reference}`, exact: true }).click();
+    await page.getByRole("button", { name: `More actions for ${downstream.reference}`, exact: true }).click();
+    await page.getByRole("menuitem", { name: "Delete", exact: true }).click();
     dialog = page.getByRole("dialog", { name: "Delete decision document?", exact: true });
     await dialog.getByRole("checkbox").check();
     await dialog.getByRole("button", { name: "Delete permanently", exact: true }).click();
@@ -234,18 +239,18 @@ test("domain export and deletions show counted relationships and protect changed
     const orphan = await api.post(`${path}/domains`, { data: { name: "Orphaned", prefix: "TMP", client_operation_id: crypto.randomUUID() } });
     expect(orphan.ok()).toBe(true);
     await page.reload();
-    await page.getByRole("region", { name: "Orphaned domain", exact: true }).getByRole("button", { name: "Delete", exact: true }).click();
+    await page.getByRole("row", { name: "Orphaned domain", exact: true }).getByRole("button", { name: "Delete", exact: true }).click();
     dialog = page.getByRole("dialog", { name: "Delete domain?", exact: true });
     await expect(dialog.getByRole("button", { name: "Delete permanently", exact: true })).toBeEnabled();
     await expect(dialog.getByRole("checkbox")).toHaveCount(0);
     await dialog.getByRole("button", { name: "Delete permanently", exact: true }).click();
     await expect(dialog).toBeHidden();
-    await expect(page.getByRole("region", { name: "Orphaned domain", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("row", { name: "Orphaned domain", exact: true })).toHaveCount(0);
     const raceResponse = await api.post(`${path}/domains`, { data: { name: "Changing domain", prefix: "RACE", client_operation_id: crypto.randomUUID() } });
     expect(raceResponse.ok()).toBe(true);
     const raceDomain = await raceResponse.json();
     await page.reload();
-    await page.getByRole("region", { name: "Changing domain domain", exact: true }).getByRole("button", { name: "Delete", exact: true }).click();
+    await page.getByRole("row", { name: "Changing domain domain", exact: true }).getByRole("button", { name: "Delete", exact: true }).click();
     dialog = page.getByRole("dialog", { name: "Delete domain?", exact: true });
     await expect(dialog.getByRole("button", { name: "Delete permanently", exact: true })).toBeEnabled();
     const incoming = await api.put(`${path}/decisions`, { data: { domain_id: raceDomain.id, title: "New linked decision", content: "Added after preview", media_type: "text/plain", state: "proposed", author_kind: "human", related_decision_ids: [current.decision_id], client_operation_id: crypto.randomUUID() } });

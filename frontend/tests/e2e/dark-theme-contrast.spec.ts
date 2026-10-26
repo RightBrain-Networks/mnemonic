@@ -17,7 +17,6 @@ const contrastFixture = `
       <a class="nav-item"><span>Needs attention</span><span class="attention-nav-count">2</span></a>
     </nav>
     <div class="sidebar-footer">
-      <span>Local workspace</span>
       <fieldset class="theme-selector">
         <label><input type="radio" name="fixture-theme"><span>Auto</span></label>
         <label><input type="radio" name="fixture-theme" checked><span>Dark</span></label>

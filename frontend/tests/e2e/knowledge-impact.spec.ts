@@ -188,6 +188,9 @@ test("Done requires a decision declaration while checkpoints remain independent"
     expect(scopes.items[0].completion_citations[0].work_item_id).toBe(item.id);
     await page.goto(`/summaries?project=${project.id}`);
     const report = page.locator("article.job-report-card").filter({ hasText: item.title });
+    const provenance = report.getByText("Decision provenance", { exact: true });
+    await expect(report.locator("details.job-decision-provenance")).not.toHaveAttribute("open", "");
+    await provenance.click();
     await expect(report.getByRole("link", { name: dependent.reference, exact: true })).toBeVisible();
     await expect(report).toContainText("Author-declared commits");
     await expect(report).toContainText("e".repeat(40));

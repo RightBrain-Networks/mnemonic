@@ -112,20 +112,25 @@ test("automatic reviews and priority are local to each knowledge domain", async 
     const adr = await json(await api.post(path, { data: { name: "Architecture", prefix: "ADR", client_operation_id: crypto.randomUUID() } }));
     expect(adr).toMatchObject({ automatic_decision_reviews: "off", decision_review_priority: 40 });
     await page.goto(`/knowledge/domains?project=${selected.id}`);
+    await page.getByRole("row", { name: "Architecture domain", exact: true }).getByRole("button", { name: "Review settings" }).click();
     const architecture = page.getByRole("form", { name: "ADR automatic decision impact reviews", exact: true });
     const product = page.getByRole("form", { name: "PDR automatic decision impact reviews", exact: true });
     await expect(architecture.getByRole("switch")).not.toBeChecked();
-    await expect(product.getByRole("switch")).not.toBeChecked();
     await architecture.getByRole("switch").check();
     const priority = architecture.getByRole("spinbutton", { name: "Review priority" });
     const save = architecture.getByRole("button", { name: "Save ADR settings" });
     for (const invalid of ["", "-1", "101", "40.5"]) { await priority.fill(invalid); await expect(save).toBeDisabled(); }
     await priority.fill("55"); await save.click();
     await expect(save).toBeDisabled();
+    await page.getByRole("row", { name: "Architecture domain", exact: true }).getByRole("button", { name: "Review settings" }).click();
+    await page.getByRole("row", { name: "Product Decision Records domain", exact: true }).getByRole("button", { name: "Review settings" }).click();
     await expect(product.getByRole("spinbutton")).toHaveValue("40");
     await page.reload();
+    await page.getByRole("row", { name: "Architecture domain", exact: true }).getByRole("button", { name: "Review settings" }).click();
     await expect(architecture.getByRole("switch")).toBeChecked();
     await expect(priority).toHaveValue("55");
+    await page.getByRole("row", { name: "Architecture domain", exact: true }).getByRole("button", { name: "Review settings" }).click();
+    await page.getByRole("row", { name: "Product Decision Records domain", exact: true }).getByRole("button", { name: "Review settings" }).click();
     await expect(product.getByRole("switch")).not.toBeChecked();
     await page.screenshot({ path: testInfo.outputPath("knowledge-domain-review-settings.png"), fullPage: true, animations: "disabled" });
     await page.goto(`/settings/workspace?project=${selected.id}`);
@@ -141,6 +146,7 @@ test("domain review drafts survive conflicts and uncertain saves retain the exac
     const adr = await json(await api.post(path, { data: { name: "Architecture", prefix: "ADR", client_operation_id: crypto.randomUUID() } }));
     await page.routeWebSocket(/\/api\/mnemonic\/sync$/, () => {});
     await page.goto(`/knowledge/domains?project=${selected.id}`);
+    await page.getByRole("row", { name: "Architecture domain", exact: true }).getByRole("button", { name: "Review settings" }).click();
     const row = page.getByRole("form", { name: "ADR automatic decision impact reviews", exact: true });
     await row.getByRole("switch").check();
     await row.getByRole("spinbutton").fill("65");

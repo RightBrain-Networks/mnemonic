@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { DecisionImpactView, DecisionAssessments } from "@/components/knowledge-impact";
 import CommitLookup, { ScopeEvidence } from "@/components/knowledge-scope";
@@ -85,15 +86,13 @@ export default function KnowledgeLibrary({ projectId, repositoryUrl, query = "",
     {domain?.is_product_decision_domain && <p className="artifact-history-note">Needs Attention questions and recorded answers live in this domain. <Link href={`/attention?project=${projectId}`}>Review waiting product decisions</Link>.</p>}
     {decisions.isError ? <ReadError error={decisions.error} retry={() => void decisions.refetch()} /> : <>
       <div className="artifact-table-scroll" role="region" aria-label="Decision directory" tabIndex={0} aria-busy={decisions.isFetching}>
-        <table className="artifact-table knowledge-table"><thead><tr><th scope="col">Decision</th><th scope="col">State</th><th scope="col">Revision commits</th><th scope="col">Modified</th><th scope="col"><span className="sr-only">Actions</span></th></tr></thead>
+        <table className="artifact-table knowledge-table"><thead><tr><th scope="col">Decision</th><th scope="col">State</th><th scope="col">Revisions</th><th scope="col">Modified</th><th scope="col"><span className="sr-only">Actions</span></th></tr></thead>
           <tbody>{page?.items.map((decision) => <tr key={decision.id}>
             <td><button className="artifact-name" aria-haspopup="dialog" onClick={() => setSelected({ id: decision.decision_id, revision: decision.revision })}><svg width="19" height="22" viewBox="0 0 20 24" fill="none" stroke="currentColor" aria-hidden="true"><path d="M3 1h8l6 6v16H3zM11 1v7h6M6 13h8M6 17h6" /></svg><span>{decision.title}</span></button><span className="artifact-type"><code>{decision.reference}</code> · {decision.domain_name}</span></td>
-            <td><DecisionStateBadge state={decision.state} /></td><td>{decision.scope_count}</td><td><time dateTime={decision.updated_at}>{formatDateTime(decision.updated_at)}</time></td>
+            <td><DecisionStateBadge state={decision.state} /></td><td>{decision.revision + 1}</td><td><time dateTime={decision.updated_at}>{formatDateTime(decision.updated_at)}</time></td>
             <td><div className="artifact-actions knowledge-row-actions"><button className="button button-secondary" aria-label={`View ${decision.reference}`} onClick={() => setSelected({ id: decision.decision_id, revision: decision.revision })}>View</button>
-              <button className="button button-secondary" disabled={pending} aria-label={`Edit ${decision.reference}`} onClick={() => setEditing({ decision })}>Edit</button>
+              <DecisionEditActions decision={decision} disabled={pending} onEdit={() => setEditing({ decision })} onReplace={() => setEditing({ decision, replace: true })} onDelete={() => setDeleting(decision)} />
               <button className="button button-secondary" aria-label={`Download ${decision.reference}`} onClick={() => void downloadKnowledgeFile(knowledgePath(projectId, `/decisions/${decision.decision_id}/download?revision=${decision.revision}`), `${decision.reference}.${decision.media_type === "text/markdown" ? "md" : "txt"}`).catch((failure) => setNotice(errorMessage(failure)))}>Download</button>
-              <button className="button button-secondary" disabled={pending} aria-label={`Replace ${decision.reference}`} onClick={() => setEditing({ decision, replace: true })}>Replace</button>
-              <button className="button button-danger" disabled={pending} aria-label={`Delete ${decision.reference}`} onClick={() => setDeleting(decision)}>Delete</button>
             </div></td>
           </tr>)}</tbody>
         </table>
@@ -111,6 +110,70 @@ export default function KnowledgeLibrary({ projectId, repositoryUrl, query = "",
       onClose={() => setDeleting(null)} onDeleted={() => { setDeleting(null); setNotice("Decision deleted. Its deletion record remains available to agents."); void client.invalidateQueries({ queryKey: knowledgeKeys.root(projectId) }); }} />}
     {selected && <DecisionDrawer projectId={projectId} onPendingChange={onPendingChange} selected={selected} onSelect={setSelected} onClose={() => setSelected(null)} />}
   </section>;
+}
+
+function DecisionEditActions({ decision, disabled, onEdit, onReplace, onDelete }: {
+  decision: Decision; disabled: boolean; onEdit: () => void; onReplace: () => void; onDelete: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [position, setPosition] = useState({ top: 0, left: 0 });
+  const trigger = useRef<HTMLButtonElement>(null);
+  const menu = useRef<HTMLDivElement>(null);
+  const firstItem = useRef<HTMLButtonElement>(null);
+  const menuId = useId();
+
+  function reposition() {
+    if (!trigger.current) return;
+    const rect = trigger.current.getBoundingClientRect();
+    setPosition({
+      top: window.innerHeight - rect.bottom < 100 && rect.top > 100 ? rect.top - 94 : rect.bottom + 6,
+      left: Math.max(8, Math.min(rect.left, window.innerWidth - 170))
+    });
+  }
+
+  useEffect(() => {
+    if (!open) return;
+    firstItem.current?.focus();
+    const closeOutside = (event: PointerEvent) => {
+      if (!trigger.current?.contains(event.target as Node) && !menu.current?.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener("pointerdown", closeOutside);
+    window.addEventListener("scroll", reposition, true);
+    window.addEventListener("resize", reposition);
+    return () => {
+      document.removeEventListener("pointerdown", closeOutside);
+      window.removeEventListener("scroll", reposition, true);
+      window.removeEventListener("resize", reposition);
+    };
+  }, [open]);
+  useEffect(() => { if (disabled) setOpen(false); }, [disabled]);
+
+  function toggle() {
+    if (!open) reposition();
+    setOpen(!open);
+  }
+  function choose(action: () => void) { setOpen(false); action(); }
+
+  return <div className="status-split-button knowledge-edit-actions">
+    <button type="button" className="button button-secondary status-split-primary" disabled={disabled} aria-label={`Edit ${decision.reference}`} onClick={onEdit}>Edit</button>
+    <button type="button" ref={trigger} className="button button-secondary status-split-toggle" disabled={disabled}
+      aria-label={`More actions for ${decision.reference}`} aria-haspopup="menu" aria-expanded={open} aria-controls={menuId}
+      onClick={toggle} onKeyDown={(event) => {
+        if (event.key === "ArrowDown" || event.key === "ArrowUp") { event.preventDefault(); if (!open) toggle(); }
+      }}><span aria-hidden="true">⌄</span></button>
+    {open && createPortal(<div id={menuId} ref={menu} role="menu" className="status-action-menu knowledge-edit-menu" aria-label={`More actions for ${decision.reference}`}
+      style={{ top: position.top, left: position.left }} onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node) && event.relatedTarget !== trigger.current) setOpen(false);
+      }} onKeyDown={(event) => {
+        if (event.key === "Escape") { event.preventDefault(); setOpen(false); trigger.current?.focus(); }
+        if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
+          event.preventDefault(); (event.key === "ArrowDown" || event.key === "End" ? menu.current?.querySelectorAll<HTMLButtonElement>("button")[1] : firstItem.current)?.focus();
+        }
+      }}>
+      <button type="button" role="menuitem" ref={firstItem} onClick={() => choose(onReplace)}>Replace</button>
+      <button type="button" role="menuitem" onClick={() => choose(onDelete)}>Delete</button>
+    </div>, document.body)}
+  </div>;
 }
 
 
