@@ -1,15 +1,19 @@
+import InfoContainer from "@/components/info-container";
+
 export default function DashboardViewChrome({
   eyebrow,
   title,
   subject,
   subjectDescription,
-  description
+  description,
+  info
 }: {
   eyebrow?: string;
   title: string;
   subject?: string;
   subjectDescription?: string;
   description?: string;
+  info?: { storageKey: string; label: string; content: string };
 }) {
   return <section className="page-heading">
     <div>
@@ -24,7 +28,9 @@ export default function DashboardViewChrome({
           </>}
         </span></>}
       </h1>
-      {description && <p>{description}</p>}
+      {description && (info
+        ? <InfoContainer storageKey={info.storageKey} label={info.label} description={description}>{info.content}</InfoContainer>
+        : <p>{description}</p>)}
     </div>
   </section>;
 }

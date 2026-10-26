@@ -18,6 +18,7 @@ import { transcriptLibraryPath } from "@/lib/transcripts";
 import ArtifactLibrary from "@/components/artifact-library";
 import KnowledgeLibrary from "@/components/knowledge-library";
 import KnowledgeDomains from "@/components/knowledge-domains";
+import { knowledgeDecisionsHelp, knowledgeDomainsHelp } from "@/lib/knowledge-help";
 import { knowledgeLibraryPath } from "@/lib/knowledge";
 import { completionDomainsOptions, invalidateKnowledgeReads } from "@/lib/knowledge-queries";
 import { ARTIFACT_DEFAULT_MAX_BYTES, artifactLibraryPath, artifactLocation } from "@/lib/artifacts";
@@ -2922,7 +2923,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
           {projectsError && <ErrorNotice message={projectsError}><button className="button button-secondary" onClick={() => refreshProjects()}>Try again</button></ErrorNotice>}
           {project ? <TranscriptLibrary key={`${project.id}:${artifactRoute.workItemId ?? ""}`} projectId={project.id} onPendingChange={setTranscriptPending} /> : <div className="loading-state" role="status">{projectsLoading ? "Opening your workspace…" : "Select or create a project to view transcripts."}</div>}
         </> : view === "knowledge" ? <>
-          <DashboardViewChrome eyebrow="DECISIONS AND THE CODE THEY INFORM" title={pathname === "/knowledge/domains" ? "Manage domains" : "Decision documents"} description={pathname === "/knowledge/domains" ? "Organize decisions, export documents, and set review policies for each knowledge domain." : project ? `Explore decisions, their history, and their implementation in the “${project.name}” project.` : "Choose a project to explore its decisions."} />
+          <DashboardViewChrome eyebrow="DECISIONS AND THE CODE THEY INFORM" title={pathname === "/knowledge/domains" ? "Manage domains" : "Decision documents"} description={pathname === "/knowledge/domains" ? "Organize decisions, export documents, and set review policies for each knowledge domain." : project ? `Explore decisions, their history, and their implementation in the “${project.name}” project.` : "Choose a project to explore its decisions."} info={pathname === "/knowledge/domains" ? knowledgeDomainsHelp : knowledgeDecisionsHelp} />
           {projectsError && <ErrorNotice message={projectsError}><button className="button button-secondary" onClick={() => refreshProjects()}>Try again</button></ErrorNotice>}
           {project ? pathname === "/knowledge/domains" ? <KnowledgeDomains key={project.id} projectId={project.id} onPendingChange={setKnowledgePending} /> : <KnowledgeLibrary key={project.id} projectId={project.id} repositoryUrl={project.repository_url} query={route.query} onPendingChange={setKnowledgePending} /> : <div className="loading-state" role="status">{projectsLoading ? "Opening your workspace…" : "Select or create a project to view decisions."}</div>}
         </> : view === "artifacts" ? <>

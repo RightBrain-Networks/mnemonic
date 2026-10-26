@@ -339,6 +339,13 @@ button { touch-action: manipulation; }
 .heading-subject-description { font-family: var(--font); font-size: 13px; font-style: normal; font-weight: 400; letter-spacing: normal; line-height: 1.7; opacity: .5; }
 .page-heading p { margin: 0; font-size: 13px; color: var(--muted); max-width: 620px; line-height: 1.7; overflow-wrap: anywhere; }
 
+.info-container { min-width: 0; max-width: 720px; }
+.info-container-toggle { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--muted); vertical-align: middle; cursor: pointer; }
+.info-container-toggle:hover, .info-container-toggle[aria-expanded="true"] { color: var(--accent-deep); background: var(--violet-soft); }
+.info-container-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.info-container-content { margin-top: 12px; padding: 16px 18px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--muted); font-size: 13px; }
+.info-container-content p { max-width: none; }
+
 .settings-card { max-width: 940px; padding: clamp(24px, 4vw, 42px); border: 1px solid var(--line); border-radius: 13px; background: var(--surface); box-shadow: 0 5px 24px #2511300a; }
 .settings-card-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
 .settings-card-heading h2 { margin: 8px 0 0; font: 700 24px/1.25 var(--display); letter-spacing: -.5px; }
