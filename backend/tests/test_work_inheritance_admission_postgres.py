@@ -100,7 +100,14 @@ def test_cross_project_opt_out_authors_independently_without_admitting_closed_or
         assert retained["source_work_item_id"] == child["id"]
         assert retained["target_work_item_id"] == origin["id"]
         assert retained["context_checkpoint_id"] == origin["initial_checkpoint_id"]
-    assert group(api, origin_project, origin_change_id) == closed_change
+    current_change = group(api, origin_project, origin_change_id)
+    # New members are live read context, without changing the closed review's obligations.
+    assert {key: value for key, value in current_change.items() if key != "lineage_work"} == {
+        key: value for key, value in closed_change.items() if key != "lineage_work"
+    }
+    assert [item["work_item_id"] for item in current_change["lineage_work"]["items"]] == [
+        default_id,
+    ]
     assert captured_episodes(postgres_engine, origin_project) == original_episodes
     assert context(api, origin_project, origin["id"])["work_item"]["status"] == "wont-do"
     assert group(api, project, held_change["id"]) == held_change

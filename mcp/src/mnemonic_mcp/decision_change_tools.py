@@ -17,11 +17,20 @@ def register_decision_change_tools(server: FastMCP, api: MnemonicAPI) -> None:
     register_decision_candidate_tools(server, api)
 
     @server.tool(annotations=_READ)
-    async def decision_change_get(project_id: UUID, change_id: UUID) -> DecisionChangeRead:
-        """Read a substantive change's native review driver, scope version and acknowledged version. Page decision_assessments(change_id=...) for its current obligations, including revisions added while the review is active. Reading or acknowledging scope does not dispose candidates or grant execution authority. Follow-up work retains this lineage; a closed driver requires explicit human dashboard admission before a new substantive review cycle."""
+    async def decision_change_get(
+        project_id: UUID, change_id: UUID,
+        lineage_limit: Annotated[StrictInt, Field(ge=1, le=100)] = 20,
+        lineage_offset: Annotated[StrictInt, Field(ge=0)] = 0,
+    ) -> DecisionChangeRead:
+        """Read a substantive change's native review driver, scope version and acknowledged version. lineage_work pages other durable member work, including source implementations and code-review remediation, with safe current readiness, lease and factual origin pointers; follow next_offset using lineage_offset. Members can belong to another project, be deleted or be duplicate aliases; follow the returned identities deliberately. Membership alone does not establish relevance. Inspect relevant open work before dispositions and recheck before completion. This visibility does not block review readiness. Page decision_assessments(change_id=...) for current obligations, including revisions added while the review is active. Reading or acknowledging scope does not dispose candidates or grant execution authority. A closed driver requires explicit human dashboard admission before a new substantive review cycle."""
+        params = ({"lineage_limit": lineage_limit, "lineage_offset": lineage_offset}
+                  if (lineage_limit, lineage_offset) != (20, 0) else {})
         return await _read(
             api, f"projects/{project_id}/knowledge/changes/{change_id}", DecisionChangeRead,
-            lambda item: (item.project_id, item.id) == (project_id, change_id), {},
+            lambda item: (item.project_id, item.id) == (project_id, change_id) and (
+                (item.lineage_work is None and not params) or item.lineage_work is not None and
+                (item.lineage_work.limit, item.lineage_work.offset) == (lineage_limit, lineage_offset)
+            ), params,
         )
 
     @server.tool(annotations=_WRITE)

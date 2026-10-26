@@ -71,7 +71,7 @@ _GUARDED_TABLES = (
     "decision_documents", "decision_revisions", "decision_relationships",
     "decision_work_item_links", "decision_artifact_links", "decision_scopes",
     "decision_dependencies", "decision_supersession_details", "decision_impact_assessments",
-    "decision_impact_dispositions", "decision_commit_mappings",
+    "decision_impact_dispositions", "decision_candidate_reuses", "decision_commit_mappings",
     "decision_changes", "decision_revision_changes", "decision_change_assessments",
     "decision_change_work", "decision_supersession_reuses", "work_change_inheritance_exclusions",
     "artifacts", "artifact_revisions", "artifact_audit",
@@ -332,6 +332,9 @@ def _seed_knowledge(api: TestClient, engine: Engine, project_id: UUID) -> None:
     declared = api.put(collection + "/decisions", json={
         **replacement_body, "decision_id": replacement_id, "expected_revision": 0,
         "content": "Retain all revision history. Storage policy annotation.",
+        # Keep the older pinned dependency, while the new revision contributes only
+        # its incoming citation. This preserves traversal coverage and exercises reuse.
+        "depends_on": [],
         "change": {"unchanged_supersessions": [{
             "target_reference": original_id + "-0",
             "governing_reference": replacement_id + "-0",

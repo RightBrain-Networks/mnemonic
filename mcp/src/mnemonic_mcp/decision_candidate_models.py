@@ -13,6 +13,7 @@ from .impact_models import (
     ImpactModel,
     Reference,
     RemediationTarget,
+    ReusedDispositionSource,
 )
 from .response_validation import validate_page_items
 
@@ -21,6 +22,9 @@ Limit = Annotated[StrictInt, Field(ge=1, le=100)]
 
 
 class CandidateDispositionSummary(ImpactModel):
+    reused_from: ReusedDispositionSource | None = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
     id: UUID
     version: Annotated[StrictInt, Field(ge=1)]
     disposition: Disposition
@@ -57,6 +61,12 @@ class DecisionCandidateOccurrence(ImpactModel):
             raise ValueError("Only captured incoming related citations are required occurrences")
         if self.latest_disposition is not None and (
             self.latest_disposition.version > self.assessment_version
+            if self.latest_disposition.reused_from is None else (
+                self.latest_disposition.reused_from.assessment_id == self.assessment_id
+                or self.latest_disposition.id != self.latest_disposition.reused_from.disposition_id
+                or self.latest_disposition.version
+                    != self.latest_disposition.reused_from.disposition_version
+            )
         ):
             raise ValueError("Latest disposition cannot exceed the assessment version")
         return self

@@ -17,6 +17,7 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
+from mnemonic_api.candidate_reuse_integrity import CANDIDATE_REUSE_FINDINGS
 from mnemonic_api.decision_change_integrity import DECISION_CHANGE_FINDINGS
 from mnemonic_api.decision_review_integrity import (
     DECISION_REVIEW_FINDINGS,
@@ -37,10 +38,10 @@ from mnemonic_api.work_inheritance_db import INHERITANCE_FINDINGS
 from sqlalchemy import Connection, create_engine, text
 from sqlalchemy.exc import SQLAlchemyError
 
-HEAD = "0065_knowledge_management"
+HEAD = "0066_candidate_reuse"
 PROMPT_LIBRARY_HEADS = (
     "0035_prompt_library", "0036_transcript_copies", "0037_background_jobs",
-    "0038_transcript_recovery", "0039_manual_review_requests", "0040_normalized_transcripts", "0041_artifact_passages", "0042_transcript_health", "0046_shared_transcript_copies", "0047_artifact_transfer", "0048_force_claims", "0049_duplicate_embeddings", "0051_priority_rubrics", "0052_dependency_cycles", "0056_product_decisions", "0057_automatic_decision_reviews", "0058_decision_changes", "0059_domain_decision_reviews", "0060_supersession_reuse", "0061_batch_dispositions", "0062_review_scope_notices", "0063_impact_findings", "0064_work_change_inheritance", HEAD,
+    "0038_transcript_recovery", "0039_manual_review_requests", "0040_normalized_transcripts", "0041_artifact_passages", "0042_transcript_health", "0046_shared_transcript_copies", "0047_artifact_transfer", "0048_force_claims", "0049_duplicate_embeddings", "0051_priority_rubrics", "0052_dependency_cycles", "0056_product_decisions", "0057_automatic_decision_reviews", "0058_decision_changes", "0059_domain_decision_reviews", "0060_supersession_reuse", "0061_batch_dispositions", "0062_review_scope_notices", "0063_impact_findings", "0064_work_change_inheritance", "0065_knowledge_management", HEAD,
 )
 EXTRACTION_HEAD = "0027_artifact_fulltext"
 EXTRACTION_HEADS = (
@@ -48,7 +49,7 @@ EXTRACTION_HEADS = (
     "0030_question_versions", "0031_review_decisions", "0032_agent_transcripts",
     "0033_transcript_imports", "0034_variable_work_leases", "0035_prompt_library",
     "0036_transcript_copies", "0037_background_jobs", "0038_transcript_recovery",
-    "0039_manual_review_requests", "0040_normalized_transcripts", "0041_artifact_passages", "0042_transcript_health", "0046_shared_transcript_copies", "0047_artifact_transfer", "0048_force_claims", "0049_duplicate_embeddings", "0051_priority_rubrics", "0052_dependency_cycles", "0056_product_decisions", "0057_automatic_decision_reviews", "0058_decision_changes", "0059_domain_decision_reviews", "0060_supersession_reuse", "0061_batch_dispositions", "0062_review_scope_notices", "0063_impact_findings", "0064_work_change_inheritance", HEAD,
+    "0039_manual_review_requests", "0040_normalized_transcripts", "0041_artifact_passages", "0042_transcript_health", "0046_shared_transcript_copies", "0047_artifact_transfer", "0048_force_claims", "0049_duplicate_embeddings", "0051_priority_rubrics", "0052_dependency_cycles", "0056_product_decisions", "0057_automatic_decision_reviews", "0058_decision_changes", "0059_domain_decision_reviews", "0060_supersession_reuse", "0061_batch_dispositions", "0062_review_scope_notices", "0063_impact_findings", "0064_work_change_inheritance", "0065_knowledge_management", HEAD,
 )
 ARTIFACT_HEAD = "0026_artifact_library"
 ARTIFACT_HEADS = (ARTIFACT_HEAD, *EXTRACTION_HEADS)
@@ -971,23 +972,26 @@ def _report_checks(expected_head: str) -> dict[str, str]:
 
 def _knowledge_checks(expected_head: str) -> dict[str, str]:
     checks: dict[str, str] = {}
-    if expected_head in {"0038_transcript_recovery", "0039_manual_review_requests", "0040_normalized_transcripts", "0041_artifact_passages", "0042_transcript_health", "0046_shared_transcript_copies", "0047_artifact_transfer", "0048_force_claims", "0049_duplicate_embeddings", "0051_priority_rubrics", "0052_dependency_cycles", "0056_product_decisions", "0057_automatic_decision_reviews", "0058_decision_changes", "0059_domain_decision_reviews", "0060_supersession_reuse", "0061_batch_dispositions", "0062_review_scope_notices", "0063_impact_findings", "0064_work_change_inheritance", HEAD}:
+    if expected_head in {"0038_transcript_recovery", "0039_manual_review_requests", "0040_normalized_transcripts", "0041_artifact_passages", "0042_transcript_health", "0046_shared_transcript_copies", "0047_artifact_transfer", "0048_force_claims", "0049_duplicate_embeddings", "0051_priority_rubrics", "0052_dependency_cycles", "0056_product_decisions", "0057_automatic_decision_reviews", "0058_decision_changes", "0059_domain_decision_reviews", "0060_supersession_reuse", "0061_batch_dispositions", "0062_review_scope_notices", "0063_impact_findings", "0064_work_change_inheritance", "0065_knowledge_management", HEAD}:
         checks.update(RECOVERY_FINDINGS)
-    if expected_head in {"0056_product_decisions", "0057_automatic_decision_reviews", "0058_decision_changes", "0059_domain_decision_reviews", "0060_supersession_reuse", "0061_batch_dispositions", "0062_review_scope_notices", "0063_impact_findings", "0064_work_change_inheritance", HEAD}:
+    if expected_head in {"0056_product_decisions", "0057_automatic_decision_reviews", "0058_decision_changes", "0059_domain_decision_reviews", "0060_supersession_reuse", "0061_batch_dispositions", "0062_review_scope_notices", "0063_impact_findings", "0064_work_change_inheritance", "0065_knowledge_management", HEAD}:
         checks.update(KNOWLEDGE_FINDINGS)
     if expected_head == "0057_automatic_decision_reviews":
         checks.update(LEGACY_DECISION_REVIEW_FINDINGS)
-    if expected_head in {"0058_decision_changes", "0059_domain_decision_reviews", "0060_supersession_reuse", "0061_batch_dispositions", "0062_review_scope_notices", "0063_impact_findings", "0064_work_change_inheritance", HEAD}:
+    if expected_head in {"0058_decision_changes", "0059_domain_decision_reviews", "0060_supersession_reuse", "0061_batch_dispositions", "0062_review_scope_notices", "0063_impact_findings", "0064_work_change_inheritance", "0065_knowledge_management", HEAD}:
         checks.update(DECISION_REVIEW_FINDINGS)
-    if expected_head in {"0058_decision_changes", "0059_domain_decision_reviews", "0060_supersession_reuse", "0061_batch_dispositions", "0062_review_scope_notices", "0063_impact_findings", "0064_work_change_inheritance", HEAD}:
+    if expected_head in {"0058_decision_changes", "0059_domain_decision_reviews", "0060_supersession_reuse", "0061_batch_dispositions", "0062_review_scope_notices", "0063_impact_findings", "0064_work_change_inheritance", "0065_knowledge_management", HEAD}:
         checks.update({key: sql for key, sql in DECISION_CHANGE_FINDINGS.items()
-                       if expected_head in {"0060_supersession_reuse", "0061_batch_dispositions", "0062_review_scope_notices", "0063_impact_findings", "0064_work_change_inheritance", HEAD}
+                       if expected_head in {"0060_supersession_reuse", "0061_batch_dispositions", "0062_review_scope_notices", "0063_impact_findings", "0064_work_change_inheritance", "0065_knowledge_management", HEAD}
                        or key not in SUPERSESSION_REUSE_FINDINGS})
-    if expected_head in {"0059_domain_decision_reviews", "0060_supersession_reuse", "0061_batch_dispositions", "0062_review_scope_notices", "0063_impact_findings", "0064_work_change_inheritance", HEAD}:
-        checks.update(DOMAIN_REVIEW_FINDINGS if expected_head == HEAD
+    if expected_head in {"0059_domain_decision_reviews", "0060_supersession_reuse", "0061_batch_dispositions", "0062_review_scope_notices", "0063_impact_findings", "0064_work_change_inheritance", "0065_knowledge_management", HEAD}:
+        checks.update(DOMAIN_REVIEW_FINDINGS if expected_head in {"0065_knowledge_management", HEAD}
                       else LEGACY_DOMAIN_REVIEW_FINDINGS)
-    if expected_head not in {"0062_review_scope_notices", "0063_impact_findings", "0064_work_change_inheritance", HEAD}:
+    if expected_head not in {"0062_review_scope_notices", "0063_impact_findings", "0064_work_change_inheritance", "0065_knowledge_management", HEAD}:
         checks.pop("invalid_decision_scope_attachment_versions", None)
+    if expected_head != HEAD:
+        for key in CANDIDATE_REUSE_FINDINGS:
+            checks.pop(key, None)
     return checks
 
 
@@ -1002,7 +1006,7 @@ def _head_findings(
     checks = dict(_ACTIVITY_FINDINGS)
     precedence_heads = {"0052_dependency_cycles", "0056_product_decisions",
                         "0057_automatic_decision_reviews", "0058_decision_changes",
-                        "0059_domain_decision_reviews", "0060_supersession_reuse", "0061_batch_dispositions", "0062_review_scope_notices", "0063_impact_findings", "0064_work_change_inheritance", HEAD}
+                        "0059_domain_decision_reviews", "0060_supersession_reuse", "0061_batch_dispositions", "0062_review_scope_notices", "0063_impact_findings", "0064_work_change_inheritance", "0065_knowledge_management", HEAD}
     for heads, additions in (
         (precedence_heads, _PRECEDENCE_FINDINGS),
         (REPORT_HEADS, _report_checks(expected_head)),
@@ -1017,9 +1021,9 @@ def _head_findings(
     if expected_head in REVIEW_HEADS:
         checks.update(_review_checks(expected_head))
     checks.update(_knowledge_checks(expected_head))
-    if expected_head in {"0064_work_change_inheritance", HEAD}:
+    if expected_head in {"0064_work_change_inheritance", "0065_knowledge_management", HEAD}:
         checks.update(INHERITANCE_FINDINGS)
-    if expected_head == HEAD:
+    if expected_head in {"0065_knowledge_management", HEAD}:
         checks = historical_graph_checks(checks)
         checks.update(DELETION_FINDINGS)
     findings.update({key: connection.scalar(text(sql)) for key, sql in checks.items()})

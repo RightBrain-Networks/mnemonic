@@ -6,6 +6,7 @@ from uuid import UUID
 
 from pydantic import Field, StrictBool, StrictInt, StringConstraints, model_validator
 
+from .decision_lineage_models import DecisionLineagePage
 from .impact_models import ImpactActor, ImpactFindingSummary, ImpactModel, Reference
 
 ChangeReason = Annotated[
@@ -51,6 +52,9 @@ class DecisionRevisionChange(DecisionChangeInput):
 
 
 class DecisionChangeRead(ImpactModel):
+    lineage_work: DecisionLineagePage | None = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
     finding_summary: ImpactFindingSummary | None = Field(
         default=None, exclude_if=lambda value: value is None,
     )
@@ -76,6 +80,10 @@ class DecisionChangeRead(ImpactModel):
             raise ValueError("Acknowledgement cannot exceed the current scope")
         if self.assessment_count != self.scope_version:
             raise ValueError("Scope version must count its attached assessment obligations")
+        if self.lineage_work is not None and any(
+            item.work_item_id == self.review_work_item_id for item in self.lineage_work.items
+        ):
+            raise ValueError("Lineage work excludes this change's current review driver")
         return self
 
 

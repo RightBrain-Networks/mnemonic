@@ -291,7 +291,16 @@ class ImpactDiffRead(APIModel):
     truncated: bool
 
 
+class ReusedDispositionSource(APIModel):
+    assessment_id: UUID
+    disposition_id: UUID
+    disposition_version: Annotated[StrictInt, Field(ge=1)]
+
+
 class ImpactDispositionProjection(APIModel):
+    reused_from: ReusedDispositionSource | None = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
     id: UUID | MISSING = MISSING
     project_id: UUID | MISSING = MISSING
     assessment_id: UUID | MISSING = MISSING
@@ -332,6 +341,7 @@ class ImpactAssessmentRead(APIModel):
     created_at: datetime
     version: int
     unassessed_count: int
+    reused_candidate_count: int = 0
     change_required_count: int
     finding_summary: ImpactFindingSummary | None = Field(
         default=None, exclude_if=lambda value: value is None,

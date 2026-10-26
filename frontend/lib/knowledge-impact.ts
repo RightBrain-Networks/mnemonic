@@ -1,6 +1,6 @@
 import { decodeSupersessionDelta, type SupersessionDelta } from "./supersession-deltas.ts";
 import { decisionIdPattern, referencePattern, decisionStates, decodeKnowledgePage, validCommitHash, validScopeProvenance, type KnowledgePage, type DecisionScope, type DecisionState } from "./knowledge.ts";
-import { boundedText, finiteInteger, nullableUuid, objectValue, sameUuid, validUuid } from "./wire-guards.ts";
+import { boundedText, exactKeys, finiteInteger, nullableUuid, objectValue, sameUuid, validUuid } from "./wire-guards.ts";
 import { validRevisionAuthor, type RevisionAuthorContext } from "./revision-authors.ts";
 import { validFindingMetadata, validFindingSummary, type FindingSummary, type RemediationTarget } from "./impact-findings.ts";
 
@@ -25,6 +25,7 @@ export type ImpactCoverage = {
 export type DecisionImpact = KnowledgePage<ImpactCandidate> & { project_id: string; origin_reference: string; origin_author: RevisionAuthorContext; kind: ImpactKind; candidate_count: number; context_count: number; coverage: ImpactCoverage };
 export type ImpactDiff = { changed_fields: string[]; before_sha256: string; after_sha256: string; unified_diff: string; truncated: boolean };
 export type ImpactAssessment = {
+  reused_candidate_count?: number;
   finding_summary?: FindingSummary | null;
   id: string; project_id: string; trigger: "revision" | "supersession"; before_reference: string;
   after_reference: string; extent: "full" | "partial" | null; reason: string | null;
@@ -33,6 +34,7 @@ export type ImpactAssessment = {
   diff: ImpactDiff; candidate_count: number; unassessed_count?: number; change_required_count?: number; status?: "pending" | "change-required" | "resolved"; coverage: ImpactCoverage; created_at: string; version: number;
 };
 export type ImpactDisposition = {
+  reused_from?: { assessment_id: string; disposition_id: string; disposition_version: number } | null;
   finding_id?: string | null; remediation_target?: RemediationTarget | null;
   id: string; project_id: string; assessment_id: string; version: number; candidate_reference: string;
   disposition: ImpactDispositionName; reason: string; remediation_work_item_id: string | null; created_at: string;
@@ -120,15 +122,26 @@ export function decodeAssessment(value: unknown, projectId: string): ImpactAsses
       || item.status !== (item.change_required_count > 0 ? "change-required" : item.unassessed_count > 0 ? "pending" : "resolved")) invalid();
   }
   if (item.finding_summary != null && !validFindingSummary(item.finding_summary, item.change_required_count)) invalid();
+  if (item.reused_candidate_count !== undefined
+    && (!finiteInteger(item.reused_candidate_count, 0, item.candidate_count as number)
+      || item.reused_candidate_count > 0 && item.trigger !== "supersession"
+      || item.reused_candidate_count + (item.unassessed_count as number ?? 0) > (item.candidate_count as number))) invalid();
   const coverage = decodeCoverage(item.coverage);
   if (coverage.warnings?.some((warning) => warning.reference !== item.before_reference)) invalid();
   const delta = item.supersession_delta == null ? item.supersession_delta : decodeSupersessionDelta(
     item.supersession_delta, item.before_reference as string, item.after_reference as string, String(item.trigger));
   return { ...item, coverage, ...(delta === undefined ? {} : { supersession_delta: delta }) } as ImpactAssessment;
 }
-export function decodeDisposition(value: unknown, projectId: string, assessmentId: string): ImpactDisposition {
+export function decodeDisposition(value: unknown, projectId: string, assessmentId: string, allowReuse = false): ImpactDisposition {
   const item = objectValue(value);
-  if (!item || !validUuid(item.id) || !sameUuid(item.project_id, projectId) || !sameUuid(item.assessment_id, assessmentId)
+  const reused = objectValue(item?.reused_from);
+  if (item?.reused_from != null && (!allowReuse || !reused
+    || !exactKeys(reused, ["assessment_id", "disposition_id", "disposition_version"])
+    || !validUuid(reused.assessment_id) || sameUuid(reused.assessment_id, assessmentId)
+    || !sameUuid(reused.assessment_id, item.assessment_id) || !sameUuid(reused.disposition_id, item.id)
+    || !finiteInteger(reused.disposition_version, 1) || reused.disposition_version !== item.version)) invalid();
+  if (!item || !validUuid(item.id) || !sameUuid(item.project_id, projectId)
+    || !reused && !sameUuid(item.assessment_id, assessmentId)
     || !finiteInteger(item.version, 1) || !reference(item.candidate_reference)
     || !impactDispositions.includes(item.disposition as ImpactDispositionName) || !boundedText(item.reason, 4000)
     || !nullableUuid(item.remediation_work_item_id) || typeof item.created_at !== "string"
@@ -142,9 +155,11 @@ export function decodeAssessmentDetail(value: unknown, projectId: string, assess
   if (!item || !sameUuid(assessment.id, assessmentId) || !Array.isArray(item.dispositions) || !finiteInteger(item.disposition_history_total)) invalid();
   const page = decodeKnowledgePage({ items: item.candidates, total: item.total, limit: item.limit, offset: item.offset, next_offset: item.next_offset }, decodeImpactCandidate);
   if (!validKindPage(item, page.items) || item.kind !== kind) invalid();
-  const dispositions = item.dispositions.map((entry) => decodeDisposition(entry, projectId, assessmentId));
-  if (dispositions.some((entry) => entry.version > assessment.version || !page.items.some((candidate) => candidate.reference === entry.candidate_reference))
+  const dispositions = item.dispositions.map((entry) => decodeDisposition(entry, projectId, assessmentId, true));
+  if (dispositions.some((entry) => !entry.reused_from && entry.version > assessment.version || !page.items.some((candidate) => candidate.reference === entry.candidate_reference))
     || dispositions.length > page.items.length || new Set(dispositions.map((entry) => entry.candidate_reference)).size !== dispositions.length) invalid();
+  if (dispositions.some(entry => entry.reused_from) && (kind !== "code-impact"
+    || (assessment.reused_candidate_count ?? 0) < dispositions.filter(entry => entry.reused_from).length)) invalid();
   return { ...assessment, kind, total: page.total, candidates: page.items, dispositions, disposition_history_total: item.disposition_history_total,
     limit: page.limit, offset: page.offset, next_offset: page.next_offset ?? null };
 }

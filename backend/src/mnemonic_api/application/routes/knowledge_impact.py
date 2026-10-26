@@ -13,6 +13,7 @@ from mnemonic_api.decision_candidate_schemas import (
     DecisionChangeCandidatesRead,
 )
 from mnemonic_api.decision_change_schemas import DecisionChangeRead, DecisionChangeUpdate
+from mnemonic_api.decision_lineage_schemas import DecisionLineageQuery
 from mnemonic_api.errors import ApplicationError
 from mnemonic_api.impact_schemas import (
     ImpactAssessmentDetail,
@@ -36,11 +37,13 @@ _PREFIX = "/projects/{project_id}/knowledge"
 @router.get(_PREFIX + "/changes/{change_id}", response_model=DecisionChangeRead)
 def get_decision_change(
     project_id: UUID, change_id: UUID, database: Database,
+    filters: Annotated[DecisionLineageQuery, Query()],
 ) -> DecisionChangeRead:
     from mnemonic_api.services.decision_changes import read_change, require_change
 
     begin_coherent_read(database)
-    return read_change(database, require_change(database, project_id, change_id))
+    return read_change(database, require_change(database, project_id, change_id),
+                       lineage_limit=filters.lineage_limit, lineage_offset=filters.lineage_offset)
 
 
 @router.get(

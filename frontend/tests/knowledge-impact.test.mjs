@@ -29,6 +29,28 @@ test("assessment details enforce bounded candidate pages and latest disposition 
   for (const change of [{ dispositions: [{ ...disposition, candidate_reference: "ADR-00003-0" }] }, { dispositions: [disposition, disposition] }, { version: 0 }, { candidate_count: 0 }, { id: project }]) assert.throws(() => decodeAssessmentDetail({ ...detail, ...change }, project, id));
   assert.equal(decodeAssessmentDetail({ ...detail, candidates: [], dispositions: [], offset: 25 }, project, id).offset, 25);
 });
+test("reused conclusions retain source identity without replacing the local write version", () => {
+  const source = "33333333-3333-4333-8333-333333333333";
+  const reused = { ...disposition, assessment_id: source, version: 8,
+    reused_from: { assessment_id: source, disposition_id: disposition.id, disposition_version: 8 } };
+  const page = { ...detail, trigger: "supersession", version: 0, disposition_history_total: 0, reused_candidate_count: 1, dispositions: [reused] };
+  const decoded = decodeAssessmentDetail(page, project, id);
+  assert.equal(decoded.version, 0);
+  assert.equal(decoded.dispositions[0].version, 8);
+  assert.equal(decoded.dispositions[0].assessment_id, source);
+  assert.throws(() => decodeDisposition(reused, project, id));
+  for (const changed of [{ assessment_id: id }, { disposition_id: source }, { disposition_version: 9 }, { extra: true }]) {
+    assert.throws(() => decodeAssessmentDetail({ ...page, dispositions: [{ ...reused,
+      reused_from: { ...reused.reused_from, ...changed } }] }, project, id));
+  }
+  assert.throws(() => decodeAssessmentDetail({ ...page, reused_candidate_count: 0 }, project, id));
+  assert.throws(() => decodeAssessmentDetail({ ...page, reused_candidate_count: 2 }, project, id));
+  assert.throws(() => decodeAssessmentDetail({ ...page, trigger: "revision" }, project, id));
+  assert.throws(() => decodeAssessmentDetail({ ...page, unassessed_count: 1, change_required_count: 0, status: "pending" }, project, id));
+  assert.throws(() => decodeAssessmentDetail({ ...page, dispositions: [{ ...reused, reused_from: null }] }, project, id));
+  const local = { ...page, version: 1, reused_candidate_count: 0, dispositions: [disposition] };
+  assert.equal(decodeAssessmentDetail(local, project, id).dispositions[0].assessment_id, id);
+});
 test("append-only disposition evidence requires actor, nonblank reason and a valid remediation UUID", () => {
   assert.deepEqual(decodeDisposition(disposition, project, id), disposition);
   for (const change of [{ actor: null }, { reason: " " }, { remediation_work_item_id: "not-work" }, { candidate_reference: "ADR-00002" }, { disposition: "approved" }, { version: 0 }]) assert.throws(() => decodeDisposition({ ...disposition, ...change }, project, id));

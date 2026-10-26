@@ -6,6 +6,7 @@ from uuid import UUID
 
 from pydantic import Field, StringConstraints, field_validator, model_validator
 
+from mnemonic_api.decision_lineage_schemas import DecisionLineagePage
 from mnemonic_api.impact_finding_schemas import ImpactFindingSummary
 from mnemonic_api.schemas import APIModel
 
@@ -73,6 +74,9 @@ class DecisionRevisionChangeRead(APIModel):
 
 
 class DecisionChangeRead(APIModel):
+    lineage_work: DecisionLineagePage | None = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
     pending_revision_count: int = Field(ge=0)
     id: UUID
     project_id: UUID

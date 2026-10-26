@@ -10,13 +10,13 @@ from mnemonic_api.models import (
     DecisionSupersessionDetail,
     DecisionSupersessionReuse,
 )
+from mnemonic_api.services.impact_evidence_comparison import comparable_coverage, same_candidate
 
 
 def same_evidence(left: DecisionImpactAssessment, right: DecisionImpactAssessment) -> bool:
-    return left.candidates == right.candidates and (
-        {key: value for key, value in left.coverage.items() if key != "snapshot_at"}
-        == {key: value for key, value in right.coverage.items() if key != "snapshot_at"}
-    )
+    return (comparable_coverage(left.coverage, right.coverage)
+            and left.candidates == right.candidates
+            and all(same_candidate(item, item) for item in left.candidates))
 
 
 def continuous_declaration(

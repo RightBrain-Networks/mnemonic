@@ -30,6 +30,8 @@ KNOWLEDGE_GUIDES: dict[str, tuple[str, str, str]] = {
         "Captured references come only from returned occurrences, with revision_count and "
         "references_complete disclosing missing references. Latest dispositions are compact "
         "identity/version/result/remediation summaries; read assessment/history for actual evidence. "
+        "reused_from pins an earlier immutable conclusion for unchanged candidate evidence; "
+        "assessment_version remains the current episode's write guard. "
         "Limits are 1–100, defaulting to 20 groups and 10 occurrences, with product at most 200. "
         "Grouping never copies judgments or changes per-candidate, per-episode completion requirements."),
     ),
@@ -38,6 +40,10 @@ KNOWLEDGE_GUIDES: dict[str, tuple[str, str, str]] = {
         ("Inspect scope_version and acknowledged_scope_version. review_scope_changed notices on "
         "status/renew/token-bearing progress calls persist until the existing acknowledge action. "
         "Read growth checkpoints for author/revision evidence; notices contain only IDs/counts. "
+        "Inspect lineage_work for source implementation, code-review status and remediation; "
+        "page lineage_offset with lineage_work.next_offset (lineage_limit 1–100, default 20). "
+        "Membership is a lead, not proof of relevance. Check relevant open work before "
+        "conclusions and again before completion; source status does not change readiness. "
         "Page decision_assessments with "
         "change_id to read all obligations. A closed driver requires explicit human admission "
         "before a new review obligation; the agent tools cannot admit it."),
@@ -69,8 +75,8 @@ KNOWLEDGE_GUIDES: dict[str, tuple[str, str, str]] = {
         "expected_revision and all desired links. change defaults substantive; record-existing "
         "needs change_id, exact governing_reference and reason; maintenance needs reason. "
         "Closed lineage needs dashboard admission. "
-        "change.unchanged_supersessions needs target_reference, governing_reference "
-        "and reason; reuse requires unchanged ruling/evidence. "
+        "Explicit change.unchanged_supersessions can reuse conclusions only for unchanged "
+        "rulings and complete unchanged candidate evidence. "
         "Managed PDRs use request_human_input. extended_review identifies expanded scope/holder."),
     ),
     "decision_scope_append": (

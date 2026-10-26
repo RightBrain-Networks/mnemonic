@@ -61,11 +61,19 @@ def growth_checkpoint(
         'assessment ledger. Separately call decision_impact(kind="context") and read the relevant '
         "text to check whether the replacement contradicts prerequisites or related records. "
         "Record extra live candidates and their evidenced conclusions separately; preserve the "
-        "episode's frozen scope and do not fabricate ledger entries. Record a disposition for "
-        "each required episode/reference pair, even when "
-        "that reference appears in another episode. Every change-required result needs "
+        "episode's frozen scope and do not fabricate ledger entries. Ensure each required "
+        "episode/reference pair has an effective evidenced conclusion. Retain valid reused "
+        "conclusions; append dispositions for missing, changed, or overriding judgments. "
+        "Every change-required result needs "
         "tracked remediation. Context-only candidates do not require verdicts.",
-        "Read decision_change_get and page decision_assessments with this change_id, then use "
+        "Use decision_change_candidates for grouped navigation, following group next_offset "
+        "and each next_occurrence_offset; every required episode/reference pair remains visible. "
+        "Read decision_change_get.lineage_work and page lineage_offset using next_offset to "
+        "inspect relevant open remediation and source implementation/code-review status before "
+        "recording conclusions. Shared lineage is a lead, not proof of relevance. "
+        "A reused_from conclusion pins earlier immutable evidence; new or changed candidates "
+        "still require fresh review. Read decision_change_get and page decision_assessments "
+        "with this change_id, then use "
         "decision_change_update(action=acknowledge) with the exact current expected_scope_version. "
         "Acknowledgement does not replace dispositions or grant implementation authority.",
     ])

@@ -22,7 +22,8 @@ PROMPT_DETAIL = re.compile(rf"{PROJECT}/prompts/({'|'.join(PROMPT_IDS)})")
 # Each entry names one browser contract and its exact method/query surface.
 _ROUTES = (
     ("knowledge_changes", rf"{PROJECT}/knowledge/changes", {"POST": ""}),
-    ("knowledge_change", rf"{PROJECT}/knowledge/changes/{UUID}", {"GET": ""}),
+    ("knowledge_change", rf"{PROJECT}/knowledge/changes/{UUID}",
+     {"GET": "lineage_limit lineage_offset"}),
     ("knowledge_commits", rf"{PROJECT}/knowledge/commits",
      {"GET": "repository commit_hash limit offset"}),
     ("knowledge_domains", rf"{PROJECT}/knowledge/domains", {"GET": "limit offset", "POST": ""}),
