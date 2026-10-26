@@ -146,6 +146,54 @@ def test_catalog_upgrade_preserves_restored_variants_and_rejects_superseded_guar
         reset_disposable_schema(postgres_engine)
 
 
+@pytest.mark.parametrize("expected_head", ["0065_knowledge_management", "0066_candidate_reuse"])
+def test_catalog_accepts_constraints_restored_after_0065_and_rejects_changed_values(
+    postgres_engine: Engine, expected_head: str,
+):
+    reset_disposable_schema(postgres_engine)
+    audit = runpy.run_path(str(BACKEND_DIR.parent / "scripts/audit_project_activity.py"))
+    config = Config(str(BACKEND_DIR / "alembic.ini"))
+    names = (
+        "client_operations.ck_client_operations_operation_kind_valid",
+        "knowledge_domains.ck_knowledge_domains_automatic_decision_reviews",
+    )
+    try:
+        with postgres_engine.begin() as connection:
+            config.attributes["connection"] = connection
+            command.downgrade(config, "0065_knowledge_management")
+            audit["pin_session_settings"](connection)
+            schema = connection.scalar(text("SELECT current_schema()"))
+            definitions = dict(connection.execute(
+                text(audit["CATALOG_STATEMENTS"]["constraints"]), {"schema": schema},
+            ).all())
+            original = audit["catalog_snapshot"](connection)["constraints"]
+            # Unlike restoring 0064 before its upgrade, this reparses the two new
+            # CHECK definitions that 0065 itself creates, as pg_dump/restore does.
+            for name in names:
+                _replace_catalog_definition(connection, "constraints", name, definitions[name])
+            restored = audit["catalog_snapshot"](connection)["constraints"]
+            assert all(original[name] != restored[name] for name in names)
+        assert _audit(postgres_engine, "0065_knowledge_management")["result"] == "pass"
+        with postgres_engine.begin() as connection:
+            config.attributes["connection"] = connection
+            command.upgrade(config, expected_head)
+        assert _audit(postgres_engine, expected_head)["result"] == "pass"
+        for name, value in zip(names, ("create_work", "off"), strict=True):
+            with postgres_engine.connect() as connection:
+                transaction = connection.begin()
+                try:
+                    changed = definitions[name].replace(f"'{value}'", "'unknown'")
+                    _replace_catalog_definition(connection, "constraints", name, changed)
+                    drift = audit["_catalog_drift"](connection, expected_head)
+                    assert {key: amount for key, amount in drift.items() if amount} == {
+                        "catalog_constraints_drift": 1,
+                    }, name
+                finally:
+                    transaction.rollback()
+    finally:
+        reset_disposable_schema(postgres_engine)
+
+
 # PostgreSQL renders catalog definitions through these session settings, so an audit
 # that does not pin them reports the connecting session as if it were the schema. Each
 # value below made a pristine schema report catalog drift before the audits pinned them:
