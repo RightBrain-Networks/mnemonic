@@ -481,6 +481,7 @@ function decodeSuccess<K extends MutationKind>(
     const workItem = decodeWorkItem(creation.work_item, path.projectId);
     if (
       workItem.version !== 1
+      || Object.hasOwn(body, "tags") && !jsonEqual(workItem.tags, body.tags)
       || !sameExternalReferences(workItem.external_references, body.external_references)
       || workItem.title !== String(body.title).trim()
       || workItem.summary !== String(body.summary).trim()
@@ -600,6 +601,7 @@ function decodeSuccess<K extends MutationKind>(
       throw new Error("Mnemonic returned an incoherent closeout report.");
     }
     const workItem = decodeWorkItem(workFields, path.projectId, path.workItemId);
+    if (Object.hasOwn(body, "tags") && !jsonEqual(workItem.tags, body.tags)) throw new Error("Mnemonic returned different work item tags.");
     if (Object.hasOwn(body, "review_decision") !== Object.hasOwn(raw, "review_decision")) {
       throw new Error("Mnemonic returned an incoherent review decision.");
     }

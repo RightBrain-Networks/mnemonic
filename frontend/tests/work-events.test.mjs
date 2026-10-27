@@ -13,6 +13,7 @@ import {
   WORK_EVENT_TYPES,
   workEventActorLabel,
   workEventDescription,
+  workEventTagDescription,
   workEventSearchParams,
   workEventTitle
 } from "../lib/work-events.ts";
@@ -525,4 +526,29 @@ test("progress notices validate exact work and expose only scope coordination", 
   assert.deepEqual(decodeWorkEvent(event({ review_scope_changed: notice })).review_scope_changed, notice);
   assert.throws(() => decodeWorkEvent(event({ review_scope_changed: { ...notice, review_work_item_id: counterpart } })));
   assert.throws(() => decodeWorkEvent(event({ review_scope_changed: { ...notice, author_session: "unexpected-context" } })));
+});
+
+test("work events retain nullable tag assignments, historical omission and exact changes", () => {
+  const created = event({ event_type: "work_created", body: null,
+    checkpoint_id: "1dfa9455-4a17-4cd4-938b-010ea17ccaf0",
+    metadata: { initial: { title: "Tagged work", summary: "Context", status: "pending", priority: 0, version: 1 } } });
+  assert.equal(workEventTagDescription(decodeWorkEvent(created)), null);
+  for (const tags of [null, ["frontend", "needs-design"]]) {
+    const decoded = decodeWorkEvent({ ...created, metadata: { initial: { ...created.metadata.initial, tags } } });
+    assert.deepEqual(decoded.metadata.initial.tags, tags);
+    assert.equal(workEventTagDescription(decoded), `Initial tags: ${tags?.join(", ") ?? "None"}.`);
+  }
+  for (const [before, after] of [[null, ["frontend"]], [["frontend"], ["needs-design"]], [["frontend"], null]]) {
+    const changed = event({ event_type: "work_updated", body: null, metadata: { changes: { tags: { before, after } }, work_version: 2 } });
+    assert.deepEqual(decodeWorkEvent(changed).metadata.changes.tags, { before, after });
+    assert.equal(workEventDescription(changed), "Changed tags.");
+    assert.equal(workEventTagDescription(changed), `Tags: ${before?.join(", ") ?? "None"} → ${after?.join(", ") ?? "None"}.`);
+  }
+  for (const tags of [[], ["Frontend"], ["frontend", "frontend"], [null], "frontend", Array.from({ length: 21 }, (_, index) => `tag-${index}`)]) {
+    assert.throws(() => decodeWorkEvent({ ...created, metadata: { initial: { ...created.metadata.initial, tags } } }), /invalid work-event/);
+    assert.throws(() => decodeWorkEvent(event({ event_type: "work_updated", body: null, metadata: { changes: { tags: { before: null, after: tags } }, work_version: 2 } })), /invalid work-event/);
+  }
+  for (const tags of [{ before: null }, { before: null, after: null, extra: true }]) {
+    assert.throws(() => decodeWorkEvent(event({ event_type: "work_updated", body: null, metadata: { changes: { tags }, work_version: 2 } })), /invalid work-event/);
+  }
 });

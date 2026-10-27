@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, StrictBool, field_validator
 from .search_diagnostics import SearchFacet
 from .search_exploration import DATE_FIELDS, DiagnosticsMode, EchoedDateBounds
 from .search_query import WORK_FIELDS, QueryMode, WorkFields, constrained_query
+from .tag_models import TagMode, TagNames
 
 SearchDetail = Literal["compact", "full"]
 
@@ -36,6 +37,8 @@ class WorkAppliedFilters(EchoedDateBounds, DisclosureModel):
         "wont-do", "promoted", "all",
     ] = "all"
     tag: Annotated[str, Field(max_length=50)] | None = None
+    tags: TagNames | None = Field(default=None, exclude_if=lambda value: value is None)
+    tag_mode: TagMode = Field(default="or", exclude_if=lambda value: value == "or")
     source_client: Annotated[str, Field(max_length=80)] | None = None
     source_session_id: Annotated[str, Field(max_length=200)] | None = None
     external_url: Annotated[str, Field(max_length=2000)] | None = None
@@ -209,6 +212,8 @@ def disclosure_matches(actual: SearchDisclosure, expected: SearchDisclosure) -> 
 
 
 def _optional_filters(source) -> set[str]:
-    if isinstance(source, WorkAppliedFilters) and source.status_scope == "effective":
-        return {"status_scope"}
+    if isinstance(source, WorkAppliedFilters):
+        return {name for name, default in (
+            ("status_scope", "effective"), ("tags", None), ("tag_mode", "or"),
+        ) if getattr(source, name) == default}
     return {"semantic"} if isinstance(source, ArtifactAppliedFilters) and not source.semantic else set()

@@ -47,6 +47,8 @@ export type WorkSearchOptions = {
   offset: number;
   query: string;
   semantic?: boolean;
+  tags?: readonly string[];
+  tagMode?: "or" | "and";
   tag?: string;
   sourceClient?: string;
   sourceSessionId?: string;
@@ -85,6 +87,8 @@ export function workSearchParams({
   query,
   semantic = false,
   tag,
+  tags,
+  tagMode,
   sourceClient,
   sourceSessionId,
   duplicateScope = "canonical",
@@ -111,6 +115,8 @@ export function workSearchParams({
   if (statusScope) params.set("status_scope", statusScope);
   for (const id of pinnedWorkItemIds ?? []) params.append("pinned_work_item_ids", id);
   addHierarchyFilters(params, { tag, sourceClient, sourceSessionId });
+  for (const name of tags ?? []) params.append("tags", name);
+  if (tags?.length) params.set("tag_mode", tagMode ?? "or");
   if (canonicalWorkItemId) params.set("canonical_work_item_id", canonicalWorkItemId);
   return params;
 }
@@ -122,16 +128,20 @@ export function childSearchParams({
   limit,
   offset,
   tag,
+  tags,
+  tagMode,
   sourceClient,
   sourceSessionId,
   pinnedWorkItemIds
 }: Pick<
   WorkSearchOptions,
-  "statusScope" | "status" | "sort" | "limit" | "offset" | "tag" | "sourceClient" | "sourceSessionId" | "pinnedWorkItemIds"
+  "statusScope" | "status" | "sort" | "limit" | "offset" | "tags" | "tagMode" | "tag" | "sourceClient" | "sourceSessionId" | "pinnedWorkItemIds"
 >): URLSearchParams {
   const params = new URLSearchParams({ status, sort, limit: String(limit), offset: String(offset) });
   for (const id of pinnedWorkItemIds ?? []) params.append("pinned_work_item_ids", id);
   if (statusScope) params.set("status_scope", statusScope);
   addHierarchyFilters(params, { tag, sourceClient, sourceSessionId });
+  for (const name of tags ?? []) params.append("tags", name);
+  if (tags?.length) params.set("tag_mode", tagMode ?? "or");
   return params;
 }

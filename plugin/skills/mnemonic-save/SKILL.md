@@ -97,6 +97,25 @@ from a draft.
    not merge authority. Never create a fresh generic `duplicate-of` relationship from search;
    authoritative deduplication uses the separately reviewed `merge_work` workflow below.
 
+## Choose project tags deliberately
+
+Before every new work item, call `list_tags(project_id)` and read the available
+tag descriptions. Select the existing names whose intended use matches this
+objective; do not guess names from similar work or copy unrelated tags. Supply
+those normalized names in top-level `create_work.tags`. If none apply, supply
+`tags: null` explicitly; an empty list or fresh omission is rejected. Humans
+create, edit, delete, and reorder definitions in Project settings > Tags; MCP
+cannot manage the catalog. Menu order and color are presentation only.
+
+Current work tags are separate from immutable checkpoint history. Leave
+`initial_checkpoint.tags` and later checkpoint tags empty. `update_work.changes.tags`
+replaces selected catalog names; null clears assignments and omission preserves
+them. Intrinsic `remediation` and `dir` labels describe work lineage. Dashboard review
+episodes carry `code-review`; agents still discover them with `list_code_reviews`
+and use the existing review tools. Assigning `code-review` to ordinary work does
+not create an episode, change lease purpose, or grant review eligibility.
+Freeze tag names or null with the original intent for exact retries.
+
 ## Assign a deliberate priority
 
 Honor an explicit user score. Otherwise, before choosing a new priority or
@@ -410,7 +429,7 @@ never claim a test passed unless this session observed it.
 Use a checkpoint when a future session needs substantial context to resume
 safely: `kind="context"` for newly governing or corrected resume context,
 `kind="progress"` for a substantial resume packet that does not replace current
-context. Checkpoints retain prompt, tags, and source provenance and are
+context. Checkpoints retain prompt and source provenance and are
 immutable; correct one by appending another.
 
 Use `append_event` for one concise progress fact that belongs in history but
@@ -433,8 +452,7 @@ or no new progress needs recording before expiry.
 
 For distinct work, freeze a complete `create_work` intent with its
 `client_operation_id`, `project_id`, `title`, `summary`, the chosen `priority`, an
-`initial_checkpoint` carrying the complete prompt and provenance, a few useful
-tags, and `initial_relationships` only when the explicit links must be created
+`initial_checkpoint` carrying the complete prompt and provenance, top-level `tags` chosen from the catalog or explicit null, and `initial_relationships` only when the explicit links must be created
 atomically. Fresh proposals must start `pending`; terminal creation is refused. Deferred is a human-only
 hold: do not assign it while saving, and do not return existing Deferred work
 to Pending unless the current human instruction explicitly asks to work on that

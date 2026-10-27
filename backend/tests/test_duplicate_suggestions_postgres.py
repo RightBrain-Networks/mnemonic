@@ -93,14 +93,17 @@ class BrokenDocumentEmbedder:
 
 
 def save(api, project, work_payload, *, title, summary=None, prompt=None, tags=None):
+    from .test_project_tags import catalog_names
+
     body = {
         **work_payload,
         "title": title,
         "summary": summary or f"Summary for {title}",
+        "tags": catalog_names(api, project, tags or []),
         "initial_checkpoint": {
             **work_payload["initial_checkpoint"],
             "prompt": prompt or f"Initial context for {title}",
-            "tags": tags or [],
+            "tags": [],
         },
     }
     response = api.post(f"/api/v1/projects/{project['id']}/work-items", json=body)
@@ -517,22 +520,12 @@ def test_weighted_lexical_lane_uses_tags_and_bounded_later_checkpoint_tail(
         title="Unrelated title",
         tags=[f"a-tag-{index:02d}" for index in range(20)],
     )
-    tag_path = f"/api/v1/projects/{project['id']}/work-items/{tagged['id']}/checkpoints"
-    for tags in (
-        [f"b-tag-{index:02d}" for index in range(20)],
-        ["rare-tag-token"],
-    ):
-        checkpoint = api.post(
-            tag_path,
-            json={
-                "kind": "context",
-                "prompt": "Bounded tag selection context.",
-                "source_client": "duplicate-suggestion-tests",
-                "source_session_id": "bounded-tags",
-                "tags": tags,
-            },
-        )
-        assert checkpoint.status_code == 201, checkpoint.text
+    from .test_project_tags import catalog_names
+
+    tag_path = f"/api/v1/projects/{project['id']}/work-items/{tagged['id']}"
+    changed = api.patch(tag_path, json={"expected_version": tagged["version"],
+        "tags": catalog_names(api, project, ["rare-tag-token"])})
+    assert changed.status_code == 200, changed.text
     tagged_id = UUID(tagged["id"])
     with Session(postgres_engine) as database:
         tagged_text = suggestion_service._bounded_compositions(database, [tagged_id])[
@@ -1428,5 +1421,5 @@ def test_title_key_function_and_partial_expression_index_are_frozen(postgres_eng
                 """
             )
         ).one()
-        assert head == "0066_candidate_reuse"
+        assert head == "0067_project_tags"
         assert capacity == 64

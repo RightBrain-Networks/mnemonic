@@ -3,6 +3,7 @@
 import pytest
 
 from .test_duplicate_handling_postgres import merge_work
+from .test_project_tags import catalog_names
 from .test_semantic_postgres import DeterministicEmbedder
 from .test_work_items_postgres import checkpoint_payload, collection, create_work, item_path
 
@@ -37,6 +38,7 @@ def find(api, project, q, *, unified=False, work_fields=None, query_mode="terms"
 
 
 def make(api, project, payload, *, prompt="Routine checkpoint", **changes):
+    changes.setdefault("tags", catalog_names(api, project, ["correctness"]))
     return create_work(
         api,
         project,
@@ -171,8 +173,8 @@ def test_stop_words_and_punctuation_keep_the_substring_fallback(api, project, wo
 
 
 def test_phrase_does_not_join_distinct_tags(api, project, work_payload):
-    initial = {**work_payload["initial_checkpoint"], "tags": ["admission", "cookie"]}
-    create_work(api, project, work_payload, initial_checkpoint=initial)
+    create_work(api, project, work_payload,
+                tags=catalog_names(api, project, ["admission", "cookie"]))
     assert not find(api, project, "admission cookie", query_mode="phrase", work_fields=["tags"])
     assert not find(api, project, "admission cookie", query_mode="literal", work_fields=["tags"])
 
@@ -259,7 +261,7 @@ def test_overlong_phrase_support_is_omitted_and_disclosed(api, project, work_pay
     assert hit["excerpts"] == [] and hit["excerpts_truncated"]
 
 
-def test_mixed_phrase_and_tag_contributions_share_one_checkpoint(api, project, work_payload):
+def test_current_tag_and_phrase_contributions_share_checkpoint_evidence(api, project, work_payload):
     make(api, project, work_payload, prompt="Admission cookie")
     hit = find(api, project, 'correctness "admission cookie"')[0]
     assert hit["matched_fields"] == ["tags", "checkpoint"]

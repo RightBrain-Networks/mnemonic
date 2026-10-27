@@ -715,14 +715,10 @@ test("a root with an incoming alias can merge again and regroup every audit unde
     await audit.getByRole("button", { name: "View duplicate group" }).click();
     // Viewing the group clears the selection, so the narrow sheet is gone as well.
     await expect(page.locator(".work-detail-pane.is-open")).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "More filters" })).toHaveAttribute(
-      "aria-expanded",
-      "true"
-    );
+    await expect(page.getByRole("button", { name: "More filters" })).toHaveCount(0);
     const groupStatus = page.locator(".duplicate-group-filter");
     await expect(groupStatus).toContainText("Canonical group");
     await expect(groupStatus).toContainText(finalRoot.id);
-    await expect(page.getByRole("radio", { name: "All records" })).toBeChecked();
     await expect(page.locator(".result-count")).toHaveText("3 work records");
     for (const id of [firstAlias.id, intermediateRoot.id, finalRoot.id]) {
       await expect(resultFor(page, id)).toHaveCount(1);

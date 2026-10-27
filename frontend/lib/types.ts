@@ -77,6 +77,8 @@ export interface Page<T> {
 }
 
 export interface WorkItem {
+  tags?: string[] | null;
+  system_tags?: string[];
   decision_change_inheritance_exclusion?: {
     origin_work_item_id: string;
     origin_context_checkpoint_id: string;
@@ -175,6 +177,7 @@ export interface WorkIdentityPointer {
 }
 
 export interface WorkSummary {
+  review_task?: import("./tasks.ts").Task;
   work_item: WorkItem;
   checkpoint_count: number;
   ancestor_path: WorkIdentityPointer[];
@@ -271,6 +274,7 @@ export type WorkEventOrigin = "live" | "backfill";
 export type WorkEventActorKind = "client" | "unattributed";
 
 export interface WorkSnapshot {
+  tags?: string[] | null;
   external_references?: ExternalReference[];
   title: string;
   summary: string;
@@ -280,6 +284,7 @@ export interface WorkSnapshot {
 }
 
 export type WorkEventChangeSet = Partial<{
+  tags: { before: string[] | null; after: string[] | null };
   external_references: { before: ExternalReference[]; after: ExternalReference[] };
   title: { before: string; after: string };
   summary: { before: string; after: string };
@@ -673,6 +678,7 @@ export interface DuplicateSuggestionPage {
 }
 
 export interface WorkCreateInput extends ClientOperationInput {
+  tags?: string[] | null;
   discovered_from_work_item_id?: string | null;
   inherit_decision_change?: boolean;
   decision_change_inheritance_reason?: string;
@@ -848,6 +854,7 @@ export interface WorkUpdate extends WorkItem {
 }
 
 export interface WorkPatch extends ClientOperationInput {
+  tags?: string[] | null;
   external_references?: ExternalReference[];
   job_completion_report?: JobCompletionReportInput;
   expected_version: number;

@@ -231,7 +231,9 @@ def create_work(api, project: dict, payload: dict, *, title: str, tag: str) -> d
     body = deepcopy(payload)
     body["title"] = title
     body["initial_checkpoint"]["source_session_id"] = f"matrix-{uuid4().hex}"
-    body["initial_checkpoint"]["tags"] = [tag]
+    from .test_project_tags import catalog_names
+
+    body["tags"] = catalog_names(api, project, [tag])
     response = api.post(collection(project), json=body)
     assert response.status_code == 201, response.text
     return response.json()

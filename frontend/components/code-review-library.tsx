@@ -3,23 +3,20 @@
 import Link from "@/components/dashboard-link";
 import { useRouter } from "@tanstack/react-router";
 import { useEffect, useRef, useState, type MouseEvent } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { codeReviewDetailOptions } from "@/lib/work-panel-queries";
 import { errorMessage } from "@/lib/api";
-import { reviewStatusActions, reviewStatusFilters } from "@/lib/code-review-tasks";
-import { taskPath, taskStatusLabels, type Task, type TaskStatus } from "@/lib/tasks";
+import { reviewStatusActions } from "@/lib/code-review-tasks";
+import { taskPath, taskStatusLabels, type Task } from "@/lib/tasks";
 import { validUuid } from "@/lib/wire-guards";
-import { dialogOpen, typingTarget } from "@/lib/keyboard-shortcuts";
-import { listScrollTopFor } from "@/lib/work-queue";
-import { WORK_SPLIT_MIN, WORK_SPLIT_MAX } from "@/lib/work-split";
 import { useMutationIntentRegistry } from "@/lib/mutation-intent";
-import { TaskPagination } from "@/components/task-cards";
 import { useTaskPage } from "@/components/use-task-page";
 import { useFailedReadRetry } from "@/components/use-failed-read-retry";
-import { useWorkSplit } from "@/components/use-work-split";
 import { useCodeReviewActions } from "@/components/use-code-review-actions";
 import TaskStatusActionButton from "@/components/task-status-action-button";
 import { ReviewResult } from "@/components/code-review-panel";
+import { useQueueOptions } from "@/components/work-queue-card";
+import WorkTags from "@/components/work-tags";
 import { formatDateTime } from "@/components/work-item-card";
 
 type ReviewActions = ReturnType<typeof useCodeReviewActions>;
@@ -38,97 +35,37 @@ function CardActions({ task, actions, compact = true }: { task: Task; actions: R
   </div>;
 }
 
-export default function CodeReviewLibrary({ projectId, enabled, workId, reviewId, onNavigate, onNotice, onChanged }: {
-  projectId: string; enabled: boolean; workId: string | null; reviewId: string | null;
-  onNavigate: Navigate; onNotice: (message: string, error?: boolean) => void; onChanged: () => void;
+export function CodeReviewDetailPane(props: {
+  projectId: string; enabled: boolean; workId: string | null; reviewId: string;
+  onNavigate: Navigate; onClose: () => void;
+  onNotice: (message: string, error?: boolean) => void; onChanged: () => void;
 }) {
-  const [status, setStatus] = useState<TaskStatus | "all">("pending");
-  const [offset, setOffset] = useState(0);
-  const [scrolled, setScrolled] = useState(false);
-  const listRef = useRef<HTMLDivElement>(null);
-  const registry = useMutationIntentRegistry();
-  const router = useRouter();
-  const split = useWorkSplit<HTMLElement>();
-  const { page, error, busy, retry } = useTaskPage(projectId, status, "code_review", offset, undefined, enabled);
-  const actions = useCodeReviewActions(projectId, onChanged, onNotice);
+  const actions = useCodeReviewActions(props.projectId, props.onChanged, props.onNotice);
+  return <aside className="work-detail-pane code-review-detail is-open" role="region" aria-label="Code review detail">
+    <ReviewDetail {...props} actions={actions} />
+  </aside>;
+}
 
-  function select(task: Task | null) {
-    if (registry.hasDispatched()) { onNotice("Resolve the pending mutation before selecting another review.", true); return; }
-    const href = task ? taskPath(task) : `/code-reviews?project=${projectId}`;
-    void router.navigate({ href, replace: true, resetScroll: false });
-    if (!task) requestAnimationFrame(() => listRef.current?.querySelector<HTMLElement>(`[data-review-id="${reviewId}"]`)?.focus({ preventScroll: true }));
-  }
-  function filter(next: TaskStatus | "all") {
-    if (registry.hasDispatched()) return;
-    setStatus(next); setOffset(0); select(null);
-    if (listRef.current) listRef.current.scrollTop = 0;
-  }
-
-  useEffect(() => {
-    function shortcut(event: KeyboardEvent) {
-      if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || typingTarget(event.target) || dialogOpen()) return;
-      if (event.target instanceof Element && event.target.closest(".status-split-button, [role=menu], [role=separator]")) return;
-      if (event.key === "Escape") { select(null); return; }
-      if (event.key.toLowerCase() === "c") {
-        if (event.target instanceof Element && event.target.closest(".work-detail-pane")) return;
-        const task = page?.items.find((item) => item.id === reviewId);
-        if (task) { event.preventDefault(); void actions.copyPointer(task); }
-        return;
-      }
-      if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
-        event.preventDefault();
-        const index = reviewStatusFilters.findIndex((value) => value === status);
-        filter(reviewStatusFilters[(index + (event.key === "ArrowRight" ? 1 : -1) + reviewStatusFilters.length) % reviewStatusFilters.length]);
-        return;
-      }
-      if (event.key !== "ArrowUp" && event.key !== "ArrowDown" || !page?.items.length) return;
-      event.preventDefault();
-      const index = page.items.findIndex((task) => task.id === reviewId);
-      const next = index < 0 ? (event.key === "ArrowDown" ? 0 : page.items.length - 1) : Math.min(page.items.length - 1, Math.max(0, index + (event.key === "ArrowDown" ? 1 : -1)));
-      const task = page.items[next];
-      select(task);
-      const list = listRef.current;
-      const card = list?.querySelector<HTMLElement>(`[data-review-id="${task.id}"]`);
-      if (list && card && window.innerWidth > 900) {
-        const bounds = list.getBoundingClientRect(), itemBounds = card.getBoundingClientRect();
-        list.scrollTop = listScrollTopFor({ listTop: bounds.top, listHeight: list.clientHeight, scrollTop: list.scrollTop, optionTop: itemBounds.top, optionHeight: itemBounds.height, padding: 72 });
-        card.focus({ preventScroll: true });
-      }
-    }
-    window.addEventListener("keydown", shortcut);
-    return () => window.removeEventListener("keydown", shortcut);
-  });
-
-  return <section className="code-review-library" aria-label="Code review tasks">
-    <div className="status-filters" role="group" aria-label="Filter code reviews">
-      {reviewStatusFilters.map((value) => <button className={`filter-button ${status === value ? "selected" : ""}`} type="button" key={value} aria-pressed={status === value} onClick={() => filter(value)}>{taskStatusLabels[value]}</button>)}
-    </div>
-    <section ref={split.surfaceRef} className={`work-surface code-review-surface ${split.resizing ? "is-resizing" : ""}`} style={split.surfaceStyle} aria-label="Code review surface">
-      <div className="work-queue">
-        <div className="work-queue-header"><span className="result-count" role="status">{page ? `${page.total} code review${page.total === 1 ? "" : "s"}` : "Loading code reviews…"}</span><span className="work-queue-sort">Sorted by last activity</span></div>
-        <div className="work-queue-viewport">
-          <div className={`work-queue-fade-top ${scrolled ? "is-visible" : ""}`} aria-hidden="true" />
-          <div className="work-queue-list" ref={listRef} role="listbox" aria-label="Code reviews" onScroll={(event) => setScrolled(event.currentTarget.scrollTop > 4)}>
-            {error && <div className="error-notice" role="alert"><p>{error}</p><button className="button button-secondary" onClick={retry}>Retry code reviews</button></div>}
-            {page?.items.map((task) => <article key={task.id} className={`work-item-card queue-card ${reviewId === task.id ? "is-selected" : ""}`} role="option" tabIndex={0} aria-selected={reviewId === task.id} aria-label={task.title} data-review-id={task.id}
-              onClick={() => select(task)} onKeyDown={(event) => { if (event.target === event.currentTarget && ["Enter", " "].includes(event.key)) { event.preventDefault(); select(task); } }}>
-              <div className="queue-card-topline"><span className={`status-badge status-${task.status}`}><span />{taskStatusLabels[task.status]}</span><span className="queue-card-meta">Code review<span className="sep">·</span><time dateTime={task.updated_at}>{formatDateTime(task.updated_at)}</time></span></div>
-              <h2 className="queue-card-title">{task.title}</h2><p className="queue-card-summary">{task.summary}</p>
-              <div className="queue-card-footer"><span className="queue-card-arrow" aria-hidden="true">→</span><CardActions task={task} actions={actions} /></div>
-            </article>)}
-            {page?.total === 0 && <div className="queue-empty"><h2>No {status === "all" ? "" : `${taskStatusLabels[status].toLowerCase()} `}code reviews</h2><p>Reviews stay linked to their completed work items.</p></div>}
-          </div>
-          <div className="work-queue-fade-bottom" aria-hidden="true" />
-        </div>
-        {page && <TaskPagination page={page} offset={offset} onOffset={setOffset} busy={busy} />}
-      </div>
-      <div className="work-surface-resizer" role="separator" aria-orientation="vertical" aria-label="Resize the code review queue" aria-keyshortcuts="ArrowLeft ArrowRight Home End" aria-valuemin={WORK_SPLIT_MIN} aria-valuemax={WORK_SPLIT_MAX} aria-valuenow={Math.round(split.split)} aria-valuetext={`Queue ${Math.round(split.split)}% of the surface`} title="Drag to resize the queue. Double-click to reset." tabIndex={0} {...split.separatorProps}><span aria-hidden="true" /></div>
-      <aside className={`work-detail-pane code-review-detail ${reviewId ? "is-open" : ""}`} role="region" aria-label="Code review detail">
-        {reviewId ? <ReviewDetail key={`${projectId}:${workId}:${reviewId}`} projectId={projectId} enabled={enabled} workId={workId} reviewId={reviewId} onNavigate={onNavigate} onClose={() => select(null)} actions={actions} />
-          : <div className="detail-empty"><span className="eyebrow">CODE REVIEW CONTEXT</span><h2>Pick a code review.</h2><p>Its scope, handoff, findings, and review history open here alongside the queue.</p><p className="detail-empty-hint">↑ ↓ select a review · ← → cycle states · C copy recall pointer</p></div>}
-      </aside>
-    </section>
-  </section>;
+export function ReviewQueueCard({ summary }: { summary: import("@/lib/types").WorkSummary }) {
+  const options = useQueueOptions();
+  const queryClient = useQueryClient();
+  const [notice, setNotice] = useState("");
+  const task = summary.review_task!;
+  const actions = useCodeReviewActions(task.project_id,
+    () => { void queryClient.invalidateQueries({ queryKey: ["mnemonic", "project", task.project_id] }); },
+    (message) => setNotice(message));
+  useEffect(() => { options.register(task.id, summary); return () => options.unregister(task.id); }, [task.id, summary, options.register, options.unregister]);
+  const selected = options.selectedId === task.id;
+  return <article className={`work-item-card queue-card ${selected ? "is-selected" : ""}`} role="option" tabIndex={0}
+    aria-selected={selected} aria-label={task.title} data-queue-option={task.id} data-review-id={task.id}
+    onClick={() => options.onSelect(summary)} onKeyDown={(event) => { if (event.target === event.currentTarget && ["Enter", " "].includes(event.key)) { event.preventDefault(); options.onSelect(summary); } }}>
+    <div className="queue-card-topline"><span className={`status-badge status-${task.status}`}><span />{taskStatusLabels[task.status]}</span>
+      <span className="queue-card-meta">Priority {task.priority}<span className="sep">·</span><time dateTime={task.updated_at}>{formatDateTime(task.updated_at)}</time></span></div>
+    <h2 className="queue-card-title">{task.title}</h2><p className="queue-card-summary">{task.summary}</p>
+    <WorkTags work={task} />
+    <div className="queue-card-footer"><span className="queue-card-arrow" aria-hidden="true">→</span><CardActions task={task} actions={actions} /></div>
+    {notice && <p role="status">{notice}</p>}
+  </article>;
 }
 
 function ReviewDetail({ projectId, enabled, workId, reviewId, onNavigate, onClose, actions }: {
@@ -156,11 +93,12 @@ function ReviewDetail({ projectId, enabled, workId, reviewId, onNavigate, onClos
   const parentPath = taskPath({ kind: "work_item", id: workId ?? "", work_item_id: workId ?? "", project_id: projectId });
   const task = taskPage?.items[0];
   return <div className="detail-scroll"><div className="review-detail-content">
-    <Link ref={closeRef} className="text-link" href={`/code-reviews?project=${projectId}`} onClick={(event) => { event.preventDefault(); onClose(); }}>← Back to code reviews</Link>
+    <Link ref={closeRef} className="text-link" href={`/work-items?project=${projectId}`} onClick={(event) => { event.preventDefault(); onClose(); }}>← Back to work items</Link>
     {(error || taskError) && <div className="error-notice" role="alert"><p>{error || taskError}</p><button className="button button-secondary" onClick={retry}>Retry review</button></div>}
     {!detail && !error && <div className="loading-state" role="status">Loading code review…</div>}
     {detail && <>
       <div className="task-detail-heading"><span className="task-kind">Code review</span><h2 className="detail-title">{detail.source_work_state.title}</h2><p>Child task of <Link href={parentPath} onClick={onNavigate}>{detail.source_work_state.title}</Link></p></div>
+      {task && <WorkTags work={task} />}
       {task && <div className="review-detail-actions"><CardActions task={task} actions={actions} /></div>}
       <ReviewResult detail={detail} statusLabel={task ? taskStatusLabels[task.status] : undefined} onOpen={(id) => { if (registry.hasDispatched()) return; void router.navigate({ href: taskPath({ kind: "work_item", id, work_item_id: id, project_id: projectId }) }); }} />
       {!detail.source_work_state.deleted && <Link className="button button-secondary" href={`${parentPath}&review=1`} onClick={onNavigate}>Open review controls</Link>}

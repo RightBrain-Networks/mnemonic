@@ -15,7 +15,7 @@ const task = { id: review, kind: "code_review", project_id: project, work_item_i
 const page = { project_id: project, work_items: { active: 0, pending: 5 }, code_reviews: { active: 0, pending: 1 }, next_lease_expires_at: null, items: [task], total: 1, limit: 20, offset: 0 };
 
 test("task links pin project, parent work and the exact review episode", () => {
-  assert.equal(taskPath(task), `/code-reviews?project=${project}&work=${work}&review=${review}`);
+  assert.equal(taskPath(task), `/work-items?project=${project}&work=${work}&review=${review}`);
   assert.equal(taskPath({ ...task, kind: "work_item", id: work }), `/work-items?project=${project}&work=${work}`);
 });
 

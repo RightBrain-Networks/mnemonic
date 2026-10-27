@@ -681,18 +681,21 @@ def test_checkpoint_contract_is_append_only_and_validates_lease_fields(
 
 
 def test_search_aggregates_checkpoint_hits_and_filter_contract(api, project, work_payload):
-    first = create_work(api, project, work_payload)
+    from .test_project_tags import catalog_names
+
+    first = create_work(api, project, work_payload,
+                        tags=catalog_names(api, project, ["later-tag"]))
     second = create_work(
         api,
         project,
         {
             **work_payload,
+            "tags": catalog_names(api, project, ["initial-only"]),
             "title": "Separate work",
             "summary": "A different durable objective.",
             "initial_checkpoint": {
                 **work_payload["initial_checkpoint"],
                 "prompt": "Ordinary initial context.",
-                "tags": ["initial-only"],
                 "source_session_id": "second-initial",
             },
         },
@@ -705,7 +708,6 @@ def test_search_aggregates_checkpoint_hits_and_filter_contract(api, project, wor
                 f"The frobnicated state appears in {session_id}.",
                 session_id,
                 kind="progress",
-                tags=["later-tag"],
             ),
         )
         assert response.status_code == 201

@@ -105,9 +105,9 @@ one-off ID needed before dispatch. Explicit IDs and REST receipts retain their
 contracts; prepared upload intents keep their helper-generated IDs. See
 `docs/automatic-uuids.md`. The tool idempotence hint is false for these calls.
 
-The current application/API/MCP/dashboard release is `0.109.2`, Claude plugin
-`0.68.0`, and Alembic head `0066_candidate_reuse`. The catalog is exactly
-78 MCP tools, 25 receipt-protected MCP writes, 34 REST receipt kinds, 28 protected
+The current application/API/MCP/dashboard release is `0.110.0`, Claude plugin
+`0.69.0`, and Alembic head `0067_project_tags`. The catalog is exactly
+79 MCP tools, 25 receipt-protected MCP writes, 38 REST receipt kinds, 32 protected
 browser mutations, 24 work-event types, and three plugin skills. Project priority
 guidance is editable in Settings > Workspace; agents explicitly call
 `get_prompt(project_id, prompt_id="priority-rubric")` when needed. MCP
@@ -118,6 +118,14 @@ before authoring or revising Needs Attention prose. All library prompts share
 project/work/review macro rendering. See `docs/prompts.md`. Ordinary work reads omit
 the rubric. Migration 0051 seeds existing and new projects from the shipped
 Markdown; customized content lives in PostgreSQL.
+Before every fresh work creation, call `list_tags(project_id)` and read its descriptions.
+Supply selected existing catalog names in top-level `tags`, or explicit null when none
+apply; omission is historical receipt replay only and empty lists are invalid.
+Humans manage definitions in Project settings > Tags. Current work assignments are
+separate from checkpoint history; leave checkpoint tags empty on fresh writes.
+System tags `code-review`, `remediation`, and `dir` preserve existing workflow
+semantics. Search supports plural tags with `tag_mode="or"` or `"and"`. See
+`docs/work-tags.md`.
 The suggestion POST is a safe read. Search accepts q/query aliases up to 1,000 characters;
 follow next_offset because 32,768-byte pages can contain fewer than limit items.
 Compact canonical identity, lifecycle/display state, and sensitive-content coverage

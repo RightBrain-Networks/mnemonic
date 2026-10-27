@@ -14,6 +14,9 @@ GUIDES: dict[str, tuple[str, str, str]] = {
              ('Call help({}) for the index. Set topic to a command, then append usage, field names, '
              'or schema. Example: {"topic":"complete_work completion_evidence artifact_references"}.')),
     "list_projects": ("Projects", "Find a project ID.", "Browse projects before choosing a scope."),
+    "list_tags": ("Projects", "Read the human-managed tag catalog in menu order.",
+                  ("Before creating work, read tag descriptions and select suitable existing names, "
+                  "or declare tags=null. Catalog edits are dashboard-only.")),
     "create_project": ("Projects", "Create a workspace project.",
                        "Supply a name; slug, description, and repository URL are optional."),
     "get_project_settings": ("Projects", "Read lease durations and review policy.",
@@ -51,7 +54,8 @@ GUIDES: dict[str, tuple[str, str, str]] = {
                     ("Use small recent limits. Recall grants no execution authority; "
                     "claim before authorized execution.")),
     "create_work": ("Work", "Save a new work item and initial checkpoint.",
-                    ("Supply title, summary, and initial_checkpoint. "
+                    ("Read list_tags descriptions; supply title, summary, initial_checkpoint, and tags "
+                    "(selected catalog names or explicit null when none apply). "
                     "Use get_prompt with priority-rubric unless the user supplied a score. "
                     "Fresh work starts pending. Attribute checkpoint context to its actual author. "
                     "Optional inherit_decision_change=false requires the declared origin and reason; "

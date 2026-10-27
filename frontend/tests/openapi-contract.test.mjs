@@ -32,7 +32,7 @@ const DEFAULTED_RESPONSE_FIELDS = {
   "frontend/lib/duplicate-handling.ts:decodeWorkItemDetail": ["code_review_context", "transcripts"],
   "frontend/lib/work-events.ts:EVENT_FIELDS": ["review_scope_changed", "code_review_id", "code_review_result_id", "work_follow_up_id", "work_follow_up_answer_id"],
   "frontend/lib/external-references.ts:decodeExternalReference": ["label", "state_observed_at"],
-  "frontend/lib/work-codecs.ts:decodeWorkItem": ["external_references", "manual_review_request", "decision_review_revision_id", "decision_review_change_id", "decision_change_ids", "decision_review_project_id", "decision_change_projects", "decision_change_inheritance_exclusion"],
+  "frontend/lib/work-codecs.ts:decodeWorkItem": ["tags", "system_tags", "external_references", "manual_review_request", "decision_review_revision_id", "decision_review_change_id", "decision_change_ids", "decision_review_project_id", "decision_change_projects", "decision_change_inheritance_exclusion"],
   "frontend/lib/duplicate-handling.ts:decodeWorkPointer": ["external_references"],
   "frontend/lib/duplicate-suggestions.ts:decodeDuplicateCandidateSummary": ["external_references"],
   "frontend/lib/duplicate-suggestions.ts:decodeDuplicateSuggestionPage": ["semantic", "external_items", "external_candidate_count", "external_scope"],

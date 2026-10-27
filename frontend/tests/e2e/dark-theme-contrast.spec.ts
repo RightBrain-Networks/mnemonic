@@ -69,24 +69,9 @@ const contrastFixture = `
               <label class="sort-option"><input type="radio"><span>Priority</span></label>
             </div></fieldset>
           </div>
-          <button id="more-filters-toggle" class="more-filters-toggle" aria-expanded="false">More filters<span class="more-filters-chevron" aria-hidden="true">⌄</span></button>
-          <button class="more-filters-toggle is-open" aria-expanded="true">More filters<span class="more-filters-chevron" aria-hidden="true">⌄</span></button>
         </div>
       </div>
-      <div class="more-filters-panel" id="more-filters-panel">
-        <fieldset class="duplicate-scope-control"><legend>Duplicate records</legend>
-          <label class="selected"><input type="radio" name="fixture-scope" checked><span>Canonical only</span></label>
-          <label><input type="radio" name="fixture-scope"><span>Aliases only</span></label>
-          <label><input type="radio" name="fixture-scope"><span>All records</span></label>
-        </fieldset>
-        <div class="duplicate-group-filter"><span>Canonical group</span><code>9c1c1c1c-0000-4000-8000-000000000001</code>
-          <button class="text-link">Clear group</button></div>
-        <div class="hierarchy-filter-fields">
-          <label>Tag<input placeholder="Exact tag"></label>
-          <label>Source client<input placeholder="Exact client"></label>
-          <label>Source session<input value="session-abc123"></label>
-        </div>
-      </div>
+      <div class="tag-filter-row"><span class="sort-label">Filter:</span><button id="tag-filter-button" class="tag-filter-button selected"><span class="work-tag" style="background:#a8c8e8;color:#000">code-review</span></button></div>
     </section>
     <section class="work-surface">
       <div class="work-queue">
@@ -477,7 +462,7 @@ test("dark-theme text stays in the 7.21:1 to 9.5:1 contrast band", async ({ page
   // Hover states repaint text on a different tint; each one must stay in band too.
   for (const selector of [
     "#primary-button", "#secondary-button", "#danger-button", "#danger-icon",
-    "#relationship-summary", "#queue-copy-button", "#library-tools-toggle", "#more-filters-toggle",
+    "#relationship-summary", "#queue-copy-button", "#library-tools-toggle", "#tag-filter-button",
     "#detail-copy-id", "#detail-copy-context", "#detail-tab-graph", "#detail-delete",
     "#status-menu-item"
   ]) {

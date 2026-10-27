@@ -33,6 +33,8 @@ FILTER_KEYS = {
         "work_fields",
         "status",
         "tag",
+        "tags",
+        "tag_mode",
         "source_client",
         "source_session_id",
         "duplicate_scope",
@@ -59,6 +61,7 @@ FILTER_KEYS = {
     ),
 }
 ENUMS = {
+    "tag_mode": ("or", "and"),
     "status_scope": ("effective", "work_item"),
     "duplicate_scope": ("canonical", "aliases", "all"),
     "kind": ("primary", "subagent", "imported"),
@@ -141,6 +144,9 @@ def _filter_value(facet: str, key: str, value: Any) -> bool:
             "include_deleted",
             "duplicate_scope",
         ) and not (facet == "work_items" and key == "status")
+    if key == "tags":
+        return isinstance(value, list) and 1 <= len(value) <= 20 and all(
+            text(tag, 50) for tag in value) and len(set(value)) == len(value)
     if key in ENUMS:
         return value in ENUMS[key]
     if key == "work_fields":

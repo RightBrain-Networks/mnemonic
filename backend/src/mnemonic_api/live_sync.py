@@ -52,6 +52,8 @@ def mutation_event(method: str, path: str) -> MutationEvent | None:
 def _project_detail_mutation(method: str, remaining: list[str]) -> MutationEvent | None:
     if remaining[1:] in (["settings"], ["priority-rubric"]):
         return MutationEvent("projects") if method == "PATCH" else None
+    if remaining[1] == "tags":
+        return MutationEvent("projects")
     if _decision_work_mutation(method, remaining):
         return MutationEvent("work-items")
     if method == "PUT":

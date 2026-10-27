@@ -149,6 +149,7 @@ from .search_query import (
 )
 from .search_result_validation import work_ranking_matches
 from .security import LocalAccessMiddleware
+from .tag_models import TagMode, TagNames
 from .title_normalization import nfkc_unicode_15_1
 from .transcript_models import (
     SubagentTranscriptArgument,
@@ -398,6 +399,7 @@ def _creation_matches_request(
     status: UpdateStatus,
     initial_checkpoint: CheckpointInput,
     initial_relationships: list[InitialRelationshipInput] | None,
+    tags: TagNames | None | MISSING = MISSING,
     discovered_from_work_item_id: UUID | None | MISSING = MISSING,
     external_references: ExternalReferences = [],  # noqa: B006
     inherit_decision_change: bool = True,
@@ -449,7 +451,8 @@ def _creation_matches_request(
             requested_relationships.append((requested, source_id, target_id))
             seen_relationships.add(identity)
     if (
-        work_item.project_id != project_id
+        (tags is not MISSING and work_item.tags != tags)
+        or work_item.project_id != project_id
         or work_item.title != title.strip()
         or work_item.summary != summary.strip()
         or work_item.priority != priority
@@ -1057,6 +1060,11 @@ def _register_project_tools(server: FastMCP, api: MnemonicAPI) -> None:
         )],
         initial_checkpoint: CheckpointInput,
         client_operation_id: UUID,
+        tags: Annotated[TagNames | None | MISSING, Field(
+            description="Required for fresh creation: query list_tags, read descriptions, then "
+            "select catalog names. Explicit null means no tags; [] is invalid. Omission exists "
+            "only for historical receipt replay. Checkpoint tags are historical only.",
+        )] = MISSING,
         discovered_from_work_item_id: Annotated[UUID | None | MISSING, Field(
             description="Required for fresh creation: the work item that initiated this agent "
             "session; explicit null for a human prompt or external trigger. The server adds "
@@ -1074,7 +1082,7 @@ def _register_project_tools(server: FastMCP, api: MnemonicAPI) -> None:
             "requires a non-null origin and recorded reason. Other paths/adoption still apply.")] = True,
         decision_change_inheritance_reason: InheritanceReason | None = None,
     ) -> WorkCreation:
-        """Every fresh create_work declares discovered_from_work_item_id: the exact session-origin work, or null for a human/external trigger; later reads never change origin. inherit_decision_change=false with a nonblank decision_change_inheritance_reason excludes only that declared origin edge, preserving discovery provenance; other paths and explicit adoption remain effective. Omission is only for historical receipt replay. Create pending work, initial context and up to ten relationships atomically. Search first to avoid duplicates; get_prompt with priority-rubric supplies scoring guidance. Fresh terminal creation and duplicate-of are refused; retire/promote through update_work with a report, merge through merge_work after reading both exact contexts. source_session_id is the native agent session ID when exposed, otherwise one retained Mnemonic session UUID; never a transport identity or an invented verified commit. affected_paths is an ordered declaration of repository dependencies; nonempty scope requires the inspected verified_against commit; omission/[] means no scope, ** means all eligible paths. The server and MCP adapter do not inspect Git. external_references declares up to ten credential-free links, never execution/closeout authority. Only incoming parent-child attaches work to a parent; requires_child_closeout=true requires child closure before parent closeout. discovered-from needs target-owned context. Omit client_operation_id on fresh calls for an automatic UUID; retain it with the complete immutable tool arguments. Unknown outcomes retry with every argument unchanged; never invent a replacement if the UUID or arguments were lost: stop for direction. A new intent requires a new UUID. Replay is the historical original result; read again for current state. Use help({"topic":"create_work details"}) for the complete contract."""
+        """First read list_tags descriptions. Fresh top-level tags requires catalog names or explicit null; never [] or omission. Leave checkpoint tags empty. Every fresh create_work declares discovered_from_work_item_id: the exact session-origin work, or null for a human/external trigger; later reads never change origin. inherit_decision_change=false with a nonblank decision_change_inheritance_reason excludes only that declared origin edge, preserving discovery provenance; other paths and explicit adoption remain effective. Omission is only for historical receipt replay. Create pending work, initial context and up to ten relationships atomically. Search first to avoid duplicates; get_prompt with priority-rubric supplies scoring guidance. Fresh terminal creation and duplicate-of are refused; retire/promote through update_work with a report, merge through merge_work after reading both exact contexts. source_session_id is the native agent session ID when exposed, otherwise one retained Mnemonic session UUID; never a transport identity or an invented verified commit. affected_paths is an ordered declaration of repository dependencies; nonempty scope requires the inspected verified_against commit; omission/[] means no scope, ** means all eligible paths. The server and MCP adapter do not inspect Git. external_references declares up to ten credential-free links, never execution/closeout authority. Only incoming parent-child attaches work to a parent; requires_child_closeout=true requires child closure before parent closeout. discovered-from needs target-owned context. Omit client_operation_id on fresh calls for an automatic UUID; retain it with the complete immutable tool arguments. Unknown outcomes retry with every argument unchanged; never invent a replacement if the UUID or arguments were lost: stop for direction. A new intent requires a new UUID. Replay is the historical original result; read again for current state. Use help({"topic":"create_work details"}) for the complete contract."""
         payload = _client_operation_payload(
             client_operation_id,
             {
@@ -1085,6 +1093,8 @@ def _register_project_tools(server: FastMCP, api: MnemonicAPI) -> None:
                 "initial_checkpoint": _checkpoint_payload(initial_checkpoint),
             },
         )
+        if tags is not MISSING:
+            payload["tags"] = tags
         if not inherit_decision_change:
             payload["inherit_decision_change"] = False
         if decision_change_inheritance_reason is not None:
@@ -1121,6 +1131,7 @@ def _register_project_tools(server: FastMCP, api: MnemonicAPI) -> None:
                     status=status,
                     initial_checkpoint=initial_checkpoint,
                     initial_relationships=initial_relationships,
+                    tags=tags,
                     discovered_from_work_item_id=discovered_from_work_item_id,
                     inherit_decision_change=inherit_decision_change,
                     decision_change_inheritance_reason=decision_change_inheritance_reason,
@@ -1140,6 +1151,8 @@ def _register_discovery_tools(server: FastMCP, api: MnemonicAPI) -> None:
         status: SearchStatus = "all",
         semantic: Annotated[bool, Field(description=WORK_SEMANTIC_DESCRIPTION)] = False,
         tag: Annotated[str | None, Field(max_length=50)] = None,
+        tags: TagNames | None = None,
+        tag_mode: TagMode = "or",
         source_client: Annotated[str | None, Field(max_length=80)] = None,
         source_session_id: Annotated[str | None, Field(max_length=200)] = None,
         view: SearchView = "full",
@@ -1172,6 +1185,10 @@ def _register_discovery_tools(server: FastMCP, api: MnemonicAPI) -> None:
             "limit": limit,
             "offset": offset,
         }
+        if tags is not None:
+            params["tags"] = tags
+        if tag_mode != "or":
+            params["tag_mode"] = tag_mode
         dates = DateBounds(created_after=created_after, created_before=created_before,
                            updated_after=updated_after, updated_before=updated_before)
         params.update(dates.model_dump(mode="json"), diagnostics=diagnostics)
@@ -2133,7 +2150,7 @@ def _register_work_lifecycle_tools(server: FastMCP, api: MnemonicAPI) -> None:
         supersede_follow_up_id: ReviewIDArgument = None,
         expected_follow_up_version: ReviewVersionArgument = None,
     ) -> WorkUpdateRead:
-        """Update mutable identity/lifecycle using the version just read. Checkpoint context and provenance are immutable; correct them with add_checkpoint. Deferred cannot be assigned here; move it to pending only on explicit current human direction. Promoted records the owner decision; no tool here creates an external issue. Fresh wont-do/promoted closeouts require job_completion_report and explicit subagent_transcripts=[{client,path},...] or null when none apply/are available. Omission exists only for historical receipt replay. First get_prompt with prompt_id=job-completion-report and this work_item_id; follow its content and retain its prompt_revision. Freeze prose, FYI order and transcript assertions. On definitive job_report_prompt_changed, fetch the report prompt again and prepare new intent. Reports are forbidden on ordinary edits; those omit transcripts or use null. Active terminal transitions require the matching private lease_token. external_references is an ordered whole-list replacement: omission preserves, [] clears, null is invalid. After definitive version conflict, reread and use a new UUID. Reference-only edits need no report/lease; supplied tokens are validated. Merges never union references. After work changes, revise affected open human questions using request_human_input with existing gate_id and expected_question_version; keep the human out of checkpoint reconciliation. Omit client_operation_id on fresh calls for an automatic UUID; retain it with the complete immutable tool arguments. Unknown outcomes retry with every argument unchanged; never invent a replacement if the UUID or arguments were lost: stop for direction. A new intent requires a new UUID. Replay is the historical original result; read again for current state. Use help({"topic":"update_work details"}) for the complete contract."""
+        """Update mutable identity/lifecycle using the version just read. changes.tags replaces assigned tags with existing catalog names; null clears, omission preserves. Read list_tags descriptions first. Checkpoint context and provenance are immutable; correct them with add_checkpoint. Deferred cannot be assigned here; move it to pending only on explicit current human direction. Promoted records the owner decision; no tool here creates an external issue. Fresh wont-do/promoted closeouts require job_completion_report and explicit subagent_transcripts=[{client,path},...] or null when none apply/are available. Omission exists only for historical receipt replay. First get_prompt with prompt_id=job-completion-report and this work_item_id; follow its content and retain its prompt_revision. Freeze prose, FYI order and transcript assertions. On definitive job_report_prompt_changed, fetch the report prompt again and prepare new intent. Reports are forbidden on ordinary edits; those omit transcripts or use null. Active terminal transitions require the matching private lease_token. external_references is an ordered whole-list replacement: omission preserves, [] clears, null is invalid. After definitive version conflict, reread and use a new UUID. Reference-only edits need no report/lease; supplied tokens are validated. Merges never union references. After work changes, revise affected open human questions using request_human_input with existing gate_id and expected_question_version; keep the human out of checkpoint reconciliation. Omit client_operation_id on fresh calls for an automatic UUID; retain it with the complete immutable tool arguments. Unknown outcomes retry with every argument unchanged; never invent a replacement if the UUID or arguments were lost: stop for direction. A new intent requires a new UUID. Replay is the historical original result; read again for current state. Use help({"topic":"update_work details"}) for the complete contract."""
         return cast(
             WorkUpdateRead,
             await api.request(
@@ -2311,6 +2328,7 @@ def build_server(settings: Settings, api: MnemonicAPI | None = None) -> FastMCP:
     from .download_grants import register_download_grants
     from .knowledge_tools import register_knowledge_tools
     from .search_tools import register_search_tool
+    from .tag_tools import register_tag_tools
     from .transcript_tools import register_transcript_tools
     from .upload_grants import register_upload_grants
 
@@ -2334,6 +2352,7 @@ def build_server(settings: Settings, api: MnemonicAPI | None = None) -> FastMCP:
         ),
     )
     _register_project_tools(server, api)
+    register_tag_tools(server, api)
     register_uuid_tool(server)
     register_phase12_tools(server, api)
     register_prompt_tool(server, api)

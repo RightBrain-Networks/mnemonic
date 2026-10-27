@@ -1,16 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { ReviewQueueCard } from "@/components/code-review-library";
 import SearchEvidence from "@/components/search-evidence";
 import WorkHierarchy, { SearchBreadcrumb } from "@/components/work-hierarchy";
 import WorkQueueCard, { QueueOptionsContext, type QueueOptions } from "@/components/work-queue-card";
-import { useWorkItemMotion } from "@/components/use-work-item-motion";
 import { dialogOpen, typingTarget } from "@/lib/keyboard-shortcuts";
 import type {
-  HierarchySummary,
   Project,
   StatusFilter,
-  WorkSearchHit,
   WorkSort,
   WorkSummary
 } from "@/lib/types";
@@ -39,10 +37,6 @@ const iconPaths = {
 
 function Icon({ name, size = 18 }: { name: keyof typeof iconPaths; size?: number }) {
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.65" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={iconPaths[name]} /></svg>;
-}
-
-function isHierarchySummary(item: WorkQueueItem): item is HierarchySummary {
-  return "presentation" in item;
 }
 
 function Skeletons({ count, label }: { count: number; label: string }) {
@@ -82,6 +76,8 @@ export type WorkQueueProps = {
   status: StatusFilter;
   sort: WorkSort;
   tag: string;
+  tags?: string[];
+  tagMode?: "or" | "and";
   sourceClient: string;
   sourceSessionId: string;
   refreshKey: number;
@@ -125,7 +121,7 @@ export default function WorkQueue({
   pendingQuery,
   status,
   sort,
-  tag,
+  tag, tags, tagMode,
   sourceClient,
   sourceSessionId,
   refreshKey,
@@ -161,18 +157,6 @@ export default function WorkQueue({
   const shortcutStateRef = useRef({ status, onStatus, onDeselect, onCopySelectedPointer });
   const [scrolled, setScrolled] = useState(false);
   const hasData = total !== null;
-  const searchResults = flatSearch
-    ? items.filter((item): item is WorkSearchHit => !isHierarchySummary(item))
-    : [];
-  const hierarchyResults = flatSearch ? [] : items.filter(isHierarchySummary);
-  const searchMotionRef = useWorkItemMotion<HTMLElement>({
-    itemIds: searchResults.map((item) => item.summary.work_item.id),
-    total: flatSearch ? total : null,
-    viewKey: `${viewKey}:search`,
-    revision: flatSearch ? items : null,
-    snapshotSignal: refreshKey,
-    enabled: true
-  });
 
   useEffect(() => { selectedIdRef.current = selectedId; }, [selectedId]);
   useEffect(() => { onSelectRef.current = onSelect; }, [onSelect]);
@@ -350,23 +334,16 @@ export default function WorkQueue({
           {error && !hasData ? <div className="error-notice" role="alert"><p>{error}</p><button className="button button-secondary" type="button" onClick={onRetry}>Try again</button></div> :
             loading && !hasData ? <Skeletons count={3} label="Loading work items" /> :
             hasData ? <>
-              {flatSearch ? <section ref={searchMotionRef} className="work-list search-results" aria-label="Matching durable work records">{searchResults.map(({ summary: item, matched_member: matchedMember, ...evidence }) => <div className="search-result" data-work-item-id={item.work_item.id} key={item.work_item.id}><div className="matched-member" role="note"><span>{matchedMember.id.toLowerCase() === item.work_item.id.toLowerCase() ? "Matched record" : "Matched duplicate member"}</span><bdi dir="auto">{matchedMember.title}</bdi><code>{matchedMember.id}</code></div><SearchEvidence hit={{ ...evidence, summary: item, matched_member: matchedMember }} /><SearchBreadcrumb summary={item} /><WorkQueueCard summary={item} /></div>)}</section> :
-                <WorkHierarchy
-                  pinnedWorkItemIds={pinnedWorkItemIds}
-                  items={hierarchyResults}
-                  status={status}
-                  sort={sort}
-                  tag={tag}
-                  sourceClient={sourceClient}
-                  sourceSessionId={sourceSessionId}
-                  refreshKey={refreshKey}
-                  viewKey={viewKey}
-                  motionRevision={items}
-                  motionTotal={total}
-                  motionSnapshotSignal={refreshKey}
-                  motionEnabled={true}
-                  onFlatSearch={onFlatSearch}
-                />}
+              {items.map((entry) => "review_task" in entry
+                ? <ReviewQueueCard key={entry.review_task.id} summary={entry.summary} />
+                : "presentation" in entry
+                  ? <WorkHierarchy key={entry.summary.work_item.id} pinnedWorkItemIds={pinnedWorkItemIds} items={[entry]}
+                      status={status} sort={sort} tag={tag} tags={tags} tagMode={tagMode} sourceClient={sourceClient} sourceSessionId={sourceSessionId}
+                      refreshKey={refreshKey} viewKey={viewKey} motionRevision={items} motionTotal={total}
+                      motionSnapshotSignal={refreshKey} motionEnabled={true} onFlatSearch={onFlatSearch} />
+                  : <div className="search-result" data-work-item-id={entry.summary.work_item.id} key={entry.summary.work_item.id}>
+                      <SearchEvidence hit={entry} /><SearchBreadcrumb summary={entry.summary} /><WorkQueueCard summary={entry.summary} />
+                    </div>)}
               {!items.length && <section className="empty-state queue-empty"><div className="empty-art"><Icon name={flatSearch ? "search" : "box"} size={31} /><span /></div><h2>{flatSearch ? "No matching work records." : status === "pending" ? "No pending work yet." : status === "all" ? "No work yet." : `No ${statusFilterLabels[status].toLowerCase()} work.`}</h2><p>{flatSearch ? "Try another phrase, lifecycle, duplicate scope, or canonical group." : "Create a durable objective here, or ask a connected agent to create one with its first checkpoint."}</p>{flatSearch || status !== "pending" ? <button type="button" className="button button-secondary" onClick={onClearFilters}>Clear filters</button> : <button type="button" className="button button-primary" onClick={onCreate}><Icon name="plus" size={16} />Create work</button>}</section>}
             </> : null}
           <div ref={sentinelRef} className="work-queue-sentinel" aria-hidden="true" />

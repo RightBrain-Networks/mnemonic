@@ -1,17 +1,18 @@
 "use client";
 
-import { useEffect, useState, type ReactNode, type RefObject } from "react";
+import { useEffect, type ReactNode, type RefObject } from "react";
 import { useWorkSplit } from "@/components/use-work-split";
 import WorkQueue from "@/components/work-queue";
-import type { DuplicateScope, Project, StatusFilter, WorkSort, WorkSummary } from "@/lib/types";
+import type { Project, StatusFilter, WorkSort, WorkSummary } from "@/lib/types";
 import type { ManualStatusAction } from "@/lib/work-status-actions";
 import {
   WORK_PAGE_SIZE,
-  moreFiltersForced,
   statusFilterLabels,
   workItemStatusFilterOrder,
   type WorkQueueItem
 } from "@/lib/work-queue";
+import { TagBadge, useProjectTags } from "@/components/work-tags";
+import type { TagMode } from "@/lib/tags";
 import { WORK_SPLIT_MAX, WORK_SPLIT_MIN } from "@/lib/work-split";
 
 const sortOptions: { value: WorkSort; label: string }[] = [
@@ -33,6 +34,11 @@ function Icon({ name, size = 18 }: { name: keyof typeof iconPaths; size?: number
 }
 
 export type WorkItemListProps = {
+  projectId: string;
+  selectedTags: string[];
+  tagMode: TagMode;
+  onTags: (tags: string[]) => void;
+  onTagMode: (mode: TagMode) => void;
   pinnedWorkItemIds: readonly string[];
   onTogglePin: (id: string) => void;
   // The queue pane the lifecycle filter cross-dissolves; usePaneCrossfade owns it.
@@ -45,13 +51,9 @@ export type WorkItemListProps = {
   searchedQuery: string;
   searchRef: RefObject<HTMLInputElement | null>;
   semantic: boolean;
-  duplicateScope: DuplicateScope;
   canonicalWorkItemId: string;
   status: StatusFilter;
   sort: WorkSort;
-  tag: string;
-  sourceClient: string;
-  sourceSessionId: string;
   // Accumulated queue pages from useWorkQueuePages.
   items: WorkQueueItem[];
   flatSearch: boolean;
@@ -74,13 +76,9 @@ export type WorkItemListProps = {
   isMutationBlocked: (summary: WorkSummary) => boolean;
   onQuery: (value: string) => void;
   onToggleSemantic: () => void;
-  onDuplicateScope: (scope: DuplicateScope) => void;
   onClearDuplicateGroup: () => void;
   onStatus: (status: StatusFilter) => void;
   onSort: (sort: WorkSort) => void;
-  onTag: (value: string) => void;
-  onSourceClient: (value: string) => void;
-  onSourceSessionId: (value: string) => void;
   onRetry: () => void;
   onRetryAppend: () => void;
   onLoadMore: () => void;
@@ -97,6 +95,7 @@ export type WorkItemListProps = {
 };
 
 export default function WorkItemList({
+  projectId, selectedTags, tagMode, onTags, onTagMode,
   pinnedWorkItemIds,
   onTogglePin,
   queuePaneRef,
@@ -107,13 +106,9 @@ export default function WorkItemList({
   searchedQuery,
   searchRef,
   semantic,
-  duplicateScope,
   canonicalWorkItemId,
   status,
   sort,
-  tag,
-  sourceClient,
-  sourceSessionId,
   items,
   flatSearch,
   total,
@@ -134,13 +129,9 @@ export default function WorkItemList({
   movingId,
   reportSettingsProjectId,
   isMutationBlocked,
-  onDuplicateScope,
   onClearDuplicateGroup,
   onStatus,
   onSort,
-  onTag,
-  onSourceClient,
-  onSourceSessionId,
   onRetry,
   onRetryAppend,
   onLoadMore,
@@ -154,19 +145,16 @@ export default function WorkItemList({
   onMove,
   detail
 }: WorkItemListProps) {
-  const [moreFilters, setMoreFilters] = useState(false);
   const workSplit = useWorkSplit<HTMLElement>();
-  const forced = moreFiltersForced({
-    duplicateScope,
-    canonicalWorkItemId,
-    tag,
-    sourceClient,
-    sourceSessionId
-  });
-
+  const catalog = useProjectTags(projectId);
   useEffect(() => {
-    if (forced) setMoreFilters(true);
-  }, [forced]);
+    if (!catalog.data) return;
+    const available = new Set(catalog.data.items.map((tag) => tag.name));
+    const next = selectedTags.filter((name) => available.has(name));
+    if (next.length === selectedTags.length) return;
+    onTags(next);
+    if (!next.length) onTagMode("all");
+  }, [catalog.data, selectedTags, onTags, onTagMode]);
 
   return <>
     <section className="library-controls" aria-label="Find work items">
@@ -216,30 +204,24 @@ export default function WorkItemList({
               </div>
             </fieldset>
           </div>
-          <button
-            type="button"
-            className={`more-filters-toggle ${moreFilters ? "is-open" : ""}`}
-            aria-expanded={moreFilters}
-            aria-controls="more-filters-panel"
-            onClick={() => setMoreFilters((value) => !value)}
-          ><Icon name="filterLines" size={14} />More filters<span className="more-filters-chevron" aria-hidden="true">⌄</span></button>
         </div>
       </div>
-      {moreFilters && <div className="more-filters-panel" id="more-filters-panel">
-        <fieldset className="duplicate-scope-control">
-          <legend>Duplicate records</legend>
-          {(["canonical", "aliases", "all"] as DuplicateScope[]).map((scope) => <label key={scope} className={duplicateScope === scope ? "selected" : ""}>
-            <input type="radio" name="duplicate-scope" checked={duplicateScope === scope} onChange={() => onDuplicateScope(scope)} />
-            <span>{scope === "canonical" ? "Canonical only" : scope === "aliases" ? "Aliases only" : "All records"}</span>
-          </label>)}
-        </fieldset>
-        {canonicalWorkItemId && <div className="duplicate-group-filter" role="status"><span>Canonical group</span><code>{canonicalWorkItemId}</code><button type="button" className="text-link" onClick={onClearDuplicateGroup}>Clear group</button></div>}
-        <div className="hierarchy-filter-fields" role="group" aria-label="Filter hierarchy by checkpoint provenance">
-          <label>Tag<input value={tag} maxLength={50} placeholder="Exact tag" onChange={(event) => onTag(event.target.value)} /></label>
-          <label>Source client<input value={sourceClient} maxLength={80} placeholder="Exact client" onChange={(event) => onSourceClient(event.target.value)} /></label>
-          <label>Source session<input value={sourceSessionId} maxLength={200} placeholder="Exact session" onChange={(event) => onSourceSessionId(event.target.value)} /></label>
+      {canonicalWorkItemId && <div className="duplicate-group-filter" role="status"><span>Canonical group</span><code>{canonicalWorkItemId}</code><button type="button" className="text-link" onClick={onClearDuplicateGroup}>Clear group</button></div>}
+      <div className="tag-filter-row" role="group" aria-label="Filter by tags">
+        <div className="sort-group"><span className="sort-label" aria-hidden="true">Filter:</span>
+          <fieldset className="sort-control"><legend className="sr-only">Tag matching</legend><div className="sort-options">
+            {(["all", "or", "and"] as TagMode[]).map((mode) => <label className={`sort-option ${tagMode === mode ? "selected" : ""}`} key={mode}>
+              <input type="radio" name="tag-mode" value={mode} checked={tagMode === mode} onChange={() => { onTagMode(mode); if (mode === "all") onTags([]); }} /><span>{mode === "all" ? "All" : mode.toUpperCase()}</span>
+            </label>)}
+          </div></fieldset>
         </div>
-      </div>}
+        <div className="tag-filter-options">{catalog.data?.items.map((tag) => <button type="button" key={tag.id} className={`tag-filter-button ${selectedTags.includes(tag.name) ? "selected" : ""}`} aria-pressed={selectedTags.includes(tag.name)} title={tag.description} onClick={() => {
+          const next = selectedTags.includes(tag.name) ? selectedTags.filter((name) => name !== tag.name) : [...selectedTags, tag.name];
+          onTags(next); if (next.length && tagMode === "all") onTagMode("or"); if (!next.length) onTagMode("all");
+        }}><TagBadge name={tag.name} tag={tag} /></button>)}</div>
+        {catalog.isPending && <span role="status" className="field-hint">Loading tags…</span>}
+        {catalog.isError && <button type="button" className="text-link" onClick={() => void catalog.refetch()}>Retry loading tags</button>}
+      </div>
     </section>
 
     <section ref={workSplit.surfaceRef} className={`work-surface ${workSplit.resizing ? "is-resizing" : ""}`} style={workSplit.surfaceStyle} aria-label="Work surface">
@@ -260,9 +242,9 @@ export default function WorkItemList({
         pendingQuery={query.trim() !== searchedQuery}
         status={status}
         sort={sort}
-        tag={tag}
-        sourceClient={sourceClient}
-        sourceSessionId={sourceSessionId}
+        tag="" tags={selectedTags} tagMode={tagMode === "all" ? "or" : tagMode}
+        sourceClient=""
+        sourceSessionId=""
         refreshKey={refreshKey}
         viewKey={viewKey}
         selectedId={selectedId}

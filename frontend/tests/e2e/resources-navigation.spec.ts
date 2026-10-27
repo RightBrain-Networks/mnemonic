@@ -10,10 +10,10 @@ test("resources menu groups its leaves below Needs Attention and opens the Trans
   const toggle = resources.getByRole("button", { name: "Resources", exact: true });
   await expect(resources).toHaveAttribute("data-ready", "true");
   await expect(navigation.locator(":scope > a, :scope > div > button")).toHaveText([
-    "Tasks", "Knowledge graph", /^Needs Attention/, /^Summaries/, "Resources", "Project settings"
+    /^Work items/, "Knowledge graph", /^Needs Attention/, /^Summaries/, "Resources", "Project settings"
   ]);
   await expect(navigation.locator(".knowledge-nav a")).toHaveText(["Manage domains", "Decision documents"]);
-  expect(await navigation.locator(".tasks-nav svg path").first().getAttribute("d"))
+  expect(await navigation.locator("a[href=\"/work-items\"] svg path").first().getAttribute("d"))
     .not.toBe(await navigation.locator(".knowledge-nav svg path").first().getAttribute("d"));
   await expect(page.getByText("Local workspace", { exact: true })).toHaveCount(0);
   await expect(toggle).toHaveAttribute("aria-expanded", "false");

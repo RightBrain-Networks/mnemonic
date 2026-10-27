@@ -270,7 +270,8 @@ mutation retry rules or resolve an uncertain completion or release.
 ## Checkpoints and events have different jobs
 
 A checkpoint is a potentially substantial packet a future session may need to
-resume safely, with exact text, tags, and source provenance. A `progress` event
+resume safely, with exact text and source provenance. Current work tags are
+separate mutable assignments; leave checkpoint tags empty on fresh writes. A `progress` event
 is a concise historical update that need not become resume context. Checkpoint
 and completion events reference checkpoint IDs; they never copy checkpoint text
 or source metadata. Do not store the same prose in both merely to duplicate it.

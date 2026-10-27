@@ -21,6 +21,9 @@ PROMPT_DETAIL = re.compile(rf"{PROJECT}/prompts/({'|'.join(PROMPT_IDS)})")
 
 # Each entry names one browser contract and its exact method/query surface.
 _ROUTES = (
+    ("tags", rf"{PROJECT}/tags", {"GET": "", "POST": ""}),
+    ("tag_order", rf"{PROJECT}/tags/order", {"PUT": ""}),
+    ("tag", rf"{PROJECT}/tags/{UUID}", {"PATCH": "", "DELETE": ""}),
     ("knowledge_changes", rf"{PROJECT}/knowledge/changes", {"POST": ""}),
     ("knowledge_change", rf"{PROJECT}/knowledge/changes/{UUID}",
      {"GET": "lineage_limit lineage_offset"}),
@@ -60,7 +63,9 @@ _ROUTES = (
     ("prompt_render", PROMPT_DETAIL.pattern + "/render", {"POST": ""}),
     ("search", rf"{PROJECT}/search", {"POST": ""}),
     ("suggestions", rf"{PROJECT}/duplicate-suggestions", {"POST": ""}),
-    ("tasks", rf"{PROJECT}/tasks", {"GET": "kind status task_id limit offset"}),
+    ("tasks", rf"{PROJECT}/tasks", {
+        "GET": "kind status task_id limit offset q tags tag_mode sort include_summary",
+    }),
     (
         "reviews",
         rf"{PROJECT}/(?:code-reviews|work-agent-follow-ups)",
@@ -91,7 +96,7 @@ _ROUTES = (
             "GET": "q semantic status status_scope sort tag source_client external_url "
             "source_session_id view detail duplicate_scope canonical_work_item_id "
             "created_after created_before updated_after updated_before diagnostics "
-            "query_mode work_fields limit offset pinned_work_item_ids",
+            "query_mode work_fields limit offset pinned_work_item_ids tags tag_mode",
             "POST": "",
         },
     ),
@@ -103,7 +108,7 @@ _ROUTES = (
         rf"{WORK}/children",
         {
             "GET": "status status_scope sort tag source_client source_session_id "
-            "limit offset pinned_work_item_ids",
+            "limit offset pinned_work_item_ids tags tag_mode",
         },
     ),
     ("work_relationships", rf"{WORK}/relationships", {"GET": "direction type limit offset"}),
@@ -125,6 +130,7 @@ _ROUTES = (
 ROUTES = tuple((name, re.compile(pattern), methods) for name, pattern, methods in _ROUTES)
 PROTECTED_MUTATIONS = frozenset(
     {
+        ("tags", "POST"), ("tag", "PATCH"), ("tag", "DELETE"), ("tag_order", "PUT"),
         ("knowledge_domains", "POST"),
         ("knowledge_domain", "PATCH"),
         ("knowledge_decisions", "PUT"),
@@ -174,6 +180,10 @@ def allowed_query_keys(path: str, method: str) -> list[str] | None:
 
 
 def valid_query_values(key: str, values: list[str]) -> bool:
+    if key == "tags":
+        return (0 < len(values) <= 20 and len(set(values)) == len(values)
+                and all(re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", value)
+                        and len(value) <= 50 for value in values))
     if key == "pinned_work_item_ids":
         return 0 < len(values) <= 100 and all(re.fullmatch(UUID, value) for value in values)
     return len(values) == 1

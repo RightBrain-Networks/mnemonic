@@ -81,27 +81,39 @@ class MatchUnit:
         return or_(condition, *(phrase_field(field, phrase) for phrase in self.intent.phrases))
 
 
-def _tag_predicate(predicate):
-    tag = func.unnest(Checkpoint.tags).column_valued("matched_tag")
-    return select(1).where(predicate(tag)).correlate(Checkpoint).exists()
+def tag_array(field: MatchField):
+    if field.key == "checkpoint_tags":
+        return select(WorkItem.tags).where(WorkItem.id == Checkpoint.work_item_id)\
+            .correlate(Checkpoint).scalar_subquery()
+    return WorkItem.tags
+
+
+def tag_scope(field: MatchField):
+    return Checkpoint if field.key == "checkpoint_tags" else WorkItem
+
+
+def _tag_predicate(field: MatchField, predicate):
+    tag = func.unnest(tag_array(field)).column_valued("matched_tag")
+    return select(1).where(predicate(tag)).correlate(tag_scope(field)).exists()
 
 
 def phrase_field(field: MatchField, phrase: str):
     def predicate(column):
         return phrase_matches(column, phrase)
-    return _tag_predicate(predicate) if field.name == "tags" else predicate(field.column)
+    return _tag_predicate(field, predicate) if field.name == "tags" else predicate(field.column)
 
 
 def exact_field(field: MatchField, query: str):
     def predicate(column):
         return column.contains(query, autoescape=True)
-    return _tag_predicate(predicate) if field.name == "tags" else predicate(field.column)
+    return _tag_predicate(field, predicate) if field.name == "tags" else predicate(field.column)
 
 
 def work_unit(intent: QueryIntent, fields: Sequence[WorkField]) -> MatchUnit:
     columns = (
         MatchField("title", "title", WorkItem.title, True),
         MatchField("summary", "summary", WorkItem.summary, True),
+        MatchField("tags", "tags", func.array_to_string(WorkItem.tags, " ")),
         MatchField("work_id", "identifiers", cast(WorkItem.id, String)),
     )
     selected = tuple(field for field in columns if field.name in fields)
@@ -118,7 +130,9 @@ def work_unit(intent: QueryIntent, fields: Sequence[WorkField]) -> MatchUnit:
 def checkpoint_unit(intent: QueryIntent, fields: Sequence[WorkField]) -> MatchUnit:
     columns = (
         MatchField("checkpoint", "checkpoint", Checkpoint.prompt, True),
-        MatchField("tags", "tags", func.array_to_string(Checkpoint.tags, " ")),
+        MatchField("checkpoint_tags", "tags", func.array_to_string(
+            select(WorkItem.tags).where(WorkItem.id == Checkpoint.work_item_id)
+            .correlate(Checkpoint).scalar_subquery(), " ")),
         MatchField("checkpoint_id", "identifiers", cast(Checkpoint.id, String)),
         *(MatchField(name, "provenance", getattr(Checkpoint, name)) for name in (
             "source_client", "source_session_id", "source_model", "source_session_url",

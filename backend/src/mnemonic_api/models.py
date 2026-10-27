@@ -198,7 +198,8 @@ class ClientOperation(Base):
             "'respond_to_work_follow_up', 'complete_code_review', 'create_knowledge_domain', "
             "'rename_knowledge_domain', 'put_decision', 'append_decision_scope', "
             "'assess_decision_impact', 'reconcile_decision_scope', 'update_decision_change', "
-            "'assess_decision_impact_batch', 'delete_knowledge_domain', 'delete_decision')",
+            "'assess_decision_impact_batch', 'delete_knowledge_domain', 'delete_decision', "
+            "'create_tag', 'update_tag', 'delete_tag', 'reorder_tags')",
             name="operation_kind_valid",
         ),
         CheckConstraint(
@@ -253,6 +254,25 @@ class ClientOperation(Base):
         DateTime(timezone=True), server_default=func.clock_timestamp()
     )
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class ProjectTag(Base):
+    """Human-managed project label vocabulary; system labels are immutable."""
+
+    __tablename__ = "project_tags"
+    __table_args__ = (
+        UniqueConstraint("project_id", "name", name="uq_project_tags_name"),
+        CheckConstraint("name ~ '^[a-z0-9]+(-[a-z0-9]+)*$'", name="name_valid"),
+        CheckConstraint("color ~ '^#[0-9a-fA-F]{6}$'", name="color_valid"),
+        CheckConstraint("menu_order >= 0", name="menu_order_nonnegative"),
+    )
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    project_id: Mapped[UUID] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"))
+    name: Mapped[str] = mapped_column(String(50))
+    description: Mapped[str] = mapped_column(String(240), default="", server_default="")
+    color: Mapped[str] = mapped_column(String(7))
+    menu_order: Mapped[int] = mapped_column(Integer)
+    system: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
 
 
 class WorkItem(Base):
@@ -327,10 +347,12 @@ class WorkItem(Base):
             postgresql_where=text("deleted_at IS NULL"),
         ),
         Index("ix_work_items_search_vector", "search_vector", postgresql_using="gin"),
+        Index("ix_work_items_tags", "tags", postgresql_using="gin"),
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     project_id: Mapped[UUID] = mapped_column(ForeignKey("projects.id", ondelete="RESTRICT"))
+    tags: Mapped[list[str] | None] = mapped_column(ARRAY(String(50)))
     title: Mapped[str] = mapped_column(String(200))
     summary: Mapped[str] = mapped_column(Text)
     external_references: Mapped[list[dict[str, Any]]] = mapped_column(
@@ -404,6 +426,16 @@ class WorkItem(Base):
             persisted=True,
         ),
     )
+
+    @property
+    def system_tags(self) -> list[str]:
+        values = []
+        if self.remediation_depth:
+            values.append("remediation")
+        if (self.decision_review_revision_id is not None
+                or self.decision_review_change_id is not None):
+            values.append("dir")
+        return values
 
 
 class WorkItemMove(Base):

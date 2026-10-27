@@ -11,13 +11,14 @@ The dashboard supplies `pinned_work_item_ids` as repeated UUID query parameters
 to work/children browsing, or as a top-level UUID array to work-only REST search.
 The server applies pin precedence before pagination, independently of ascending
 or descending search order. Pins do not edit work records or alter agent queues.
-Tasks → Work items and Tasks → Code reviews show positive Pending counts from
-the same live task overview used by the dashboard; zero counts have no pip.
+Work items is a top-level navigation item containing ordinary work and code
+reviews. The tag strip below status filters supports All/OR/AND selection; the
+project catalog order controls its visual order. See [work tags](work-tags.md).
 
 Application/API/MCP/dashboard `0.43.0` and plugin `0.26.0` add one project search
 surface across work items, artifacts, and transcripts. No migration or new
-configuration was required for that release. Current release 0.109.2 uses migration
-`0066_candidate_reuse` and also searches decision documents and
+configuration was required for that release. Current release 0.110.0 uses migration
+`0067_project_tags` and also searches decision documents and
 [imported transcripts](transcripts.md#import-existing-transcripts).
 The dashboard retains its separate work, artifact, and transcript interfaces.
 Their searches use the shared API, including the work semantic toggle. Hierarchy

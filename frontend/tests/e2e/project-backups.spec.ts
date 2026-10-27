@@ -173,7 +173,6 @@ test("a lost backup response blocks duplicate actions until the user reloads and
     await expect(panel.getByRole("alert")).toContainText("The outcome is uncertain.");
     await expect(panel.getByRole("button", { name: "Back up now" })).toBeDisabled();
     await expect(page.locator("#project-select")).toBeDisabled();
-    await page.getByRole("navigation", { name: "Workspace navigation" }).getByRole("button", { name: "Tasks", exact: true }).click();
     await page.getByRole("navigation", { name: "Workspace navigation" }).getByRole("link", { name: "Work items", exact: true }).click();
     await expect(page).toHaveURL(/\/settings\/backups$/);
     const navigation = page.getByRole("navigation", { name: "Workspace navigation" });

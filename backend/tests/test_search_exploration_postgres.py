@@ -18,6 +18,7 @@ from .test_artifacts_postgres import artifact_storage as artifact_storage
 from .test_artifacts_postgres import upload
 from .test_duplicate_handling_postgres import merge_work
 from .test_hierarchy_presentation_matrix_postgres import create_work as create_hierarchy_work
+from .test_project_tags import catalog_names
 from .test_search_diagnostics_postgres import counts
 from .test_unified_search_postgres import mixed as mixed
 from .test_unified_search_postgres import path, search
@@ -27,9 +28,8 @@ pytestmark = pytest.mark.postgres
 
 
 def _tagged(api, project, payload, title, tags):
-    checkpoint = payload["initial_checkpoint"] | {"tags": tags}
     return create_work(api, project, payload, title=title,
-                       initial_checkpoint=checkpoint)["work_item"]
+                       tags=catalog_names(api, project, tags))["work_item"]
 
 
 def _work_page(api, project, **params):
@@ -46,7 +46,7 @@ def test_tag_counts_are_paginated_and_deduplicate_canonical_groups(
     _tagged(api, project, work_payload, "Other objective", ["Shared", "Zulu"])
     merge_work(api, project, alias, root)
     response = api.post(item_path(project, root) + "/checkpoints", json=checkpoint_payload(
-        "Another occurrence must not multiply vocabulary counts", "tag-session", tags=["SHARED"]))
+        "Another occurrence must not multiply vocabulary counts", "tag-session"))
     assert response.status_code == 201, response.text
     first = search(api, project, facets=["work_items"], tag_counts={"limit": 2})
     assert first["tag_counts"]["items"] == [{"tag": "alpha", "count": 1},
@@ -58,7 +58,7 @@ def test_tag_counts_are_paginated_and_deduplicate_canonical_groups(
     all_members = search(api, project, facets=["work_items"], tag_counts={},
                          filters={"work_items": {"duplicate_scope": "all"}})
     tags = {row["tag"]: row["count"] for row in all_members["tag_counts"]["items"]}
-    assert tags == {"aliasonly": 1, "alpha": 1, "shared": 2, "zulu": 1}
+    assert tags == {"alpha": 1, "shared": 2, "zulu": 1}
     assert all_members["tag_counts"]["count_unit"] == "canonical_work_items"
     assert all_members["tag_counts"]["member_scope"] == "returned_work_items"
     assert all_members["tag_counts"]["selected_tag_applied"]

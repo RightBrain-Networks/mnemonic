@@ -1,3 +1,4 @@
+import { validTagNames } from "./tags.ts";
 import type { SearchPagination } from "./search-pagination.ts";
 import { WORK_FIELDS, validWorkFields, validQueryMode, type QueryMode } from "./search-evidence.ts";
 import type { SearchRanking } from "./search-ranking.ts";
@@ -25,10 +26,12 @@ export type SearchDisclosure = {
 
 function validFilter(source: Source, value: unknown): boolean {
   const row = objectValue(value);
-  if (!row || !exactKeys(row, [...Object.keys(DEFAULT_SEARCH_FILTERS[source]), ...(source === "artifacts" && "semantic" in row ? ["semantic"] : []), ...(source === "work_items" && "status_scope" in row ? ["status_scope"] : []), ...SEARCH_DATE_FIELDS.filter((key) => key in row)]) || !validDateBounds(row, true)) return false;
+  if (!row || !exactKeys(row, [...Object.keys(DEFAULT_SEARCH_FILTERS[source]), ...(source === "artifacts" && "semantic" in row ? ["semantic"] : []), ...(source === "work_items" ? ["status_scope", "tags", "tag_mode"].filter((key) => key in row) : []), ...SEARCH_DATE_FIELDS.filter((key) => key in row)]) || !validDateBounds(row, true)) return false;
   return Object.entries(row).every(([key, value]) => {
     if (SEARCH_DATE_FIELDS.includes(key as typeof SEARCH_DATE_FIELDS[number])) return value !== null;
     if (key === "status_scope") return value === "work_item";
+    if (key === "tags") return value === null || validTagNames(value);
+    if (key === "tag_mode") return value === "or" || value === "and";
     if (key === "semantic") return value === true;
     if (value === null) return !["status", "view", "duplicate_scope", "include_deleted"].includes(key) || source === "transcripts" && key === "status";
     if (key === "work_fields") return validWorkFields(value);
@@ -82,11 +85,12 @@ export function decodeSearchDisclosure(value: unknown, projectId: string, search
 }
 
 export function validateSearchDisclosure(disclosure: SearchDisclosure, source: Source, expected: Record<string, unknown>, fulltext?: boolean, query?: string, queryMode: QueryMode = "terms"): void {
-  const applied = disclosure.applied_filters[source];
+  const saved = disclosure.applied_filters[source];
+  const applied = saved && source === "work_items" ? { tags: null, tag_mode: "or", ...saved } : saved;
   const interpretation = disclosure.query_interpretation[source];
   if (disclosure.query_interpretation.query_mode !== queryMode || query !== undefined && disclosure.query_interpretation.q !== query.trim()
     || applied && !dateBoundsMatch(applied, expected)
-    || applied && Object.entries(expected).some(([key, value]) => ["work_item_id", "artifact_id", "canonical_work_item_id"].includes(key) && value != null ? !sameUuid(applied[key], value) : SEARCH_DATE_FIELDS.includes(key as typeof SEARCH_DATE_FIELDS[number]) ? false : ["content_kinds", "work_fields"].includes(key) ? JSON.stringify(applied[key]) !== JSON.stringify(value) : applied[key] !== value)
+    || applied && Object.entries(expected).some(([key, value]) => ["work_item_id", "artifact_id", "canonical_work_item_id"].includes(key) && value != null ? !sameUuid(applied[key], value) : SEARCH_DATE_FIELDS.includes(key as typeof SEARCH_DATE_FIELDS[number]) ? false : ["content_kinds", "work_fields", "tags"].includes(key) ? JSON.stringify(applied[key]) !== JSON.stringify(value) : applied[key] !== value)
     || interpretation && fulltext !== undefined && interpretation.fulltext !== fulltext) throw new Error("Mnemonic returned search disclosure outside the requested scope.");
 }
 

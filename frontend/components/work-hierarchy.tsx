@@ -22,6 +22,8 @@ type BranchProps = Actions & {
   status: StatusFilter;
   sort: WorkSort;
   tag: string;
+  tags?: string[];
+  tagMode?: "or" | "and";
   sourceClient: string;
   sourceSessionId: string;
   refreshKey: number;
@@ -70,7 +72,7 @@ function HierarchyBranch(props: BranchProps) {
   const activeFilterCategories = [
     ...(status !== "all" ? ["lifecycle"] : []),
     ...(props.sourceClient.trim() || props.sourceSessionId.trim() ? ["source"] : []),
-    ...(props.tag.trim() ? ["tag"] : [])
+    ...(props.tag.trim() || props.tags?.length ? ["tag"] : [])
   ];
   const childViewKey = `${props.viewKey}:children:${id}:${allDescendants ? "all" : status}:${sort}:${offset}`;
   const childrenEnabled = !guardReason && expanded && (item.has_matching_descendants || allDescendants);
@@ -78,6 +80,8 @@ function HierarchyBranch(props: BranchProps) {
     statusScope: "work_item", status: allDescendants ? "all" : status, sort,
     limit: CHILD_PAGE_SIZE, offset,
     tag: allDescendants ? undefined : props.tag,
+    tags: allDescendants ? undefined : props.tags,
+    tagMode: props.tagMode,
     sourceClient: allDescendants ? undefined : props.sourceClient,
     sourceSessionId: allDescendants ? undefined : props.sourceSessionId,
     pinnedWorkItemIds: props.pinnedWorkItemIds
@@ -221,6 +225,8 @@ export default function WorkHierarchy({
   status: StatusFilter;
   sort: WorkSort;
   tag: string;
+  tags?: string[];
+  tagMode?: "or" | "and";
   sourceClient: string;
   sourceSessionId: string;
   refreshKey: number;

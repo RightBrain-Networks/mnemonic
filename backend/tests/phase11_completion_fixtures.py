@@ -279,7 +279,7 @@ def complete(
             "source_model": "test-model",
             "repository_branch": "Work/Phase11 Exact",
             "verified_against": "7ad62e4",
-            "tags": ["evidence", "backend"],
+            "tags": [],
             "source_metadata": {"suite": "postgres"},
         },
     }

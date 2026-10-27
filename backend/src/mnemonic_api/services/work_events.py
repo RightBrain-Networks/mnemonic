@@ -176,6 +176,7 @@ def stage_work_created(
         metadata={
             "initial": {
                 "title": work_item.title,
+                **({"tags": work_item.tags} if work_item.tags else {}),
                 "summary": work_item.summary,
                 "status": work_item.status,
                 "priority": work_item.priority,

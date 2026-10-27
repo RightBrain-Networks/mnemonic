@@ -65,6 +65,7 @@ CANONICAL_TOOLS = {
     "list_job_completion_reports",
     "get_job_completion_report",
     "list_projects",
+    "list_tags",
     "create_project",
     "create_work",
     "search",
@@ -219,6 +220,25 @@ async def tool(session: ClientSession, name: str, arguments: dict[str, Any]) -> 
 
 def synthetic_summary(marker: str) -> str:
     return f"Synthetic Phase 12 integration check {marker}"
+
+
+
+async def synthetic_ready_work(
+    session: ClientSession, project_id: str, known_ids: set[str],
+    *, parent_work_item_id: str | None = None,
+) -> dict[str, Any]:
+    """Inspect every ready page and retain this run's exact identities in server order."""
+    arguments: dict[str, Any] = {"project_id": project_id, "limit": 100, "offset": 0}
+    if parent_work_item_id is not None:
+        arguments["parent_work_item_id"] = parent_work_item_id
+    selected: list[dict[str, Any]] = []
+    while True:
+        page = await tool(session, "list_ready_work", arguments)
+        selected.extend(item for item in page["items"] if item["work_item"]["id"] in known_ids)
+        arguments["offset"] += len(page["items"])
+        if arguments["offset"] >= page["total"]:
+            return {**page, "items": selected, "total": len(selected), "offset": 0}
+        require(bool(page["items"]), "Ready discovery stopped before its advertised total.")
 
 
 def mutation_actor(run_id: str) -> dict[str, str]:
@@ -1144,7 +1164,7 @@ async def phase12_human_report_flow(
 def validate_rest_contract(document: Any) -> None:
     """Reject a healthy but contract-incompatible pre-Phase-12 API."""
     try:
-        require(document["info"]["version"] == "0.109.2", "Unexpected REST API version.")
+        require(document["info"]["version"] == "0.110.0", "Unexpected REST API version.")
         schemas = document["components"]["schemas"]
         unified_search = document["paths"]["/api/v1/projects/{project_id}/search"]["post"]
         require(
@@ -1413,8 +1433,8 @@ def validate_mcp_catalog(catalog: Any) -> None:
     """Require the exact tool set, annotations, and operation-ID boundaries."""
     tools_by_name = {entry.name: entry for entry in catalog.tools}
     require(
-        len(catalog.tools) == 78
-        and len(tools_by_name) == 78
+        len(catalog.tools) == 79
+        and len(tools_by_name) == 79
         and len(PROTECTED_MUTATION_TOOLS) == 25
         and set(tools_by_name) == CANONICAL_TOOLS,
         "Unexpected MCP tool catalog.",
@@ -1687,15 +1707,15 @@ async def check(args: argparse.Namespace, key: str) -> None:
                 initialized = await session.initialize()
                 require(
                     initialized.serverInfo.name == "Mnemonic"
-                    and initialized.serverInfo.version == "0.109.2",
+                    and initialized.serverInfo.version == "0.110.0",
                     "Unexpected MCP server identity or version.",
                 )
                 catalog = await session.list_tools()
                 validate_mcp_catalog(catalog)
                 await tool(session, "list_projects", {})
                 print(
-                    "PASS: REST 0.109.2 cross-project relationship contract shape, work-move, "
-                    "code-review contract, real MCP initialization, 78-tool catalog, "
+                    "PASS: REST 0.110.0 cross-project relationship contract shape, work-move, "
+                    "code-review contract, real MCP initialization, 79-tool catalog, "
                     "exact twenty-three protected mutation "
                     "schemas/annotations, and REST-backed project listing"
                 )
@@ -1708,6 +1728,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                     return
 
                 project_id = args.project_id
+                await tool(session, "list_tags", {"project_id": project_id})
                 if args.cleanup_run_id:
                     await cleanup_interrupted_synthetic_run(api, project_id, args.cleanup_run_id)
                     return
@@ -1722,7 +1743,6 @@ async def check(args: argparse.Namespace, key: str) -> None:
                     f"{run_id}; retain it for --cleanup-run-id if this process is interrupted"
                 )
                 marker = "mnemoniccheck" + run_id.replace("-", "")
-                run_tag = "check-" + run_id.replace("-", "")
                 primary_marker = marker + "primary"
                 blocker_marker = marker + "blocker"
                 ready_marker = marker + "ready"
@@ -1749,7 +1769,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                     "repository_branch": None,
                     "verified_against": declared_baseline,
                     "affected_paths": initial_affected_paths,
-                    "tags": [run_tag, "verification"],
+                    "tags": [],
                     "source_metadata": {"synthetic_check": True},
                 }
                 known_work_item_ids: set[str] = set()
@@ -1764,6 +1784,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                             "title": f"Temporary primary work check {primary_marker}",
                             "summary": synthetic_summary(marker),
                             "discovered_from_work_item_id": None,
+                            "tags": None,
                             "initial_checkpoint": checkpoint_input,
                             "priority": 90,
                             "initial_relationships": [],
@@ -1977,7 +1998,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                         "repository_branch": None,
                         "verified_against": declared_baseline,
                         "affected_paths": initial_affected_paths,
-                        "tags": [run_tag, "verification", "progress"],
+                        "tags": [],
                         "source_metadata": {"synthetic_check": True},
                     }
                     progress_checkpoint_arguments = retained_mutation(
@@ -2199,7 +2220,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                             "Synthetic prerequisite used to verify blocker readiness "
                             f"for run {run_id}."
                         ),
-                        "tags": [run_tag, "verification", "blocker"],
+                        "tags": [],
                     }
                     blocker_create_arguments = retained_mutation(
                         {
@@ -2207,6 +2228,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                             "title": f"Temporary blocker work check {blocker_marker}",
                             "summary": synthetic_summary(marker),
                             "discovered_from_work_item_id": None,
+                            "tags": None,
                             "initial_checkpoint": blocker_checkpoint,
                             "priority": 70,
                             "initial_relationships": [],
@@ -2229,7 +2251,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                         **checkpoint_input,
                         "prompt": f"Synthetic ready candidate for run {run_id}.",
                         "affected_paths": [],
-                        "tags": [run_tag, "verification", "ready"],
+                        "tags": [],
                     }
                     ready_create_arguments = retained_mutation(
                         {
@@ -2238,6 +2260,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                             "summary": synthetic_summary(marker),
                             "priority": 50,
                             "discovered_from_work_item_id": None,
+                            "tags": None,
                             "initial_checkpoint": ready_checkpoint,
                             "initial_relationships": [],
                         }
@@ -2424,11 +2447,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                     )
                     lease_tokens.pop(ready_id, None)
                     claim_request_ids.pop(ready_id, None)
-                    gated_ready_page = await tool(
-                        session,
-                        "list_ready_work",
-                        {"project_id": project_id, "tag": run_tag, "limit": 100},
-                    )
+                    gated_ready_page = await synthetic_ready_work(session, project_id, known_work_item_ids)
                     require(
                         ready_id not in ready_ids(gated_ready_page),
                         "Released waiting work re-entered ready discovery.",
@@ -2528,11 +2547,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                         },
                     )
                     resolved_context = await tool(session, "recall_work", ready_identity)
-                    restored_ready_page = await tool(
-                        session,
-                        "list_ready_work",
-                        {"project_id": project_id, "tag": run_tag, "limit": 100},
-                    )
+                    restored_ready_page = await synthetic_ready_work(session, project_id, known_work_item_ids)
                     require(
                         resolved_history["total"] == 1
                         and resolved_history["items"][0] == resolved_gate
@@ -2611,10 +2626,11 @@ async def check(args: argparse.Namespace, key: str) -> None:
                             "priority": 30,
                             "status": "pending",
                             "discovered_from_work_item_id": None,
+                            "tags": None,
                             "initial_checkpoint": {
                                 **checkpoint_input,
                                 "prompt": f"Synthetic terminal candidate for run {run_id}.",
-                                "tags": [run_tag, "verification", "terminal"],
+                                "tags": [],
                             },
                             "initial_relationships": [],
                         }
@@ -2781,11 +2797,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                         and blocked_readiness["display_state"] == "blocked",
                         "Adding a blocker did not expose the active-plus-blocked overlap.",
                     )
-                    ready_page = await tool(
-                        session,
-                        "list_ready_work",
-                        {"project_id": project_id, "tag": run_tag, "limit": 100},
-                    )
+                    ready_page = await synthetic_ready_work(session, project_id, known_work_item_ids)
                     require(
                         ready_page["total"] == 1 and ready_ids(ready_page) == [ready_id],
                         "Ready discovery did not exclude blocked, leased, and terminal work.",
@@ -2849,11 +2861,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                         == [event["id"] for event in events_after_release],
                         "New-key absent release did not bind and replay released=false.",
                     )
-                    ready_page = await tool(
-                        session,
-                        "list_ready_work",
-                        {"project_id": project_id, "tag": run_tag, "limit": 100},
-                    )
+                    ready_page = await synthetic_ready_work(session, project_id, known_work_item_ids)
                     require(
                         ready_ids(ready_page) == [ready_id],
                         "Releasing blocked work incorrectly made it ready.",
@@ -2941,11 +2949,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                         and unblocked_context["readiness"]["unresolved_blocker_count"] == 0,
                         "Removing the blocker did not restore readiness.",
                     )
-                    ready_page = await tool(
-                        session,
-                        "list_ready_work",
-                        {"project_id": project_id, "tag": run_tag, "limit": 100},
-                    )
+                    ready_page = await synthetic_ready_work(session, project_id, known_work_item_ids)
                     require(
                         ready_ids(ready_page) == [work_item_id, ready_id],
                         "Removing the blocker did not deterministically restore ready work.",
@@ -2980,11 +2984,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                             "work_released",
                         ],
                     )
-                    ready_page = await tool(
-                        session,
-                        "list_ready_work",
-                        {"project_id": project_id, "tag": run_tag, "limit": 100},
-                    )
+                    ready_page = await synthetic_ready_work(session, project_id, known_work_item_ids)
                     require(
                         ready_ids(ready_page) == [work_item_id, blocker_id, ready_id],
                         "Releasing the leased candidate did not restore priority order.",
@@ -3010,11 +3010,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                     await require_event_types(
                         session, terminal_identity, ["work_created", "work_status_changed", "work_reopened"]
                     )
-                    ready_page = await tool(
-                        session,
-                        "list_ready_work",
-                        {"project_id": project_id, "tag": run_tag, "limit": 100},
-                    )
+                    ready_page = await synthetic_ready_work(session, project_id, known_work_item_ids)
                     require(
                         ready_ids(ready_page) == [work_item_id, blocker_id, ready_id, terminal_id],
                         "Reopened work did not reappear in deterministic priority order.",
@@ -3060,7 +3056,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                             "Synthetic child discovered from the primary progress checkpoint "
                             f"for run {run_id}."
                         ),
-                        "tags": [run_tag, "verification", "child"],
+                        "tags": [],
                     }
                     child_create_arguments = retained_mutation(
                         {
@@ -3068,6 +3064,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                             "title": f"Temporary child work check {child_marker}",
                             "summary": synthetic_summary(marker),
                             "discovered_from_work_item_id": None,
+                            "tags": None,
                             "initial_checkpoint": child_checkpoint,
                             "priority": 10,
                             "initial_relationships": [
@@ -3134,15 +3131,8 @@ async def check(args: argparse.Namespace, key: str) -> None:
                             "relationship_added",
                         ],
                     )
-                    child_ready_page = await tool(
-                        session,
-                        "list_ready_work",
-                        {
-                            "project_id": project_id,
-                            "tag": run_tag,
-                            "parent_work_item_id": work_item_id,
-                            "limit": 100,
-                        },
+                    child_ready_page = await synthetic_ready_work(
+                        session, project_id, known_work_item_ids, parent_work_item_id=work_item_id,
                     )
                     require(
                         child_ready_page["total"] == 1
@@ -3271,7 +3261,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                         "repository_branch": None,
                         "verified_against": declared_baseline,
                         "affected_paths": initial_affected_paths,
-                        "tags": [run_tag, "verification", "complete"],
+                        "tags": [],
                         "source_metadata": {"synthetic_check": True},
                     }
                     completion_evidence = {
@@ -3548,7 +3538,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                             "Synthetic validation recompleted the reopened work without "
                             "structured evidence to prove honest sparse history."
                         ),
-                        "tags": [run_tag, "verification", "evidence-free"],
+                        "tags": [],
                     }
                     evidence_free_arguments = retained_mutation(
                         {
@@ -3650,11 +3640,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                         claim_request_id not in recalled_json,
                         "Bounded recall exposed a claim request ID.",
                     )
-                    final_ready_page = await tool(
-                        session,
-                        "list_ready_work",
-                        {"project_id": project_id, "tag": run_tag, "limit": 100},
-                    )
+                    final_ready_page = await synthetic_ready_work(session, project_id, known_work_item_ids)
                     require(
                         ready_ids(final_ready_page)
                         == [blocker_id, ready_id, terminal_id, child_id],
@@ -3673,13 +3659,14 @@ async def check(args: argparse.Namespace, key: str) -> None:
                                 "summary": synthetic_summary(marker),
                                 "priority": 0,
                                 "discovered_from_work_item_id": None,
+                                "tags": None,
                                 "initial_checkpoint": {
                                     **checkpoint_input,
                                     "prompt": (
                                         "Permanent merge-source evidence for disposable run "
                                         f"{run_id}."
                                     ),
-                                    "tags": [run_tag, "verification", "merge-alias"],
+                                    "tags": [],
                                 },
                                 "initial_relationships": [],
                             }
@@ -3697,17 +3684,14 @@ async def check(args: argparse.Namespace, key: str) -> None:
                                 "summary": synthetic_summary(marker),
                                 "priority": 0,
                                 "discovered_from_work_item_id": None,
+                                "tags": None,
                                 "initial_checkpoint": {
                                     **checkpoint_input,
                                     "prompt": (
                                         "Permanent merge-destination evidence for disposable run "
                                         f"{run_id}."
                                     ),
-                                    "tags": [
-                                        run_tag,
-                                        "verification",
-                                        "merge-canonical",
-                                    ],
+                                    "tags": [],
                                 },
                                 "initial_relationships": [],
                             }

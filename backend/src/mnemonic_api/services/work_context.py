@@ -441,7 +441,12 @@ def assemble_work_context(
                         FROM decision_change_work AS member
                         WHERE member.work_item_id=w.id
                     ), '[]'::jsonb),
-                    'status', w.status, 'priority', w.priority,
+                    'status', w.status, 'priority', w.priority, 'tags', w.tags,
+                    'system_tags', to_jsonb(array_remove(ARRAY[
+                        CASE WHEN w.remediation_depth > 0 THEN 'remediation' END,
+                        CASE WHEN w.decision_review_revision_id IS NOT NULL OR EXISTS(
+                            SELECT 1 FROM decision_changes dc WHERE dc.review_work_item_id=w.id
+                        ) THEN 'dir' END], NULL)),
                     'initial_checkpoint_id', w.initial_checkpoint_id,
                     'version', w.version, 'created_at', w.created_at, 'updated_at', w.updated_at
                 )

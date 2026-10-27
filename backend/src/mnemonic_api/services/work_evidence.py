@@ -15,6 +15,8 @@ from mnemonic_api.services.work_matching import (
     MatchUnit,
     checkpoint_unit,
     phrase_field,
+    tag_array,
+    tag_scope,
     work_unit,
 )
 from mnemonic_api.services.work_phrase_windows import qualifying_phrase_text
@@ -69,12 +71,12 @@ def _single_field_condition(field: MatchField, unit: MatchUnit):
 def _tag_excerpt_column(field: MatchField, unit: MatchUnit):
     if field.name != "tags" or not unit.intent.constrained:
         return field.column
-    tag = func.unnest(Checkpoint.tags).column_valued("excerpt_tag")
+    tag = func.unnest(tag_array(field)).column_valued("excerpt_tag")
     predicate = (tag.contains(unit.intent.text, autoescape=True) if unit.intent.mode == "literal"
                  else or_(*(func.to_tsvector("english", tag).bool_op("@@")(
                      func.phraseto_tsquery("english", phrase)) for phrase in unit.intent.phrases)))
     # A tag array is not a phrase boundary: choose one actual qualifying element.
-    selected = select(tag).where(predicate).correlate(Checkpoint).limit(1).scalar_subquery()
+    selected = select(tag).where(predicate).correlate(tag_scope(field)).limit(1).scalar_subquery()
     return func.coalesce(selected, field.column)
 
 

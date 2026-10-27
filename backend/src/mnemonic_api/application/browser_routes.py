@@ -19,6 +19,7 @@ _ADMITTED = object()
 # The names are a deliberately closed inventory: adding a machine endpoint never
 # automatically exposes it to the dashboard. Policy also validates concrete IDs.
 BROWSER_HANDLERS = {
+    "tags": ("list_tags",),
     "knowledge_provenance": ("decision_commit_lookup",),
     "knowledge_impact": (
         "get_decision_change", "update_decision_change",
@@ -78,6 +79,7 @@ def browser_router() -> APIRouter:
     )
     router.add_api_route("/runtime-config", runtime_config, methods=["GET"])
     router.include_router(knowledge_management.router)
+    router.include_router(routes.tags.browser_mutations)
     for module_name, names in BROWSER_HANDLERS.items():
         source = getattr(routes, module_name).router
         selected = [route for route in source.routes

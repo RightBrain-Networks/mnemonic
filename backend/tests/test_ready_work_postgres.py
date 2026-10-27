@@ -9,6 +9,7 @@ from sqlalchemy import false, text
 from mnemonic_api.services import readiness as readiness_service
 
 from .report_fixtures import reported
+from .test_project_tags import catalog_names
 
 pytestmark = pytest.mark.postgres
 
@@ -23,7 +24,7 @@ def create_work(api, project, payload, *, title, priority=0, tags=None):
     body["priority"] = priority
     body["initial_checkpoint"]["source_session_id"] = title.lower().replace(" ", "-")
     if tags is not None:
-        body["initial_checkpoint"]["tags"] = tags
+        body["tags"] = catalog_names(api, project, tags)
     response = api.post(collection(project), json=body)
     assert response.status_code == 201, response.text
     return response.json()["work_item"]
@@ -155,7 +156,8 @@ def test_ready_work_predicate_order_filters_and_pointer_boundary(
     assert [item["work_item"]["id"] for item in mixed_case["items"]] == [older["id"]]
 
     unicode_tag = api.get(ready_path(project), params={"tag": "İ"}).json()
-    assert [item["work_item"]["id"] for item in unicode_tag["items"]] == [older["id"]]
+    # Retained checkpoint labels never become current assignments.
+    assert unicode_tag["items"] == []
     python_lowered = "İ".lower()
     assert python_lowered == "i\u0307"
     assert api.get(
@@ -169,16 +171,13 @@ def test_ready_work_predicate_order_filters_and_pointer_boundary(
                 """
                 EXPLAIN (FORMAT TEXT)
                 SELECT id
-                FROM checkpoints
-                WHERE mnemonic_normalized_tags(tags)
-                    @> mnemonic_normalized_tags(
-                        ARRAY[CAST(:tag AS varchar)]::varchar[]
-                    )
+                FROM work_items
+                WHERE tags @> ARRAY[CAST(:tag AS varchar)]::varchar[]
                 """
             ),
-            {"tag": "İ"},
+            {"tag": "queuetag"},
         ).scalars().all()
-    assert "ix_checkpoints_normalized_tags_gin" in "\n".join(plan)
+    assert "ix_work_items_tags" in "\n".join(plan)
 
     priority = api.get(
         ready_path(project),

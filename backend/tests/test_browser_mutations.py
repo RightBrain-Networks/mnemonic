@@ -78,7 +78,7 @@ class Seed:
 def create_case(seed):
     return Case("create_work", seed.project_path + "/work-items", {
         "title": "New browser work", "summary": "Retain one creation and initial checkpoint.",
-        "priority": 30, "status": "pending", "initial_checkpoint": CHECKPOINT,
+        "priority": 30, "status": "pending", "tags": None, "initial_checkpoint": CHECKPOINT,
     }, status=201)
 
 

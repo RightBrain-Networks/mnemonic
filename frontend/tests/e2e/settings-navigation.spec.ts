@@ -4,7 +4,8 @@ import { statePath, type E2EState } from "./global.setup";
 
 const preferenceKey = "mnemonic.settings-menu";
 const sections = [
-  { label: "Workspace", path: "/settings/workspace", cards: ["Project details", "Priority rubric", "Automatic decision impact reviews"] },
+  { label: "Workspace", path: "/settings/workspace", cards: ["Project details", "Priority rubric"] },
+  { label: "Tags", path: "/settings/tags", cards: ["Tags"] },
   { label: "Prompts", path: "/settings/prompts", cards: ["Project prompts", "Macro glossary"] },
   { label: "Code reviews", path: "/settings/code-reviews", cards: ["Code reviews"] },
   { label: "Backups", path: "/settings/backups", cards: ["Project backups"] }
@@ -66,8 +67,7 @@ test("settings menu preserves both disclosure states and supports keyboard navig
   await page.reload();
   await expect(group).toHaveAttribute("data-ready", "true");
   await expect(toggle).toHaveAttribute("aria-expanded", "true");
-  if (await page.getByRole("button", { name: "Tasks", exact: true }).getAttribute("aria-expanded") === "false") await page.getByRole("button", { name: "Tasks", exact: true }).click();
-  await page.locator(".tasks-nav").getByRole("link", { name: "Work items", exact: true }).click();
+  await page.getByRole("navigation", { name: "Workspace navigation" }).getByRole("link", { name: "Work items" }).click();
   await expect(toggle).toHaveAttribute("aria-expanded", "true");
 });
 

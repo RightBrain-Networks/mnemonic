@@ -282,7 +282,6 @@ test("an artifact upload with a lost response preserves the file and receipt unt
   await expect(page.getByRole("button", { name: "Retry pending action" })).toBeVisible();
   await expect(page.locator("#project-select")).toBeDisabled();
   await expect(page.getByRole("button", { name: "Drop, paste, or upload files here.", exact: true })).toBeDisabled();
-  await page.getByRole("button", { name: "Tasks", exact: true }).click();
   await page.getByRole("link", { name: "Work items" }).click();
   await expect(page).toHaveURL(/\/artifacts(?:\?|$)/);
   await page.getByRole("button", { name: "Retry pending action" }).click();

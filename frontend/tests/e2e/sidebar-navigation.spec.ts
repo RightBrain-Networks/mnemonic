@@ -68,7 +68,7 @@ test("sidebar navigation keeps the workspace mounted through menu links and brow
     }).observe(document.querySelector(".sidebar")!, { subtree: true, childList: true, attributes: true });
   });
 
-  for (const label of ["Summaries", "Needs Attention", "Artifacts", "Transcripts", "Workspace", "Prompts", "Code reviews", "Backups", "Work items"]) {
+  for (const label of ["Summaries", "Needs Attention", "Artifacts", "Transcripts", "Workspace", "Tags", "Prompts", "Code reviews", "Backups", "Work items"]) {
     await (label === "Code reviews" ? navigation.locator(".settings-nav") : navigation).getByRole("link", { name: label, exact: label !== "Summaries" }).click();
     await expect(page.locator("h1")).toContainText(label === "Work items" ? `Work items: ${state.projectName}` : `${label}.`);
     expect(documentRequests).toEqual([]);

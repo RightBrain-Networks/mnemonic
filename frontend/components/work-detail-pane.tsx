@@ -1,4 +1,5 @@
 "use client";
+import WorkTags from "@/components/work-tags";
 
 import DependencyCycleNotice from "@/components/dependency-cycle-notice";
 import DecisionChangePanel from "@/components/decision-change-panel";
@@ -272,7 +273,7 @@ function ContextTab({ context, isDuplicate, props }: { context: WorkContext; isD
       <form className="comment-form" onSubmit={(event) => { event.preventDefault(); props.onAppend(); }}>
         <label className="field">Checkpoint kind<select value={props.checkpointKind} disabled={immutable} onChange={(event) => props.onCheckpointKind(event.target.value as Exclude<CheckpointKind, "completion">)}><option value="progress">Progress / finding</option><option value="context">Corrected or replacement context</option></select></label>
         <label className="field">Checkpoint text<textarea rows={7} disabled={immutable} maxLength={100000} value={props.checkpointBody} onChange={(event) => props.onCheckpointBody(event.target.value)} placeholder="What changed, what was learned, hazards, evidence, and useful next steps…" /><span className="field-hint">The text is stored exactly and cannot be edited or deleted.</span></label>
-        <details className="edit-context"><summary>Repository context and tags</summary><div className="form-stack"><label className="field">Repository branch<input disabled={props.mutationBlocked} maxLength={200} value={props.checkpointBranch} onChange={(event) => props.onCheckpointBranch(event.target.value)} /></label><label className="field">Caller-asserted baseline commit<input className="mono" disabled={props.mutationBlocked} maxLength={64} value={props.checkpointCommit} onChange={(event) => props.onCheckpointCommit(event.target.value)} /></label><AffectedPathsEditor disabled={props.mutationBlocked} value={props.checkpointAffectedPaths} error={props.checkpointAffectedPathsError} onChange={props.onCheckpointAffectedPaths} /><label className="field">Tags <span className="optional">Comma separated</span><input disabled={props.mutationBlocked} value={props.checkpointTags} onChange={(event) => props.onCheckpointTags(event.target.value)} /></label></div></details>
+        <details className="edit-context"><summary>Repository context</summary><div className="form-stack"><label className="field">Repository branch<input disabled={props.mutationBlocked} maxLength={200} value={props.checkpointBranch} onChange={(event) => props.onCheckpointBranch(event.target.value)} /></label><label className="field">Caller-asserted baseline commit<input className="mono" disabled={props.mutationBlocked} maxLength={64} value={props.checkpointCommit} onChange={(event) => props.onCheckpointCommit(event.target.value)} /></label><AffectedPathsEditor disabled={props.mutationBlocked} value={props.checkpointAffectedPaths} error={props.checkpointAffectedPathsError} onChange={props.onCheckpointAffectedPaths} /></div></details>
         {context.work_item.status === "pending" && <JobReportEditor completion projectId={context.work_item.project_id} workItemId={context.work_item.id} draft={props.jobReportDraft} onChange={props.onJobReportDraft} disabled={props.checkpointSaving || immutable} />}
         {context.work_item.status === "pending" && <details className="edit-context completion-evidence-disclosure">
           <summary>Completion evidence <span className="optional">Optional · used only by Complete work</span></summary>
@@ -436,7 +437,7 @@ function OpenedPane({ opened, props }: { opened: WorkSummary; props: WorkDetailP
         <div><dt>Checkpoints</dt><dd>{context?.checkpoint_total ?? opened.checkpoint_count}</dd></div>
         <div><dt>Current context</dt><dd>{clientLabel(current.source_client)}</dd></div>
         <div><dt>Session</dt><dd className="mono" title={current.source_session_id}>{current.source_session_id}</dd></div>
-        <div className="detail-fact-tags"><dt>Tags</dt><dd>{current.tags.length ? current.tags.map((tag) => <span className="tag" key={tag}>{tag}</span>) : <span className="detail-fact-none">None</span>}</dd></div>
+        <div className="detail-fact-tags"><dt>Tags</dt><dd>{(work.tags?.length || work.system_tags?.length) ? <WorkTags work={work} /> : <span className="detail-fact-none">None</span>}</dd></div>
       </dl>
       {reconciling && <div className="detail-reconciliation-status" role="status"><span className="spinner" />Reconciling saved work context…</div>}
       {context && isDuplicate && <DuplicateAuditPanel context={context} copiedKey={props.copiedKey} onCopy={props.onCopy} onOpenCanonical={props.onOpenCanonical} onViewDuplicateGroup={props.onViewDuplicateGroup} />}

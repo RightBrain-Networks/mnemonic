@@ -66,35 +66,7 @@ SUGGESTION_CACHE_LOCK_TIMEOUT_MS = 50
 _BOUNDED_TEXT_SQL = """
 SELECT work.id,
        pg_catalog.left(initial_checkpoint.prompt, :body_chars) AS initial_prompt,
-       COALESCE((
-           SELECT pg_catalog.string_agg(
-               recent_tag.value,
-               ' ' ORDER BY recent_tag.value
-           )
-           FROM (
-               SELECT distinct_tag.value
-               FROM (
-                   SELECT normalized_tag.value,
-                          tag_checkpoint.created_at,
-                          tag_checkpoint.id AS checkpoint_id,
-                          pg_catalog.row_number() OVER (
-                              PARTITION BY normalized_tag.value
-                              ORDER BY tag_checkpoint.created_at DESC,
-                                       tag_checkpoint.id DESC
-                          ) AS occurrence_rank
-                   FROM checkpoints AS tag_checkpoint
-                   CROSS JOIN LATERAL pg_catalog.unnest(
-                       mnemonic_normalized_tags(tag_checkpoint.tags)
-                   ) AS normalized_tag(value)
-                   WHERE tag_checkpoint.work_item_id = work.id
-               ) AS distinct_tag
-               WHERE distinct_tag.occurrence_rank = 1
-               ORDER BY distinct_tag.created_at DESC,
-                        distinct_tag.checkpoint_id DESC,
-                        distinct_tag.value ASC
-               LIMIT CAST(:tag_limit AS integer)
-           ) AS recent_tag
-       ), '') AS normalized_tags,
+       COALESCE(array_to_string(work.tags, ' '), '') AS normalized_tags,
        COALESCE((
            SELECT pg_catalog.right(
                pg_catalog.string_agg(
@@ -1231,7 +1203,7 @@ def _cache_version(dimensions: int) -> str:
     return (
         f"{COMPOSITION_VERSION}|title=mnemonic_duplicate_title_key_v1|model={EMBED_MODEL}|"
         f"dimensions={dimensions}|body={EMBED_BODY_CHARS}|tail={EMBED_COMMENT_CHARS}|"
-        f"tags=recent-{SUGGESTION_TAG_LIMIT}|batch={EMBED_BATCH_SIZE}|rrf={RRF_K}|"
+        f"tags=current-{SUGGESTION_TAG_LIMIT}|batch={EMBED_BATCH_SIZE}|rrf={RRF_K}|"
         f"lexical={RRF_LEXICAL_WEIGHT}|"
         "weights=A1.0,B0.4,B0.4,C0.2,D0.1"
     )

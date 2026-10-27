@@ -229,14 +229,6 @@ async function hideWork(client: APIRequestContext, workId: string): Promise<void
   expect(response.ok(), body).toBe(true);
 }
 
-async function openMoreFilters(page: Page): Promise<Locator> {
-  const toggle = page.getByRole("button", { name: "More filters" });
-  if (await toggle.getAttribute("aria-expanded") !== "true") await toggle.click();
-  const panel = page.locator("#more-filters-panel");
-  await expect(panel).toBeVisible();
-  return panel;
-}
-
 async function installCommittedResponseLoss(page: Page, gatePath: string): Promise<LostResponseProbe> {
   const probe: LostResponseProbe = { requests: [], responses: [] };
   await page.route(`**/api/mnemonic${gatePath}`, async (route) => {
@@ -301,10 +293,7 @@ test("human questions stay visible and recover one exact durable resolution", as
 
     await page.goto("/work-items");
     await page.locator("#project-select").selectOption(state.projectId);
-    const moreFilters = await openMoreFilters(page);
-    await moreFilters.getByLabel("Tag").fill(tag);
-    await moreFilters.getByLabel("Source client").fill("playwright-api");
-    await moreFilters.getByLabel("Source session").fill(sessionId);
+    await page.getByRole("searchbox", { name: "Search work items" }).fill(title);
 
     const card = workCard(page, title);
     await expect(card).toHaveCount(1);

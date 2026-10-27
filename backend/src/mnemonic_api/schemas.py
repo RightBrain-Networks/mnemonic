@@ -75,6 +75,7 @@ from mnemonic_api.search_exploration_schemas import SearchOptions
 from mnemonic_api.search_pagination import SearchPagination
 from mnemonic_api.search_query import QueryMode, parse_query
 from mnemonic_api.search_ranking import SearchHitRanking, SearchRanking, SemanticDisposition
+from mnemonic_api.tag_types import AssignedTags
 from mnemonic_api.transcript_locations import TranscriptLocation, TranscriptSources
 from mnemonic_api.transcript_work_schemas import WorkTranscriptLinks
 from mnemonic_api.validation_rules import validation_rule
@@ -275,7 +276,7 @@ Tag = Annotated[
 ReadyTagFilter = Annotated[
     str,
     StringConstraints(strip_whitespace=True, min_length=1, max_length=50),
-    AfterValidator(nonblank),
+    AfterValidator(normalized_tag),
 ]
 Tags = Annotated[list[Tag], Field(max_length=20)]
 Metadata = Annotated[dict[str, JsonValue], AfterValidator(metadata_is_bounded)]
@@ -1491,6 +1492,8 @@ class InitialRelationshipCreate(APIModel):
 
 
 class WorkItemCreate(APIModel):
+    tags: AssignedTags | None | MISSING = Field(default=MISSING)
+
     inherit_decision_change: StrictBool = Field(
         default=True, exclude_if=lambda value: value,
         description="False excludes only the new work's declared origin discovery edge from "
@@ -1559,6 +1562,8 @@ class RelationshipCreate(APIModel):
 
 
 class WorkItemPatch(APIModel):
+    tags: AssignedTags | None | MISSING = Field(default=MISSING)
+
     request_code_review_mode: ReviewMode | SkipJsonSchema[None] = Field(
         default=None, exclude_if=lambda value: value is None,
     )
@@ -1663,7 +1668,7 @@ class WorkItemPatch(APIModel):
         if not fields:
             raise ValueError("Provide at least one editable field besides expected_version")
         for field in fields:
-            if getattr(self, field) is None:
+            if field != "tags" and getattr(self, field) is None:
                 raise ValueError(f"{field} cannot be null")
         if self.client_operation_id is not None and self.actor is None:
             raise ValueError("actor is required when client_operation_id is present")
@@ -2146,6 +2151,9 @@ class HumanGateRead(APIModel):
 
 
 class WorkItemRead(Timestamps):
+    tags: AssignedTags | None | MISSING = Field(default=MISSING)
+    system_tags: list[str] | MISSING = Field(default=MISSING)
+
     decision_change_inheritance_exclusion: DecisionChangeInheritanceExclusion | SkipJsonSchema[
         None
     ] = Field(default=None, exclude_if=lambda value: value is None)
@@ -2884,6 +2892,9 @@ class RelationshipRemovalResult(APIModel):
 
 
 class WorkItemPointer(APIModel):
+    tags: AssignedTags | None | MISSING = Field(default=MISSING)
+    system_tags: list[str] | MISSING = Field(default=MISSING)
+
     decision_review_project_id: UUID | SkipJsonSchema[None] = Field(
         default=None, exclude_if=lambda value: value is None,
         description="Source project owning this work's decision change and assessment ledger.",
@@ -2990,6 +3001,9 @@ WorkSearchStatus = Literal[
 
 
 class CompactWorkHit(WorkMatchEvidence, SearchHitRanking):
+    tags: AssignedTags | None | MISSING = Field(default=MISSING)
+    system_tags: list[str] | MISSING = Field(default=MISSING)
+
     decision_review_project_id: UUID | SkipJsonSchema[None] = Field(
         default=None, exclude_if=lambda value: value is None,
         description="Source project owning this work's decision change and assessment ledger.",
@@ -3300,6 +3314,8 @@ class EmptyEventMetadata(APIModel):
 
 
 class WorkSnapshot(APIModel):
+    tags: AssignedTags | None = Field(default=None, exclude_if=lambda value: value is None)
+
     external_references: ExternalReferences = Field(
         default_factory=list, exclude_if=lambda value: not value,
     )
@@ -3339,7 +3355,14 @@ class ExternalReferencesChange(APIModel):
     after: ExternalReferences
 
 
+class TagsChange(APIModel):
+    before: AssignedTags | None
+    after: AssignedTags | None
+
+
 class WorkChangeSet(APIModel):
+    tags: TagsChange | None = None
+
     external_references: ExternalReferencesChange | None = None
     title: TitleChange | None = None
     summary: SummaryChange | None = None
@@ -4520,6 +4543,8 @@ class WorkItemListQuery(APIModel, SearchOptions):
     ] = "all"
     sort: Literal["updated", "created", "priority"] = "updated"
     tag: Tag | None = None
+    tags: list[Tag] | None = Field(default=None, min_length=1, max_length=20)
+    tag_mode: Literal["or", "and"] = "or"
     source_client: ClientName | None = None
     source_session_id: SessionID | None = None
     view: Literal["full", "roots"] = "full"
@@ -4578,6 +4603,8 @@ class ChildrenListQuery(APIModel):
     ] = "pending"
     sort: Literal["updated", "created", "priority"] = "updated"
     tag: Tag | None = None
+    tags: list[Tag] | None = Field(default=None, min_length=1, max_length=20)
+    tag_mode: Literal["or", "and"] = "or"
     source_client: ClientName | None = None
     source_session_id: SessionID | None = None
     limit: int = Field(default=50, ge=1, le=100)

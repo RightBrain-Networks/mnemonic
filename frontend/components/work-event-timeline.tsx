@@ -25,6 +25,7 @@ import {
   WORK_EVENT_TYPES,
   workEventActorLabel,
   workEventDescription,
+  workEventTagDescription,
   workEventTitle
 } from "@/lib/work-events";
 
@@ -164,6 +165,7 @@ export default function WorkEventTimeline({
       const references = referenceRows(event);
       const referenceChange = objectValue(objectValue(objectValue(event.metadata)?.changes)?.external_references);
       const initialReferences = objectValue(objectValue(event.metadata)?.initial)?.external_references;
+      const tagDescription = workEventTagDescription(event);
       return <article className="work-event" key={event.id}>
         <div className="work-event-header">
           <div><span className={`work-event-kind work-event-kind-${event.event_type}`}>{workEventTitle(event.event_type)}</span>{event.origin === "backfill" && <span className="reconstructed-chip">Reconstructed</span>}</div>
@@ -171,6 +173,7 @@ export default function WorkEventTimeline({
         </div>
         <div className="work-event-actor" title={workEventActorLabel(event)}>{workEventActorLabel(event)}</div>
         {description && <p className="work-event-description">{description}</p>}
+        {tagDescription && <p className="work-event-description">{tagDescription}</p>}
         {validExternalReferences(initialReferences, true) && <details><summary>Initial external references</summary><ExternalReferences references={initialReferences} /></details>}
         {referenceChange && validExternalReferences(referenceChange.before, true) && validExternalReferences(referenceChange.after, true) && <details><summary>External references · before and after</summary><h4>Before</h4>{referenceChange.before.length ? <ExternalReferences references={referenceChange.before} /> : <p>No references</p>}<h4>After</h4>{referenceChange.after.length ? <ExternalReferences references={referenceChange.after} /> : <p>No references (cleared)</p>}</details>}
         {body !== null && <p className="work-event-body">{body}</p>}

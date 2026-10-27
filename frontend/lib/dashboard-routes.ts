@@ -3,7 +3,7 @@
 export const dashboardPaths = [
   "/", "/work-items", "/code-reviews", "/attention", "/summaries",
   "/artifacts", "/transcripts", "/knowledge", "/knowledge/decisions", "/knowledge/domains", "/settings/workspace", "/settings/prompts",
-  "/settings/code-reviews", "/settings/backups"
+  "/settings/tags", "/settings/code-reviews", "/settings/backups"
 ] as const;
 
 export type DashboardSearch = Record<string, string | string[]>;

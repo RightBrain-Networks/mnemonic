@@ -3,8 +3,8 @@ import test from "node:test";
 import { readFile } from "node:fs/promises";
 import { canonicalDashboardPath, dashboardPaths, parseDashboardSearch, savedWorkRedirect, stringifyDashboardSearch } from "../lib/dashboard-routes.ts";
 
-test("dashboard routes expose the fourteen current paths and exclude the retired settings root", () => {
-  assert.equal(new Set(dashboardPaths).size, 14);
+test("dashboard routes expose the fifteen current paths and exclude the retired settings root", () => {
+  assert.equal(new Set(dashboardPaths).size, 15);
   assert.equal(dashboardPaths.includes("/settings"), false);
   assert.equal(dashboardPaths.includes("/missing"), false);
 });

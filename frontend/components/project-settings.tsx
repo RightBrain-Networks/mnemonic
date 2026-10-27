@@ -1,5 +1,6 @@
 "use client";
 
+import TagSettings from "@/components/tag-settings";
 import Link from "@/components/dashboard-link";
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
@@ -24,6 +25,7 @@ type Props = {
   onNotice: (message: string, error?: boolean) => void;
   backupMaximumBytes: number;
   onBackupPendingChange: (pending: boolean) => void;
+  onTagPendingChange: (pending: boolean) => void;
   onPromptPendingChange: (pending: boolean) => void;
 };
 
@@ -58,6 +60,7 @@ export default function ProjectSettingsPanel({
   backupMaximumBytes,
   onBackupPendingChange,
   onPromptPendingChange,
+  onTagPendingChange,
 }: Props) {
   const [projectDetails, setProjectDetails] = useState(() => detailsFromProject(project));
   const lastProject = useRef(project);
@@ -142,6 +145,7 @@ export default function ProjectSettingsPanel({
   }
 
   return <div className="settings-stack">
+    {section === "tags" && <TagSettings projectId={selectedProject.id} onNotice={onNotice} onPendingChange={onTagPendingChange} />}
     {section === "code-reviews" && <CodeReviewSettingsPanel key={selectedProject.id} projectId={selectedProject.id} settings={settings} loading={loading} onSaved={onSaved} onRetry={onRetry} onNotice={onNotice} />}
     {section === "workspace" && <section className="settings-card" aria-labelledby="project-details-title">
       <div className="settings-card-heading">

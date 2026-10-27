@@ -40,6 +40,7 @@ from mnemonic_api.search_ranking import (
     SemanticDisposition,
     TotalKind,
 )
+from mnemonic_api.tag_types import AssignedTags
 from mnemonic_api.transcript_normalization import ContentKind
 from mnemonic_api.transcript_schemas import CompactTranscriptRead, TranscriptRead, TranscriptStatus
 from mnemonic_api.validation_rules import validation_rule
@@ -69,6 +70,8 @@ class WorkSearchFilters(APIModel, DateBounds):
         "pending", "active", "to-review", "dropped", "deferred", "done",
         "wont-do", "promoted", "all",
     ] = "all"
+    tags: AssignedTags | None = None
+    tag_mode: Literal["or", "and"] = "or"
     tag: Tag | None = None
     source_client: ClientName | None = None
     source_session_id: SessionID | None = None

@@ -9,7 +9,10 @@ import { invalidateTranscriptReads } from "@/lib/transcript-queries";
 import { attentionCountOptions, invalidateCoreReads, projectCatalogOptions, projectSettingsOptions, reportCountOptions } from "@/lib/core-queries";
 import ApplicationSettings from "@/components/application-settings";
 import TaskDashboard from "@/components/task-dashboard";
-import CodeReviewLibrary from "@/components/code-review-library";
+import { TagSelector, tagCatalogKey } from "@/components/work-tags";
+import type { TagMode } from "@/lib/tags";
+import { taskPath } from "@/lib/tasks";
+import { CodeReviewDetailPane } from "@/components/code-review-library";
 import { useDashboardRoute } from "@/components/use-dashboard-route";
 import WorkSummaryInput from "@/components/work-summary-input";
 import ExternalReferencesEditor from "@/components/external-references-editor";
@@ -125,7 +128,6 @@ import {
   statusActionDisabledReason,
   type ManualStatusAction
 } from "@/lib/work-status-actions";
-import { scheduleHierarchyFilterCommit } from "@/lib/work-item-search";
 import { statusFilterLabels, statusFilterTransition } from "@/lib/work-queue";
 import {
   preservedWorkMoveDisplayStatus,
@@ -333,9 +335,10 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
   const [artifactPending, setArtifactPending] = useState(false);
   const [knowledgePending, setKnowledgePending] = useState(false);
   const [backupPending, setBackupPending] = useState(false);
+  const [tagPending, setTagPending] = useState(false);
   const [promptPending, setPromptPending] = useState(false);
   const backupPendingRef = useRef(false);
-  const blockedNavigation = knowledgePending ? "Resolve the pending knowledge graph action before leaving this page." : promptPending ? "Save or discard your prompt changes before leaving this page." : transcriptPending ? "Resolve the pending transcript action before leaving this page." : artifactPending ? "Resolve the pending artifact action before leaving this page."
+  const blockedNavigation = tagPending ? "Resolve the pending tag action before leaving this page." : knowledgePending ? "Resolve the pending knowledge graph action before leaving this page." : promptPending ? "Save or discard your prompt changes before leaving this page." : transcriptPending ? "Resolve the pending transcript action before leaving this page." : artifactPending ? "Resolve the pending artifact action before leaving this page."
     : backupPending ? "Wait for the backup action to finish before leaving this page."
       : mutationRegistry.hasDispatched() ? "Resolve pending mutations before leaving this dashboard document." : null;
   const route = useDashboardRoute(blockedNavigation);
@@ -348,10 +351,10 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
         : (pathname === "/knowledge" || pathname.startsWith("/knowledge/")) ? "knowledge"
         : pathname === "/artifacts" ? "artifacts"
           : pathname === "/transcripts" ? "transcripts"
-            : pathname === "/code-reviews" ? "reviews"
-              : pathname === "/work-items" ? "library" : "dashboard";
+            : pathname === "/code-reviews" || pathname === "/work-items" ? "library" : "dashboard";
+  const selectedReviewId = validUuid(searchParams.get("review")) ? searchParams.get("review") : null;
   const artifactRoute = artifactLocation(searchParams.toString());
-  const artifactProjectId = (view === "attention" || view === "knowledge" || view === "artifacts" || view === "transcripts" || view === "library" || view === "reviews") ? artifactRoute.projectId : null;
+  const artifactProjectId = (view === "attention" || view === "knowledge" || view === "artifacts" || view === "transcripts" || view === "library") ? artifactRoute.projectId : null;
 
   const queryClient = useQueryClient();
   const catalogQuery = useQuery(projectCatalogOptions(() => backupPendingRef.current));
@@ -374,12 +377,9 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
   const [canonicalWorkItemId, setCanonicalWorkItemId] = useState("");
   const [status, setStatus] = useState<StatusFilter>("pending");
   const [sort, setSort] = useState<WorkSort>("updated");
-  const [tagInput, setTagInput] = useState("");
-  const [sourceClientInput, setSourceClientInput] = useState("");
-  const [sourceSessionInput, setSourceSessionInput] = useState("");
-  const [tagFilter, setTagFilter] = useState("");
-  const [sourceClientFilter, setSourceClientFilter] = useState("");
-  const [sourceSessionFilter, setSourceSessionFilter] = useState("");
+  const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const [tagMode, setTagMode] = useState<TagMode>("all");
+  const [createTags, setCreateTags] = useState<string[]>([]);
   const [preferencesReady, setPreferencesReady] = useState(false);
   const [workMotionRevision, setWorkMotionRevision] = useState(0);
   const [activityReadyProjectId, setActivityReadyProjectId] = useState("");
@@ -528,9 +528,11 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
     semantic,
     duplicateScope,
     canonicalWorkItemId,
-    tag: tagFilter,
-    sourceClient: sourceClientFilter,
-    sourceSessionId: sourceSessionFilter
+    tags: selectedTags,
+    tagMode: tagMode === "all" ? "or" : tagMode,
+    tag: "",
+    sourceClient: "",
+    sourceSessionId: ""
   });
   const activity = useProjectActivity({
     projectId: activeId,
@@ -591,7 +593,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
     if (!catalogQuery.data || backupPending) return;
     let saved = "";
     try { saved = localStorage.getItem(dashboardStorageKeys.project) ?? ""; } catch { /* optional */ }
-    const requested = (view === "attention" || view === "knowledge" || view === "artifacts" || view === "transcripts" || view === "library" || view === "reviews")
+    const requested = (view === "attention" || view === "knowledge" || view === "artifacts" || view === "transcripts" || view === "library")
       ? artifactLocation(router.history.location.search).projectId : null;
     if (requested && !projects.some((item) => sameUuid(item.id, requested))) {
       return;
@@ -637,22 +639,6 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
     const timer = setTimeout(() => setSearch(query.trim()), 300);
     return () => clearTimeout(timer);
   }, [query]);
-
-  useEffect(() => {
-    return scheduleHierarchyFilterCommit({
-      tag: tagInput,
-      sourceClient: sourceClientInput,
-      sourceSessionId: sourceSessionInput
-    }, {
-      tag: tagFilter,
-      sourceClient: sourceClientFilter,
-      sourceSessionId: sourceSessionFilter
-    }, (next) => {
-      setTagFilter(next.tag);
-      setSourceClientFilter(next.sourceClient);
-      setSourceSessionFilter(next.sourceSessionId);
-    });
-  }, [sourceClientInput, sourceSessionInput, tagInput]);
 
   useEffect(() => connectWorkMutationQueries(queryClient, mutationRegistry), [queryClient, mutationRegistry]);
 
@@ -815,11 +801,12 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
   useEffect(() => {
     if (view !== "library") {
       urlWorkRestore.current = undefined;
-      clearSelection();
+      clearSelection(true);
       setMode("view");
       setEditDraft(null);
       return;
     }
+    if (selectedReviewId) { urlWorkRestore.current = null; clearSelection(true); return; }
     const target = locationWorkSelection(route.query);
     if (target === openedId || target && target === exactContextTarget.current?.workItemId) {
       urlWorkRestore.current = null;
@@ -827,11 +814,11 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
     }
     skipWorkUrlMirror.current = true;
     urlWorkRestore.current = target;
-    clearSelection();
+    clearSelection(true);
   }, [view, route.query]);
 
   useEffect(() => {
-    if (view !== "library" || !activeId || opened) return;
+    if (view !== "library" || !activeId || opened || selectedReviewId) return;
     const target = urlWorkRestore.current;
     if (!target) return;
     urlWorkRestore.current = null;
@@ -841,6 +828,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
 
   useEffect(() => {
     if (skipWorkUrlMirror.current) { skipWorkUrlMirror.current = false; return; }
+    if (selectedReviewId) return;
     if (view !== "library" || urlWorkRestore.current !== null || exactContextTarget.current) return;
     const url = new URL(router.history.location.href, window.location.origin);
     if (url.searchParams.get("work") === openedId) return;
@@ -850,7 +838,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
   }, [contextReconciliationRequired, openedId, view, route.query]);
 
   function applyProjectSelection(id: string, workItemId?: string) {
-    if ((view === "library" || view === "reviews") && id) {
+    if ((view === "library") && id) {
       const url = new URL(router.history.location.href, window.location.origin);
       if (url.searchParams.get("project") !== id || workItemId && url.searchParams.get("work") !== workItemId) {
         url.searchParams.set("project", id);
@@ -866,16 +854,13 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
     setDuplicateScope("canonical");
     setCanonicalWorkItemId("");
     setMergeOpen(false);
-    setTagInput("");
-    setSourceClientInput("");
-    setSourceSessionInput("");
-    setTagFilter("");
-    setSourceClientFilter("");
-    setSourceSessionFilter("");
+    setSelectedTags([]);
+    setTagMode("all");
   }
 
   function chooseProject(id: string) {
     if (knowledgePending) { setNotice({ message: "Resolve the pending knowledge graph action before switching projects.", error: true }); return; }
+    if (tagPending) { setNotice({ message: "Resolve the pending tag action before switching projects.", error: true }); return; }
     if (promptPending) { setNotice({ message: "Save or discard your prompt changes before switching projects.", error: true }); return; }
     if (transcriptPending) { setNotice({ message: "Resolve the pending transcript action before switching projects.", error: true }); return; }
     if (artifactPending) { setNotice({ message: "Resolve the pending artifact action before switching projects.", error: true }); return; }
@@ -899,7 +884,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
     if ((view === "knowledge" || view === "artifacts" || view === "transcripts") && id !== activeId) {
       router.history.replace(view === "knowledge" ? (pathname === "/knowledge/domains" ? `/knowledge/domains?project=${id}` : knowledgeLibraryPath(id)) : view === "transcripts" ? transcriptLibraryPath(id) : artifactLibraryPath(id), undefined, { ignoreBlocker: true });
     }
-    if ((view === "library" || view === "reviews") && id !== activeId) {
+    if ((view === "library") && id !== activeId) {
       router.history.replace(`${pathname}?project=${id}`, undefined, { ignoreBlocker: true });
     }
     if (view === "attention" && id !== activeId) {
@@ -911,9 +896,11 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
   }
 
   function refreshProjects() {
+    void queryClient.invalidateQueries({ queryKey: ["project-tags"] });
     void invalidateCoreReads(queryClient, activeIdRef.current, ["projects"]);
   }
   function refreshSettings(projectId: string | null = activeIdRef.current, refreshWorkPolicies = true) {
+    if (projectId) void queryClient.invalidateQueries({ queryKey: tagCatalogKey(projectId) });
     void invalidateCoreReads(queryClient, projectId, ["settings"]);
     if (refreshWorkPolicies) void invalidateWorkSettingsReads(queryClient, projectId);
   }
@@ -968,6 +955,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
       return;
     }
     setCreateExternalReferences([]);
+    setCreateTags([]);
     setNewWorkError("");
     setCreateAffectedPathsError("");
     setWorkDialog("open");
@@ -986,10 +974,11 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
         prompt,
         String(form.get("repository_branch") ?? ""),
         String(form.get("verified_against") ?? ""),
-        String(form.get("tags") ?? ""),
+        "",
         String(form.get("affected_paths") ?? "")
       );
       const payload: WorkCreateInput = {
+        tags: createTags.length ? createTags : null,
         title: String(form.get("title") ?? ""),
         summary: String(form.get("summary") ?? ""),
         priority: Number(form.get("priority") ?? 0),
@@ -1532,7 +1521,9 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
     }
   }
 
-  function clearSelection(): void {
+  function clearSelection(preserveRoute = false): void {
+    const selectionUrl = new URL(router.history.location.href, window.location.origin);
+    if (!preserveRoute && selectionUrl.searchParams.has("review")) { selectionUrl.searchParams.delete("review"); selectionUrl.searchParams.delete("work"); router.history.replace(selectionUrl.pathname + selectionUrl.search, undefined, { ignoreBlocker: true }); }
     cancelSelectedContextReads();
     ++recordRequest.current;
     exactContextTarget.current = null;
@@ -1634,7 +1625,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
   // The pane's record, including one whose exact load has not landed yet: an in-flight
   // load would otherwise open into the pane after the queue had already moved on.
   function selectedWorkItemId(): string | null {
-    return openedId ?? exactContextTarget.current?.workItemId ?? null;
+    return selectedReviewId ?? openedId ?? exactContextTarget.current?.workItemId ?? null;
   }
 
   function changeLibraryToolsOpen(open: boolean): void {
@@ -1672,16 +1663,19 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
       setDuplicateScope("canonical");
       setCanonicalWorkItemId("");
       setStatus("pending");
-      setTagInput("");
-      setSourceClientInput("");
-      setSourceSessionInput("");
-      setTagFilter("");
-      setSourceClientFilter("");
-      setSourceSessionFilter("");
+    setSelectedTags([]);
+    setTagMode("all");
     });
   }
 
   function selectWork(summary: WorkSummary) {
+    if (summary.review_task) {
+      if (!leavingOpenedWorkAllowed()) return;
+      clearSelection();
+      void router.navigate({ href: taskPath(summary.review_task), replace: true, resetScroll: false });
+      return;
+    }
+    if (selectedReviewId) clearSelection();
     if (opened?.work_item.id === summary.work_item.id) return;
     if (!leavingOpenedWorkAllowed()) return;
     setMergeOpen(false);
@@ -1767,6 +1761,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
     const patch: WorkPatch = { expected_version: base.version };
     if (editDraft.title !== base.title) patch.title = editDraft.title;
     if (editDraft.summary !== base.summary) patch.summary = editDraft.summary;
+    if (JSON.stringify(editDraft.tags) !== JSON.stringify(base.tags ?? [])) patch.tags = editDraft.tags.length ? editDraft.tags : null;
     if (editDraft.priority !== base.priority) patch.priority = editDraft.priority;
     if (!sameExternalReferences(editDraft.externalReferences, base.external_references)) {
       try { patch.external_references = normalizeExternalReferences(editDraft.externalReferences); }
@@ -2856,11 +2851,11 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
   />;
 
   return <MutationIntentProvider registry={mutationRegistry}><div className="app-shell">
-    <a className="skip-link" href="#main-content">{view === "dashboard" ? "Skip to dashboard" : view === "reviews" ? "Skip to code reviews" : view === "transcripts" ? "Skip to transcripts" : view === "knowledge" ? "Skip to knowledge graph" : view === "artifacts" ? "Skip to artifacts" : view === "settings" ? "Skip to project settings" : view === "attention" ? "Skip to human questions" : view === "summaries" ? "Skip to summaries" : "Skip to work items"}</a>
+    <a className="skip-link" href="#main-content">{view === "dashboard" ? "Skip to dashboard" : view === "transcripts" ? "Skip to transcripts" : view === "knowledge" ? "Skip to knowledge graph" : view === "artifacts" ? "Skip to artifacts" : view === "settings" ? "Skip to project settings" : view === "attention" ? "Skip to human questions" : view === "summaries" ? "Skip to summaries" : "Skip to work items"}</a>
     <aside className="sidebar">
       <Link href="/" className="brand" aria-label="Mnemonic home" aria-disabled={activeProjectMutationBlocked || undefined} onClick={blockNavigationWhilePending}><Logo /><span>mnemonic<span className="brand-period">.</span></span></Link>
       <div className="workspace-picker">
-        <div className="select-wrap"><select id="project-select" aria-label="Select project" aria-keyshortcuts="1 2 3 4 5 6 7 8 9 0" value={activeId} disabled={promptPending || transcriptPending || artifactPending || knowledgePending || backupPending || projectsLoading || !projects.length || selectMutationScope(mutationIntents, { projectId: activeId }).intents.some((intent) => !["dismiss_job_completion_report", "create_job_completion_report_follow_up", "respond_to_work_follow_up"].includes(intent.kind))} onChange={(event) => chooseProject(event.target.value)}>
+        <div className="select-wrap"><select id="project-select" aria-label="Select project" aria-keyshortcuts="1 2 3 4 5 6 7 8 9 0" value={activeId} disabled={tagPending || promptPending || transcriptPending || artifactPending || knowledgePending || backupPending || projectsLoading || !projects.length || selectMutationScope(mutationIntents, { projectId: activeId }).intents.some((intent) => !["dismiss_job_completion_report", "create_job_completion_report_follow_up", "respond_to_work_follow_up"].includes(intent.kind))} onChange={(event) => chooseProject(event.target.value)}>
           {!projects.length && <option value="">{projectsLoading ? "Loading projects…" : "Select a project"}</option>}
           {projects.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
         </select><span className="select-chevron" aria-hidden="true">⌄</span></div>
@@ -2868,11 +2863,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
         {project && <button className="copy-project-button" type="button" title={`Project ID: ${project.id}`} onClick={() => void copyProjectId()}><Icon name="copy" size={13} />Copy project ID for your agent</button>}
       </div>
       <nav aria-label="Workspace navigation">
-        <SidebarNavGroup className="tasks-nav" label="Tasks"
-          storageKey={dashboardStorageKeys.tasksMenu}
-          activeId={view === "library" ? "work-items" : view === "reviews" ? "code-reviews" : undefined}
-          items={[{ id: "work-items", label: "Work items", href: "/work-items", pendingCount: sidebarTasks?.work_items.pending }, { id: "code-reviews", label: "Code reviews", href: "/code-reviews", pendingCount: sidebarTasks?.code_reviews.pending }]}
-          icon={<Icon name="library" />} onNavigate={blockNavigationWhilePending} />
+        <Link href="/work-items" aria-label="Work items" className={`nav-item ${view === "library" ? "active" : ""}`} aria-current={view === "library" ? "page" : undefined} onClick={blockNavigationWhilePending}><Icon name="library" /><span>Work items</span>{Boolean(sidebarTasks && sidebarTasks.work_items.pending + sidebarTasks.code_reviews.pending) && <span className="attention-nav-count">{(sidebarTasks?.work_items.pending ?? 0) + (sidebarTasks?.code_reviews.pending ?? 0)}</span>}</Link>
         <SidebarNavGroup className="knowledge-nav" label="Knowledge graph"
           storageKey={dashboardStorageKeys.knowledgeMenu}
           activeId={view === "knowledge" ? (pathname === "/knowledge/domains" ? "domains" : "decisions") : undefined}
@@ -2900,7 +2891,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
     {applicationSettingsOpen && <ApplicationSettings onClose={() => setApplicationSettingsOpen(false)} />}
     <main id="main-content" className="main-content">
       <header className="topbar">
-        <div className="breadcrumb"><span>Workspace</span><span className="breadcrumb-slash">/</span><span>{project?.name || "Getting started"}</span><span className="breadcrumb-slash">/</span><span>{view === "dashboard" ? "Dashboard" : view === "library" ? "Work items" : view === "reviews" ? "Code reviews" : view === "transcripts" ? "Transcripts" : view === "knowledge" ? (pathname === "/knowledge/domains" ? "Manage domains" : "Decision documents") : view === "artifacts" ? "Artifacts" : view === "settings" ? settingsPage.label : view === "summaries" ? "Summaries" : "Needs Attention"}</span></div>
+        <div className="breadcrumb"><span>Workspace</span><span className="breadcrumb-slash">/</span><span>{project?.name || "Getting started"}</span><span className="breadcrumb-slash">/</span><span>{view === "dashboard" ? "Dashboard" : view === "library" ? "Work items" : view === "transcripts" ? "Transcripts" : view === "knowledge" ? (pathname === "/knowledge/domains" ? "Manage domains" : "Decision documents") : view === "artifacts" ? "Artifacts" : view === "settings" ? settingsPage.label : view === "summaries" ? "Summaries" : "Needs Attention"}</span></div>
         <div className="topbar-actions">
           {project && <button className="button button-primary" type="button" disabled={createWorkMutationBlocked} onClick={openWorkDialog}><Icon name="plus" size={16} />New work</button>}
           <div className={`sync-status sync-status-${liveSyncStatus}`} role="status" aria-live="polite"><span className="sync-status-dot" />{liveSyncLabels[liveSyncStatus]}</div>
@@ -2909,15 +2900,14 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
       </header>
       <div className={`page-content ${view === "library" ? "page-content-library" : ""}`}>
         {activity.error && <div className="error-notice" role="alert"><p>Activity updates: {activity.error}</p><button type="button" className="button button-secondary" onClick={activity.streamChanged ? activity.reloadSnapshot : activity.poll}>{activity.streamChanged ? "Reload current snapshot" : "Retry updates"}</button></div>}
-        {view === "dashboard" || view === "reviews" ? <>
-          <DashboardViewChrome title={view === "dashboard" ? "Dashboard" : "Code reviews"}
+        {view === "dashboard" ? <>
+          <DashboardViewChrome title="Dashboard"
             description={view === "dashboard" ? (project ? `Your agents’ work in “${project.name}”, at a glance.` : "Your agents’ work, at a glance.") : "Adversarial reviews of completed work items, each assigned to one agent session."} />
           {projectsError ? <ErrorNotice message={projectsError}><button className="button button-secondary" onClick={() => refreshProjects()}>Try again</button></ErrorNotice>
             : projectsLoading && !projects.length ? <div className="loading-state" role="status">Opening your workspace…</div>
               : !project ? <section className="empty-state onboarding"><h2>Create your first project.</h2><p>Keep your work items and code reviews together in a project.</p><button className="button button-primary" onClick={() => setProjectDialog(true)}>Create your first project</button></section>
                 : activityReadyProjectId !== project.id ? <div className="loading-state" role="status">Loading tasks…</div>
-                  : view === "dashboard" ? <TaskDashboard key={project.id} projectId={project.id} enabled={coreReadsEnabled} onNavigate={blockNavigationWhilePending} />
-                    : <CodeReviewLibrary key={project.id} projectId={project.id} enabled={coreReadsEnabled} workId={searchParams.get("work")} reviewId={searchParams.get("review")} onNavigate={blockNavigationWhilePending} onNotice={(message, error) => setNotice({ message, error })} onChanged={() => { refreshWork(); refreshReports(); }} />}
+                  : <TaskDashboard key={project.id} projectId={project.id} enabled={coreReadsEnabled} onNavigate={blockNavigationWhilePending} />}
         </> : view === "transcripts" ? <>
           <DashboardViewChrome eyebrow="AGENT SESSIONS THAT STAY WITH YOUR WORK" title="Transcripts" description={project ? `Find session history and subagent work in the “${project.name}” project.` : "Choose a project to open its transcripts."} />
           {projectsError && <ErrorNotice message={projectsError}><button className="button button-secondary" onClick={() => refreshProjects()}>Try again</button></ErrorNotice>}
@@ -2951,6 +2941,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
               onNotice={(message, error) => setNotice({ message, error })}
               backupMaximumBytes={backupMaxBytes}
               onBackupPendingChange={handleBackupPendingChange}
+              onTagPendingChange={setTagPending}
               onPromptPendingChange={setPromptPending}
             />}
         </> : view === "summaries" ? <>
@@ -2987,6 +2978,11 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
             projectsLoading && !projects.length ? <>{libraryChrome}<div className="loading-state" role="status"><span className="spinner" />Opening your workspace…</div></> :
             !projects.length ? <>{libraryChrome}<section className="empty-state onboarding"><div className="empty-art"><Icon name="library" size={34} /><span /></div><div className="eyebrow">A DURABLE PLACE TO CONTINUE</div><h2>Create your first project.</h2><p>Projects hold stable objectives and the session checkpoints that move them forward.</p><button className="button button-primary" onClick={() => setProjectDialog(true)}><Icon name="plus" size={17} />Create your first project</button></section></> : <>
               <WorkItemList
+                projectId={activeId}
+                selectedTags={selectedTags}
+                tagMode={tagMode}
+                onTags={setSelectedTags}
+                onTagMode={setTagMode}
                 pinnedWorkItemIds={pins.ids}
                 onTogglePin={pins.toggle}
                 queuePaneRef={crossfade.queueRef}
@@ -2997,13 +2993,9 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
                 searchedQuery={search}
                 searchRef={searchRef}
                 semantic={semantic}
-                duplicateScope={duplicateScope}
                 canonicalWorkItemId={canonicalWorkItemId}
                 status={status}
                 sort={sort}
-                tag={tagInput}
-                sourceClient={sourceClientInput}
-                sourceSessionId={sourceSessionInput}
                 items={queue.items}
                 flatSearch={queue.flatSearch}
                 total={queue.total}
@@ -3015,7 +3007,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
                 hasMore={queue.hasMore}
                 refreshKey={workMotionRevision}
                 viewKey={queue.viewKey}
-                selectedId={openedId}
+                selectedId={selectedReviewId ?? openedId}
                 copiedKey={copied}
                 projects={projects}
                 statusChangingId={statusChangingId}
@@ -3026,16 +3018,9 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
                 ])}
                 onQuery={setQuery}
                 onToggleSemantic={() => setSemantic((value) => !value)}
-                onDuplicateScope={(value) => {
-                  setDuplicateScope(value);
-                  if (value === "canonical") setCanonicalWorkItemId("");
-                }}
-                onClearDuplicateGroup={() => setCanonicalWorkItemId("")}
+                onClearDuplicateGroup={() => { setCanonicalWorkItemId(""); setDuplicateScope("canonical"); }}
                 onStatus={filterByStatus}
                 onSort={setSort}
-                onTag={setTagInput}
-                onSourceClient={setSourceClientInput}
-                onSourceSessionId={setSourceSessionInput}
                 onRetry={queue.retry}
                 onRetryAppend={queue.retryAppend}
                 onLoadMore={queue.loadMore}
@@ -3047,7 +3032,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
                 onCopyPointer={(item) => void copyRecallPointer(item)}
                 onStatusAction={(action, item) => void changeManualStatus(action, item)}
                 onMove={(item, targetProjectId) => void moveWork(targetProjectId, item)}
-                detail={<WorkDetailPane
+                detail={selectedReviewId ? <CodeReviewDetailPane key={selectedReviewId} projectId={activeId} enabled={coreReadsEnabled} workId={searchParams.get("work")} reviewId={selectedReviewId} onNavigate={blockNavigationWhilePending} onClose={closeWork} onNotice={(message, error) => setNotice({ message, error })} onChanged={() => { refreshWork(); refreshReports(); }} /> : <WorkDetailPane
                   paneRef={crossfade.detailRef}
                   opened={opened}
                   context={context}
@@ -3201,7 +3186,8 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
       <label className="field">Summary<WorkSummaryInput name="summary" required disabled={createWorkMutationBlocked} rows={3} placeholder="When is this work relevant?" onInput={() => setSuggestionDraftGeneration((value) => value + 1)} /></label>
       <label className="field field-half">Priority<input name="priority" type="number" disabled={createWorkMutationBlocked} min={0} max={100} defaultValue={0} /></label>
       <label className="field">Initial context checkpoint<textarea className="prompt-editor" name="prompt" required disabled={createWorkMutationBlocked} rows={14} maxLength={100000} spellCheck={false} placeholder="Context, intended outcome, references, hazards, and verification…" onInput={() => setSuggestionDraftGeneration((value) => value + 1)} /><span className="field-hint">Saved exactly as entered. Corrections become new checkpoints.</span></label>
-      <details className="edit-context"><summary>Repository context and tags</summary><div className="form-stack"><label className="field">Repository branch<input name="repository_branch" disabled={createWorkMutationBlocked} maxLength={200} /></label><label className="field">Caller-asserted baseline commit<input name="verified_against" disabled={createWorkMutationBlocked} className="mono" maxLength={64} /></label><AffectedPathsEditor name="affected_paths" disabled={createWorkMutationBlocked} error={createAffectedPathsError} onChange={() => setCreateAffectedPathsError("")} /><label className="field">Tags <span className="optional">Comma separated</span><input name="tags" disabled={createWorkMutationBlocked} onInput={() => setSuggestionDraftGeneration((value) => value + 1)} /></label></div></details>
+      <TagSelector projectId={activeId} value={createTags} disabled={createWorkMutationBlocked} onChange={(tags) => { setCreateTags(tags); setSuggestionDraftGeneration((value) => value + 1); }} /><input type="hidden" name="tags" value={createTags.join(",")} />
+      <details className="edit-context"><summary>Repository context</summary><div className="form-stack"><label className="field">Repository branch<input name="repository_branch" disabled={createWorkMutationBlocked} maxLength={200} /></label><label className="field">Caller-asserted baseline commit<input name="verified_against" disabled={createWorkMutationBlocked} className="mono" maxLength={64} /></label><AffectedPathsEditor name="affected_paths" disabled={createWorkMutationBlocked} error={createAffectedPathsError} onChange={() => setCreateAffectedPathsError("")} /></div></details>
       <ExternalReferencesEditor value={createExternalReferences} onChange={setCreateExternalReferences} disabled={createWorkMutationBlocked} />
       <DuplicateSuggestionPanel
         projectId={project.id}

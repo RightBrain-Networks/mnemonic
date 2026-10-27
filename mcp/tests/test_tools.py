@@ -704,6 +704,7 @@ async def test_tool_catalog_schemas_and_annotations(settings):
         "list_job_completion_reports",
         "get_job_completion_report",
         "list_projects",
+        "list_tags",
         "create_project",
         "create_work",
         "search_work",
@@ -740,6 +741,7 @@ async def test_tool_catalog_schemas_and_annotations(settings):
     for name in (
         "get_artifact_text",
         "list_projects",
+        "list_tags",
         "search_work",
         "get_work",
         "list_checkpoints",
@@ -809,7 +811,7 @@ async def test_tool_catalog_schemas_and_annotations(settings):
         "remove_relationship",
         "merge_work",
     }
-    assert len(tools) == 78
+    assert len(tools) == 79
     for name in mutating:
         assert tools[name].annotations.idempotentHint is False
     for name in tools.keys() - mutating - {"authorize_artifact_download", "generate_uuid"}:

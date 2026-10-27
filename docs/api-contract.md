@@ -14,13 +14,13 @@ previous bundled rubric. Edits are retained in PostgreSQL and project backups.
 Use [unified search](search.md) to retrieve work, artifacts, transcripts, and decisions in one
 ranked, filtered, paginated read through REST or MCP.
 
-This is application/API/MCP/dashboard `0.109.2`, plugin `0.68.0`, and migration
-`0066_candidate_reuse`. See [knowledge graph](knowledge-graph.md) for retained
+This is application/API/MCP/dashboard `0.110.0`, plugin `0.69.0`, and migration
+`0067_project_tags`. See [knowledge graph](knowledge-graph.md) for retained
 decision revisions and commit provenance, and [dependency cycles](dependency-cycles.md) for explicit
-parent closure requirements, cycle refusal, and honest deadlock display. The catalog has exactly 78 MCP tools, 25
-protected MCP writes, 34 REST receipt kinds, 28 protected browser mutations and
-24 work-event types. The 34 REST receipt kinds comprise 18 work operations, ten knowledge operations, four artifact operations
-with filesystem recovery journals, and two transcript operations (rebuild and import). See
+parent closure requirements, cycle refusal, and honest deadlock display. The catalog has exactly 79 MCP tools, 25
+protected MCP writes, 38 REST receipt kinds, 32 protected browser mutations and
+24 work-event types. The 38 REST receipt kinds comprise 18 work operations, ten knowledge operations, four artifact operations
+with filesystem recovery journals, four project-tag operations, and two transcript operations (rebuild and import). See
 [artifact contracts](artifacts.md) for binary routes, retention and work discovery.
 Relationship identity and graph invariants are global;
 `relationship.project_id` remains immutable edge and read/removal route
@@ -458,11 +458,16 @@ move write.
 
 ### Work-item requests
 
+Fresh work creation requires top-level `tags`: existing catalog names chosen
+after reading `list_tags`, or explicit null when none apply. Tag definitions are
+human-managed; see [work tags](work-tags.md). Checkpoint tags are historical only.
+
 `WorkItemCreate`:
 
 ```json
 {
   "discovered_from_work_item_id": "11111111-1111-4111-8111-111111111111",
+  "tags": null,
   "title": "Investigate stale cache entries",
   "summary": "Cached state survives invalidation after a branch switch.",
   "priority": 40,
@@ -476,7 +481,7 @@ move write.
     "repository_branch": "feature/cache",
     "verified_against": "abc1234",
     "affected_paths": ["app/services/**", "tests/test_cache.py"],
-    "tags": ["cache", "correctness"],
+    "tags": [],
     "source_metadata": {}
   },
   "initial_relationships": [
@@ -1484,7 +1489,7 @@ original intent. Unknown/malformed causes and unrelated failures retain the
 ordinary uncertainty contract. See [storage fault semantics](artifacts.md#storage-faults-and-operator-repair).
 
 ```text
-list_projects, create_project,
+list_projects, list_tags, create_project,
 create_work, search_work, list_ready_work, get_work, add_checkpoint,
 list_checkpoints, recall_work, request_human_input, list_human_attention,
 list_work_gates, append_event, list_work_events,
