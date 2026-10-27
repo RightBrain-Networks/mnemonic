@@ -1,5 +1,16 @@
 # Operating Mnemonic
 
+Release 0.109.2 updates the decision-impact-review default for a measured
+60-minute workflow pilot: grouped investigation, concise evidenced conclusions,
+conservative reuse, and checkpoint/release with unfinished obligations retained.
+Reviewers report time, findings, scope growth and remaining work. Existing
+completion guards, owner gates, decision policy and retained review snapshots are
+unchanged. Exact untouched prior defaults refresh on read after installing the
+updated API package; customized templates remain intact. A project prompt can be
+updated immediately through Settings > Prompts or the documented locked external
+edit without restarting services. No migration or API/MCP contract change is
+required; plugin 0.68.0 and Alembic `0066_candidate_reuse` remain unchanged.
+
 Release 0.109.1 restores MCP assessment list and detail reads when no candidate
 conclusions were reused. The API omits a zero `reused_candidate_count`, matching
 the strict adapter contract; positive counts and pinned source dispositions remain

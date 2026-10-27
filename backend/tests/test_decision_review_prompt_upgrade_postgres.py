@@ -14,7 +14,7 @@ from .test_knowledge_postgres import domain
 pytestmark = pytest.mark.postgres
 
 
-@pytest.mark.parametrize("previous_version", ["v1", "v2"])
+@pytest.mark.parametrize("previous_version", ["v1", "v2", "v4"])
 def test_untouched_prompt_upgrade_preserves_generated_review_history(
     api, project, monkeypatch, previous_version,
 ):

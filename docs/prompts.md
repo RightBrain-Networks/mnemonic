@@ -194,4 +194,21 @@ new obligations on a closed review for human admission. It requires dispositions
 causality, preserves historical assessment requirements, separates required verdicts
 from optional contextual contradiction notes, and gives fallback repository searches
 for missing commits.
+
+The workflow pilot budgets each investigation session to 60 minutes, including
+time to save a resumable checkpoint and release an unfinished claim. Reviewers
+group investigation by decision document, write concise candidate-specific
+conclusions, and retain valid conclusions under the existing conservative reuse
+rules. They report elapsed time, inspected documents, new and reused conclusions,
+new versus known findings, scope growth, remaining obligations, and coverage gaps.
+The time limit never waives required conclusions or permits incomplete Done
+closeout. A time-limited session leaves the review open for later continuation;
+it does not create a human gate or additional work merely because time ran out.
+
+This updates the shipped default and exact untouched prior defaults on read after
+the updated API package is installed. To use the pilot immediately in an existing
+deployment, save the reviewed template through the project prompt editor or the
+locked external-edit procedure above. No service restart is needed for a project
+template edit. Existing investigation snapshots and customized project templates
+remain unchanged unless explicitly edited.
 See [automatic decision impact reviews](knowledge-graph.md#automatic-decision-impact-reviews).
