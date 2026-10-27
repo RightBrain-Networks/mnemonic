@@ -42,17 +42,19 @@ def _seed_function(schema: str, *, previous: bool = False) -> None:
     if not previous:
         rows += STARTERS
     values = ",".join(
-        f"('{name}','{description.replace(chr(39), chr(39) * 2)}','{color}',{index},"
-        f"{'true' if system else 'false'})"
+        f"('{name}','{description.replace(chr(39), chr(39) * 2)}','{color}',{index}"
+        + ("" if previous else f",{'true' if system else 'false'}") + ")"
         for index, (name, description, color, system) in enumerate(rows))
+    system_value = "true" if previous else "t.system"
+    columns = "name,description,color,menu_order" + ("" if previous else ",system")
     op.execute(f"""
         CREATE OR REPLACE FUNCTION {schema}.mnemonic_seed_project_tags() RETURNS trigger
         LANGUAGE plpgsql SET search_path=pg_catalog AS $body$
         BEGIN
             INSERT INTO {schema}.project_tags
                 (id,project_id,name,description,color,menu_order,system)
-            SELECT gen_random_uuid(),NEW.id,t.name,t.description,t.color,t.menu_order,t.system
-            FROM (VALUES {values}) t(name,description,color,menu_order,system);
+            SELECT gen_random_uuid(),NEW.id,t.name,t.description,t.color,t.menu_order,{system_value}
+            FROM (VALUES {values}) t({columns});
             RETURN NEW;
         END $body$;
     """)

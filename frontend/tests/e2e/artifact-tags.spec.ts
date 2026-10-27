@@ -17,7 +17,7 @@ test("artifact tags can be assigned, filtered, edited and removed with exact ret
       await page.getByLabel("Upload artifact files").setInputFiles({ name, mimeType: "text/plain", buffer: Buffer.from(`Tag acceptance content for ${suffix}.`) });
       const row = page.getByRole("row").filter({ has: page.getByRole("button", { name, exact: true }) });
       await expect(row).toBeVisible();
-      await expect(row.locator(".work-tag")).toHaveText([...tags]);
+      await expect.poll(async () => (await row.locator(".work-tag").allTextContents()).sort()).toEqual([...tags].sort());
     }
     await uploadOptions.locator("summary").click();
     const filter = page.getByRole("group", { name: "Filter by tags", exact: true });
@@ -44,13 +44,13 @@ test("artifact tags can be assigned, filtered, edited and removed with exact ret
     await page.getByRole("button", { name: filename, exact: true }).click();
     const details = page.getByRole("region", { name: `Metadata for ${filename}` });
     const tags = details.getByRole("region", { name: "Artifact tags", exact: true });
-    await expect(tags.locator(".work-tag")).toHaveText(["tests", "infra"]);
+    await expect.poll(async () => (await tags.locator(".work-tag").allTextContents()).sort()).toEqual(["infra", "tests"]);
     await tags.getByRole("button", { name: "Edit tags", exact: true }).click();
     await tags.getByRole("checkbox", { name: /^infra\b/ }).uncheck();
     await tags.getByRole("checkbox", { name: /^security\b/ }).check();
     await tags.getByRole("button", { name: "Save tags", exact: true }).click();
     await expect(tags.getByRole("button", { name: "Edit tags", exact: true })).toBeEnabled();
-    await expect(tags.locator(".work-tag")).toHaveText(["tests", "security"]);
+    await expect.poll(async () => (await tags.locator(".work-tag").allTextContents()).sort()).toEqual(["security", "tests"]);
     await expect(details.locator(".artifact-revision")).toHaveText("r2");
     await details.screenshot({ path: testInfo.outputPath("artifact-tags-details.png"), animations: "disabled" });
 

@@ -46,7 +46,10 @@ def test_empty_project_has_all_zero_states_and_empty_domains(api, project):
     summary = result["work_items_summary"]
     assert summary["total"] == 0 and summary["active"] == []
     assert summary["counts_by_state"] == dict.fromkeys(STATES, 0)
-    assert set(summary["counts_by_tag"]) == {"code-review", "remediation", "dir"}
+    assert set(summary["counts_by_tag"]) == {
+        "code-review", "remediation", "dir", "bug-suspected", "bug-proven", "infra",
+        "tests", "ux-ui", "security",
+    }
     assert all(values == dict.fromkeys(STATES, 0) for values in summary["counts_by_tag"].values())
     assert result["needs_attention"] == {"open_count": 0}
     assert [(d["prefix"], d["decision_document_count"])

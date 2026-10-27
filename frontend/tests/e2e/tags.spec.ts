@@ -45,8 +45,12 @@ test("project tags can be managed, ordered, selected and combined on work items"
     const frontend = list.getByRole("listitem").filter({ hasText: "frontend" });
     await frontend.getByRole("button", { name: "Move frontend up" }).click();
     await expect.poll(() => list.locator(".work-tag").allTextContents()).toEqual([...initialNames, "frontend", "needs-design"]);
+    // Keep both drag endpoints visible with the larger starter catalog.
+    const viewport = page.viewportSize()!;
+    await page.setViewportSize({ ...viewport, height: 2400 });
     await frontend.dragTo(list.getByRole("listitem").first());
     await expect(list.locator(".work-tag").first()).toHaveText("frontend");
+    await page.setViewportSize(viewport);
     await design.getByRole("button", { name: "Edit", exact: true }).click();
     await expect(design.getByRole("form", { name: "Edit tag" })).toBeVisible();
     await expect(page.locator(".tag-settings > .tag-edit-form")).toHaveCount(0);

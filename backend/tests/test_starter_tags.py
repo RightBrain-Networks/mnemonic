@@ -1,5 +1,6 @@
 """Starter labels are independent editable copies of the requested Fish Food snapshot."""
 
+import runpy
 from uuid import uuid4
 
 import pytest
@@ -53,6 +54,8 @@ def test_migration_preserves_existing_catalog_and_changes_only_system_dir(postgr
     with postgres_engine.begin() as connection:
         config.attributes["connection"] = connection
         command.downgrade(config, "0067_project_tags")
+        audit = runpy.run_path(str(BACKEND_DIR.parent / "scripts/audit_project_activity.py"))
+        assert not any(audit["_catalog_drift"](connection, "0067_project_tags").values())
         connection.execute(text("INSERT INTO projects(id,name,slug) VALUES (:id,'Existing','old')"),
                            {"id": project_id})
         connection.execute(text("""

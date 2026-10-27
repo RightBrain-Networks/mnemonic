@@ -10,7 +10,6 @@ type Draft = { id?: string; name: string; description: string; color: string };
 type Intent = { path: string; method: string; body: string; message: string };
 const emptyDraft = (): Draft => ({ name: "", description: "", color: randomTagColor() });
 
-
 function TagEditForm({ draft, onChange, blocked, busy, onSave, onCancel, feedback }: {
   draft: Draft; onChange: (draft: Draft) => void; blocked: boolean; busy: boolean;
   onSave: (event: FormEvent) => void; onCancel: () => void; feedback?: ReactNode;
