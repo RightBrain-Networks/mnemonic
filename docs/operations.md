@@ -1,5 +1,11 @@
 # Operating Mnemonic
 
+Release 0.113.0 aligns code-review cards with work-item cards and routes the
+code-review copy confirmation through the dashboard toast. API, worker, MCP,
+and dashboard share the release version; plugin 0.71.0 and Alembic
+`0068_artifact_tags` are unchanged. No schema, configuration, or tool-contract
+changes are required.
+
 Release 0.112.0 and plugin 0.71.0 extend project tags to artifacts and seed six
 editable starter tags in new projects from Fish Food's October 27, 2026 catalog.
 Deploy API, worker, MCP, and dashboard together at Alembic `0068_artifact_tags`.

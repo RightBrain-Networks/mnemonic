@@ -1,5 +1,5 @@
 import { expect, request, test, type APIRequestContext, type Page } from "@playwright/test";
-import { createProject, createReview } from "./task-fixtures";
+import { createProject, createReview, createWork } from "./task-fixtures";
 
 async function setup() {
   const api = await request.newContext({ baseURL: process.env.MNEMONIC_E2E_API_URL, extraHTTPHeaders: { Authorization: `Bearer ${process.env.MNEMONIC_E2E_API_KEY}` } });
@@ -15,6 +15,48 @@ function filter(page: Page, label: string) { return page.getByRole("group", { na
 async function context(api: APIRequestContext, projectId: string, workId: string) {
   return await (await api.get(`/api/v1/projects/${projectId}/work-items/${workId}/context`)).json();
 }
+
+test("work and code review cards have equal widths in the pending queue and flat search", async ({ page }, testInfo) => {
+  const { api, project } = await setup();
+  try {
+    const work = await createWork(api, project.id, "Card alignment work");
+    const review = await createReview(api, project.id, "Card alignment review");
+    await page.goto(`/work-items?project=${project.id}`);
+    const queue = page.getByRole("listbox", { name: "Durable work items", exact: true });
+    const workCard = queue.locator(`[data-queue-option="${work.id}"]`);
+    const reviewCard = queue.locator(`[data-review-id="${review.id}"]`);
+    const expectAlignedCards = async () => {
+      await expect(queue.getByRole("option")).toHaveCount(2);
+      await expect(workCard).toBeVisible();
+      await expect(reviewCard).toBeVisible();
+      await expect.poll(async () => {
+        const [workBounds, reviewBounds] = await Promise.all([
+          workCard.boundingBox(), reviewCard.boundingBox()
+        ]);
+        if (!workBounds || !reviewBounds) return Number.POSITIVE_INFINITY;
+        return Math.max(
+          Math.abs(workBounds.x - reviewBounds.x),
+          Math.abs(workBounds.width - reviewBounds.width),
+          Math.abs(workBounds.x + workBounds.width - reviewBounds.x - reviewBounds.width)
+        );
+      }).toBeLessThanOrEqual(1);
+    };
+    await expect(queue.locator(".hierarchy-list")).toHaveCount(1);
+    await expectAlignedCards();
+    await page.screenshot({ path: testInfo.outputPath("mixed-work-card-widths.png"), fullPage: true, animations: "disabled" });
+
+    const search = page.getByRole("searchbox", { name: "Search work items" });
+    await search.fill("Card alignment");
+    await expect(queue.locator(`.search-result [data-queue-option="${work.id}"]`)).toHaveCount(1);
+    await expect(queue.locator(".hierarchy-list")).toHaveCount(0);
+    await expectAlignedCards();
+    await page.screenshot({ path: testInfo.outputPath("mixed-work-search-card-widths.png"), fullPage: true, animations: "disabled" });
+
+    await search.fill("");
+    await expect(queue.locator(".hierarchy-list")).toHaveCount(1);
+    await expectAlignedCards();
+  } finally { await api.dispose(); }
+});
 
 test("code review split surface keeps cards mounted, resizes and opens exact details", async ({ page }, testInfo) => {
   const { api, project } = await setup();
@@ -75,14 +117,23 @@ test("code review cards copy the exact pointer and defer only their own review e
     const other = await createReview(api, project.id, "Separate review episode");
     await page.goto(`/code-reviews?project=${project.id}`);
     const item = card(page, "Review card actions");
+    await expect(item).toBeVisible();
+    const originalHeight = await item.evaluate((element) => element.getBoundingClientRect().height);
     await item.getByRole("button", { name: "Copy recall pointer for Review card actions" }).click();
     await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toContain(review.id);
+    await expect(item.getByRole("button", { name: "Copy recall pointer for Review card actions" })).toHaveText("Copied");
+    await expect(page.locator('.toast[role="status"]')).toHaveText("Recall pointer copied for this code review.");
+    await expect(item.getByText("Recall pointer copied for this code review.", { exact: true })).toHaveCount(0);
+    await expect.poll(async () => Math.abs(
+      await item.evaluate((element) => element.getBoundingClientRect().height) - originalHeight
+    )).toBeLessThanOrEqual(1);
     const pointer = await page.evaluate(() => navigator.clipboard.readText());
     expect(pointer).toContain(review.work_item_id);
     expect(pointer).toContain("WARM, ADVERSARIAL");
     expect(pointer).not.toContain(other.id);
     await expect(item).toHaveAttribute("aria-selected", "false");
     await expect(page).not.toHaveURL(/review=/);
+    await page.getByRole("button", { name: "Dismiss notification", exact: true }).click();
     await item.getByRole("button", { name: "Defer Review card actions", exact: true }).click();
     await expect(item).toHaveCount(0);
     const deferred = await context(api, project.id, review.work_item_id);
