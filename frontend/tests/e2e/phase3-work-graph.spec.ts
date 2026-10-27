@@ -52,11 +52,12 @@ test("hierarchy navigation and the relationship editor preserve graph semantics"
         status: "pending",
         priority: 31,
         discovered_from_work_item_id: originId,
+        tags: null,
         initial_checkpoint: {
           prompt: `Immutable starting context for ${title}.`,
           source_client: "playwright-api",
           source_session_id: `phase3-${suffix}`,
-          tags: ["phase-3", "graph"],
+          tags: [],
           source_metadata: {}
         }
       }
@@ -387,11 +388,12 @@ test("the relationship editor links work across projects and opens the target pr
         status: "pending",
         priority: 31,
         discovered_from_work_item_id: null,
+        tags: null,
         initial_checkpoint: {
           prompt: `Immutable starting context for ${title}.`,
           source_client: "playwright-api",
           source_session_id: `phase3-cross-project-${suffix}`,
-          tags: ["phase-3", "cross-project-relationship"],
+          tags: [],
           source_metadata: {}
         }
       }

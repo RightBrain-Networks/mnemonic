@@ -576,6 +576,7 @@ def test_readiness_lifecycle_matrix_agrees_across_every_public_projection(
         params={"tag": tag},
     )
     assert ready.status_code == 200, ready.text
+    expected_minimal['work_item'].update(tags=[tag], system_tags=[])
     assert ready.json() == {
         "items": [expected_minimal] if case.expected_ready else [],
         "total": 1 if case.expected_ready else 0,

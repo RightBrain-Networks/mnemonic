@@ -80,6 +80,7 @@ async function createFixtureWork(
       status: "pending",
       priority: 29,
       discovered_from_work_item_id: null,
+      tags: null,
       initial_checkpoint: {
         prompt: `Initial Phase 6 context for ${title}.`,
         source_client: "playwright-api",
@@ -88,7 +89,7 @@ async function createFixtureWork(
         source_session_url: null,
         repository_branch: null,
         verified_against: null,
-        tags: ["phase-6", "idempotency"],
+        tags: [],
         source_metadata: {}
       }
     }

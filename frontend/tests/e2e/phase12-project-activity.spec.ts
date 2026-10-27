@@ -17,6 +17,7 @@ async function createReport(api: APIRequestContext, projectId: string, status: "
   const create = await api.post(`/api/v1/projects/${projectId}/work-items`, { data: {
     title: `Dashboard font ${status}`, summary: "Use one readable font across the dashboard.", status: "pending", priority: 1,
     discovered_from_work_item_id: null,
+    tags: null,
     initial_checkpoint: { prompt: "Choose a readable font for the dashboard.", source_client: "playwright-api", source_session_id: "phase12" }
   }});
   expect(create.ok(), await create.text()).toBe(true);
@@ -210,6 +211,7 @@ async function createPendingWork(api: APIRequestContext, projectId: string, titl
   const response = await api.post(`/api/v1/projects/${projectId}/work-items`, { data: {
     title, summary: "A focused browser regression fixture.", status: "pending", priority: 1,
     discovered_from_work_item_id: null,
+    tags: null,
     initial_checkpoint: { prompt: "Review the font decision and report the result.", source_client: "playwright-api", source_session_id: "phase12" }
   }});
   expect(response.ok(), await response.text()).toBe(true);
@@ -433,6 +435,7 @@ test("a source merge refreshes both an open follow-up draft and an already-open 
     const followUp = await api.post(`/api/v1/projects/${project.id}/job-completion-reports/${source.reportId}/follow-ups`, { data: {
       title: "Read the exact originating report", summary: "Review the original font decision.", priority: 1,
       actor: { actor_client: "playwright-api", actor_session_id: "phase12" },
+      tags: null,
       initial_checkpoint: { prompt: "Review the original font decision and its source work.", source_client: "playwright-api", source_session_id: "phase12" },
       client_operation_id: crypto.randomUUID()
     }});

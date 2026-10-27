@@ -5,6 +5,7 @@ import pytest
 from pydantic import ValidationError
 
 from mnemonic_api.schemas import WorkItemCreate, WorkItemRead
+from mnemonic_api.services.client_operations import _create_work_matches, operation_spec
 from mnemonic_api.services.tags import tag_response_matches
 from mnemonic_api.tag_schemas import TagCatalog, TagCreate, TagPatch
 
@@ -37,3 +38,30 @@ def test_historical_read_does_not_invent_tag_fields():
     assert 'tags' not in restored and 'system_tags' not in restored
     current = WorkItemRead.model_validate({**payload, 'tags': None, 'system_tags': []}).model_dump()
     assert current['tags'] is None and current['system_tags'] == []
+
+
+@pytest.mark.parametrize('tags', [None, ['bug', 'frontend']])
+def test_creation_receipt_requires_declared_tags_but_preserves_historical_omission(
+    work_payload, tags,
+):
+    project, work, checkpoint = uuid4(), uuid4(), uuid4()
+    payload = WorkItemCreate.model_validate({**work_payload, 'tags': tags})
+    source = {
+        'work_item': {'id': work, 'project_id': project, 'title': payload.title,
+            'summary': payload.summary, 'priority': payload.priority, 'status': 'pending',
+            'initial_checkpoint_id': checkpoint, 'version': 1, 'tags': tags,
+            'created_at': '2026-10-01T00:00:00Z', 'updated_at': '2026-10-01T00:00:00Z'},
+        'initial_checkpoint': {**payload.initial_checkpoint.model_dump(), 'id': checkpoint,
+            'work_item_id': work, 'kind': 'context', 'migration_origin': None,
+            'legacy_record_id': None, 'created_at': '2026-10-01T00:00:00Z'},
+        'initial_relationships': [],
+    }
+    model = operation_spec('create_work').response_model
+    assert _create_work_matches(project, {}, payload, model.model_validate(source))
+    source['work_item']['tags'] = ['wrong-tag']
+    assert not _create_work_matches(project, {}, payload, model.model_validate(source))
+    source['work_item'].pop('tags')
+    assert not _create_work_matches(project, {}, payload, model.model_validate(source))
+    historical = WorkItemCreate.model_validate({
+        key: value for key, value in work_payload.items() if key != 'tags'})
+    assert _create_work_matches(project, {}, historical, model.model_validate(source))

@@ -52,12 +52,13 @@ async function createWork(
       status: "pending",
       priority: 67,
       discovered_from_work_item_id: null,
+      tags: null,
       initial_checkpoint: {
         prompt: `Exact current context for ${title}.`,
         source_client: "playwright-api",
         source_session_id: sessionId,
         source_model: null,
-        tags: [tag],
+        tags: [],
         source_metadata: {}
       }
     }

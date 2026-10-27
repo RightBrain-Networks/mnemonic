@@ -1053,6 +1053,7 @@ def _create_work_matches(
         or work.priority != request.priority
         or work.status != request.status
         or work.external_references != request.external_references
+        or ("tags" in request.model_fields_set and work.tags != request.tags)
         or result.initial_checkpoint.work_item_id != work.id
         or result.initial_checkpoint.id != work.initial_checkpoint_id
         or result.initial_checkpoint.kind != "context"

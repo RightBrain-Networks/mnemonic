@@ -13,6 +13,7 @@ async function createFixture(api: APIRequestContext, title: string) {
     data: {
       title, summary: "Check human-facing Markdown on the dashboard.", status: "pending", priority: 1,
       discovered_from_work_item_id: null,
+      tags: null,
       initial_checkpoint: {
         prompt: "Compare the displayed choices and report the outcome.",
         source_client: "playwright-api", source_session_id: "markdown-messages"

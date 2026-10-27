@@ -67,6 +67,7 @@ test("restated supersessions show reused conclusions and active work in the same
     const followUp = (await json(await api.post(`/api/v1/projects/${project.id}/work-items`, { data: {
       title: "Investigate an open transport defect", summary: "Inspect the known defect before concluding the rule is satisfied.",
       discovered_from_work_item_id: change.review_work_item_id,
+      tags: null,
       initial_checkpoint: { prompt: "Check the transport defect.", source_client: "codex", source_session_id: "candidate-reuse-fixture" }
     } }))).work_item;
     await claim(api, project.id, followUp.id);
@@ -298,6 +299,7 @@ test("ordinary work adopts assessments and closed reviews require explicit owner
     const child = (await json(await api.post(`/api/v1/projects/${project.id}/work-items`, { data: {
       title: "Moved decision follow-up", summary: "Retain the original review boundary after moving projects.",
       discovered_from_work_item_id: work.id,
+      tags: null,
       initial_checkpoint: { prompt: "Ask the owner about a new scope exception.", source_client: "codex", source_session_id: "adoption-browser-test" }
     } }))).work_item;
     await json(await api.post(`/api/v1/projects/${project.id}/work-items/${work.id}/complete`, { data: {

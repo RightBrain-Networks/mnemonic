@@ -189,6 +189,7 @@ test("historical checkpoint responses omit scope and display unknown declaration
         priority: 0,
         status: "pending",
         discovered_from_work_item_id: null,
+        tags: null,
         initial_checkpoint: {
           prompt: "Historical sparse checkpoint.",
           source_client: "playwright-api",

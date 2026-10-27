@@ -104,6 +104,7 @@ async function createFixture(
         status: "pending",
         priority: 31,
         discovered_from_work_item_id: null,
+        tags: null,
         initial_checkpoint: {
           prompt: "Initial context for the Phase 11 browser acceptance flow.",
           source_client: "playwright-api",
@@ -112,7 +113,7 @@ async function createFixture(
           source_session_url: null,
           repository_branch: null,
           verified_against: null,
-          tags: ["phase-11", "completion-evidence"],
+          tags: [],
           source_metadata: {}
         }
       }

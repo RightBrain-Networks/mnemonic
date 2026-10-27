@@ -151,11 +151,12 @@ async function createWork(
       status: "pending",
       priority: input.priority ?? 23,
       discovered_from_work_item_id: null,
+      tags: null,
       initial_checkpoint: {
         prompt: input.prompt ?? `Immutable starting context for ${input.title}.`,
         source_client: "playwright-api",
         source_session_id: input.sessionId,
-        tags: ["work-surface"],
+        tags: [],
         source_metadata: {}
       }
     }

@@ -57,6 +57,7 @@ async function createWork(
       status: "pending",
       priority: 13,
       discovered_from_work_item_id: null,
+      tags: null,
       initial_checkpoint: {
         prompt,
         source_client: "playwright-api",
@@ -65,7 +66,7 @@ async function createWork(
         source_session_url: null,
         repository_branch: null,
         verified_against: null,
-        tags: ["phase-9", "advisory"],
+        tags: [],
         source_metadata: {}
       }
     }

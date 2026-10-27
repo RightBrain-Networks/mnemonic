@@ -16,6 +16,7 @@ test("dependency cycles explain warnings, refuse closure changes, and display re
     async function create(title: string) {
       const response = await client.post(`/api/v1/projects/${project}/work-items`, { data: {
         title, summary: title, priority: 30, discovered_from_work_item_id: null,
+        tags: null,
         initial_checkpoint: { prompt: title, source_client: "playwright", source_session_id: "cycle-guard" }
       } });
       expect(response.ok(), await response.text()).toBe(true);
