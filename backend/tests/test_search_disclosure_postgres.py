@@ -6,6 +6,7 @@ import pytest
 
 from .report_fixtures import reported
 from .test_artifact_search_postgres import search as artifact_search
+from .test_project_tags import catalog_names
 from .test_semantic_postgres import DeterministicEmbedder
 from .test_transcript_search_postgres import search as transcript_search
 from .test_unified_search_postgres import search
@@ -60,7 +61,8 @@ def test_work_discovery_defaults_to_all_statuses_and_explicit_pending_is_disclos
 def test_work_filters_and_quoted_query_are_disclosed_on_every_page(
     api, project, work_payload, offset,
 ):
-    create_work(api, project, work_payload, title="Cookie admission")
+    create_work(api, project, work_payload, title="Cookie admission",
+                tags=catalog_names(api, project, ["cache"]))
     page = work_search(api, project, q=' "cookie admission" ', tag="CACHE", offset=offset)
     assert page["total"] == 1
     assert bool(page["items"]) == (offset == 0)

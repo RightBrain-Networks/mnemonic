@@ -24,6 +24,20 @@ def _findings(engine):
                 if (count := connection.scalar(text(sql)))}
 
 
+def assert_snapshot_after_tag_reseed(actual, expected):
+    # Downgrading below 0067 drops the unused catalog. Re-upgrading gives its
+    # three system definitions fresh UUIDs; all authored facts and receipts stay exact.
+    def definitions(snapshot):
+        rows = snapshot['project_tags']
+        assert len(rows) == 3 and all(row['system'] for row in rows)
+        assert {row['name'] for row in rows} == {'code-review', 'remediation', 'dir'}
+        return {row['name']: {key: value for key, value in row.items() if key != 'id'}
+                for row in rows}
+
+    assert definitions(actual) == definitions(expected)
+    assert {**actual, 'project_tags': expected['project_tags']} == expected
+
+
 def test_nullable_migration_preserves_legacy_receipts_and_allows_empty_metadata_downgrade(
     api, project, work_payload, postgres_engine,
 ):
@@ -39,7 +53,7 @@ def test_nullable_migration_preserves_legacy_receipts_and_allows_empty_metadata_
     assert _findings(postgres_engine) == {}
     migrate(postgres_engine, "0062_review_scope_notices", downgrade=True)
     migrate(postgres_engine, "head")
-    assert _snapshot(postgres_engine, project) == before
+    assert_snapshot_after_tag_reseed(_snapshot(postgres_engine, project), before)
     replay = api.post(path(project) + f"/assessments/{episodes[0]['id']}/dispositions", json=intent)
     assert replay.status_code == 201 and replay.json() == result.json()
     assert _findings(postgres_engine) == {}

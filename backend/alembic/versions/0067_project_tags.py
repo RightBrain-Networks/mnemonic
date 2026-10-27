@@ -13,6 +13,16 @@ SYSTEM = (
     ("remediation", "Address findings from a completed code review.", "#edd1bc"),
     ("dir", "Investigate the impact of a decision change.", "#dec9ed"),
 )
+LEGACY_OPERATION_KINDS = (
+    "create_work add_checkpoint append_event add_relationship update_work defer_work "
+    "complete_work delete_work move_work remove_relationship release_claim request_human_input "
+    "resolve_human_input merge_work dismiss_job_completion_report "
+    "create_job_completion_report_follow_up respond_to_work_follow_up complete_code_review "
+    "create_knowledge_domain rename_knowledge_domain put_decision append_decision_scope "
+    "assess_decision_impact reconcile_decision_scope update_decision_change "
+    "assess_decision_impact_batch delete_knowledge_domain delete_decision"
+).split()
+TAG_OPERATION_KINDS = "create_tag update_tag delete_tag reorder_tags".split()
 
 
 def upgrade() -> None:
@@ -71,15 +81,10 @@ def upgrade() -> None:
             FOR EACH ROW EXECUTE FUNCTION {schema}.mnemonic_system_tag_guard();
     """)
     _event_contract(schema)
-    constraint = bind.scalar(sa.text("""
-        SELECT pg_get_constraintdef(oid) FROM pg_constraint
-        WHERE conrelid='client_operations'::regclass
-          AND conname='ck_client_operations_operation_kind_valid'
-    """))
     op.drop_constraint("ck_client_operations_operation_kind_valid", "client_operations")
     op.create_check_constraint("operation_kind_valid", "client_operations",
-        "operation_kind IN ('create_tag','update_tag','delete_tag','reorder_tags') OR (" +
-        constraint.removeprefix("CHECK (").removesuffix(")") + ")")
+        "operation_kind IN (" + ",".join(
+            f"'{kind}'" for kind in LEGACY_OPERATION_KINDS + TAG_OPERATION_KINDS) + ")")
 
 
 def downgrade() -> None:
@@ -103,15 +108,8 @@ def downgrade() -> None:
         op.execute(f"DROP FUNCTION {schema}.{name}")
     # No current tag receipts exist, so restricting the check preserves all retained receipts.
     op.drop_constraint("ck_client_operations_operation_kind_valid", "client_operations")
-    kinds = ("create_work add_checkpoint append_event add_relationship update_work defer_work "
-        "complete_work delete_work move_work remove_relationship release_claim request_human_input "
-        "resolve_human_input merge_work dismiss_job_completion_report "
-        "create_job_completion_report_follow_up respond_to_work_follow_up complete_code_review "
-        "create_knowledge_domain rename_knowledge_domain put_decision append_decision_scope "
-        "assess_decision_impact reconcile_decision_scope update_decision_change "
-        "assess_decision_impact_batch delete_knowledge_domain delete_decision").split()
     op.create_check_constraint("operation_kind_valid", "client_operations",
-        "operation_kind IN (" + ",".join(f"'{kind}'" for kind in kinds) + ")")
+        "operation_kind IN (" + ",".join(f"'{kind}'" for kind in LEGACY_OPERATION_KINDS) + ")")
 
 
 def _event_contract(schema: str) -> None:

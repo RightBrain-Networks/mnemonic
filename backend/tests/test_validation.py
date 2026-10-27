@@ -396,7 +396,6 @@ def test_missing_provenance_is_not_invented(work_payload, checkpoint_fields):
         {"expected_version": True, "title": "Boolean is not a version"},
         {"expected_version": 0, "title": "Invalid"},
         {"expected_version": 1, "prompt": None},
-        {"expected_version": 1, "tags": None},
         {"expected_version": 1, "status": None},
         {"expected_version": 1, "source_metadata": None},
         {"expected_version": 1, "source_session_id": "replacement"},
@@ -425,12 +424,18 @@ def test_patch_cannot_rewrite_checkpoint_fields():
         ("source_session_id", "replacement"),
         ("repository_branch", None),
         ("verified_against", None),
-        ("tags", ["replacement"]),
+        ("initial_checkpoint", {"tags": ["replacement"]}),
         ("source_metadata", {}),
         ("kind", "progress"),
     ]:
         with pytest.raises(ValidationError):
             WorkItemPatch.model_validate({"expected_version": 1, field: value})
+
+
+@pytest.mark.parametrize("tags", [None, ["replacement"]])
+def test_patch_can_replace_or_clear_current_work_tags(tags):
+    payload = {"expected_version": 1, "tags": tags}
+    assert WorkItemPatch.model_validate(payload).model_dump(exclude_unset=True) == payload
 
 
 def test_canonical_create_priority_status_and_checkpoint_kind_contract(work_payload):
