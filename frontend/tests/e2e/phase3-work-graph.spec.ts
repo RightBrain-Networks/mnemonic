@@ -245,7 +245,7 @@ test("hierarchy navigation and the relationship editor preserve graph semantics"
     const discoveredGraph = await openTab(discoveredPane, "Graph");
     await expect(discoveredGraph.getByRole("region", { name: "Discovered from" })).toContainText(titles.discoveryRoot);
     await closeDetail(page);
-    await expect(page.locator(".result-count")).toContainText("root branch");
+    await expect(page.locator(".result-count")).toContainText("work items");
 
     const rootAggregates = descendantChip(rootCard);
     await expect(rootAggregates).toHaveText("2 descendants");
@@ -290,7 +290,7 @@ test("hierarchy navigation and the relationship editor preserve graph semantics"
     // Collapsing and re-expanding a branch refetches only that branch's children;
     // the root queue and its settled total stay untouched.
     const resultCount = page.locator(".result-count");
-    await expect(resultCount).toContainText("root branch");
+    await expect(resultCount).toContainText("work items");
     const rootCount = await resultCount.innerText();
     await page.getByRole("button", { name: `Collapse children of ${titles.child}` }).click();
     await expect(grandchildCard).toHaveCount(0);

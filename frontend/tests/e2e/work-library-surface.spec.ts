@@ -1490,7 +1490,7 @@ test("tag filters replace the retired panel while duplicate navigation keeps its
     const source = await createWork(client, { title: `Filter alias ${token}`, sessionId: `surface-filters-${key}-alias` });
     const destination = await createWork(client, { title: `Filter canonical ${token}`, sessionId: `surface-filters-${key}-root` });
     await mergeDirect(client, source.id, destination.id, `Merged outside the browser for ${key}.`, `surface-filters-${key}`);
-    await page.goto(`/work-items?work=${source.id}`);
+    await page.goto(`/work-items?project=${state.projectId}&work=${source.id}`);
     await expect(workPane(page).locator(".duplicate-audit-panel")).toBeVisible();
     await workPane(page).getByRole("button", { name: "View duplicate group" }).click();
     await expect(page.locator(".work-detail-pane.is-open")).toHaveCount(0);

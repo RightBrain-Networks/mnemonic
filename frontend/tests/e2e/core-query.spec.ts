@@ -223,7 +223,7 @@ test("changing and clearing work search cancels the old query without replacing 
     await expect.poll(() => held!.released).toBe(true);
     await expect(search).toHaveValue("");
     await expect(page.locator(".hierarchy-node[data-depth='0']")).toHaveCount(2);
-    await expect(page.locator(".result-count")).toHaveText("2 root branches");
+    await expect(page.locator(".result-count")).toHaveText("2 work items");
     await expect(page.locator(".work-queue [role=alert]")).toHaveCount(0);
   } finally {
     held?.release();

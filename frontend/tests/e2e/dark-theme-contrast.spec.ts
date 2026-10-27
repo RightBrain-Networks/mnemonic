@@ -75,7 +75,7 @@ const contrastFixture = `
     </section>
     <section class="work-surface">
       <div class="work-queue">
-        <div class="work-queue-header"><span class="result-count">3 root branches</span>
+        <div class="work-queue-header"><span class="result-count">3 work items</span>
           <span class="work-queue-sort">Sorted by last activity</span></div>
         <div class="work-queue-viewport">
           <div class="work-queue-list" role="listbox">
