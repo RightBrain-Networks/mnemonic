@@ -151,6 +151,10 @@ def metadata_of(args: argparse.Namespace) -> dict[str, Any]:
                 if isinstance(value, list)
                 else (str(value) if isinstance(value, UUID) else value)
             )
+    if args.tags is not None:
+        values["tags"] = args.tags
+    elif args.no_tags:
+        values["tags"] = None
     return values
 
 
@@ -160,6 +164,14 @@ def validate_metadata(values: dict[str, Any]) -> str:
             raise UploadError(
                 "At most 50 related work IDs and 50 related artifact IDs are allowed."
             )
+    tags = values.get("tags")
+    if tags is not None and (
+        not isinstance(tags, list) or not 1 <= len(tags) <= 20
+        or any(not isinstance(tag, str) or len(tag) > 50
+               or re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", tag) is None for tag in tags)
+        or len(set(tags)) != len(tags)
+    ):
+        raise UploadError("Tags must contain 1–20 unique existing normalized tag names.")
     encoded = encode_json(values)
     if len(encoded) > 16 * 1024:
         raise UploadError("Artifact metadata exceeds the 16 KiB header limit.")
@@ -332,6 +344,7 @@ def verify_metadata(result: dict[str, Any], manifest: dict[str, Any]) -> None:
         "description": "description",
         "work_item_id": "originating_work_item_id",
         "sensitive": "sensitive",
+        "tags": "tags",
     }
     if manifest["artifact_id"] is None:
         fields.update(
@@ -340,7 +353,7 @@ def verify_metadata(result: dict[str, Any], manifest: dict[str, Any]) -> None:
         )
     for requested, returned in fields.items():
         if requested in metadata and (
-            type(result.get(returned)) is not type(metadata[requested])
+            returned not in result or type(result.get(returned)) is not type(metadata[requested])
             or result[returned] != metadata[requested]
         ):
             raise ValueError("Receipt metadata mismatch")
@@ -635,6 +648,11 @@ def main() -> int:
         "--filename", help="Default: source basename; replacement needs original name"
     )
     staging.add_argument("--description")
+    tag_options = staging.add_mutually_exclusive_group()
+    tag_options.add_argument("--tag", dest="tags", action="append",
+                             help="Existing project tag; repeat to replace assignments")
+    tag_options.add_argument("--no-tags", action="store_true",
+                             help="Explicitly clear tags; omission preserves replacement tags")
     staging.add_argument("--work-item-id", type=UUID)
     staging.add_argument(
         "--related-work-item-id",

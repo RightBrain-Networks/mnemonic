@@ -1,5 +1,6 @@
 "use client";
 
+import { TagList, TagSelector } from "@/components/work-tags";
 import { useEffect, useId, useRef, useState } from "react";
 import type { Artifact } from "@/lib/artifacts";
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -43,6 +44,8 @@ export function ArtifactPicker({ projectId, excludedIds, disabled, onSelect, wor
 export function ArtifactMetadataEditor({ artifact, disabled, onUpdate, onOpenArtifact }: {
   artifact: Artifact; disabled: boolean; onUpdate: (intent: ArtifactMutation) => Promise<boolean>; onOpenArtifact: (artifact: Artifact) => void;
 }) {
+  const [editingTags, setEditingTags] = useState(false);
+  const [tagDraft, setTagDraft] = useState<string[]>([]);
   const [workQuery, setWorkQuery] = useState("");
   const [artifactLinkOpen, setArtifactLinkOpen] = useState(false);
   const client = useQueryClient();
@@ -53,13 +56,19 @@ export function ArtifactMetadataEditor({ artifact, disabled, onUpdate, onOpenArt
   const update = (changes: Parameters<typeof artifactUpdateIntent>[1]) => onUpdate(artifactUpdateIntent(artifact, changes, dashboardSessionId()));
   const workItems = workSearch.page?.items.filter((hit) => ![...artifact.related_work_item_ids, artifact.originating_work_item_id].includes(hit.summary.work_item.id));
   return <div className="artifact-metadata-editor">
+    <section className="artifact-tag-editor" aria-label="Artifact tags"><div className="artifact-tag-heading"><h3>Tags</h3>{!editingTags && !artifact.deleted_at && <button type="button" className="button button-secondary" disabled={disabled} onClick={() => { setTagDraft(artifact.tags ?? []); setEditingTags(true); }}>Edit tags</button>}</div>
+      {editingTags ? <form onSubmit={(event) => { event.preventDefault(); void update({ tags: tagDraft.length ? tagDraft : null }).then((saved) => { if (saved) setEditingTags(false); }); }}>
+        <TagSelector projectId={artifact.project_id} value={tagDraft} onChange={setTagDraft} disabled={disabled} />
+        <div className="settings-actions"><button type="submit" className="button button-primary" disabled={disabled}>Save tags</button><button type="button" className="button button-secondary" disabled={disabled} onClick={() => setEditingTags(false)}>Cancel</button></div>
+      </form> : artifact.tags?.length ? <TagList projectId={artifact.project_id} names={artifact.tags} /> : <p className="field-hint">No tags selected.</p>}
+    </section>
     <div className="artifact-sensitivity"><div><strong>{artifact.sensitive ? "Sensitive artifact" : "Standard artifact"}</strong><p>Agents must obtain explicit human approval before each read or content search of a sensitive artifact. Approval is temporary and single use.</p></div><button type="button" className="button button-secondary" disabled={disabled || Boolean(artifact.deleted_at)} onClick={() => void update({ sensitive: !artifact.sensitive })}>{artifact.sensitive ? "Remove sensitive flag" : "Mark as sensitive"}</button></div>
     <div className="artifact-related-list"><h3>Related artifacts · {artifact.related_artifact_ids.length}</h3>{related.map((item) => <button type="button" className="text-button artifact-work-link" key={item.id} disabled={disabled} onClick={() => onOpenArtifact(item)}>{item.filename}{item.sensitive ? " · Sensitive" : ""}{item.deleted_at ? " · Deleted" : ""}</button>)}{!artifact.related_artifact_ids.length && <p>No related artifacts.</p>}{relatedError && <p role="alert">{errorMessage(relatedError)}</p>}</div>
     {!artifact.deleted_at && <div className="artifact-link-columns">
       <details onToggle={(event) => setArtifactLinkOpen(event.currentTarget.open)}><summary>Link another artifact</summary>{artifactLinkOpen && <ArtifactPicker projectId={artifact.project_id} excludedIds={[artifact.id, ...artifact.related_artifact_ids]} disabled={disabled} onSelect={(item) => void update({ related_artifact_ids: [item.id] })} />}</details>
       <details><summary>Link a work item</summary><div className="artifact-link-picker"><label>Find a work item<input value={workQuery} maxLength={200} disabled={disabled} placeholder="Search work titles and summaries…" onChange={(event) => setWorkQuery(event.target.value)} /></label>{workSearch.searching && <p role="status">Finding work items…</p>}{workSearch.error && <p role="alert">{workSearch.error}</p>}<ul>{workItems?.map(({ summary: { work_item: item } }) => <li key={item.id}><span><bdi>{item.title}</bdi><small>{item.status} · {item.id}</small></span><button type="button" className="button button-secondary" disabled={disabled} onClick={() => void update({ related_work_item_ids: [item.id] })} aria-label={`Link work item ${item.title}`}>Link</button></li>)}</ul>{workSearch.searchedQuery && workSearch.page && !workItems?.length && <p>No unlinked work items found.</p>}</div></details>
     </div>}
-    <p className="artifact-history-note">Links are retained in both directions. Linking and sensitivity changes are recorded in the audit log.</p>
+    <p className="artifact-history-note">Links are retained in both directions. Tag, linking and sensitivity changes are recorded in the audit log.</p>
   </div>;
 }
 

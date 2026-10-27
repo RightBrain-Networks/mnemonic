@@ -32,6 +32,7 @@ from .artifact_models import (
     ArtifactToolStatus,
 )
 from .artifact_policy import artifact_access
+from .tag_models import TagNames
 
 GRANT_SECONDS = 300
 UPLOAD_MAX_BYTES = 1024 * 1024 * 1024
@@ -40,6 +41,7 @@ UPLOAD_SCHEME = "MnemonicUpload"
 
 
 class UploadMetadata(ArtifactModel):
+    tags: TagNames | None = None
     filename: ArtifactFilename
     agent_session_id: ArtifactSession
     actor_client: ArtifactClient

@@ -109,7 +109,7 @@ def _admit(request: Request, route: str, headers: Headers) -> None:
     query = request.query_params
     if len(urlencode(query.multi_items(), safe="*").replace("~", "%7E")) > 16_000:
         _reject(400, "Artifact metadata is too large.")
-    if any(key not in keys or len(query.getlist(key)) != 1 for key in query):
+    if any(key not in keys or (key != "tags" and len(query.getlist(key)) != 1) for key in query):
         _reject(400, "The artifact query contains an unsupported or repeated field.")
     if TEXT.fullmatch(route) and not artifact_text_pins(query):
         _reject(400, "Select an artifact passage with a revision and text hash.")
@@ -126,7 +126,7 @@ def _metadata(headers: Headers, method: str, mutation: bool) -> dict[str, Any]:
     allowed = {"agent_session_id", "actor_client"}
     if method != "DELETE":
         allowed |= {"filename", "description", "work_item_id", "related_work_item_ids",
-                    "sensitive", "related_artifact_ids"}
+                    "sensitive", "related_artifact_ids", "tags"}
     try:
         value = decode_file_json(raw.encode("ascii"))
         if not isinstance(value, dict) or not value.keys() <= allowed:

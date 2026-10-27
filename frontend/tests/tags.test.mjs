@@ -75,3 +75,21 @@ test("catalog write confirmations must match the frozen target and every request
   assert.throws(() => assertTagMutationResponse(catalog, "PUT", `${path}/order`, { tag_ids: [] }));
   assert.throws(() => assertTagMutationResponse(catalog, "PUT", `${path}/order`, { tag_ids: [project] }));
 });
+
+test("artifact search preserves and validates its tag conjunction independently of work tags", async () => {
+  const { artifactSearchRequest } = await import("../lib/unified-search.ts");
+  const { matchesArtifactTags } = await import("../lib/artifacts.ts");
+  const { disclosure } = await import("./search-disclosure-fixtures.mjs");
+  const { decodeSearchDisclosure, validateSearchDisclosure } = await import("../lib/search-disclosure.ts");
+  const tags = ["tests", "infra"];
+  const request = artifactSearchRequest("design", true, false, 50, 0, undefined, false, tags, "and");
+  assert.equal(validSearchRequest(request), true);
+  assert.deepEqual(request.filters.artifacts.tags, tags);
+  assert.equal(request.filters.artifacts.tag_mode, "and");
+  assert.equal(matchesArtifactTags({ tags: ["tests"] }, tags, "or"), true);
+  assert.equal(matchesArtifactTags({ tags: ["tests"] }, tags, "and"), false);
+  assert.equal(matchesArtifactTags({ tags: null }, [], "and"), true);
+  const data = decodeSearchDisclosure(disclosure(project, ["artifacts"], { filters: { artifacts: { tags, tag_mode: "and" } } }), project, ["artifacts"]);
+  assert.doesNotThrow(() => validateSearchDisclosure(data, "artifacts", { tags, tag_mode: "and" }));
+  assert.throws(() => validateSearchDisclosure(data, "artifacts", { tags, tag_mode: "or" }));
+});

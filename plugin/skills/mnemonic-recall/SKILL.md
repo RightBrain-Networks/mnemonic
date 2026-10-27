@@ -390,7 +390,9 @@ current revision. For a local copy, call `authorize_artifact_download`, then run
 [download helper](${CLAUDE_PLUGIN_ROOT}/scripts/download_artifact.py) with `--grant-file` and `--dest`
 pointing to a new file in your actual scratchpad; only a compact transfer summary
 enters the session. Do not fetch base64 or extracted text just to save the file.
-For local uploads/replacements, use the bundled
+For artifact uploads or tag edits, call `list_tags(project_id)` and read its
+descriptions before selecting existing names. Explicit `tags: null` clears
+assignments, and omission preserves tags during edits. For local uploads/replacements, use the bundled
 [upload helper](${CLAUDE_PLUGIN_ROOT}/scripts/upload_artifact.py) described in that
 reference: prepare, authorize_artifact_upload with its exact upload_intent, then
 send with a private grant file. No helper API URL/key is needed. Preserve the

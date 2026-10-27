@@ -152,8 +152,13 @@ def test_no_client_credentials_upload_and_lost_response_replay(tmp_path, install
             "pytest",
             "--agent-session-id",
             "upload-session",
+            "--tag",
+            "research",
+            "--tag",
+            "reference",
         )
     )
+    assert prepared["upload_intent"]["metadata"]["tags"] == ["research", "reference"]
     assert prepared["expected_artifact"]["sha256"] == original_sha
     assert json.loads((prepared_dir / "request.json").read_text())["api_origin"] is None
     # Preparation survives later changes to the source.

@@ -1,5 +1,15 @@
 # Operating Mnemonic
 
+Release 0.112.0 and plugin 0.71.0 extend project tags to artifacts and seed six
+editable starter tags in new projects from Fish Food's October 27, 2026 catalog.
+Deploy API, worker, MCP, and dashboard together at Alembic `0068_artifact_tags`.
+Existing artifact assignments start null. Existing projects retain their catalog,
+except for the requested system `dir` description. Metadata edits and catalog
+renames/deletions retain artifact revisions and existing mutation receipts.
+Back up the database before migration; artifact files are unchanged. The tool,
+receipt, browser-mutation, and work-event counts remain unchanged from 0.110.0.
+See [project tags](work-tags.md) for assignment and starter-set behavior.
+
 Release 0.111.0 and plugin 0.70.0 rename the MCP `get_project_settings` tool to
 `get_project`. Its existing policy values move under `settings`; the response
 also includes work counts by display state and tag, all Active work metadata,

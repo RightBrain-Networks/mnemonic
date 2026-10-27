@@ -109,7 +109,7 @@ def parse_artifact_mutation_response(
     replay_values = response.headers.get_list("X-Artifact-Operation-Replayed")
     if replay_values not in ([], ["true"], ["false"]):
         _raise_unexpected_response(method, path, effect=effect)
-    if replay_values == ["true"] and method != "PATCH":
+    if replay_values == ["true"]:
         response = _historical_replay_response(response, method, path)
     return cast(ArtifactRead, _parse_success_response(
         response, ArtifactRead, method, path, effect=effect,
@@ -130,8 +130,11 @@ def _historical_replay_response(
             raise TypeError("Historical artifact receipt must be an object")
         # Only permanent pre-0029 receipts may omit these fields. Never infer them
         # for fresh execution or erase a supplied value that fails strict validation.
-        body.setdefault("sensitive", False)
-        body.setdefault("related_artifact_ids", [])
+        if method != "PATCH":
+            body.setdefault("sensitive", False)
+            body.setdefault("related_artifact_ids", [])
+        # Pre-tag permanent receipts retain their absent assignments.
+        body.setdefault("tags", None)
     except (ValueError, TypeError, RecursionError):
         _raise_unexpected_response(method, path, effect=TransportEffect.RECEIPT_PROTECTED_WRITE)
     return httpx.Response(response.status_code, headers=response.headers,
@@ -193,7 +196,8 @@ def _metadata_matches(result: ArtifactRead, metadata: dict[str, object], *, crea
 def _additional_metadata_matches(result: ArtifactRead, metadata: dict[str, object]) -> bool:
     requested = cast(list[str], metadata.get("related_artifact_ids", []))
     return (set(requested) <= {str(value) for value in result.related_artifact_ids}
-            and ("sensitive" not in metadata or result.sensitive == metadata["sensitive"]))
+            and ("sensitive" not in metadata or result.sensitive == metadata["sensitive"])
+            and ("tags" not in metadata or result.tags == metadata["tags"]))
 
 
 async def download_content(

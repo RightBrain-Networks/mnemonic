@@ -63,3 +63,11 @@ class ProjectTagList(BaseModel):
         if self.items != sorted(self.items, key=lambda item: item.menu_order):
             raise ValueError("Tag catalog must follow menu order.")
         return self
+
+
+def tags_match(assigned: list[str] | None, selected: list[str] | None, mode: TagMode) -> bool:
+    """Verify requested tag scope without assuming assignment order."""
+    if selected is None:
+        return True
+    present = set(assigned or [])
+    return set(selected) <= present if mode == "and" else bool(present.intersection(selected))

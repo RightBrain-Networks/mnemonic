@@ -57,8 +57,10 @@ for independent filters. Decision searches default to current revisions; use
 Use `list_tags(project_id)` for the available tag vocabulary, descriptions, colors,
 and menu order. Before creating new work through the save workflow, read those
 descriptions and choose appropriate existing names or explicit `tags: null`.
-The `work_items` filter supports `tags` (existing names) and `tag_mode="or"` or
-`"and"`; `tag_counts` requests counts for matching current work assignments
+Both `work_items` and `artifacts` filters support `tags` (existing names) and
+`tag_mode="or"` or
+`"and"`; artifact list/content search also accept these filters. `tag_counts`
+requests counts for matching current work assignments
 and intrinsic work labels (`remediation`, `dir`). Review episodes retain separate
 `list_code_reviews` discovery; a work filter for `code-review` matches explicit
 work assignments, not review episodes. The singular `tag` filter also remains available.

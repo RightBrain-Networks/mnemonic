@@ -14,8 +14,8 @@ previous bundled rubric. Edits are retained in PostgreSQL and project backups.
 Use [unified search](search.md) to retrieve work, artifacts, transcripts, and decisions in one
 ranked, filtered, paginated read through REST or MCP.
 
-This is application/API/MCP/dashboard `0.111.0`, plugin `0.70.0`, and migration
-`0067_project_tags`. See [knowledge graph](knowledge-graph.md) for retained
+This is application/API/MCP/dashboard `0.112.0`, plugin `0.71.0`, and migration
+`0068_artifact_tags`. See [knowledge graph](knowledge-graph.md) for retained
 decision revisions and commit provenance, and [dependency cycles](dependency-cycles.md) for explicit
 parent closure requirements, cycle refusal, and honest deadlock display. The catalog has exactly 79 MCP tools, 25
 protected MCP writes, 38 REST receipt kinds, 32 protected browser mutations and
@@ -346,7 +346,7 @@ Attention counts exclude resolved questions. The Active array and summaries are
 not paginated; no page of work, attention questions, or decision documents needs
 to be retrieved to obtain these totals.
 
-Release 0.111.0 removes the MCP name `get_project_settings`. Callers must use
+Release 0.112.0 removes the MCP name `get_project_settings`. Callers must use
 `get_project` and read its nested `settings`. The existing REST project and
 settings endpoints keep their representations. Authored prompt text is omitted
 from the overview; retrieve it with `get_prompt`. This read does not claim work

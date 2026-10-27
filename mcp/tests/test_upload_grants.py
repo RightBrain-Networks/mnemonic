@@ -69,6 +69,7 @@ def receipt(request, uploaded):
             "related_work_item_ids": [],
             "related_artifact_ids": [],
             "sensitive": False,
+            "tags": data.get("tags"),
             "content_available": True,
             "created_at": NOW,
             "modified_at": NOW,

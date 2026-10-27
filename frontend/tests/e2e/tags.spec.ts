@@ -31,23 +31,26 @@ test("project tags can be managed, ordered, selected and combined on work items"
     await expect(page.locator("#project-select")).toHaveValue(project.id);
     await page.goto("/settings/tags");
     const list = page.getByRole("list", { name: "Project tags" });
-    await expect(list.getByRole("listitem")).toHaveCount(3);
+    await expect(list.getByRole("listitem")).toHaveCount(9);
     for (const name of ["code-review", "remediation", "dir"]) {
       const row = list.getByRole("listitem").filter({ has: page.locator(".work-tag", { hasText: new RegExp(`^${name}$`) }) });
       await expect(row.getByText("System", { exact: true })).toBeVisible();
       await expect(row.getByRole("button", { name: "Edit", exact: true })).toHaveCount(0);
       await expect(row.getByRole("button", { name: "Delete", exact: true })).toHaveCount(0);
     }
+    const initialNames = await list.locator(".work-tag").allTextContents();
     await addTag(page, "Needs Design", "Use when design decisions are needed.", "#000000");
     await addTag(page, "Frontend", "Changes to the dashboard.");
     const design = list.getByRole("listitem").filter({ hasText: "needs-design" });
     const frontend = list.getByRole("listitem").filter({ hasText: "frontend" });
     await frontend.getByRole("button", { name: "Move frontend up" }).click();
-    await expect.poll(() => list.locator(".work-tag").allTextContents()).toEqual(["code-review", "remediation", "dir", "frontend", "needs-design"]);
+    await expect.poll(() => list.locator(".work-tag").allTextContents()).toEqual([...initialNames, "frontend", "needs-design"]);
     await frontend.dragTo(list.getByRole("listitem").first());
     await expect(list.locator(".work-tag").first()).toHaveText("frontend");
     await design.getByRole("button", { name: "Edit", exact: true }).click();
-    await page.locator(".tag-edit-form").getByLabel("Description").fill("Work requiring a design review.");
+    await expect(design.getByRole("form", { name: "Edit tag" })).toBeVisible();
+    await expect(page.locator(".tag-settings > .tag-edit-form")).toHaveCount(0);
+    await design.locator(".tag-edit-form").getByLabel("Description").fill("Work requiring a design review.");
     await page.getByRole("button", { name: "Save tag", exact: true }).click();
     await expect(design).toContainText("Work requiring a design review.");
     await page.getByRole("button", { name: "Dismiss notification", exact: true }).click();
@@ -67,7 +70,7 @@ test("project tags can be managed, ordered, selected and combined on work items"
     await filters.getByRole("button", { name: "needs-design", exact: true }).click();
     await expect(cards).toHaveCount(2);
     await filters.getByRole("button", { name: "frontend", exact: true }).click();
-    await expect(cards).toHaveCount(3);
+    await expect(cards).toHaveCount(9);
     await filters.getByText("AND", { exact: true }).click();
     await expect(filters.getByRole("radio", { name: "AND", exact: true })).toBeChecked();
     await expect(cards).toHaveCount(1);

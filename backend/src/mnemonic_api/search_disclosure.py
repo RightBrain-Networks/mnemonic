@@ -39,6 +39,8 @@ class WorkAppliedFilters(DisclosureModel, DateBounds):
 
 
 class ArtifactAppliedFilters(DisclosureModel, DateBounds):
+    tags: list[str] | None = Field(default=None, exclude_if=lambda value: value is None)
+    tag_mode: Literal["or", "and"] = Field(default="or", exclude_if=lambda value: value == "or")
     semantic: bool = Field(default=False, exclude_if=lambda value: value is False)
     artifact_id: UUID | None = None
     work_item_id: UUID | None = None

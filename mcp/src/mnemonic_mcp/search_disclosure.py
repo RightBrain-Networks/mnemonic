@@ -48,6 +48,8 @@ class WorkAppliedFilters(EchoedDateBounds, DisclosureModel):
 
 
 class ArtifactAppliedFilters(EchoedDateBounds, DisclosureModel):
+    tags: TagNames | None = Field(default=None, exclude_if=lambda value: value is None)
+    tag_mode: TagMode = Field(default="or", exclude_if=lambda value: value == "or")
     semantic: StrictBool = Field(default=False, exclude_if=lambda value: value is False)
     artifact_id: UUID | None = None
     work_item_id: UUID | None = None
@@ -216,4 +218,8 @@ def _optional_filters(source) -> set[str]:
         return {name for name, default in (
             ("status_scope", "effective"), ("tags", None), ("tag_mode", "or"),
         ) if getattr(source, name) == default}
-    return {"semantic"} if isinstance(source, ArtifactAppliedFilters) and not source.semantic else set()
+    if isinstance(source, ArtifactAppliedFilters):
+        return {name for name, default in (
+            ("semantic", False), ("tags", None), ("tag_mode", "or"),
+        ) if getattr(source, name) == default}
+    return set()

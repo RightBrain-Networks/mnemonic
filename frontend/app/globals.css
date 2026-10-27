@@ -2851,11 +2851,21 @@ html[data-theme="dark"] :is(.operational-badge.planning-cycle, .dependency-cycle
 .tag-settings-content p { font-size: 12px; margin: 7px 0 0; color: var(--muted); }
 .tag-system-note { font-size: 10px; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
 .tag-row-actions { display: flex; gap: 6px; align-items: center; }
-.tag-edit-form { margin-top: 18px; border: 1px solid var(--line); border-radius: 12px; padding: 20px; }
-.tag-color-fields { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
-.tag-color-fields input[type="color"] { width: 50px; height: 38px; padding: 3px; }
-.tag-color-fields input:not([type="color"]) { max-width: 130px; }
+.tag-edit-form { width: 100%; min-width: 0; margin-top: 18px; border: 1px solid var(--line); border-radius: 10px; padding: 14px; }
+.tag-edit-inline { margin: 0; padding: 0; border: 0; }
+.tag-edit-fields { display: grid; grid-template-columns: minmax(130px, .65fr) minmax(180px, 1.7fr) auto; align-items: end; gap: 12px; }
+.tag-edit-fields .field { gap: 5px; margin: 0; }
+.tag-edit-footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 10px; }
+.tag-edit-footer .settings-actions { margin: 0; padding: 0; }
+.tag-color-fields { display: flex; align-items: center; gap: 6px; }
+.tag-color-fields input[type="color"] { width: 38px; height: 38px; padding: 3px; flex-shrink: 0; }
+.tag-color-fields input:not([type="color"]) { max-width: 90px; }
+@media (max-width: 850px) {
+  .tag-edit-fields { grid-template-columns: minmax(120px, 1fr) auto; }
+  .tag-edit-description { grid-column: 1 / -1; grid-row: 2; }
+}
 @media (max-width: 650px) {
+  .tag-edit-footer { flex-wrap: wrap; }
   .tag-settings-list > li { flex-wrap: wrap; gap: 9px; }
   .tag-settings-content { flex-basis: calc(100% - 32px); }
   .tag-system-note { margin-left: 25px; }
@@ -2863,3 +2873,11 @@ html[data-theme="dark"] :is(.operational-badge.planning-cycle, .dependency-cycle
   .tag-description { flex-basis: 100%; }
   .tag-selector-option { flex-wrap: wrap; }
 }
+
+.artifact-table .work-tags { display: flex; margin: 8px 0 0 29px; }
+.artifact-tag-editor { margin-bottom: 20px; }
+.artifact-tag-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.artifact-tag-heading h3 { margin: 0; }
+.artifact-tag-editor .settings-actions { margin-top: 12px; }
+.artifact-upload-tags { grid-column: 1 / -1; }
+.artifact-library > .tag-filter-row { padding: 10px 0 14px; }

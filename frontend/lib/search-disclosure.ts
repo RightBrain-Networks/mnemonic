@@ -26,7 +26,7 @@ export type SearchDisclosure = {
 
 function validFilter(source: Source, value: unknown): boolean {
   const row = objectValue(value);
-  if (!row || !exactKeys(row, [...Object.keys(DEFAULT_SEARCH_FILTERS[source]), ...(source === "artifacts" && "semantic" in row ? ["semantic"] : []), ...(source === "work_items" ? ["status_scope", "tags", "tag_mode"].filter((key) => key in row) : []), ...SEARCH_DATE_FIELDS.filter((key) => key in row)]) || !validDateBounds(row, true)) return false;
+  if (!row || !exactKeys(row, [...Object.keys(DEFAULT_SEARCH_FILTERS[source]), ...(source === "artifacts" && "semantic" in row ? ["semantic"] : []), ...(source === "work_items" ? ["status_scope"].filter((key) => key in row) : []), ...(["work_items", "artifacts"].includes(source) ? ["tags", "tag_mode"].filter((key) => key in row) : []), ...SEARCH_DATE_FIELDS.filter((key) => key in row)]) || !validDateBounds(row, true)) return false;
   return Object.entries(row).every(([key, value]) => {
     if (SEARCH_DATE_FIELDS.includes(key as typeof SEARCH_DATE_FIELDS[number])) return value !== null;
     if (key === "status_scope") return value === "work_item";
@@ -86,7 +86,7 @@ export function decodeSearchDisclosure(value: unknown, projectId: string, search
 
 export function validateSearchDisclosure(disclosure: SearchDisclosure, source: Source, expected: Record<string, unknown>, fulltext?: boolean, query?: string, queryMode: QueryMode = "terms"): void {
   const saved = disclosure.applied_filters[source];
-  const applied = saved && source === "work_items" ? { tags: null, tag_mode: "or", ...saved } : saved;
+  const applied = saved && ["work_items", "artifacts"].includes(source) ? { tags: null, tag_mode: "or", ...saved } : saved;
   const interpretation = disclosure.query_interpretation[source];
   if (disclosure.query_interpretation.query_mode !== queryMode || query !== undefined && disclosure.query_interpretation.q !== query.trim()
     || applied && !dateBoundsMatch(applied, expected)

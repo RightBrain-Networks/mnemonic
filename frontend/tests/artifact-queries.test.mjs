@@ -14,7 +14,7 @@ const project = "7a5dc555-0a6d-4f92-9678-1647524827c8";
 const otherProject = "99999999-9999-4999-8999-999999999999";
 const id = "e36a7e53-938f-4c8a-b75a-af9c7331711a";
 const timestamp = "2026-09-16T00:00:00Z";
-const artifact = { id, project_id: project, filename: "report.txt", description: null, revision: 1, size_bytes: 3, sha256: "a".repeat(64), mime_type: "text/plain", created_at: timestamp, modified_at: timestamp, deleted_at: null, content_available: true, created_by_agent_session_id: null, originating_work_item_id: null, related_work_item_ids: [], sensitive: false, related_artifact_ids: [], extraction: { status: "ready", truncated: false, error_code: null, extracted_at: timestamp, metadata: {} } };
+const artifact = { id, project_id: project, filename: "report.txt", description: null, revision: 1, size_bytes: 3, sha256: "a".repeat(64), mime_type: "text/plain", created_at: timestamp, modified_at: timestamp, deleted_at: null, content_available: true, created_by_agent_session_id: null, originating_work_item_id: null, related_work_item_ids: [], tags: null, sensitive: false, related_artifact_ids: [], extraction: { status: "ready", truncated: false, error_code: null, extracted_at: timestamp, metadata: {} } };
 const filters = { projectId: project, search: "", fulltext: false, semantic: false, includeDeleted: false, workItemId: "", sort: "filename", order: "asc", offset: 0, limit: 50 };
 const status = { enabled: true, max_bytes: 64 * 1024 * 1024, message: "Artifact library enabled." };
 const page = { items: [artifact], total: 1, limit: 50, offset: 0 };
@@ -208,4 +208,26 @@ test("passage reads key and validate exact revision/hash/offset and discard sens
   await turn();
   assert.equal(client.getQueryData(options.queryKey), undefined);
   assert.equal(artifactStatusOptions().retry, false);
+});
+
+test("artifact tag filters retain AND scope, reset old rows and verify returned assignments", async (t) => {
+  const requests = [];
+  t.mock.method(globalThis, "fetch", async (url) => {
+    if (url === "/api/artifacts/status") return Response.json(status);
+    requests.push(new URL(url, "https://mnemonic.test"));
+    return Response.json({ ...page, items: [{ ...artifact, tags: ["tests", "infra"] }] });
+  });
+  const client = createClient();
+  t.after(() => client.clear());
+  const scoped = { ...filters, tags: ["tests", "infra"], tagMode: "and" };
+  const read = artifactPageOptions(client, scoped);
+  const result = await client.fetchQuery(read);
+  assert.deepEqual(requests[0].searchParams.getAll("tags"), scoped.tags);
+  assert.equal(requests[0].searchParams.get("tag_mode"), "and");
+  assert.deepEqual(result.page.items[0].tags, scoped.tags);
+  const previous = { queryKey: artifactKeys.page(scoped) };
+  assert.equal(artifactPageOptions(client, { ...scoped, offset: 50 }).placeholderData(result, previous), result);
+  assert.equal(artifactPageOptions(client, { ...scoped, tagMode: "or" }).placeholderData(result, previous), undefined);
+  assert.equal(artifactPageOptions(client, { ...scoped, tags: ["tests"] }).placeholderData(result, previous), undefined);
+  await assert.rejects(client.fetchQuery(artifactPageOptions(client, { ...scoped, tags: ["security"] })), /outside the selected tags/);
 });

@@ -20,7 +20,7 @@ function validFilters(value: unknown): boolean {
     const filter = objectValue(value);
     if (!filter) return false;
     const keys = facet === "work_items" ? ["status_scope", "work_fields", "status", "tag", "tags", "tag_mode", "source_client", "source_session_id", "duplicate_scope", "canonical_work_item_id", "external_url", "semantic"]
-      : facet === "artifacts" ? ["semantic", "work_item_id", "artifact_id", "include_deleted", "sensitive", "mime_type", "created_by_agent_session_id"]
+      : facet === "artifacts" ? ["tags", "tag_mode", "semantic", "work_item_id", "artifact_id", "include_deleted", "sensitive", "mime_type", "created_by_agent_session_id"]
         : ["work_item_id", "agent_session_id", "client", "kind", "status", "content_kinds"];
     if (!allowed(filter, [...keys, ...SEARCH_DATE_FIELDS]) || !validDateBounds(filter)) return false;
     return Object.entries(filter).every(([key, value]) => {

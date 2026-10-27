@@ -544,8 +544,8 @@ Only humans manage definitions in Project settings > Tags. Checkpoint tags are
 historical; current work assignments and intrinsic system tags are separate.
 See [work tags](docs/work-tags.md) for All/OR/AND filters and the legacy reset.
 
-Application/API/MCP/dashboard 0.111.0, plugin 0.70.0 and Alembic
-`0067_project_tags` ship together: 79 MCP tools, 25
+Application/API/MCP/dashboard 0.112.0, plugin 0.71.0 and Alembic
+`0068_artifact_tags` ship together: 79 MCP tools, 25
 receipt-protected MCP writes,
 38 REST receipt kinds, 32 protected browser mutations, 24 event types and three
 plugin skills. Existing projects default to Never/Never/off review settings;

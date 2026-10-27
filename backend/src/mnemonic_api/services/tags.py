@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from mnemonic_api.errors import ApplicationError, conflict, not_found
 from mnemonic_api.models import ProjectTag, WorkDuplicateMerge, WorkItem
 from mnemonic_api.schemas import APIModel
+from mnemonic_api.services.artifact_tags import change_artifact_assignments
 from mnemonic_api.services.work_events import database_now, stage_work_changed
 from mnemonic_api.tag_schemas import TagCatalog, TagCreate, TagDelete, TagOrder, TagPatch
 
@@ -116,6 +117,7 @@ def _change_assignments(database: Session, project_id: UUID, name: str,
         item.updated_at = now
         stage_work_changed(database, item, before=before, requested_fields=["tags"],
                            actor=None, created_at=now)
+    change_artifact_assignments(database, project_id, name, replacement)
     database.flush()
 
 def reorder_tags(database: Session, project_id: UUID, payload: TagOrder) -> TagCatalog:

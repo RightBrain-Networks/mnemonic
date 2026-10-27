@@ -43,6 +43,8 @@ FILTER_KEYS = {
         "semantic",
     ),
     "artifacts": (
+        "tags",
+        "tag_mode",
         "semantic",
         "work_item_id",
         "artifact_id",

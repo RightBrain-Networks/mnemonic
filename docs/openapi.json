@@ -197,6 +197,29 @@
             ],
             "title": "Sensitive"
           },
+          "tag_mode": {
+            "default": "or",
+            "enum": [
+              "or",
+              "and"
+            ],
+            "title": "Tag Mode",
+            "type": "string"
+          },
+          "tags": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tags"
+          },
           "updated_after": {
             "anyOf": [
               {
@@ -1100,6 +1123,16 @@
           "size_bytes": {
             "title": "Size Bytes",
             "type": "integer"
+          },
+          "tags": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AssignedTags"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -1502,6 +1535,16 @@
           "size_bytes": {
             "title": "Size Bytes",
             "type": "integer"
+          },
+          "tags": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AssignedTags"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -1997,6 +2040,16 @@
               }
             ],
             "title": "Sensitive"
+          },
+          "tags": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AssignedTags"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -4191,6 +4244,16 @@
           "sensitive": {
             "title": "Sensitive",
             "type": "boolean"
+          },
+          "tags": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AssignedTags"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -24387,6 +24450,41 @@
           },
           {
             "in": "query",
+            "name": "tags",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "$ref": "#/components/schemas/TagName"
+                  },
+                  "maxItems": 20,
+                  "minItems": 1,
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Tags"
+            }
+          },
+          {
+            "in": "query",
+            "name": "tag_mode",
+            "required": false,
+            "schema": {
+              "default": "or",
+              "enum": [
+                "or",
+                "and"
+              ],
+              "title": "Tag Mode",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
             "name": "q",
             "required": false,
             "schema": {
@@ -24610,6 +24708,21 @@
           "content": {
             "application/json": {
               "schema": {
+                "$defs": {
+                  "AssignedTags": {
+                    "items": {
+                      "$ref": "#/$defs/TagName"
+                    },
+                    "maxItems": 20,
+                    "minItems": 1,
+                    "type": "array"
+                  },
+                  "TagName": {
+                    "maxLength": 50,
+                    "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+                    "type": "string"
+                  }
+                },
                 "additionalProperties": false,
                 "properties": {
                   "actor_client": {
@@ -24758,6 +24871,25 @@
                     "default": false,
                     "title": "Semantic",
                     "type": "boolean"
+                  },
+                  "tag_mode": {
+                    "default": "or",
+                    "enum": [
+                      "or",
+                      "and"
+                    ],
+                    "title": "Tag Mode",
+                    "type": "string"
+                  },
+                  "tags": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/$defs/AssignedTags"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
                   },
                   "updated_after": {
                     "anyOf": [
@@ -28822,6 +28954,32 @@
                               }
                             ],
                             "title": "Sensitive"
+                          },
+                          "tag_mode": {
+                            "default": "or",
+                            "enum": [
+                              "or",
+                              "and"
+                            ],
+                            "title": "Tag Mode",
+                            "type": "string"
+                          },
+                          "tags": {
+                            "anyOf": [
+                              {
+                                "items": {
+                                  "maxLength": 50,
+                                  "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+                                  "type": "string"
+                                },
+                                "maxItems": 20,
+                                "minItems": 1,
+                                "type": "array"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
                           },
                           "updated_after": {
                             "anyOf": [
@@ -33885,6 +34043,32 @@
                               }
                             ],
                             "title": "Sensitive"
+                          },
+                          "tag_mode": {
+                            "default": "or",
+                            "enum": [
+                              "or",
+                              "and"
+                            ],
+                            "title": "Tag Mode",
+                            "type": "string"
+                          },
+                          "tags": {
+                            "anyOf": [
+                              {
+                                "items": {
+                                  "maxLength": 50,
+                                  "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+                                  "type": "string"
+                                },
+                                "maxItems": 20,
+                                "minItems": 1,
+                                "type": "array"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
                           },
                           "updated_after": {
                             "anyOf": [

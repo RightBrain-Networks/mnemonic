@@ -16,7 +16,7 @@ def register_tag_tools(server: FastMCP, api: MnemonicAPI) -> None:
         readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False,
     ))
     async def list_tags(project_id: UUID) -> ProjectTagList:
-        """Read every available project tag, including description, color, menu_order and system identity. Before creating work, query this catalog and read the descriptions to select appropriate tags. Supply selected normalized names in create_work.tags, or explicit null when none apply. Tags can only be created, edited, deleted or reordered by humans in dashboard Project settings > Tags; there are no MCP tag-management writes. Review episodes carry code-review in the dashboard; use list_code_reviews for agent discovery. Assigning code-review to work does not create a review or change lease purpose."""
+        """Read every available project tag, including description, color, menu_order and system identity. Before creating work, uploading an artifact, or changing artifact tags, query this catalog and read the descriptions to select appropriate tags. Supply selected normalized names in create_work.tags or artifact tags, or explicit null when none apply. Tags can only be created, edited, deleted or reordered by humans in dashboard Project settings > Tags; there are no MCP tag-management writes. Review episodes carry code-review in the dashboard; use list_code_reviews for agent discovery. Assigning code-review to work does not create a review or change lease purpose."""
         return cast(ProjectTagList, await api.request(
             "GET", f"projects/{project_id}/tags", response_model=ProjectTagList,
             effect=TransportEffect.SAFE_READ,
