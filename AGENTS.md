@@ -105,13 +105,14 @@ one-off ID needed before dispatch. Explicit IDs and REST receipts retain their
 contracts; prepared upload intents keep their helper-generated IDs. See
 `docs/automatic-uuids.md`. The tool idempotence hint is false for these calls.
 
-The current application/API/MCP/dashboard release is `0.110.0`, Claude plugin
-`0.69.0`, and Alembic head `0067_project_tags`. The catalog is exactly
+The current application/API/MCP/dashboard release is `0.111.0`, Claude plugin
+`0.70.0`, and Alembic head `0067_project_tags`. The catalog is exactly
 79 MCP tools, 25 receipt-protected MCP writes, 38 REST receipt kinds, 32 protected
 browser mutations, 24 work-event types, and three plugin skills. Project priority
 guidance is editable in Settings > Workspace; agents explicitly call
 `get_prompt(project_id, prompt_id="priority-rubric")` when needed. MCP
-`get_project_settings` returns lease/review policy without authored prompts.
+`get_project` returns lease/review policy under `settings` without authored prompts,
+plus aggregate work, Needs Attention, and knowledge-domain summaries.
 Use `get_prompt` with `job-completion-report` and the exact work ID before a
 closeout, retaining its decimal `prompt_revision`; use `request-human-review`
 before authoring or revising Needs Attention prose. All library prompts share

@@ -544,7 +544,7 @@ Only humans manage definitions in Project settings > Tags. Checkpoint tags are
 historical; current work assignments and intrinsic system tags are separate.
 See [work tags](docs/work-tags.md) for All/OR/AND filters and the legacy reset.
 
-Application/API/MCP/dashboard 0.110.0, plugin 0.69.0 and Alembic
+Application/API/MCP/dashboard 0.111.0, plugin 0.70.0 and Alembic
 `0067_project_tags` ship together: 79 MCP tools, 25
 receipt-protected MCP writes,
 38 REST receipt kinds, 32 protected browser mutations, 24 event types and three
@@ -629,7 +629,8 @@ When authoring a report, call `get_prompt` with `prompt_id="job-completion-repor
 `work_item_id` so project and work macros expand together. Keep its decimal `prompt_revision`
 with the closeout intent for exact retries; the template SHA-256 `revision` is a different value.
 Use `prompt_id="request-human-review"` before creating or revising a Needs Attention question.
-`get_project_settings` returns lease and review policy without authored prompts. The priority
+`get_project` returns lease and review policy under `settings`, without authored
+prompts, alongside aggregate work, Needs Attention, and knowledge-domain summaries. The priority
 rubric is retrieved with `prompt_id="priority-rubric"` and remains editable in Settings → Workspace,
 with its customized content in PostgreSQL. Editable task templates require a companion
 filesystem backup; immutable report authoring-prompt snapshots stay in PostgreSQL.

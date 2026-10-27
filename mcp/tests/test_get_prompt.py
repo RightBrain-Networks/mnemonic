@@ -118,9 +118,9 @@ async def test_prompt_help_is_metadata_only_and_old_rubric_tool_is_removed(setti
     assert set(tool.inputSchema["required"]) == {"project_id", "prompt_id"}
     assert "request-human-review" in render_help("get_prompt usage", catalog)
     assert "Consequence of delay" not in render_help("", catalog)
-    assert "job_completion_report_prompt" not in catalog["get_project_settings"].outputSchema[
-        "properties"
-    ]
+    assert "job_completion_report_prompt" not in catalog["get_project"].outputSchema[
+        "$defs"
+    ]["ProjectSettingsValues"]["properties"]
 
 
 def test_rendered_prompt_matches_rest_schema():

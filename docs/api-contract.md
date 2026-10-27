@@ -14,7 +14,7 @@ previous bundled rubric. Edits are retained in PostgreSQL and project backups.
 Use [unified search](search.md) to retrieve work, artifacts, transcripts, and decisions in one
 ranked, filtered, paginated read through REST or MCP.
 
-This is application/API/MCP/dashboard `0.110.0`, plugin `0.69.0`, and migration
+This is application/API/MCP/dashboard `0.111.0`, plugin `0.70.0`, and migration
 `0067_project_tags`. See [knowledge graph](knowledge-graph.md) for retained
 decision revisions and commit provenance, and [dependency cycles](dependency-cycles.md) for explicit
 parent closure requirements, cycle refusal, and honest deadlock display. The catalog has exactly 79 MCP tools, 25
@@ -311,6 +311,47 @@ override; null report prompt resets its effective nonblank default. Omission
 preserves each omitted field. A real change increments revision once, and stale
 edits fail with `project_settings_changed`. These human settings writes remain
 outside the receipt ledger. New projects have a saved default report prompt.
+
+### Project overview
+
+MCP `get_project(project_id)` calls the safe read
+`GET /projects/{project_id}/overview` and returns one project-wide snapshot:
+
+| Field | Contents |
+| --- | --- |
+| `project_id` | The requested project UUID |
+| `settings` | Existing MCP policy values: `project_id`, decimal-string `revision`, the three `lease_*_minutes` fields, both `code_review_*_min_priority` fields, and `allow_remediation_code_reviews` |
+| `work_items_summary.total` | Number of work items included in the state counts |
+| `work_items_summary.counts_by_state` | Counts keyed by current display state, including zero counts |
+| `work_items_summary.active` | All Active items, each with `id`, `title`, `created_at`, `updated_at`, `session_id`, and current `tags` |
+| `work_items_summary.counts_by_tag` | Current catalog tag names mapped to state-count objects with the same keys as `counts_by_state` |
+| `needs_attention.open_count` | Number of open Needs Attention questions |
+| `knowledge_domains` | Each current domain's `id`, `name`, `prefix`, and `decision_document_count` |
+
+State keys are `pending`, `active`, `to-review`, `dropped`, `blocked`, `waiting`,
+`deferred`, `done`, `wont-do`, `promoted`, `deadlocked`, and `duplicate`. These
+follow current display-state rules, including lease expiry, review state,
+dependencies and duplicate aliases; they are not raw stored lifecycle statuses.
+Deleted work is excluded. Tag counts use current assignments, not checkpoint
+history. For example, `work_items_summary.counts_by_tag["code-review"]["done"]`
+gives the Done count for that tag without paging through work. An item with
+multiple tags contributes to each tag, so tag totals need not add up to the
+overall total. Unused catalog tags remain present with zero counts. Each Active
+item's `session_id` identifies its current lease holder; its timestamps describe
+the work item.
+
+Domain counts exclude deleted documents and count each document once, regardless
+of revision count. Empty domains remain present with zero documents. Open Needs
+Attention counts exclude resolved questions. The Active array and summaries are
+not paginated; no page of work, attention questions, or decision documents needs
+to be retrieved to obtain these totals.
+
+Release 0.111.0 removes the MCP name `get_project_settings`. Callers must use
+`get_project` and read its nested `settings`. The existing REST project and
+settings endpoints keep their representations. Authored prompt text is omitted
+from the overview; retrieve it with `get_prompt`. This read does not claim work
+or grant execution authority. Cold reviewers continue to use
+`get_work(status_only=true)` before freezing findings.
 
 ## Prompt library
 
@@ -1497,7 +1538,7 @@ update_work, complete_work, list_completion_evidence, delete_work,
 claim_work, claim_and_recall, renew_claim, release_claim,
 add_relationship, get_relationship, list_relationships, remove_relationship,
 merge_work, suggest_duplicate_work,
-get_activity, get_project_settings, get_prompt, list_job_completion_reports, get_job_completion_report,
+get_activity, get_project, get_prompt, list_job_completion_reports, get_job_completion_report,
 list_work_follow_ups, get_work_follow_up, respond_to_work_follow_up,
 list_code_reviews, get_code_review, complete_code_review
 ```

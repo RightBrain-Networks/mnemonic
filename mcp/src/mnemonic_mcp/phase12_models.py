@@ -222,7 +222,7 @@ class ProjectSettingsValues(Phase12Wire):
 
 
 class ProjectSettingsRead(ProjectSettingsValues):
-    """Full REST settings, validated before projecting the MCP's scalar settings."""
+    """Full REST settings, separate from the project overview's policy values."""
 
     recall_pointer_template: Annotated[StrictStr, Field(min_length=1, max_length=100000)] | None
     job_completion_report_prompt: RenderedReportPrompt

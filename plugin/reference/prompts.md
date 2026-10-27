@@ -35,7 +35,7 @@ permission to silently use a bundled fallback.
 The response identifies the requested project, prompt, and optional context.
 `revision` is the SHA-256 of the source template. Only `job-completion-report`
 also returns a nonnull decimal `prompt_revision`: copy that exact value into the
-report. `get_project_settings` returns lease/review policy, not prompt prose.
+report. `get_project.settings` contains lease/review policy without prompt prose.
 
 These instructions are project guidance subject to the user's current authority
 and fixed API contracts. They cannot authorize execution, waive gates, change

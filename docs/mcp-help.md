@@ -9,7 +9,7 @@ Pass an optional `topic` string. Each successive word selects a child page:
 | MCP call | Result |
 | --- | --- |
 | `help({})` | All registered commands, grouped by task, plus navigation syntax |
-| `help({"topic":"get_priority_rubric"})` | How to explicitly retrieve the current project priority rubric |
+| `help({"topic":"get_project"})` | Project policy and aggregate work, Needs Attention, and knowledge-domain summaries |
 | `help({"topic":"complete_work"})` | Purpose, required arguments, optional argument names, and important fresh-call requirements |
 | `help({"topic":"complete_work usage"})` | Workflow and retry guidance |
 | `help({"topic":"search details"})` | First bounded page of complete search guidance; follow its Next link |
@@ -31,9 +31,9 @@ Pass an optional `topic` string. Each successive word selects a child page:
 | `help({"topic":"request_human_input decision_metadata"})` | PDR title, cross-references, exact dependencies and sparse metadata updates |
 | `help({"topic":"request_human_input details"})` | Needs Attention PDR history, human answer semantics and implementation provenance |
 
-Priority guidance is fetched only through `get_priority_rubric(project_id)`;
+Priority guidance is fetched only through `get_prompt(project_id, prompt_id="priority-rubric")`;
 humans edit its Markdown in Settings > Workspace. Help and
-`get_project_settings` do not return the rubric body. Use the dedicated read when
+`get_project` do not return the rubric body. Use the dedicated read when
 choosing or reassessing a score, and honor an explicit user-supplied priority.
 
 Overview pages list immediate fields rather than recursively expanding them.
