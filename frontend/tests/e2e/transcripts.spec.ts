@@ -13,7 +13,7 @@ async function fixture(api: APIRequestContext, client = "claude-code", limitatio
   const projectResponse = await api.post("/api/v1/projects", { data: { name: `Transcript library ${runId.slice(0, 8)}` } });
   expect(projectResponse.ok(), await projectResponse.text()).toBe(true);
   const project = await projectResponse.json() as { id: string };
-  const workResponse = await api.post(`/api/v1/projects/${project.id}/work-items`, { data: { title: "Index primary and subagent sessions", summary: "Synthetic transcript acceptance fixture.", priority: 4, discovered_from_work_item_id: null, initial_checkpoint: { prompt: "Exercise transcript indexing.", source_client: "claude-code", source_session_id: runId } } });
+  const workResponse = await api.post(`/api/v1/projects/${project.id}/work-items`, { data: { title: "Index primary and subagent sessions", summary: "Synthetic transcript acceptance fixture.", priority: 4, discovered_from_work_item_id: null, tags: null, initial_checkpoint: { prompt: "Exercise transcript indexing.", source_client: "claude-code", source_session_id: runId } } });
   expect(workResponse.ok(), await workResponse.text()).toBe(true);
   const { work_item: work } = await workResponse.json() as { work_item: { id: string; version: number } };
   const folder = `${transcriptRoot}/${runId}`;
@@ -207,7 +207,6 @@ test("transcript rebuild retries preserve the request and block navigation after
     const retry = settings.getByRole("button", { name: "Retry pending rebuild" });
     await expect(retry).toBeEnabled();
     await expect(page.locator("#project-select")).toBeDisabled();
-    await page.getByRole("button", { name: "Tasks", exact: true }).click();
     await page.getByRole("link", { name: "Work items", exact: true }).click();
     await expect(page).toHaveURL(/\/transcripts(?:\?|$)/);
     await retry.click();
@@ -241,7 +240,6 @@ test("transcript rebuild definitive proxy rejection releases navigation without 
     await expect(settings.getByText("Invalid transcript settings request.", { exact: true })).toBeVisible();
     await expect(settings.getByRole("button", { name: "Retry pending rebuild" })).toHaveCount(0);
     await expect(page.locator("#project-select")).toBeEnabled();
-    await page.getByRole("button", { name: "Tasks", exact: true }).click();
     await page.getByRole("link", { name: "Work items", exact: true }).click();
     await expect(page).toHaveURL(/\/work-items(?:\?|$)/);
   } finally { await api.dispose(); }
@@ -320,7 +318,6 @@ test("workspace import retains exact retry requests and allows correcting fresh 
     await expect(retry).toBeEnabled();
     await expect(directory).toBeDisabled();
     await expect(page.locator("#project-select")).toBeDisabled();
-    await page.getByRole("button", { name: "Tasks", exact: true }).click();
     await page.getByRole("link", { name: "Work items", exact: true }).click();
     await expect(page).toHaveURL(/\/transcripts(?:\?|$)/);
     await retry.click();

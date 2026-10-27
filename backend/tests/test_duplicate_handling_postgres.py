@@ -28,16 +28,19 @@ def create_work(
     tags: list[str] | None = None,
     initial_relationships: list[dict] | None = None,
 ) -> dict:
+    from .test_project_tags import catalog_names
+
     response = api.post(
         collection(project),
         json={
             **work_payload,
             "title": title,
             "summary": summary or f"Durable context for {title}.",
+            "tags": catalog_names(api, project, tags or []),
             "initial_checkpoint": {
                 **work_payload["initial_checkpoint"],
                 "source_session_id": f"phase9-{uuid4()}",
-                "tags": tags or [],
+                "tags": [],
             },
             "initial_relationships": initial_relationships or [],
         },

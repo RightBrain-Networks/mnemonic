@@ -109,7 +109,7 @@ test("browser creates, displays, appends, completes, and refreshes declared scop
     await context.getByLabel("Checkpoint text").fill("Invalid scope must fail before UUID freeze.");
     const repositoryContextSummary = context
       .locator(".checkpoint-compose details.edit-context > summary")
-      .filter({ hasText: /^Repository context and tags$/ });
+      .filter({ hasText: /^Repository context$/ });
     await repositoryContextSummary.click();
     await context.getByLabel(/Declared affected paths/).fill("src/**\nunsafe path");
     const requestCount = mutationBodies.length;
@@ -142,7 +142,7 @@ test("browser creates, displays, appends, completes, and refreshes declared scop
     await context.getByLabel("Checkpoint text").fill("Completion scoped evidence.");
     await context
       .locator(".checkpoint-compose details.edit-context > summary")
-      .filter({ hasText: /^Repository context and tags$/ })
+      .filter({ hasText: /^Repository context$/ })
       .click();
     await context.getByLabel("Caller-asserted baseline commit").fill(baseline);
     await context.getByLabel(/Declared affected paths/).fill(completionPaths.join("\n"));
@@ -189,6 +189,7 @@ test("historical checkpoint responses omit scope and display unknown declaration
         priority: 0,
         status: "pending",
         discovered_from_work_item_id: null,
+        tags: null,
         initial_checkpoint: {
           prompt: "Historical sparse checkpoint.",
           source_client: "playwright-api",

@@ -403,7 +403,7 @@ def checkpoint_fields() -> dict:
         "source_session_url": "https://example.com/sessions/3d46fe7a",
         "repository_branch": "feature/cache",
         "verified_against": "abc1234",
-        "tags": ["cache", "correctness"],
+        "tags": [],
         "source_metadata": {"reference": "src/cache.py:42", "author_notes": ["recheck", 2, True]},
     }
 
@@ -413,6 +413,7 @@ def work_payload(checkpoint_fields: dict) -> dict:
     return {
         "discovered_from_work_item_id": None,
         "title": "Investigate stale cache entries",
+        "tags": None,
         "summary": "Cached state survives invalidation after a branch switch.",
         "priority": 30,
         "initial_checkpoint": dict(checkpoint_fields),

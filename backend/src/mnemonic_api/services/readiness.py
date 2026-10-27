@@ -415,15 +415,11 @@ def ready_work_page(
     tag_predicate = ""
     if filters.tag is not None:
         tag_predicate = """
-                  AND EXISTS (
-                      SELECT 1
-                      FROM checkpoints AS tagged_checkpoint
-                      WHERE tagged_checkpoint.work_item_id = work_item.id
-                        AND mnemonic_normalized_tags(tagged_checkpoint.tags)
-                            @> mnemonic_normalized_tags(
-                                ARRAY[CAST(:tag AS varchar)]::varchar[]
-                            )
-                  )
+                  AND (work_item.tags @> ARRAY[CAST(:tag AS varchar)]::varchar[]
+                    OR (:tag='remediation' AND work_item.remediation_depth > 0)
+                    OR (:tag='dir' AND (work_item.decision_review_revision_id IS NOT NULL
+                        OR EXISTS(SELECT 1 FROM decision_changes dc
+                                  WHERE dc.review_work_item_id=work_item.id))))
         """
     parent_predicate = ""
     if filters.parent_work_item_id is not None:
@@ -447,6 +443,8 @@ def ready_work_page(
             eligible AS MATERIALIZED (
                 SELECT
                     work_item.id,
+                    work_item.tags,
+                    work_item.remediation_depth,
                     work_item.title,
                     work_item.external_references,
                     work_item.decision_review_revision_id,
@@ -496,6 +494,14 @@ def ready_work_page(
                         jsonb_build_object(
                             'work_item', jsonb_build_object(
                                 'id', projected.id,
+                                'tags', projected.tags,
+                                'system_tags', to_jsonb(array_remove(ARRAY[
+                                    CASE WHEN projected.remediation_depth > 0
+                                        THEN 'remediation' END,
+                                    CASE WHEN projected.decision_review_revision_id IS NOT NULL
+                                        OR EXISTS(SELECT 1 FROM decision_changes dc
+                                            WHERE dc.review_work_item_id=projected.id)
+                                        THEN 'dir' END], NULL)),
                                 'title', projected.title,
                                     'external_references', projected.external_references,
                                 'decision_review_revision_id',

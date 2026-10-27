@@ -30,6 +30,7 @@ from mnemonic_api.decision_change_schemas import DecisionChangeUpdate
 from mnemonic_api.impact_schemas import ImpactDispositionCreate
 from mnemonic_api.knowledge_management_schemas import DecisionDeletion, DomainDeletion
 from mnemonic_api.knowledge_schemas import DecisionPut, DomainCreate, DomainRename
+from mnemonic_api.tag_schemas import TagCreate, TagDelete, TagOrder, TagPatch
 
 __all__ = [
     "DEFINITIVE_PROXY_ERRORS",
@@ -144,7 +145,8 @@ def _special_error(name: str | None, path: str, method: str, body: JsonObject) -
 
 
 def _knowledge_management_error(name: str | None, method: str, body: JsonObject) -> str | None:
-    models = {"knowledge_domain_delete": DomainDeletion,
+    models = {"tags": TagCreate, "tag": TagDelete if method == "DELETE" else TagPatch,
+              "tag_order": TagOrder, "knowledge_domain_delete": DomainDeletion,
               "knowledge_decision_delete": DecisionDeletion}
     try:
         if name in models:

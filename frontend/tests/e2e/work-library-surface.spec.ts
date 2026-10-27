@@ -151,11 +151,12 @@ async function createWork(
       status: "pending",
       priority: input.priority ?? 23,
       discovered_from_work_item_id: null,
+      tags: null,
       initial_checkpoint: {
         prompt: input.prompt ?? `Immutable starting context for ${input.title}.`,
         source_client: "playwright-api",
         source_session_id: input.sessionId,
-        tags: ["work-surface"],
+        tags: [],
         source_metadata: {}
       }
     }
@@ -1481,86 +1482,28 @@ test("the queue appends pages on scroll while the result count shows the total",
   }
 });
 
-test("More filters collapses on demand and auto-opens when a canonical group forces it", async ({ page }, testInfo) => {
+test("tag filters replace the retired panel while duplicate navigation keeps its scope visible", async ({ page }, testInfo) => {
   const token = searchToken("surfacefilters", testInfo);
   const key = testKey(testInfo);
-  const sourceTitle = `Filter alias ${token}`;
-  const destinationTitle = `Filter canonical ${token}`;
   const client = await apiClient();
   try {
-    const source = await createWork(client, { title: sourceTitle, sessionId: `surface-filters-${key}-alias` });
-    const destination = await createWork(client, { title: destinationTitle, sessionId: `surface-filters-${key}-root` });
+    const source = await createWork(client, { title: `Filter alias ${token}`, sessionId: `surface-filters-${key}-alias` });
+    const destination = await createWork(client, { title: `Filter canonical ${token}`, sessionId: `surface-filters-${key}-root` });
     await mergeDirect(client, source.id, destination.id, `Merged outside the browser for ${key}.`, `surface-filters-${key}`);
-
-    await openDashboard(page);
-    const toggle = page.getByRole("button", { name: "More filters" });
-    const panel = page.locator("#more-filters-panel");
-    await expect(toggle).toHaveAttribute("aria-expanded", "false");
-    await expect(toggle).toHaveAttribute("aria-controls", "more-filters-panel");
-    await expect(toggle).not.toHaveClass(/is-open/);
-    await expect(panel).toHaveCount(0);
-    // The result count moved out of the filter row into the queue header.
-    await expect(page.locator(".filter-row .result-count")).toHaveCount(0);
-    await expect(page.locator(".work-queue-header .result-count")).toHaveText(/root branch/);
-
-    await toggle.click();
-    await expect(toggle).toHaveAttribute("aria-expanded", "true");
-    await expect(toggle).toHaveClass(/is-open/);
-    await expect(panel).toBeVisible();
-    await expect(panel.getByRole("group", { name: "Duplicate records" })).toBeVisible();
-    await expect(panel.getByRole("radio", { name: "Canonical only" })).toBeChecked();
-    const provenance = panel.getByRole("group", { name: "Filter hierarchy by checkpoint provenance" });
-    await expect(provenance.getByLabel("Tag")).toBeVisible();
-    await expect(provenance.getByLabel("Source client")).toBeVisible();
-    await expect(provenance.getByLabel("Source session")).toBeVisible();
-    await expect(panel.locator(".duplicate-group-filter")).toHaveCount(0);
-
-    // A filled provenance field keeps the panel open but never locks it open.
-    await provenance.getByLabel("Source client").fill("playwright-api");
-    await expect(toggle).toHaveAttribute("aria-expanded", "true");
-    await toggle.click();
-    await expect(toggle).toHaveAttribute("aria-expanded", "false");
-    await expect(panel).toHaveCount(0);
-    await toggle.click();
-    await expect(panel).toBeVisible();
-    await expect(provenance.getByLabel("Source client")).toHaveValue("playwright-api");
-    await provenance.getByLabel("Source client").fill("");
-    await toggle.click();
-    await expect(panel).toHaveCount(0);
-
-    // With the panel closed, viewing a duplicate group forces it open again.
-    await page.goto(`/work-items?work=${source.id}`);
-    await expect(page.locator("#project-select")).toHaveValue(state.projectId);
-    const pane = workPane(page);
-    await expect(pane.locator(".detail-title")).toHaveText(sourceTitle);
-    await expect(pane.locator(".duplicate-audit-panel")).toBeVisible();
-    await expect(toggle).toHaveAttribute("aria-expanded", "false");
-    await expect(panel).toHaveCount(0);
-
-    await pane.getByRole("button", { name: "View duplicate group" }).click();
+    await page.goto(`/work-items?project=${state.projectId}&work=${source.id}`);
+    await expect(workPane(page).locator(".duplicate-audit-panel")).toBeVisible();
+    await workPane(page).getByRole("button", { name: "View duplicate group" }).click();
     await expect(page.locator(".work-detail-pane.is-open")).toHaveCount(0);
-    await expect(page).not.toHaveURL(/[?&]work=/);
-    await expect(toggle).toHaveAttribute("aria-expanded", "true");
-    await expect(toggle).toHaveClass(/is-open/);
-    await expect(panel).toBeVisible();
-    const chip = panel.locator(".duplicate-group-filter");
-    await expect(chip).toContainText("Canonical group");
+    await expect(page.getByRole("button", { name: "More filters" })).toHaveCount(0);
+    await expect(page.getByRole("group", { name: "Filter by tags", exact: true })).toBeVisible();
+    const chip = page.locator(".duplicate-group-filter");
     await expect(chip).toContainText(destination.id);
-    await expect(panel.getByRole("radio", { name: "All records" })).toBeChecked();
     await expect(page.locator(".result-count")).toHaveText("2 work records");
     await expect(resultFor(page, source.id)).toHaveCount(1);
     await expect(resultFor(page, destination.id)).toHaveCount(1);
-
-    // The forced state is an effect, not a lock: the user can still collapse it.
-    await toggle.click();
-    await expect(toggle).toHaveAttribute("aria-expanded", "false");
-    await expect(panel).toHaveCount(0);
-    await expect(page.locator(".result-count")).toHaveText("2 work records");
-    await toggle.click();
-    await expect(chip).toContainText(destination.id);
-  } finally {
-    await client.dispose();
-  }
+    await chip.getByRole("button", { name: "Clear group" }).click();
+    await expect(chip).toHaveCount(0);
+  } finally { await client.dispose(); }
 });
 
 test("the work item ID copies from the pane header", async ({ page }, testInfo) => {

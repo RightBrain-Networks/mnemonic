@@ -71,13 +71,11 @@ def _hierarchy_match_sql(
 
     checkpoint_conditions: list[str] = []
     if filters.tag is not None:
-        checkpoint_conditions.append(
-            "EXISTS ("
-            "SELECT 1 FROM unnest(filter_checkpoint.tags) AS candidate_tag(value) "
-            "WHERE lower(candidate_tag.value) = :filter_tag"
-            ")"
-        )
+        conditions.append(_tag_match_sql(":filter_tag"))
         parameters["filter_tag"] = filters.tag
+    tag_clauses, tag_parameters = _multi_tag_match(filters)
+    conditions.extend(tag_clauses)
+    parameters.update(tag_parameters)
     if filters.source_client is not None:
         checkpoint_conditions.append("filter_checkpoint.source_client = :filter_source_client")
         parameters["filter_source_client"] = filters.source_client
@@ -96,6 +94,28 @@ def _hierarchy_match_sql(
     date_clauses, date_parameters = date_sql(filters, "candidate")
     return " AND ".join(conditions + date_clauses), parameters | date_parameters
 
+
+
+
+def _multi_tag_match(filters: WorkItemListQuery | ChildrenListQuery):
+    if not filters.tags:
+        return [], {}
+    predicate = _tag_match_sql("selected_tag.name")
+    source = "SELECT 1 FROM unnest(CAST(:filter_tags AS text[])) selected_tag(name) WHERE "
+    clause = (f"NOT EXISTS ({source} NOT COALESCE({predicate}, false))"
+              if filters.tag_mode == "and" else f"EXISTS ({source} {predicate})")
+    return [clause], {"filter_tags": filters.tags}
+
+def _tag_match_sql(tag: str) -> str:
+    return (
+        "(NOT EXISTS(SELECT 1 FROM work_duplicate_merges tag_alias "
+        "WHERE tag_alias.source_work_item_id=candidate.id) AND ("
+        f"candidate.tags @> ARRAY[{tag}]::varchar[]"
+        f" OR ({tag}='remediation' AND candidate.remediation_depth > 0)"
+        f" OR ({tag}='dir' AND (candidate.decision_review_revision_id IS NOT NULL"
+        " OR EXISTS(SELECT 1 FROM decision_changes dc WHERE dc.review_work_item_id=candidate.id)))"
+        "))"
+    )
 
 def hierarchy_page(
     database: Session,
@@ -497,6 +517,13 @@ def hierarchy_page(
                     jsonb_agg(
                         CASE WHEN :compact THEN jsonb_build_object(
                             'id', page_rows.id, 'project_id', page_rows.project_id,
+                            'tags', page_rows.tags,
+                            'system_tags', to_jsonb(array_remove(ARRAY[
+                                CASE WHEN page_rows.remediation_depth > 0 THEN 'remediation' END,
+                                CASE WHEN page_rows.decision_review_revision_id IS NOT NULL
+                                    OR EXISTS(SELECT 1 FROM decision_changes dc
+                                        WHERE dc.review_work_item_id=page_rows.id)
+                                    THEN 'dir' END], NULL)),
                             'title', page_rows.title, 'status', page_rows.status,
                             'decision_review_revision_id', page_rows.decision_review_revision_id,
                             'decision_review_change_id', (
@@ -573,6 +600,13 @@ def hierarchy_page(
                                 'work_item', jsonb_build_object(
                                     'id', page_rows.id,
                                     'project_id', page_rows.project_id,
+                            'tags', page_rows.tags,
+                            'system_tags', to_jsonb(array_remove(ARRAY[
+                                CASE WHEN page_rows.remediation_depth > 0 THEN 'remediation' END,
+                                CASE WHEN page_rows.decision_review_revision_id IS NOT NULL
+                                    OR EXISTS(SELECT 1 FROM decision_changes dc
+                                        WHERE dc.review_work_item_id=page_rows.id)
+                                    THEN 'dir' END], NULL)),
                                     'title', page_rows.title,
                                     'summary', page_rows.summary,
                                     'external_references', page_rows.external_references,

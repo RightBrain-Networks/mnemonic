@@ -13,7 +13,8 @@ test("search shows checkpoint phrase evidence with its saved source", async ({ p
     const response = await api.post(`/api/v1/projects/${state.projectId}/work-items`, { data: {
       title: "Keep expired lease diagnostics visible", summary: "Record the exact failure and recovery context.",
       status: "pending", priority: 37, discovered_from_work_item_id: null,
-      initial_checkpoint: { prompt: `The command failed with ${token} lease cookie mismatch. Renew the lease before retrying. <script>untrusted source</script>`, source_client: "playwright-api", source_session_id: token, tags: ["search-evidence"] }
+      tags: null,
+      initial_checkpoint: { prompt: `The command failed with ${token} lease cookie mismatch. Renew the lease before retrying. <script>untrusted source</script>`, source_client: "playwright-api", source_session_id: token, tags: [] }
     } });
     expect(response.status(), await response.text()).toBe(201);
     const { work_item: work } = await response.json();

@@ -23,7 +23,8 @@ async function createWork(api: APIRequestContext, project: Project, title: strin
   const response = await api.post(`/api/v1/projects/${project.id}/work-items`, {
     data: { title, summary: "Project backup acceptance", priority: 12,
       discovered_from_work_item_id: null,
-      initial_checkpoint: { prompt: "Preserve this work during a project restore.", source_client: "playwright-api", source_session_id: `backup-${crypto.randomUUID()}`, tags: ["backup-acceptance"], source_metadata: {} } }
+      tags: null,
+      initial_checkpoint: { prompt: "Preserve this work during a project restore.", source_client: "playwright-api", source_session_id: `backup-${crypto.randomUUID()}`, tags: [], source_metadata: {} } }
   });
   expect(response.ok(), await response.text()).toBe(true);
   return (await response.json() as { work_item: Work }).work_item;
@@ -173,7 +174,6 @@ test("a lost backup response blocks duplicate actions until the user reloads and
     await expect(panel.getByRole("alert")).toContainText("The outcome is uncertain.");
     await expect(panel.getByRole("button", { name: "Back up now" })).toBeDisabled();
     await expect(page.locator("#project-select")).toBeDisabled();
-    await page.getByRole("navigation", { name: "Workspace navigation" }).getByRole("button", { name: "Tasks", exact: true }).click();
     await page.getByRole("navigation", { name: "Workspace navigation" }).getByRole("link", { name: "Work items", exact: true }).click();
     await expect(page).toHaveURL(/\/settings\/backups$/);
     const navigation = page.getByRole("navigation", { name: "Workspace navigation" });

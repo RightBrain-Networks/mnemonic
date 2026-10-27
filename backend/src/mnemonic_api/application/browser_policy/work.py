@@ -2,6 +2,8 @@
 
 from typing import Any
 
+from pydantic import TypeAdapter
+
 from mnemonic_api.application.browser_policy.contracts import (
     completion_evidence,
     external_references,
@@ -19,6 +21,16 @@ from mnemonic_api.application.browser_policy.values import (
     text,
     uuid,
 )
+from mnemonic_api.tag_types import AssignedTags
+
+
+def assigned_tags(value: Any) -> bool:
+    try:
+        TypeAdapter(AssignedTags | None).validate_python(value)
+        return True
+    except ValueError:
+        return False
+
 
 OPERATION = "client_operation_id"
 WORK_STATUSES = ("pending", "wont-do", "promoted")
@@ -50,6 +62,7 @@ def work_creation(body: JsonObject) -> bool:
         allowed_keys(
             body,
             [
+                "tags",
                 "title",
                 "summary",
                 "priority",
@@ -63,6 +76,7 @@ def work_creation(body: JsonObject) -> bool:
                 OPERATION,
             ],
         )
+        and optional(body, "tags", assigned_tags)
         and text(body.get("title"), 200)
         and text(body.get("summary"), float("inf"))
         and integer(body.get("priority"), 0, 100)
@@ -147,6 +161,7 @@ def human_review_decision(body: JsonObject) -> bool:
 
 def work_patch(body: JsonObject) -> bool:
     keys = [
+        "tags",
         "expected_version",
         "title",
         "summary",
@@ -168,6 +183,7 @@ def work_patch(body: JsonObject) -> bool:
         OPERATION,
     ]
     changes = [
+        "tags",
         "title",
         "summary",
         "priority",
@@ -192,7 +208,8 @@ def work_patch(body: JsonObject) -> bool:
 
 def _patch_fields(body: JsonObject) -> bool:
     return (
-        optional(body, "external_references", external_references)
+        optional(body, "tags", assigned_tags)
+        and optional(body, "external_references", external_references)
         and optional(body, "title", lambda item: text(item, 200))
         and optional(body, "summary", lambda item: text(item, float("inf")))
         and optional(body, "priority", lambda item: integer(item, 0, 100))

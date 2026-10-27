@@ -402,6 +402,7 @@ def _merge_receipt_body(connection: Connection, merge_id: UUID) -> dict[str, Any
             WorkItem,
             merge.source_work_item_id,
             options=(
+                defer(WorkItem.tags),
                 defer(WorkItem.completion_generation),
                 defer(WorkItem.last_reportable_closeout_version),
                 defer(WorkItem.external_references),
@@ -422,6 +423,7 @@ def _merge_receipt_body(connection: Connection, merge_id: UUID) -> dict[str, Any
             WorkItem,
             merge.destination_work_item_id,
             options=(
+                defer(WorkItem.tags),
                 defer(WorkItem.completion_generation),
                 defer(WorkItem.last_reportable_closeout_version),
                 defer(WorkItem.external_references),

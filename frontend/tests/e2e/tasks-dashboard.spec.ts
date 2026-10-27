@@ -8,7 +8,7 @@ async function capturePage(page: Page, path: string) {
   await page.setViewportSize(viewport);
 }
 
-test("task dashboard separates counts, combines active cards and links to exact task details", async ({ page }, testInfo) => {
+test("task dashboard combines counts and active cards and links to exact task details", async ({ page }, testInfo) => {
   test.setTimeout(90000);
   const api = await request.newContext({ baseURL: process.env.MNEMONIC_E2E_API_URL, extraHTTPHeaders: { Authorization: `Bearer ${process.env.MNEMONIC_E2E_API_KEY}` } });
   try {
@@ -23,8 +23,8 @@ test("task dashboard separates counts, combines active cards and links to exact 
     await claim(api, project.id, review.work_item_id, review.id);
     await createReview(api, project.id, "Review waiting in the backlog");
     await openProject(page, project.id);
-    await expect(page.locator(".task-widget-work_items dd")).toHaveText(["1", "21"]);
-    await expect(page.locator(".task-widget-code_reviews dd")).toHaveText(["1", "1"]);
+    await expect(page.locator(".task-widget-work_items dd")).toHaveText(["2", "22"]);
+    await expect(page.locator(".task-widget-code_reviews")).toHaveCount(0);
     await expect(page.locator(".task-card")).toHaveCount(2);
     await expect(page.locator(".task-card-work_item .task-kind")).toHaveText("Work item");
     await expect(page.locator(".task-card-code_review .task-kind")).toHaveText("Code review");
@@ -41,17 +41,17 @@ test("task dashboard separates counts, combines active cards and links to exact 
     await page.goBack();
     await expect(page.locator(".task-card")).toHaveCount(2);
     await page.locator(".task-card-code_review").getByRole("link", { name: "View", exact: true }).click();
-    await expect(page).toHaveURL(new RegExp(`/code-reviews\\?project=${project.id}&work=${review.work_item_id}&review=${review.id}`));
+    await expect(page).toHaveURL(new RegExp(`/work-items\\?project=${project.id}&work=${review.work_item_id}&review=${review.id}`));
     await expect(page.getByRole("region", { name: "Code review detail" })).toBeVisible();
     await expect(page.locator(".review-state")).toHaveText("Active");
     await page.reload();
     await expect(page.locator(".task-detail-heading h2")).toHaveText("Review the completed navigation changes");
-    await page.getByRole("link", { name: "← Back to code reviews" }).click();
-    await expect(page.locator(".code-review-library .queue-card-title")).toHaveText("Review waiting in the backlog");
-    await page.getByRole("group", { name: "Filter code reviews" }).getByRole("button", { name: "Active", exact: true }).click();
-    await expect(page.locator(".code-review-library .queue-card-title")).toHaveText("Review the completed navigation changes");
+    await page.getByRole("link", { name: "← Back to work items" }).click();
+    await expect(page.locator("[data-review-id] .queue-card-title")).toHaveText("Review waiting in the backlog");
+    await page.getByRole("group", { name: "Filter work items" }).getByRole("button", { name: "Active", exact: true }).click();
+    await expect(page.locator("[data-review-id] .queue-card-title")).toHaveText("Review the completed navigation changes");
     await capturePage(page, testInfo.outputPath("code-reviews.png"));
-    await page.locator(".tasks-nav").getByRole("link", { name: "Work items", exact: true }).click();
+    await page.getByRole("navigation", { name: "Workspace navigation" }).getByRole("link", { name: "Work items" }).click();
     await page.getByRole("group", { name: "Filter work items" }).getByRole("button", { name: "Done", exact: true }).click();
     await expect(page.locator(".queue-card .status-badge")).toHaveText(["Done", "Done"]);
     await expect(page.getByRole("group", { name: "Filter work items" }).getByRole("button", { name: "To review", exact: true })).toHaveCount(0);
@@ -89,25 +89,15 @@ test("application settings hide Nemo by default, persist across routes and resto
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 
-test("tasks menu persists its disclosure state and the dashboard recovers failed reads", async ({ page }) => {
+test("work items is a top-level navigation item and the dashboard recovers failed reads", async ({ page }) => {
   await page.goto("/");
-  const group = page.locator(".tasks-nav");
-  const toggle = group.getByRole("button", { name: "Tasks", exact: true });
-  await expect(group).toHaveAttribute("data-ready", "true");
-  await expect(toggle).toHaveAttribute("aria-expanded", "false");
-  await toggle.focus();
+  const navigation = page.getByRole("navigation", { name: "Workspace navigation" });
+  await expect(navigation.getByRole("button", { name: "Tasks", exact: true })).toHaveCount(0);
+  const link = navigation.getByRole("link", { name: "Work items" });
+  await link.focus();
   await page.keyboard.press("Enter");
-  await page.keyboard.press("Tab");
-  await expect(group.getByRole("link", { name: "Work items", exact: true })).toBeFocused();
-  await page.keyboard.press("Tab");
-  await expect(group.getByRole("link", { name: "Code reviews", exact: true })).toBeFocused();
-  await page.keyboard.press("Enter");
-  await expect(page).toHaveURL("/code-reviews");
-  await page.reload();
-  await expect(toggle).toHaveAttribute("aria-expanded", "true");
-  await toggle.click();
-  await page.reload();
-  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await expect(page).toHaveURL("/work-items");
+  await expect(link).toHaveAttribute("aria-current", "page");
   // Keep background retries failing until the user clicks Retry. Removing the
   // route first lets a live refresh recover and remove the button before click.
   await page.evaluate(() => {

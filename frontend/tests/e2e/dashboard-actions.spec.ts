@@ -20,10 +20,7 @@ async function completedWork(api: APIRequestContext, projectId: string, title: s
 }
 
 async function tasksMenu(page: Page) {
-  const group = page.locator(".tasks-nav");
-  const toggle = group.getByRole("button", { name: "Tasks", exact: true });
-  if (await toggle.getAttribute("aria-expanded") !== "true") await toggle.click();
-  return group;
+  return page.getByRole("navigation", { name: "Workspace navigation" });
 }
 
 test("work card pins survive sorting and reload without selecting the card", async ({ page }, testInfo) => {
@@ -71,12 +68,12 @@ test("summary review split button queues warm and cold reviews and updates sideb
     await page.goto("/summaries");
     await page.locator("#project-select").selectOption(project.id);
     const group = await tasksMenu(page);
-    await expect(group.getByLabel("1 pending work items", { exact: true })).toBeVisible();
-    await expect(group.getByRole("link", { name: "Code reviews", exact: true }).locator(".attention-nav-count")).toHaveCount(0);
+    await expect(group.getByRole("link", { name: "Work items", exact: true }).locator(".attention-nav-count")).toHaveText("1");
+    await expect(group.locator(".tasks-nav")).toHaveCount(0);
     const warmCard = page.getByRole("article", { name: "Report for Summary warm review", exact: true });
     await warmCard.getByRole("button", { name: "Warm review for Summary warm review" }).click();
     await expect(warmCard.getByRole("status")).toContainText("Warm code review queued");
-    await expect(group.getByLabel("1 pending code reviews", { exact: true })).toBeVisible();
+    await expect(group.getByRole("link", { name: "Work items", exact: true }).locator(".attention-nav-count")).toHaveText("2");
     const coldCard = page.getByRole("article", { name: "Report for Summary cold review", exact: true });
     const split = coldCard.getByRole("button", { name: "Choose review mode for Summary cold review" });
     await split.focus(); await page.keyboard.press("ArrowDown");
@@ -94,7 +91,7 @@ test("summary review split button queues warm and cold reviews and updates sideb
     await page.screenshot({ path: testInfo.outputPath("cold-review-scope.png"), animations: "disabled" });
     await dialog.getByRole("button", { name: "Create cold review", exact: true }).click();
     await expect(dialog).toHaveCount(0);
-    await expect(group.getByLabel("2 pending code reviews", { exact: true })).toBeVisible();
+    await expect(group.getByRole("link", { name: "Work items", exact: true }).locator(".attention-nav-count")).toHaveText("3");
     for (const [work, mode] of [[warm, "warm"], [cold, "cold"]] as const) {
       const context = await (await api.get(`/api/v1/projects/${project.id}/work-items/${work.id}/context`)).json();
       expect(context.work_item.status).toBe("done");
@@ -105,8 +102,8 @@ test("summary review split button queues warm and cold reviews and updates sideb
       actor: { actor_client: "dashboard", actor_session_id: "pip-test" }
     } });
     expect(deferred.ok(), await deferred.text()).toBe(true);
-    await expect(group.getByRole("link", { name: "Work items", exact: true }).locator(".attention-nav-count")).toHaveCount(0);
-    await group.getByRole("link", { name: "Code reviews", exact: true }).click();
+    await expect(group.getByRole("link", { name: "Work items", exact: true }).locator(".attention-nav-count")).toHaveText("2");
+    await group.getByRole("link", { name: "Work items", exact: true }).click();
     const reviewCard = page.getByRole("option", { name: "Summary cold review", exact: true });
     await reviewCard.getByRole("button", { name: "Copy recall pointer for Summary cold review" }).click();
     await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toContain("COLD");

@@ -1,5 +1,21 @@
 # Operating Mnemonic
 
+Release 0.110.0 and plugin 0.69.0 replace decorative tags with project tag
+catalogs and current work assignments. Deploy API, worker, MCP, and dashboard
+together at Alembic `0067_project_tags`. The migration intentionally deletes all
+legacy checkpoint tags and initializes existing work assignments to null. It
+seeds immutable `code-review`, `remediation`, and `dir` definitions for each
+project while preserving review lifecycle and decision lineage. Back up before
+migration; lost legacy labels cannot be recovered by a schema downgrade.
+
+The dashboard manages definitions at `/settings/tags`, displays code reviews in
+Work items, and supports All/OR/AND tag filtering. Agents query `list_tags` and
+must declare selected catalog names or explicit null on fresh `create_work`.
+There are 79 MCP tools, 25 protected MCP writes, 38 REST receipt kinds,
+32 protected browser mutations, and 24 work-event types. No MCP tool mutates tag
+definitions. See [work tags](work-tags.md) for the interface and migration details.
+Production interruption still requires explicit operator authorization.
+
 Release 0.109.2 updates the decision-impact-review default for a measured
 60-minute workflow pilot: grouped investigation, concise evidenced conclusions,
 conservative reuse, and checkpoint/release with unfinished obligations retained.
@@ -363,8 +379,8 @@ Migration `0041_artifact_passages` adds rebuildable artifact passage caches; fol
 [semantic artifact upgrade and backfill](artifact-semantic-search.md#coordinated-upgrade).
 Explicit [multi-project search](multi-project-search.md) shares one bounded corpus
 and reports coverage for every selected project.
-Inventory exactly 78 MCP tools,
-25 protected MCP writes, 34 REST receipt kinds, 28 protected browser mutations,
+Inventory exactly 79 MCP tools,
+25 protected MCP writes, 38 REST receipt kinds, 32 protected browser mutations,
 and 24 work-event types. Keep older writers stopped: fresh closeouts still
 require a report and operation UUID, fresh work starts Pending, settings use
 revision checks, and relationship endpoint identity, adjacency, graph guards,

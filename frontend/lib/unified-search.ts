@@ -45,6 +45,7 @@ export function workSearchRequest(input: WorkSearchOptions): SearchRequest {
   for (const [key, value] of Object.entries({ tag: input.tag, source_client: input.sourceClient, source_session_id: input.sourceSessionId, canonical_work_item_id: input.canonicalWorkItemId })) {
     if (value?.trim()) filters[key] = value.trim();
   }
+  if (input.tags?.length) { filters.tags = input.tags; filters.tag_mode = input.tagMode ?? "or"; }
   if (input.statusScope) filters.status_scope = input.statusScope;
   if (q && input.semantic) filters.semantic = true;
   return {

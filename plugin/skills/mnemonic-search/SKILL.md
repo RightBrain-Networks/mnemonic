@@ -54,7 +54,15 @@ Use `facets=["work_items", "artifacts", "decisions", "transcripts"]` to select s
 "decisions": {"domain_ids": ["exact-domain-uuid"], "all_revisions": false}}`
 for independent filters. Decision searches default to current revisions; use
 `all_revisions=true` for historical evidence and retain each result's revision.
-The `work_items` filter also supports tag, source client/session, exact external URL,
+Use `list_tags(project_id)` for the available tag vocabulary, descriptions, colors,
+and menu order. Before creating new work through the save workflow, read those
+descriptions and choose appropriate existing names or explicit `tags: null`.
+The `work_items` filter supports `tags` (existing names) and `tag_mode="or"` or
+`"and"`; `tag_counts` requests counts for matching current work assignments
+and intrinsic work labels (`remediation`, `dir`). Review episodes retain separate
+`list_code_reviews` discovery; a work filter for `code-review` matches explicit
+work assignments, not review episodes. The singular `tag` filter also remains available.
+It also supports source client/session, exact external URL,
 duplicate scope and semantic matching. `sort={"by": "created_at", "direction": "desc"}`
 orders all matches by date; `updated_at` and `relevance` are also available.
 `facet_order=[{"facet": "artifacts", "sort": {"by": "relevance"}},
@@ -144,7 +152,8 @@ evidence that the project has no saved work.
    one current root per duplicate group. Include distinctive
    symptoms, symbols, paths, IDs, or session IDs and try a relevant alternate
    term. Omit `q` to browse. Optional `tag`, `source_client`, and
-   `source_session_id` match any checkpoint. Use `semantic=true` only when
+   `source_session_id` match checkpoint provenance; `tag` matches current assigned
+    and intrinsic system tags. Use `semantic=true` only when
    hybrid lexical/vector retrieval is useful. `status` defaults to `all`.
    Pass `pending`, `active`, `dropped`, `deferred`, `done`, `wont-do`, or
    `promoted` to narrow it; Pending excludes active and dropped leases.

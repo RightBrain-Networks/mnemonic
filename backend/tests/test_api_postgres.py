@@ -16,7 +16,7 @@ pytestmark = pytest.mark.postgres
 # Flat provenance fields live on the checkpoint in the canonical shape; the
 # helpers below fold them back into `initial_checkpoint` so each test reads as
 # one record with the one or two fields it actually varies.
-CHECKPOINT_OVERRIDES = ("prompt", "source_client", "source_session_id", "tags")
+CHECKPOINT_OVERRIDES = ("prompt", "source_client", "source_session_id")
 
 
 def path(project, work_item=None):
@@ -25,6 +25,16 @@ def path(project, work_item=None):
 
 
 def save(api, project, payload, **changes):
+    from .test_project_tags import browser
+
+    for name in changes.get("tags") or []:
+        existing = api.get(f"/api/v1/projects/{project['id']}/tags").json()["items"]
+        if name.strip().lower() not in {item["name"] for item in existing}:
+            response = browser(api, project, "POST", name=name)
+            assert response.status_code == 201, response.text
+    if "tags" in changes:
+        names = (name.strip().lower() for name in changes["tags"])
+        changes["tags"] = list(dict.fromkeys(names)) or None
     checkpoint_changes = {
         field: changes.pop(field) for field in CHECKPOINT_OVERRIDES if field in changes
     }
@@ -229,14 +239,16 @@ def test_literal_identifiers_paths_and_wildcards_are_safe(api, project, work_pay
     attack = api.get(path(project), params={"detail": "full", "q": "'; DROP TABLE work_items;--"})
     assert attack.status_code == 200
     assert api.get(path(project), params={"detail": "full"}).json()["total"] == 2
-    # Tags are normalized and deduplicated on the checkpoint that carries them.
-    assert created["initial_checkpoint"]["tags"] == ["special-tag", "cache"]
+    # Current assignments use normalized catalog names, independently of checkpoint history.
+    assert created["work_item"]["tags"] == ["special-tag", "cache"]
+    assert created["initial_checkpoint"]["tags"] == []
 
 
 def test_pagination_and_combined_filters(api, project, work_payload):
-    first = save(api, project, work_payload, source_session_id="alpha")["work_item"]
-    second = save(api, project, work_payload, source_session_id="beta")["work_item"]
-    save(api, project, work_payload, source_client="opencode", source_session_id="alpha")
+    first = save(api, project, work_payload, source_session_id="alpha", tags=["cache"])["work_item"]
+    second = save(api, project, work_payload, source_session_id="beta", tags=["cache"])["work_item"]
+    save(api, project, work_payload, source_client="opencode",
+         source_session_id="alpha", tags=["cache"])
     save(api, project, work_payload, status="promoted", tags=["cache"])
     result = api.get(
         path(project),

@@ -34,6 +34,7 @@ async function add(api: APIRequestContext, projectId: string, queue: Queue, titl
   const create = await api.post(`/api/v1/projects/${projectId}/work-items`, { data: {
     title, summary: "A disposable dashboard refresh and motion fixture.", priority: 1,
     discovered_from_work_item_id: null,
+    tags: null,
     initial_checkpoint: { prompt: "Check live dashboard updates.", source_client: "playwright-api", source_session_id: "dashboard-motion" }
   } });
   expect(create.ok(), await create.text()).toBe(true);

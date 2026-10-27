@@ -34,6 +34,7 @@ def compact_work_hits(
         dependency_issue=(issues.get(item.id) if item.status not in {"done", "wont-do", "promoted"}
                           and canonical.get(item.id, item.id) == item.id else None),
         id=item.id, project_id=project_id, title=item.title, status=item.status,
+        tags=item.tags, system_tags=item.system_tags,
         decision_review_revision_id=item.decision_review_revision_id,
         decision_review_change_id=item.decision_review_change_id,
         decision_review_project_id=item.decision_review_project_id,

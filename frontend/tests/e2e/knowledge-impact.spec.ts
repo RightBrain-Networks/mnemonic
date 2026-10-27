@@ -13,6 +13,7 @@ async function json(response: Awaited<ReturnType<APIRequestContext["post"]>>) {
 }
 async function work(api: APIRequestContext, projectId: string, title: string) {
   return (await json(await api.post(`/api/v1/projects/${projectId}/work-items`, { data: { title, summary: "Trace decision changes through implementation and reassessment.", priority: 10, discovered_from_work_item_id: null,
+    tags: null,
     initial_checkpoint: { prompt: "Implement the recorded transport decision.", source_client: "playwright-api", source_session_id: "impact-fixture", tags: [], source_metadata: {} } } }))).work_item as { id: string; title: string; version: number };
 }
 async function fixture(api: APIRequestContext) {

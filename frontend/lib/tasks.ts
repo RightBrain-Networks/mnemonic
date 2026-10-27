@@ -1,6 +1,7 @@
 import { decodeLease } from "./readiness-codecs.ts";
 import { exactKeys, finiteInteger, objectValue, sameUuid, validUtcDateTime, validUuid } from "./wire-guards.ts";
 import type { LeasePublic } from "./types.ts";
+import { decodeWorkSummary } from "./work-codecs.ts";
 
 export const taskStatusLabels = {
   pending: "Pending", active: "Active", dropped: "Dropped", deferred: "Deferred",
@@ -12,6 +13,8 @@ export type Task = {
   id: string; kind: TaskKind; project_id: string; work_item_id: string; work_version: number;
   review_state: "requested" | "completed" | "superseded" | null;
   title: string; summary: string; status: TaskStatus; updated_at: string; lease: LeasePublic | null;
+  created_at?: string; priority?: number; tags?: string[] | null; system_tags?: string[];
+  work_summary?: import("./types.ts").WorkSummary;
   decision_review_revision_id?: string | null;
   decision_review_project_id?: string | null;
   decision_review_change_id?: string | null;
@@ -28,7 +31,7 @@ export const TASK_PAGE_SIZE = 20;
 export function taskPath(task: Pick<Task, "kind" | "id" | "project_id" | "work_item_id">): string {
   const query = new URLSearchParams({ project: task.project_id, work: task.work_item_id });
   if (task.kind === "code_review") query.set("review", task.id);
-  return `/${task.kind === "work_item" ? "work-items" : "code-reviews"}?${query}`;
+  return `/work-items?${query}`;
 }
 
 export function decodeTaskPage(value: unknown, projectId: string, status: TaskStatus | "all", kind: TaskKind | undefined, offset: number): TaskPage {
@@ -47,7 +50,7 @@ export function decodeTaskPage(value: unknown, projectId: string, status: TaskSt
   const seen = new Set<string>();
   const items = page.items.map((value) => {
     const row = objectValue(value);
-    if (!row || !exactKeys(row, ["id", "kind", "project_id", "work_item_id", "work_version", "title", "summary", "status", "review_state", "updated_at", "lease", ...["decision_review_revision_id", "decision_review_change_id", "decision_change_ids", "decision_review_project_id"].filter((key) => Object.hasOwn(row, key))])
+    if (!row || !exactKeys(row, ["id", "kind", "project_id", "work_item_id", "work_version", "title", "summary", "status", "review_state", "updated_at", "lease", ...["created_at", "priority", "tags", "system_tags", "work_summary", "decision_review_revision_id", "decision_review_change_id", "decision_change_ids", "decision_review_project_id"].filter((key) => Object.hasOwn(row, key))])
       || row.decision_review_project_id != null && (!validUuid(row.decision_review_project_id) || row.kind !== "work_item")
       || row.decision_review_change_id != null && (!validUuid(row.decision_review_change_id) || row.kind !== "work_item")
       || row.decision_change_ids !== undefined && (!Array.isArray(row.decision_change_ids) || !row.decision_change_ids.every(validUuid) || new Set(row.decision_change_ids).size !== row.decision_change_ids.length)
@@ -67,7 +70,15 @@ export function decodeTaskPage(value: unknown, projectId: string, status: TaskSt
       || lease && (row.kind === "code_review" ? !sameUuid(lease.code_review_id, row.id) : lease.purpose === "code_review")) {
       throw new Error("Mnemonic returned an invalid task lease.");
     }
-    return { ...row, lease } as Task;
+    if (row.created_at !== undefined && !validUtcDateTime(row.created_at)
+      || row.priority !== undefined && !finiteInteger(row.priority)
+      || row.tags != null && (!Array.isArray(row.tags) || !row.tags.every((tag) => typeof tag === "string"))
+      || row.system_tags !== undefined && (!Array.isArray(row.system_tags) || !row.system_tags.every((tag) => typeof tag === "string"))) {
+      throw new Error("Mnemonic returned invalid task tags or ordering metadata.");
+    }
+    const work_summary = row.work_summary === undefined ? undefined : decodeWorkSummary(row.work_summary, projectId);
+    if (work_summary && !sameUuid(work_summary.work_item.id, row.work_item_id)) throw new Error("Mnemonic returned a different task's work summary.");
+    return { ...row, lease, ...(work_summary ? { work_summary } : {}) } as Task;
   });
   return { ...page, items } as TaskPage;
 }

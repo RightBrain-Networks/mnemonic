@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import ColumnElement, func, or_, select
+from sqlalchemy import ColumnElement, func, select
 from sqlalchemy.orm import Session
 
 from mnemonic_api.artifact_index import literal_terms
@@ -27,6 +27,7 @@ from mnemonic_api.search_ranking import search_ranking
 from mnemonic_api.services.compact_work import compact_work_hits
 from mnemonic_api.services.hierarchy import ancestor_paths
 from mnemonic_api.services.readiness import review_status_clause
+from mnemonic_api.services.tags import tag_condition, tag_conditions
 from mnemonic_api.services.work_context import work_summaries
 from mnemonic_api.services.work_evidence import work_match_evidence
 from mnemonic_api.services.work_items import missing_work_item
@@ -68,21 +69,17 @@ def _lease_exists(*conditions: ColumnElement[bool]) -> ColumnElement[bool]:
 
 def provenance_conditions(filters: WorkItemListQuery) -> list[ColumnElement[bool]]:
     on_checkpoint: list[ColumnElement[bool]] = []
-    if filters.tag is not None:
-        on_checkpoint.append(_tag_condition(filters.tag))
+
     if filters.source_client is not None:
         on_checkpoint.append(Checkpoint.source_client == filters.source_client)
     if filters.source_session_id is not None:
         on_checkpoint.append(Checkpoint.source_session_id == filters.source_session_id)
-    return [_checkpoint_exists(*on_checkpoint)] if on_checkpoint else []
-
-
-def _tag_condition(tag: str) -> ColumnElement[bool]:
-    checkpoint_tag = func.unnest(Checkpoint.tags).column_valued("checkpoint_tag")
-    return or_(
-        Checkpoint.tags.contains([tag]),
-        select(1).where(func.lower(checkpoint_tag) == tag).exists(),
-    )
+    conditions = [_checkpoint_exists(*on_checkpoint)] if on_checkpoint else []
+    if filters.tag is not None:
+        conditions.append(tag_condition(filters.tag))
+    if filters.tags:
+        conditions.append(tag_conditions(filters.tags, filters.tag_mode))
+    return conditions
 
 
 def _checkpoint_exists(*conditions: ColumnElement[bool]) -> ColumnElement[bool]:

@@ -27,6 +27,8 @@ class WorkAppliedFilters(DisclosureModel, DateBounds):
         "pending", "active", "to-review", "dropped", "deferred", "done",
         "wont-do", "promoted", "all",
     ] = "all"
+    tags: list[str] | None = Field(default=None, exclude_if=lambda value: value is None)
+    tag_mode: Literal["or", "and"] = Field(default="or", exclude_if=lambda value: value == "or")
     tag: str | None = None
     source_client: str | None = None
     source_session_id: str | None = None

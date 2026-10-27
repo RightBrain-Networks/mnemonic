@@ -78,7 +78,8 @@ def _legacy_behavior(monkeypatch):
 @contextmanager
 def _historical_automatic_review_columns():
     missing = {
-        WorkItem: {"decision_review_revision_id": None, "decision_review_change_id": None,
+        WorkItem: {"tags": None, "decision_review_revision_id": None,
+                   "decision_review_change_id": None,
                    "decision_review_project_id": None, "decision_change_ids": [],
                    "decision_change_projects": {}, "decision_change_inheritance_exclusion": None},
         ProjectSettings: {"automatic_decision_reviews": False, "decision_review_priority": 40},

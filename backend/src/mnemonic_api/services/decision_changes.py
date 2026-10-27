@@ -185,7 +185,7 @@ def scope_checkpoint(
     append_checkpoint_record(database, work, CheckpointCreate(
         kind="progress", prompt=message,
         source_client="mnemonic", source_session_id=f"decision-change:{change.id}",
-        tags=["decision-impact-review"],
+        tags=[],
         source_metadata={"decision_change_id": str(change.id),
                          "scope_version": change.scope_version, **(metadata or {})},
     ))

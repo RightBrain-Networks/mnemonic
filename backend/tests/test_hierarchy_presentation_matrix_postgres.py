@@ -37,15 +37,18 @@ def create_work(
     tags: list[str] | None = None,
     parent: dict | None = None,
 ) -> dict:
+    from .test_project_tags import catalog_names
+
     checkpoint = {
         **base_payload["initial_checkpoint"],
         "prompt": f"Durable hierarchy context for {title}.",
         "source_client": source_client,
         "source_session_id": source_session_id or f"matrix-{title.lower().replace(' ', '-')}",
-        "tags": tags or ["hierarchy-matrix"],
+        "tags": [],
     }
     payload = {
         **base_payload,
+        "tags": catalog_names(api, project, tags or ["hierarchy-matrix"]),
         "title": title,
         "summary": f"Hierarchy matrix objective for {title}.",
         "priority": priority,

@@ -7,7 +7,9 @@ For code reviews, branch by temperature before ordinary recall: the
 [code-review protocol](code-reviews.md) governs mandatory handoff, durable
 originating-session recommendation answers, minimal cold coordination, warm
 adversarial review and one atomic remediation. Reviews are not implementation
-closeouts. The current catalog is 78 tools and 25 protected writes.
+closeouts. The current catalog is 79 tools and 25 protected writes. Dashboard
+review episodes appear in Work items with `code-review`; agents still discover
+and manage those episodes through `list_code_reviews` and the review protocol.
 The [knowledge graph](knowledge-graph.md) retains decision revisions and code
 provenance. After implementing code informed by a decision, append the resulting
 commit hash and exact consulted revision through `decision_scope_append` as each
@@ -95,13 +97,19 @@ the initial Default/Minimum/Maximum is 15/10/120 minutes.
 5. For genuinely new work, prepare a protected mutation intent, then call
    `create_work` with its title, retrieval summary, explicit priority, `pending` status, a
    complete nested initial checkpoint, and any relationships that must exist
-   atomically with the new record. Honor an explicit user score; otherwise call
+   atomically with the new record. First call `list_tags(project_id)`, read the
+   descriptions, and deliberately select appropriate existing names for top-level
+   `tags`, or explicit `tags: null` when none apply. Empty arrays and omitted tags
+   are invalid for fresh creation. Tag definitions are human-managed in Project
+   settings > Tags; no MCP tool creates or edits them. See [work tags](work-tags.md).
+   Honor an explicit user score; otherwise call
    `get_prompt(project_id, prompt_id="priority-rubric")` to choose priority and record its rationale.
    Humans edit this project's Markdown in Settings > Workspace. Ordinary settings
    reads and help omit the rubric body, so fetch it only when needed.
 6. Supply the actual `source_client` and `source_session_id` for the session
    writing that checkpoint. Add model, session URL, branch, checked commit,
-   useful tags, and JSON metadata only when known. If the checkpoint's
+   and JSON metadata only when known. Keep legacy checkpoint `tags` empty; current
+   assignments belong to the work item. If the checkpoint's
    assertions depend on repository content, declare those dependencies in
    ordered `affected_paths` and set `verified_against` only to the commit you
    actually inspected. The branch is display provenance, not an executable ref.

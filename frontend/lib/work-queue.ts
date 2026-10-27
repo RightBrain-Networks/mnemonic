@@ -1,5 +1,4 @@
 import type {
-  DuplicateScope,
   HierarchySummary,
   Page,
   StatusFilter,
@@ -9,7 +8,8 @@ import type {
 
 export const WORK_PAGE_SIZE = 20;
 
-export type WorkQueueItem = WorkSearchHit | HierarchySummary;
+export type ReviewQueueItem = { review_task: import("./tasks.ts").Task; summary: import("./types.ts").WorkSummary };
+export type WorkQueueItem = WorkSearchHit | HierarchySummary | ReviewQueueItem;
 
 export const statusFilterLabels: Record<StatusFilter, string> = {
   pending: "Pending",
@@ -92,20 +92,6 @@ export function mergeWorkPages<T extends WorkQueueEntry>(
   };
 }
 
-export function moreFiltersForced(input: {
-  duplicateScope: DuplicateScope;
-  canonicalWorkItemId: string;
-  tag: string;
-  sourceClient: string;
-  sourceSessionId: string;
-}): boolean {
-  return input.duplicateScope !== "canonical"
-    || Boolean(input.canonicalWorkItemId)
-    || input.tag.trim().length > 0
-    || input.sourceClient.trim().length > 0
-    || input.sourceSessionId.trim().length > 0;
-}
-
 export function resultCountLabel(input: {
   loading: boolean;
   pendingQuery: boolean;
@@ -118,7 +104,7 @@ export function resultCountLabel(input: {
   if (input.flatSearch && input.ranked) return `${input.total} ranked candidate${input.total === 1 ? "" : "s"}`;
   return input.flatSearch
     ? `${input.total} work record${input.total === 1 ? "" : "s"}`
-    : `${input.total} root branch${input.total === 1 ? "" : "es"}`;
+    : `${input.total} work item${input.total === 1 ? "" : "s"}`;
 }
 
 export function sortDescription(sort: WorkSort): string {

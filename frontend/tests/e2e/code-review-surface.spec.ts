@@ -10,8 +10,8 @@ async function setup() {
   return { api, project };
 }
 
-function card(page: Page, title: string) { return page.getByRole("option", { name: title, exact: true }); }
-function filter(page: Page, label: string) { return page.getByRole("group", { name: "Filter code reviews" }).getByRole("button", { name: label, exact: true }); }
+function card(page: Page, title: string) { return page.locator("[data-review-id]").filter({ has: page.getByRole("heading", { name: title, exact: true }) }); }
+function filter(page: Page, label: string) { return page.getByRole("group", { name: "Filter work items" }).getByRole("button", { name: label, exact: true }); }
 async function context(api: APIRequestContext, projectId: string, workId: string) {
   return await (await api.get(`/api/v1/projects/${projectId}/work-items/${workId}/context`)).json();
 }
@@ -22,13 +22,13 @@ test("code review split surface keeps cards mounted, resizes and opens exact det
     const first = await createReview(api, project.id, "Review queue navigation");
     await createReview(api, project.id, "Review retained context");
     await page.goto(`/code-reviews?project=${project.id}`);
-    const queue = page.getByRole("listbox", { name: "Code reviews", exact: true });
+    const queue = page.getByRole("listbox", { name: "Durable work items", exact: true });
     await expect(queue.getByRole("option")).toHaveCount(2);
     await queue.evaluate((element) => element.setAttribute("data-stays-mounted", "true"));
     const narrow = (page.viewportSize()?.width ?? 0) <= 900;
     if (!narrow) {
-      await expect(page.getByRole("heading", { name: "Pick a code review." })).toBeVisible();
-      const resizer = page.getByRole("separator", { name: "Resize the code review queue" });
+      await expect(page.getByRole("heading", { name: "Pick a work item." })).toBeVisible();
+      const resizer = page.getByRole("separator", { name: "Resize the work queue" });
       const before = Number(await resizer.getAttribute("aria-valuenow"));
       await resizer.focus(); await page.keyboard.press("ArrowRight");
       await expect(resizer).toHaveAttribute("aria-valuenow", String(before + 2));
@@ -45,7 +45,7 @@ test("code review split surface keeps cards mounted, resizes and opens exact det
       expect(left.height).toBeGreaterThan(300);
     }
     await page.screenshot({ path: testInfo.outputPath("code-review-split.png"), fullPage: true, animations: "disabled" });
-    await pane.getByRole("link", { name: "← Back to code reviews" }).click();
+    await pane.getByRole("link", { name: "← Back to work items" }).click();
     await card(page, "Review queue navigation").getByRole("button", { name: "Choose an action for Review queue navigation" }).click();
     const menu = page.getByRole("menu", { name: "Actions for Review queue navigation" });
     await expect(menu).toBeVisible();
@@ -126,8 +126,8 @@ test("code review card decisions retry the same request after a lost response", 
     await card(page, "Review retry preservation").getByRole("button", { name: "Defer Review retry preservation", exact: true }).click();
     const retry = page.getByRole("button", { name: "Retry exact request", exact: true });
     await expect(retry).toBeVisible();
-    await page.locator(".tasks-nav").getByRole("link", { name: "Work items", exact: true }).click();
-    await expect(page).toHaveURL(/code-reviews/);
+    await page.getByRole("navigation", { name: "Workspace navigation" }).getByRole("link", { name: "Work items" }).click();
+    await expect(page).toHaveURL(/(?:code-reviews|work-items)/);
     await retry.click();
     await expect(retry).toHaveCount(0);
     expect(bodies).toHaveLength(2); expect(bodies[0]).toBe(bodies[1]);
@@ -171,7 +171,7 @@ test("stale review cards cannot overwrite a newer human decision", async ({ page
   const { api, project } = await setup();
   try {
     const review = await createReview(api, project.id, "Review concurrent decision");
-    const tasks = await (await api.get(`/api/v1/projects/${project.id}/tasks?status=pending&kind=code_review`)).json();
+    const tasks = await (await api.get(`/api/v1/projects/${project.id}/tasks?status=pending&kind=code_review&include_summary=true`)).json();
     await page.route(`**/api/mnemonic/projects/${project.id}/tasks?**`, (route) => route.fulfill({ json: tasks }));
     await page.goto(`/code-reviews?project=${project.id}`);
     const item = card(page, "Review concurrent decision");

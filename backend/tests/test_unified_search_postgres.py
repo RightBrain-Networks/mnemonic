@@ -11,6 +11,7 @@ from .test_artifacts_postgres import artifact_storage as artifact_storage
 from .test_artifacts_postgres import collection as artifact_collection
 from .test_artifacts_postgres import headers, upload
 from .test_leases_postgres import expire_lease
+from .test_project_tags import catalog_names
 from .test_semantic_postgres import DeterministicEmbedder, FailingEmbedder
 from .test_transcript_indexing_postgres import register, run
 from .test_work_items_postgres import create_work, item_path
@@ -113,6 +114,10 @@ def test_facet_groups_have_independent_sorts_and_page_boundary(api, project, mix
 
 def test_filters_are_independent_and_project_scoped(api, project, mixed):
     first, artifact, _, transcript = mixed
+    assigned = api.patch(item_path(project, first), json={
+        "expected_version": first["version"], "tags": catalog_names(api, project, ["cache"]),
+    })
+    assert assigned.status_code == 200, assigned.text
     result = search(api, project, filters={
         "work_items": {"status": "pending", "tag": "CACHE"},
         "artifacts": {"sensitive": False, "created_by_agent_session_id": "origin-session"},

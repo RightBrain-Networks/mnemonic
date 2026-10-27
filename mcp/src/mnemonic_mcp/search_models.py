@@ -40,6 +40,7 @@ from .search_ranking import (
     SemanticDisposition,
     TotalKind,
 )
+from .tag_models import TagMode, TagNames
 from .transcript_models import CompactTranscriptRead, TranscriptRead, TranscriptStatus
 from .transcript_segments import ContentKinds
 
@@ -92,6 +93,8 @@ class WorkSearchFilters(DateBounds, SearchModel):
     work_fields: WorkFields = Field(default_factory=lambda: list(WORK_FIELDS))
     status: SearchStatus = "all"
     tag: Annotated[str, Field(min_length=1, max_length=50)] | None = None
+    tags: TagNames | None = Field(default=None, exclude_if=lambda value: value is None)
+    tag_mode: TagMode = Field(default="or", exclude_if=lambda value: value == "or")
     source_client: ArtifactClient | None = None
     source_session_id: ArtifactSession | None = None
     duplicate_scope: DuplicateScope = "canonical"

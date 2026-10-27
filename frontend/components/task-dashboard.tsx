@@ -12,17 +12,14 @@ export default function TaskDashboard({ projectId, enabled, onNavigate }: {
   const { page, error, busy, retry } = useTaskPage(projectId, "active", undefined, offset, undefined, enabled);
   return <div className="task-dashboard">
     <section className="task-widgets" aria-label="Task overview">
-      {([
-        ["Work items", "work_items", "/work-items", "Work assigned to an agent session."],
-        ["Code reviews", "code_reviews", "/code-reviews", "Adversarial reviews of completed work."]
-      ] as const).map(([label, key, path, description]) => <article className={`task-widget task-widget-${key}`} key={key} aria-label={label}>
-        <div className="task-widget-heading"><h2>{label}</h2><Link href={path} onClick={onNavigate} aria-label={`View ${label.toLowerCase()}`}><span aria-hidden="true">↗</span></Link></div>
-        <p>{description}</p>
+      <article className="task-widget task-widget-work_items" aria-label="Work items">
+        <div className="task-widget-heading"><h2>Work items</h2><Link href="/work-items" onClick={onNavigate} aria-label="View work items"><span aria-hidden="true">↗</span></Link></div>
+        <p>Objectives and reviews assigned to agent sessions.</p>
         <dl className="task-counts">
-          <div><dt><span className="task-active-dot" />Active</dt><dd>{page?.[key].active ?? "—"}</dd></div>
-          <div><dt>Pending</dt><dd>{page?.[key].pending ?? "—"}</dd></div>
+          <div><dt><span className="task-active-dot" />Active</dt><dd>{page ? page.work_items.active + page.code_reviews.active : "—"}</dd></div>
+          <div><dt>Pending</dt><dd>{page ? page.work_items.pending + page.code_reviews.pending : "—"}</dd></div>
         </dl>
-      </article>)}
+      </article>
     </section>
     <section className="active-tasks" aria-labelledby="active-tasks-heading">
       <div className="task-section-heading"><h2 id="active-tasks-heading">Active tasks</h2>{page && <span>{page.total} in progress</span>}</div>

@@ -70,10 +70,10 @@ def test_complete_method_query_inventory_matches_node_and_actual_routes(
 def test_inventory_covers_every_current_machine_template_and_method():
     paths = set()
     for module in vars(routes).values():
-        router = getattr(module, "router", None)
-        if not isinstance(router, APIRouter):
-            continue
-        for route in router.routes:
+        routers = [getattr(module, name, None) for name in ("router", "browser_mutations")]
+        declared = [route for router in routers if isinstance(router, APIRouter)
+                    for route in router.routes]
+        for route in declared:
             if isinstance(route, APIRoute):
                 path = re.sub(
                     r"\{[^}]+\}",

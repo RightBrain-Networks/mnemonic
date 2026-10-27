@@ -1,4 +1,5 @@
 import { validReviewScopeNotice } from "./review-scope-notices.ts";
+import { validTagNames } from "./tags.ts";
 import { validExternalReferences, validSparseReferences, referenceKeys } from "./external-references.ts";
 import type {
   EventWorkStatus,
@@ -151,16 +152,21 @@ function isStatus(value: unknown): value is EventWorkStatus {
   return typeof value === "string" && WORK_STATUSES.has(value as EventWorkStatus);
 }
 
+function validAssignedTags(value: unknown): value is string[] | null {
+  return value === null || validTagNames(value) && value.length > 0 && value.length <= 20;
+}
+
 function validChangeSet(value: unknown): value is WorkEventChangeSet {
   const changes = objectValue(value);
   if (!changes) return false;
   const keys = Object.keys(changes);
-  if (!keys.length || keys.some((key) => !["title", "summary", "priority", "status", "external_references"].includes(key))) {
+  if (!keys.length || keys.some((key) => !["title", "summary", "priority", "status", "external_references", "tags"].includes(key))) {
     return false;
   }
   return keys.every((key) => {
     const change = objectValue(changes[key]);
     if (!change || !exactKeys(change, ["before", "after"])) return false;
+    if (key === "tags") return validAssignedTags(change.before) && validAssignedTags(change.after);
     if (key === "external_references") return validExternalReferences(change.before, true) && validExternalReferences(change.after, true);
     if (key === "priority") {
       return finiteInteger(change.before) && Number(change.before) <= 100
@@ -190,7 +196,8 @@ function validMetadata(eventType: WorkEventType, origin: "live" | "backfill", va
     return exactKeys(metadata, ["initial"])
       && Boolean(initial)
       && validSparseReferences(initial!)
-      && exactKeys(initial!, referenceKeys(initial!, ["title", "summary", "status", "priority", "version"]))
+      && (!Object.hasOwn(initial!, "tags") || validAssignedTags(initial!.tags))
+      && exactKeys(initial!, referenceKeys(initial!, ["title", "summary", "status", "priority", "version", ...(Object.hasOwn(initial!, "tags") ? ["tags"] : [])]))
       && boundedText(initial!.title, 200)
       && boundedText(initial!.summary, Infinity)
       && ["open", "pending", "deferred", "wont-do", "promoted"].includes(
@@ -787,6 +794,18 @@ export function workEventActorLabel(event: WorkEventRead): string {
   return event.actor_kind === "client" && event.actor_client && event.actor_session_id
     ? `${event.actor_client} · ${event.actor_session_id}`
     : "Unattributed earlier action";
+}
+
+export function workEventTagDescription(event: WorkEventRead): string | null {
+  const metadata = metadataOf(event);
+  const initial = objectValue(metadata.initial);
+  if (initial && Object.hasOwn(initial, "tags") && validAssignedTags(initial.tags)) {
+    return `Initial tags: ${initial.tags?.join(", ") ?? "None"}.`;
+  }
+  const change = objectValue(objectValue(metadata.changes)?.tags);
+  return change && validAssignedTags(change.before) && validAssignedTags(change.after)
+    ? `Tags: ${change.before?.join(", ") ?? "None"} → ${change.after?.join(", ") ?? "None"}.`
+    : null;
 }
 
 export function safeEventBody(event: WorkEventRead): string | null {

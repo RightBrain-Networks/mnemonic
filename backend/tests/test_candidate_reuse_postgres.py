@@ -299,6 +299,7 @@ def test_migration_is_additive_and_refuses_to_discard_reuse_history(api, project
     migrate(postgres_engine, "0066_candidate_reuse")
     after = _retained_rows(postgres_engine)
     assert after.pop("decision_candidate_reuses") == [] and after == before
+    migrate(postgres_engine, "head")
     restate(api, project, target, old, links, replacement)
     retained = _retained_rows(postgres_engine)
     with pytest.raises(RuntimeError, match="Candidate conclusion references"):

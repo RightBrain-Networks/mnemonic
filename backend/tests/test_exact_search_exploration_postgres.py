@@ -8,6 +8,7 @@ from .test_artifact_search_postgres import extract
 from .test_artifact_search_postgres import search as artifact_search
 from .test_artifacts_postgres import artifact_storage as artifact_storage
 from .test_artifacts_postgres import upload
+from .test_project_tags import catalog_names
 from .test_search_diagnostics_postgres import counts
 from .test_search_exploration_postgres import _work_page
 from .test_transcript_query_intent_postgres import capture
@@ -25,7 +26,7 @@ def test_work_positive_diagnostics_obey_fields_dates_and_exact_tag_population(
 ):
     create_work(api, project, work_payload, title="copper zircon")
     first = create_work(api, project, work_payload, title="copper zircon",
-        initial_checkpoint=work_payload["initial_checkpoint"] | {"tags": ["matching"]})["work_item"]
+        tags=catalog_names(api, project, ["matching"]))["work_item"]
     create_work(api, project, work_payload, title="ordinary task", summary="copper zircon")
     options = {"work_fields": ["title"], "created_after": first["created_at"]}
     result = search(api, project, q="copper zircon", query_mode=mode, facets=["work_items"],

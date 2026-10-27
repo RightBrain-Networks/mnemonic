@@ -333,7 +333,7 @@ async def test_knowledge_help_and_catalog_explain_revision_scope_obligation(sett
         lambda request: pytest.fail("Help must be local"),
     )))
     catalog = {tool.name: tool for tool in await server.list_tools()}
-    assert len(catalog) == 78
+    assert len(catalog) == 79
     for name in WRITES:
         tool = catalog[name]
         assert tool.annotations.readOnlyHint is False

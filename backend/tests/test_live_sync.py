@@ -55,6 +55,10 @@ def test_mutation_events_are_scoped_without_record_contents():
         "POST", f"/api/v1/projects/{project_id}/knowledge/changes"
     ) == MutationEvent("work-items")
     assert mutation_event("PUT", f"/api/v1/projects/{project_id}/work-items") is None
+    for method, suffix in (("POST", ""), ("PATCH", f"/{uuid4()}"),
+                           ("DELETE", f"/{uuid4()}"), ("PUT", "/order")):
+        assert mutation_event(method, f"/api/v1/projects/{project_id}/tags{suffix}") == (
+            MutationEvent("projects"))
 
     assert mutation_event("POST", "/api/v1/projects") == MutationEvent("projects")
     assert mutation_event(

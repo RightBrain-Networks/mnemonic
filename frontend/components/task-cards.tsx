@@ -2,6 +2,7 @@
 
 import Link from "@/components/dashboard-link";
 import type { MouseEvent } from "react";
+import WorkTags from "@/components/work-tags";
 import { DecisionReviewBadge } from "@/components/work-item-card";
 import { formatDateTime } from "@/lib/display-time";
 import { taskPath, taskStatusLabels, TASK_PAGE_SIZE, type Task, type TaskPage } from "@/lib/tasks";
@@ -12,6 +13,7 @@ export function TaskCard({ task, onNavigate }: { task: Task; onNavigate: (event:
       <div className="task-card-meta"><span className="task-kind">{task.kind === "work_item" ? "Work item" : "Code review"}</span><DecisionReviewBadge revisionId={task.decision_review_revision_id} changeId={task.decision_review_change_id} /><span className={`status-badge status-${task.status}`}><span />{taskStatusLabels[task.status]}</span></div>
       <h3>{task.title}</h3>
       <p>{task.summary}</p>
+      <WorkTags work={task} />
       <div className="task-card-footnote">{task.lease ? <span>{task.lease.holder_client} · {task.lease.holder_session_id}</span> : <span>Updated {formatDateTime(task.updated_at)}</span>}</div>
     </div>
     <Link className="button button-secondary task-view-link" href={taskPath(task)} onClick={onNavigate}>View<span aria-hidden="true">→</span></Link>

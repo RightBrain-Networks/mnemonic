@@ -42,6 +42,7 @@ test("an active lease is visible without exposing its capability and refreshes a
         status: "pending",
         priority: 23,
         discovered_from_work_item_id: null,
+        tags: null,
         initial_checkpoint: {
           prompt: "This checkpoint must remain separate from the temporary lease.",
           source_client: "dashboard-e2e-seeder",
@@ -50,7 +51,7 @@ test("an active lease is visible without exposing its capability and refreshes a
           source_session_url: null,
           repository_branch: null,
           verified_against: null,
-          tags: ["phase-2", "lease-visibility"],
+          tags: [],
           source_metadata: {}
         }
       }
@@ -191,11 +192,12 @@ test("a human can move work through every manual status", async ({ page }, testI
         status: "pending",
         priority: 19,
         discovered_from_work_item_id: null,
+        tags: null,
         initial_checkpoint: {
           prompt: "A human will temporarily hold this work out of the queue.",
           source_client: "dashboard-e2e-seeder",
           source_session_id: `defer-e2e-${suffix}`,
-          tags: ["deferred", "dashboard"]
+          tags: []
         }
       }
     });
@@ -363,6 +365,7 @@ test("a claim committed before an identity edit is reconciled in the visible det
         status: "pending",
         priority: 24,
         discovered_from_work_item_id: null,
+        tags: null,
         initial_checkpoint: {
           prompt: "Open this ready work for editing before the direct API claim.",
           source_client: "dashboard-e2e-seeder",
@@ -371,7 +374,7 @@ test("a claim committed before an identity edit is reconciled in the visible det
           source_session_url: null,
           repository_branch: null,
           verified_against: null,
-          tags: ["phase-2", "edit-claim-race"],
+          tags: [],
           source_metadata: {}
         }
       }

@@ -282,7 +282,7 @@ def test_populated_legacy_history_backfills_exactly_and_freezes_legacy_tables():
         with engine.connect() as connection:
             assert connection.execute(
                 text("SELECT version_num FROM alembic_version")
-            ).scalar_one() == "0066_candidate_reuse"
+            ).scalar_one() == "0067_project_tags"
             assert connection.execute(text("SELECT to_regclass('handoffs')")).scalar_one() is None
             assert connection.execute(
                 text("SELECT to_regclass('handoff_comments')")
@@ -310,10 +310,7 @@ def test_populated_legacy_history_backfills_exactly_and_freezes_legacy_tables():
             legacy_tag_match = client.get(canonical_base,
                 params={"detail": "full", "tag": "mixedlegacy"})
             assert legacy_tag_match.status_code == 200
-            assert [
-                item["summary"]["work_item"]["id"]
-                for item in legacy_tag_match.json()["items"]
-            ] == [str(open_id)]
+            assert legacy_tag_match.json()["items"] == []
             context = client.get(f"{canonical_base}/{open_id}/context")
             assert context.status_code == 200
             assert context.json()["initial_checkpoint"]["migration_origin"] == (
@@ -321,6 +318,8 @@ def test_populated_legacy_history_backfills_exactly_and_freezes_legacy_tables():
             )
             assert context.json()["initial_checkpoint"]["legacy_record_id"] == str(open_id)
             assert context.json()["initial_checkpoint"]["prompt"] == "Exact open checkpoint."
+            assert context.json()["initial_checkpoint"]["tags"] == []
+            assert context.json()["work_item"]["tags"] is None
 
         # The deterministic collision mapping is stable for this source row.
         with engine.connect() as connection:

@@ -108,6 +108,7 @@ async function create(api: APIRequestContext, id: string, title: string) {
         "Implement the cache change and preserve durable review provenance.",
       priority: 65,
       discovered_from_work_item_id: null,
+      tags: null,
       initial_checkpoint: {
         prompt: "Implement and validate the requested change.",
         source_client: "playwright-api",

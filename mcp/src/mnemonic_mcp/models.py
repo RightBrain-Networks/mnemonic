@@ -33,6 +33,7 @@ from pydantic import (
     model_serializer,
     model_validator,
 )
+from pydantic.experimental.missing_sentinel import MISSING
 from pydantic.json_schema import SkipJsonSchema
 
 from .artifact_models import ArtifactRead
@@ -70,6 +71,7 @@ from .search_disclosure import SearchDetail, SearchDisclosure
 from .search_pagination import SearchPagination
 from .search_query import WorkMatchEvidence
 from .search_ranking import SearchHitRanking, SearchRanking, SemanticDisposition
+from .tag_models import TagNames
 from .transcript_work_models import WorkTranscriptLinks
 from .work_inheritance_schemas import DecisionChangeInheritanceExclusion
 
@@ -971,6 +973,7 @@ class EmptyEventMetadata(CanonicalResponse):
 
 
 class WorkSnapshot(CanonicalResponse):
+    tags: TagNames | None = Field(default=None, exclude_if=lambda value: value is None)
     external_references: ExternalReferences = Field(
         default_factory=list, exclude_if=lambda value: not value,
     )
@@ -1010,7 +1013,13 @@ class ExternalReferencesChange(CanonicalResponse):
     after: ExternalReferences
 
 
+class TagsChange(CanonicalResponse):
+    before: TagNames | None
+    after: TagNames | None
+
+
 class WorkChangeSet(CanonicalResponse):
+    tags: TagsChange | None = None
     title: TitleChange | None = None
     summary: SummaryChange | None = None
     priority: PriorityChange | None = None
@@ -1950,6 +1959,8 @@ def _expected_display_state(readiness: Readiness) -> DisplayState:
 
 
 class WorkItemRead(CanonicalResponse):
+    tags: TagNames | None | MISSING = MISSING
+    system_tags: list[str] | MISSING = MISSING
     decision_change_inheritance_exclusion: DecisionChangeInheritanceExclusion | SkipJsonSchema[
         None
     ] = Field(default=None, exclude_if=lambda value: value is None)
@@ -2571,6 +2582,8 @@ class HumanGatePage(CanonicalResponse):
 
 
 class WorkItemPointer(CanonicalResponse):
+    tags: TagNames | None | MISSING = MISSING
+    system_tags: list[str] | MISSING = MISSING
     decision_review_project_id: UUID | SkipJsonSchema[None] = Field(
         default=None, exclude_if=lambda value: value is None,
     )
@@ -2651,6 +2664,8 @@ class HierarchySummary(CanonicalResponse, SearchHitRanking):
 
 
 class CompactWorkHit(CanonicalResponse, WorkMatchEvidence, SearchHitRanking):
+    tags: TagNames | None | MISSING = MISSING
+    system_tags: list[str] | MISSING = MISSING
     decision_review_project_id: UUID | SkipJsonSchema[None] = Field(
         default=None, exclude_if=lambda value: value is None,
     )
@@ -3798,6 +3813,8 @@ class WorkChanges(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    tags: TagNames | None = None
+
     title: str | None = Field(default=None, min_length=1, max_length=200)
     summary: str | None = Field(default=None, min_length=1)
     priority: int | None = Field(default=None, ge=0, le=100)
@@ -3811,7 +3828,7 @@ class WorkChanges(BaseModel):
         if not self.model_fields_set:
             raise ValueError("Supply at least one editable field in changes.")
         for name in self.model_fields_set:
-            if getattr(self, name) is None:
+            if name != "tags" and getattr(self, name) is None:
                 raise ValueError(f"{name} cannot be null.")
         return self
 

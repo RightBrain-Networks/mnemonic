@@ -27,11 +27,12 @@ async function createFixtureWork(
       status: "pending",
       priority: 17,
       discovered_from_work_item_id: null,
+      tags: null,
       initial_checkpoint: {
         prompt: `Initial context for ${title}.`,
         source_client: "playwright-api",
         source_session_id: sessionId,
-        tags: ["phase-5", "events"],
+        tags: [],
         source_metadata: {}
       }
     }
@@ -102,11 +103,12 @@ test("activity is live, safe text, actor-attributed, and usable at both viewport
         status: "pending",
         priority: 42,
         discovered_from_work_item_id: null,
+        tags: null,
         initial_checkpoint: {
           prompt: `Initial checkpoint text must stay out of activity rows for ${suffix}.`,
           source_client: "playwright-api",
           source_session_id: `phase5-${suffix}`,
-          tags: ["phase-5", "events"],
+          tags: [],
           source_metadata: {}
         }
       }
@@ -120,11 +122,12 @@ test("activity is live, safe text, actor-attributed, and usable at both viewport
         status: "pending",
         priority: 1,
         discovered_from_work_item_id: null,
+        tags: null,
         initial_checkpoint: {
           prompt: `Counterpart context for ${suffix}.`,
           source_client: "playwright-api",
           source_session_id: `phase5-counterpart-${suffix}`,
-          tags: ["phase-5"],
+          tags: [],
           source_metadata: {}
         }
       }

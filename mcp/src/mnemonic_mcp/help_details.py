@@ -54,6 +54,11 @@ DETAILS: dict[str, str] = {
         'and unknown historical model identity. Refetch current state after replay.'
     ),
     'create_work': (
+        'First call list_tags for this project and read each description. Select suitable existing '
+        'tag names in top-level tags, or explicit null when none apply. Empty lists and omitted tags '
+        'are refused on fresh creation. Omission remains parseable only for historical receipts. '
+        'Humans manage the catalog in Project settings > Tags; agents cannot create or edit tags. '
+        'Checkpoint tags are historical only and must be empty on fresh writes. '
         'Every fresh call requires discovered_from_work_item_id: the exact Mnemonic work item '
         'that initiated this session, or explicit null for a human prompt or external trigger. '
         'Preserve that origin through compaction and delegation; reading other work does not '
@@ -318,6 +323,11 @@ DETAILS: dict[str, str] = {
         'read current state when it matters. '
     ),
     'search': (
+        'Use list_tags to read the project tag catalog. filters.work_items.tags selects existing '
+        'names with tag_mode=or (default) or and. Tag filters match current assignments and '
+        'intrinsic work tags (remediation and dir); checkpoint history no longer supplies labels. '
+        'Review episodes retain list_code_reviews discovery; a code-review work filter matches '
+        'explicit work assignments rather than review episodes. '
         'q and query are aliases; supply at most one, up to 1000 characters. Search all project '
         'work items, artifacts, decisions, and transcripts in one ranked, paginated result. Artifact and '
         'transcript matching requires all query terms in the same record, across its selected '
@@ -398,10 +408,10 @@ DETAILS: dict[str, str] = {
         'semantic requires all six fields and unquoted terms. Work excerpts identify matching '
         'member and checkpoint; semantic-only results have no lexical evidence. facet_total_kinds '
         'and facet_score_types label native sources separately from unified scores. Put date '
-        'bounds inside each source filter. tag_counts={limit:50,offset:0} discovers tags on all '
+        'bounds inside each source filter. tag_counts={limit:50,offset:0} counts tags on all '
         'matching work before result pagination and requires work_items in facets. Counts are '
         'distinct canonical identities; selected tags remain applied, and returned members alone '
-        'contribute their checkpoint tags. Tag pagination is independent; follow next_offset. '
+        'contribute their current assigned and intrinsic system tags. Tag pagination is independent; follow next_offset. '
         'filters.artifacts.semantic=true enables paraphrase retrieval with fulltext=true and '
         'nonblank unquoted terms. Artifact embedding coverage reports vector generations and '
         'withheld content; semantic passages carry revision, extracted text_sha256, Unicode '

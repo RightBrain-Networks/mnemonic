@@ -12,6 +12,7 @@ from .test_assessment_batch_postgres import audit_dispositions, batch_body, endp
 from .test_assessment_progress_postgres import review_claim
 from .test_decision_changes_postgres import group
 from .test_decision_reviews_postgres import settings
+from .test_impact_finding_storage_postgres import assert_snapshot_after_tag_reseed
 from .test_impact_findings_postgres import detail, review, summary
 from .test_knowledge_postgres import path
 from .test_product_decision_migration_postgres import migrate
@@ -112,7 +113,7 @@ def test_batch_legacy_omitted_finding_fields_survive_migration_restore_and_exact
     original = _snapshot(postgres_engine, project)
     migrate(postgres_engine, "0062_review_scope_notices", downgrade=True)
     migrate(postgres_engine, "head")
-    assert _snapshot(postgres_engine, project) == original
+    assert_snapshot_after_tag_reseed(_snapshot(postgres_engine, project), original)
     restore_project(postgres_engine, UUID(project["id"]),
                     io.BytesIO(_export(postgres_engine, project)))
     restored = _snapshot(postgres_engine, project)

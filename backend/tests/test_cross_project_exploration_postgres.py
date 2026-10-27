@@ -4,6 +4,7 @@ import pytest
 
 from .test_multi_project_search_postgres import across
 from .test_multi_project_search_postgres import other as other
+from .test_project_tags import catalog_names
 from .test_search_exploration_postgres import _tagged
 from .test_work_items_postgres import create_work
 
@@ -19,7 +20,7 @@ def test_project_union_keeps_tags_diagnostics_dates_and_field_scope_together(
     second = _tagged(api, other, work_payload, "copper zircon", ["shared", "beta"])
     _tagged(api, other, work_payload, "copper feldspar", ["delta"])
     create_work(api, other, work_payload, title="Unrelated", summary="copper zircon",
-                initial_checkpoint=work_payload["initial_checkpoint"] | {"tags": ["decoy"]})
+                tags=catalog_names(api, other, ["decoy"]))
     options = {
         "q": "copper zircon", "query_mode": query_mode, "facets": ["work_items"],
         "filters": {"work_items": {"work_fields": ["title"],

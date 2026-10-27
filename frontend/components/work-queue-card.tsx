@@ -1,5 +1,6 @@
 "use client";
 
+import WorkTags from "@/components/work-tags";
 import {
   createContext,
   useContext,
@@ -157,6 +158,7 @@ export default function WorkQueueCard({ summary, presentation, depth = 0 }: Prop
     </div>
     <h2 className="queue-card-title" id={titleId}>{work.title}</h2>
     <p className="queue-card-summary">{work.summary}</p>
+    <WorkTags work={work} />
     <div className="queue-card-footer">
       <DecisionReviewBadge revisionId={work.decision_review_revision_id} changeId={work.decision_review_change_id} />
       {presentation && descendants > 0 && <span className="queue-chip" title={descendantChipTitle(presentation, depth)}>{descendants} descendant{descendants === 1 ? "" : "s"}</span>}

@@ -111,7 +111,7 @@ def create_decision_review(
             initial_checkpoint=InitialCheckpointCreate(
                 prompt=prompt, source_client="mnemonic",
                 source_session_id=f"decision-revision:{revision.id}",
-                tags=["decision-impact-review"],
+                tags=[],
                 source_metadata={
                     "automatic_decision_review": True,
                     "decision_project_id": str(document.project_id),

@@ -36,6 +36,7 @@ from mnemonic_api.services.relationships import (
     require_no_relationships,
     stage_relationship_locked,
 )
+from mnemonic_api.services.tags import require_assignments
 from mnemonic_api.services.work_events import (
     actor_fields,
     database_now,
@@ -111,6 +112,9 @@ def _checkpoint(
     kind: str,
 ) -> Checkpoint:
     values = payload.model_dump(exclude={"kind", "lease_token", "client_operation_id"})
+    if values["tags"]:
+        raise ApplicationError(422, "checkpoint_tags_retired",
+                               "Edit current work tags using update_work instead.")
     return Checkpoint(work_item_id=work_item_id, kind=kind, **values)
 
 
@@ -137,12 +141,15 @@ def create_work_records(
     else:
         require_project(database, project_id)
         locked_work_items = {}
+    assigned_tags = payload.tags if isinstance(payload.tags, list) else None
+    require_assignments(database, project_id, assigned_tags)
     work_item_id = work_item_id or uuid4()
     initial_checkpoint_id = uuid4()
     work_item = WorkItem(
         id=work_item_id,
         project_id=project_id,
         title=payload.title,
+        tags=assigned_tags,
         summary=payload.summary,
         external_references=[item.model_dump(mode="json") for item in payload.external_references],
         priority=payload.priority,
@@ -156,7 +163,8 @@ def create_work_records(
         id=initial_checkpoint_id,
         work_item_id=work_item_id,
         kind="context",
-        **payload.initial_checkpoint.model_dump(),
+        **payload.initial_checkpoint.model_dump(exclude={"tags"}),
+        tags=[],
     )
     database.add(work_item)
     database.flush()
@@ -350,8 +358,10 @@ def _update_implementation_record(
     )
     before = {
         field: deepcopy(getattr(work_item, field))
-        for field in ("title", "summary", "priority", "status", "external_references")
+        for field in ("title", "summary", "priority", "status", "external_references", "tags")
     }
+    if "tags" in changes:
+        require_assignments(database, work_item.project_id, changes["tags"])
     requested_status = changes.get("status")
     if requested_status is not None and requested_status != work_item.status:
         allowed = {
@@ -438,7 +448,7 @@ def defer_work_record(
     require_no_active_lease(database, work_item.id)
     before = {
         field: deepcopy(getattr(work_item, field))
-        for field in ("title", "summary", "priority", "status", "external_references")
+        for field in ("title", "summary", "priority", "status", "external_references", "tags")
     }
     mutation_time = database_now(database)
     work_item.status = "deferred"
@@ -612,6 +622,12 @@ def move_work_record(
     database.add(move)
     database.flush()
 
+    if work_item.tags:
+        from mnemonic_api.models import ProjectTag
+
+        names = set(database.scalars(select(ProjectTag.name).where(
+            ProjectTag.project_id == payload.target_project_id)))
+        work_item.tags = [tag for tag in work_item.tags if tag in names] or None
     work_item.project_id = payload.target_project_id
     work_item.version = move.resulting_work_version
     work_item.updated_at = mutation_time

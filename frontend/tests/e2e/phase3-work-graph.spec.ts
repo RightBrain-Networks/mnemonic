@@ -52,11 +52,12 @@ test("hierarchy navigation and the relationship editor preserve graph semantics"
         status: "pending",
         priority: 31,
         discovered_from_work_item_id: originId,
+        tags: null,
         initial_checkpoint: {
           prompt: `Immutable starting context for ${title}.`,
           source_client: "playwright-api",
           source_session_id: `phase3-${suffix}`,
-          tags: ["phase-3", "graph"],
+          tags: [],
           source_metadata: {}
         }
       }
@@ -244,7 +245,7 @@ test("hierarchy navigation and the relationship editor preserve graph semantics"
     const discoveredGraph = await openTab(discoveredPane, "Graph");
     await expect(discoveredGraph.getByRole("region", { name: "Discovered from" })).toContainText(titles.discoveryRoot);
     await closeDetail(page);
-    await expect(page.locator(".result-count")).toContainText("root branch");
+    await expect(page.locator(".result-count")).toContainText("work items");
 
     const rootAggregates = descendantChip(rootCard);
     await expect(rootAggregates).toHaveText("2 descendants");
@@ -289,7 +290,7 @@ test("hierarchy navigation and the relationship editor preserve graph semantics"
     // Collapsing and re-expanding a branch refetches only that branch's children;
     // the root queue and its settled total stay untouched.
     const resultCount = page.locator(".result-count");
-    await expect(resultCount).toContainText("root branch");
+    await expect(resultCount).toContainText("work items");
     const rootCount = await resultCount.innerText();
     await page.getByRole("button", { name: `Collapse children of ${titles.child}` }).click();
     await expect(grandchildCard).toHaveCount(0);
@@ -387,11 +388,12 @@ test("the relationship editor links work across projects and opens the target pr
         status: "pending",
         priority: 31,
         discovered_from_work_item_id: null,
+        tags: null,
         initial_checkpoint: {
           prompt: `Immutable starting context for ${title}.`,
           source_client: "playwright-api",
           source_session_id: `phase3-cross-project-${suffix}`,
-          tags: ["phase-3", "cross-project-relationship"],
+          tags: [],
           source_metadata: {}
         }
       }

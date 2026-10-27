@@ -149,7 +149,7 @@ def _completion_payload(
             "source_model": "test-model",
             "repository_branch": "Work/Phase11 Exact",
             "verified_against": "7ad62e4",
-            "tags": ["evidence", "backend"],
+            "tags": [],
             "source_metadata": {"suite": "postgres"},
         },
     }
@@ -231,7 +231,7 @@ def _maximum_escaping_completion_payload(operation_id: str, lease_token: str) ->
             "repository_branch": control * 200,
             "verified_against": "f" * 64,
             "affected_paths": [f"{index:02d}/" + "a" * 253 for index in range(64)],
-            "tags": [control * 48 + f"{index:02d}" for index in range(20)],
+            "tags": [],
             "source_metadata": {"x": control * 2729},
         },
         "lease_token": lease_token,
@@ -1016,7 +1016,7 @@ def test_maximum_escaping_completion_representations_fit_896_kib(
     assert parsed.checkpoint.repository_branch is not None
     assert len(parsed.checkpoint.repository_branch) == 200
     assert len(parsed.checkpoint.affected_paths) == 64
-    assert len(parsed.checkpoint.tags) == 20
+    assert parsed.checkpoint.tags == []
     assert parsed.lease_token is not None and len(parsed.lease_token) == 200
     assert len(parsed.completion_evidence.verification_results) == 20
     assert all(

@@ -538,10 +538,16 @@ startup/investigation and estimate remaining session time for later lease reques
 within the current project bounds. Preserve exact `lease_minutes` arguments on
 uncertain claim retries.
 
-Application/API/MCP/dashboard 0.109.2, plugin 0.68.0 and Alembic
-`0066_candidate_reuse` ship together: 78 MCP tools, 25
+Before every fresh `create_work`, call `list_tags`, read descriptions, and choose
+existing catalog names in top-level `tags`, or explicit null when none apply.
+Only humans manage definitions in Project settings > Tags. Checkpoint tags are
+historical; current work assignments and intrinsic system tags are separate.
+See [work tags](docs/work-tags.md) for All/OR/AND filters and the legacy reset.
+
+Application/API/MCP/dashboard 0.110.0, plugin 0.69.0 and Alembic
+`0067_project_tags` ship together: 79 MCP tools, 25
 receipt-protected MCP writes,
-34 REST receipt kinds, 28 protected browser mutations, 24 event types and three
+38 REST receipt kinds, 32 protected browser mutations, 24 event types and three
 plugin skills. Existing projects default to Never/Never/off review settings;
 do not infer historical review requests. `search_work(status="to-review")` finds
 Done implementation with a requested review or pending recommendation; `done`

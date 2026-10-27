@@ -2,6 +2,8 @@
 
 import { useCallback, useMemo } from "react";
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
+import { useReviewQueuePages } from "@/components/use-review-queue-pages";
+import { combineQueuePages } from "@/lib/combined-work-queue";
 import { useFailedReadRetry } from "@/components/use-failed-read-retry";
 import { errorMessage } from "@/lib/api";
 import { isFlatWorkSearch } from "@/lib/work-item-search";
@@ -28,7 +30,7 @@ export type WorkQueuePages = {
 
 const EMPTY_ITEMS: WorkQueueItem[] = [];
 
-export function useWorkQueuePages({ enabled, ...filters }: WorkQueuePagesInput): WorkQueuePages {
+function useImplementationQueuePages({ enabled, ...filters }: WorkQueuePagesInput): WorkQueuePages {
   const client = useQueryClient();
   const options = workQueueQueryOptions(client, filters);
   const viewKey = JSON.stringify(options.queryKey);
@@ -66,4 +68,21 @@ export function useWorkQueuePages({ enabled, ...filters }: WorkQueuePagesInput):
     retry,
     retryAppend: loadMore
   };
+}
+
+export function useWorkQueuePages(input: WorkQueuePagesInput): WorkQueuePages {
+  const work = useImplementationQueuePages(input);
+  const reviewsEnabled = input.enabled && input.duplicateScope === "canonical" && !input.canonicalWorkItemId;
+  const reviews = useReviewQueuePages(input, reviewsEnabled);
+  const items = combineQueuePages(work.items, reviews.items, { sort: input.sort,
+    pins: input.pinnedWorkItemIds, workHasMore: work.hasMore, reviewsHaveMore: reviews.hasMore,
+    semanticSearch: Boolean(input.search.trim() && input.semantic) });
+  const retry = () => { work.retry(); reviews.retry(); };
+  const loadMore = () => { work.loadMore(); reviews.loadMore(); };
+  return { ...work, items, total: work.total === null || reviews.total === null ? null : work.total + reviews.total,
+    loading: work.loading || reviews.loading, refreshing: work.refreshing || reviews.refreshing,
+    appending: work.appending || reviews.appending,
+    appendError: [work.appendError, reviews.appendError].filter(Boolean).join(" "),
+    hasMore: work.hasMore || reviews.hasMore, error: [work.error, reviews.error].filter(Boolean).join(" "),
+    loadMore, retry, retryAppend: loadMore };
 }

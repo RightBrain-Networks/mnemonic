@@ -22,6 +22,7 @@ test("declared-origin inheritance exclusions remain readable after refresh and c
       title: "Independent tooling follow-up", summary: "Improve review tooling while retaining its discovery source.",
       discovered_from_work_item_id: origin.id, inherit_decision_change: false,
       decision_change_inheritance_reason: reason, client_operation_id: crypto.randomUUID(),
+      tags: null,
       initial_checkpoint: { prompt: "Implement independent tooling.", source_client: "codex", source_session_id: "inheritance-browser-check" },
       initial_relationships: [{ type: "discovered-from", direction: "outgoing", other_work_item_id: origin.id, context_checkpoint_id: checkpoint.id }]
     };

@@ -17,6 +17,8 @@ export type WorkQueueFilters = {
   duplicateScope: DuplicateScope;
   canonicalWorkItemId: string;
   tag: string;
+  tags?: string[];
+  tagMode?: "or" | "and";
   sourceClient: string;
   sourceSessionId: string;
   pinnedWorkItemIds: readonly string[];
@@ -36,10 +38,10 @@ export async function fetchWorkQueuePage(filters: WorkQueueFilters, offset: numb
   const { projectId, status, sort, search, semantic, duplicateScope, canonicalWorkItemId, tag, sourceClient, sourceSessionId, pinnedWorkItemIds } = filters;
   const options = {
     status, statusScope: "work_item" as const, sort, limit: WORK_PAGE_SIZE, offset,
-    query: search, semantic, duplicateScope, tag, sourceClient, sourceSessionId,
+    query: search, semantic, duplicateScope, tag, tags: filters.tags, tagMode: filters.tagMode, sourceClient, sourceSessionId,
     pinnedWorkItemIds, ...(canonicalWorkItemId ? { canonicalWorkItemId } : {})
   };
-  const expectedFilters = { status_scope: "work_item" as const, status, tag: tag.trim() || null, source_client: sourceClient.trim() || null, source_session_id: sourceSessionId.trim() || null };
+  const expectedFilters = { status_scope: "work_item" as const, status, tags: filters.tags?.length ? filters.tags : null, tag_mode: filters.tagMode ?? "or", tag: tag.trim() || null, source_client: sourceClient.trim() || null, source_session_id: sourceSessionId.trim() || null };
   if (isFlatWorkSearch({ query: search, duplicateScope, canonicalWorkItemId })) {
     const value = await api<unknown>(unifiedSearchPath(projectId), {
       method: "POST", body: JSON.stringify(workSearchRequest(options)), signal

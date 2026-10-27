@@ -124,8 +124,11 @@ from mnemonic_api.services.knowledge_receipts import (
     put_decision_matches,
     renamed_domain_matches,
 )
+from mnemonic_api.services.tags import tag_response_matches
+from mnemonic_api.tag_schemas import TagCatalog, TagCreate, TagDelete, TagOrder, TagPatch
 
 type OperationKind = Literal[
+    "create_tag", "update_tag", "delete_tag", "reorder_tags",
     "delete_knowledge_domain", "delete_decision",
     "update_decision_change", "assess_decision_impact", "assess_decision_impact_batch",
     "reconcile_decision_scope",
@@ -149,6 +152,7 @@ type OperationKind = Literal[
     "respond_to_work_follow_up", "complete_code_review",
 ]
 REGISTERED_OPERATION_KINDS: tuple[OperationKind, ...] = (
+    "create_tag", "update_tag", "delete_tag", "reorder_tags",
     "delete_knowledge_domain", "delete_decision",
     "update_decision_change", "assess_decision_impact", "assess_decision_impact_batch",
     "reconcile_decision_scope",
@@ -253,6 +257,10 @@ def _spec(
 
 
 _REGISTRY: dict[OperationKind, OperationSpec] = {
+    "create_tag": _spec("create_tag", TagCreate, TagCatalog, 201),
+    "update_tag": _spec("update_tag", TagPatch, TagCatalog, 200, "tag_id"),
+    "delete_tag": _spec("delete_tag", TagDelete, TagCatalog, 200, "tag_id"),
+    "reorder_tags": _spec("reorder_tags", TagOrder, TagCatalog, 200),
     "delete_knowledge_domain": _spec(
         "delete_knowledge_domain", DomainDeletion, KnowledgeDeletionRead, 200, "domain_id",
         domain_model=DomainDeletionRequest,
@@ -1045,6 +1053,7 @@ def _create_work_matches(
         or work.priority != request.priority
         or work.status != request.status
         or work.external_references != request.external_references
+        or ("tags" in request.model_fields_set and work.tags != request.tags)
         or result.initial_checkpoint.work_item_id != work.id
         or result.initial_checkpoint.id != work.initial_checkpoint_id
         or result.initial_checkpoint.kind != "context"
@@ -1512,6 +1521,8 @@ def _follow_up_matches(project_id: UUID, target: Mapping[str, str],
 
 _RESPONSE_MATCHERS: Mapping[OperationKind, ResponseMatcher] = MappingProxyType(
     {
+        "create_tag": tag_response_matches, "update_tag": tag_response_matches,
+        "delete_tag": tag_response_matches, "reorder_tags": tag_response_matches,
         "delete_knowledge_domain": deletion_matches,
         "delete_decision": deletion_matches,
         "update_decision_change": change_matches,

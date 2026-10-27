@@ -84,6 +84,12 @@ def create_work(
         return endpoint_projects
 
     def execute(domain_payload: WorkItemCreate) -> WorkCreation:
+        if "tags" not in domain_payload.model_fields_set:
+            raise ApplicationError(422, "tags_required",
+                "Supply tags from the project catalog, or explicit null when no tags apply.")
+        if domain_payload.initial_checkpoint.tags:
+            raise ApplicationError(422, "checkpoint_tags_retired",
+                "Assign current work tags at the top level, not on checkpoints.")
         if ("discovered_from_work_item_id" not in payload.model_fields_set
                 and payload.initial_checkpoint.source_client != "dashboard"):
             raise ApplicationError(

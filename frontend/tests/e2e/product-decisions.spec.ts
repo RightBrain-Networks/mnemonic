@@ -19,6 +19,7 @@ async function seed(api: APIRequestContext) {
   const recordTitle = `Product launch enrollment policy ${suffix}`;
   const created = await json<{ work_item: { id: string } }>(await api.post(`${path}/work-items`, { data: {
     title, summary: "Ask the product owner before implementing the launch policy.", discovered_from_work_item_id: null,
+    tags: null,
     initial_checkpoint: { prompt: "The launch behavior requires a product decision.", source_client: "playwright-api", source_session_id: `pdr-${suffix}`, source_model: "test-model", tags: [], source_metadata: {} }
   } }));
   const workId = created.work_item.id;

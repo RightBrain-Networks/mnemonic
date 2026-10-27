@@ -5,7 +5,6 @@ import {
   cycleStatusFilter,
   listScrollTopFor,
   mergeWorkPages,
-  moreFiltersForced,
   nextQueueSelection,
   resultCountLabel,
   sortDescription,
@@ -114,24 +113,6 @@ test("mergeWorkPages keeps one entry per work item when a record straddles a pag
   assert.equal(merged.total, 4);
 });
 
-test("moreFiltersForced opens the panel only when a hidden filter is active", () => {
-  const idle = {
-    duplicateScope: "canonical",
-    canonicalWorkItemId: "",
-    tag: "",
-    sourceClient: "",
-    sourceSessionId: ""
-  };
-  assert.equal(moreFiltersForced(idle), false);
-  assert.equal(moreFiltersForced({ ...idle, tag: "   " }), false);
-  assert.equal(moreFiltersForced({ ...idle, duplicateScope: "aliases" }), true);
-  assert.equal(moreFiltersForced({ ...idle, duplicateScope: "all" }), true);
-  assert.equal(moreFiltersForced({ ...idle, canonicalWorkItemId: "5e0b4b2a-7f6c-4c9a-9a1e-2d3f4a5b6c7d" }), true);
-  assert.equal(moreFiltersForced({ ...idle, tag: "bug" }), true);
-  assert.equal(moreFiltersForced({ ...idle, sourceClient: "claude-code" }), true);
-  assert.equal(moreFiltersForced({ ...idle, sourceSessionId: "session-1" }), true);
-});
-
 test("resultCountLabel reports progress, flat-search records, and hierarchy roots", () => {
   assert.equal(resultCountLabel({ loading: true, pendingQuery: false, flatSearch: false, total: 3 }), "Finding work…");
   assert.equal(resultCountLabel({ loading: false, pendingQuery: true, flatSearch: true, total: 3 }), "Finding work…");
@@ -139,9 +120,9 @@ test("resultCountLabel reports progress, flat-search records, and hierarchy root
   assert.equal(resultCountLabel({ loading: false, pendingQuery: false, flatSearch: true, total: 1 }), "1 work record");
   assert.equal(resultCountLabel({ loading: false, pendingQuery: false, flatSearch: true, total: 3 }), "3 work records");
   assert.equal(resultCountLabel({ loading: false, pendingQuery: false, flatSearch: true, total: 3, ranked: true }), "3 ranked candidates");
-  assert.equal(resultCountLabel({ loading: false, pendingQuery: false, flatSearch: false, total: 1 }), "1 root branch");
-  assert.equal(resultCountLabel({ loading: false, pendingQuery: false, flatSearch: false, total: 6 }), "6 root branches");
-  assert.equal(resultCountLabel({ loading: false, pendingQuery: false, flatSearch: false, total: 0 }), "0 root branches");
+  assert.equal(resultCountLabel({ loading: false, pendingQuery: false, flatSearch: false, total: 1 }), "1 work item");
+  assert.equal(resultCountLabel({ loading: false, pendingQuery: false, flatSearch: false, total: 6 }), "6 work items");
+  assert.equal(resultCountLabel({ loading: false, pendingQuery: false, flatSearch: false, total: 0 }), "0 work items");
 });
 
 test("sortDescription names every sort order", () => {

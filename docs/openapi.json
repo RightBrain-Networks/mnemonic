@@ -2006,6 +2006,14 @@
         "title": "ArtifactUpdateMetadata",
         "type": "object"
       },
+      "AssignedTags": {
+        "items": {
+          "$ref": "#/components/schemas/TagName"
+        },
+        "maxItems": 20,
+        "minItems": 1,
+        "type": "array"
+      },
       "CacheRefresh": {
         "additionalProperties": false,
         "properties": {
@@ -4430,6 +4438,24 @@
             "title": "Status",
             "type": "string"
           },
+          "system_tags": {
+            "items": {
+              "type": "string"
+            },
+            "title": "System Tags",
+            "type": "array"
+          },
+          "tags": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AssignedTags"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tags"
+          },
           "title": {
             "title": "Title",
             "type": "string"
@@ -4988,6 +5014,24 @@
             ],
             "title": "Status",
             "type": "string"
+          },
+          "system_tags": {
+            "items": {
+              "type": "string"
+            },
+            "title": "System Tags",
+            "type": "array"
+          },
+          "tags": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AssignedTags"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tags"
           },
           "title": {
             "title": "Title",
@@ -14897,6 +14941,52 @@
         "title": "ProjectSettingsRead",
         "type": "object"
       },
+      "ProjectTagRead": {
+        "additionalProperties": false,
+        "properties": {
+          "color": {
+            "title": "Color",
+            "type": "string"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "menu_order": {
+            "title": "Menu Order",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "system": {
+            "title": "System",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "project_id",
+          "name",
+          "description",
+          "color",
+          "menu_order",
+          "system"
+        ],
+        "title": "ProjectTagRead",
+        "type": "object"
+      },
       "PromptMacroRead": {
         "additionalProperties": false,
         "properties": {
@@ -17496,6 +17586,34 @@
         "title": "SupersessionDetail",
         "type": "object"
       },
+      "TagCatalog": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ProjectTagRead"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "project_id",
+          "items",
+          "total"
+        ],
+        "title": "TagCatalog",
+        "type": "object"
+      },
       "TagCount": {
         "additionalProperties": false,
         "properties": {
@@ -17585,6 +17703,42 @@
         "title": "TagCountPage",
         "type": "object"
       },
+      "TagName": {
+        "maxLength": 50,
+        "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+        "type": "string"
+      },
+      "TagsChange": {
+        "additionalProperties": false,
+        "properties": {
+          "after": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AssignedTags"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "before": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AssignedTags"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "before",
+          "after"
+        ],
+        "title": "TagsChange",
+        "type": "object"
+      },
       "TaskCounts": {
         "additionalProperties": false,
         "properties": {
@@ -17669,6 +17823,11 @@
       "TaskSummary": {
         "additionalProperties": false,
         "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
           "decision_change_ids": {
             "items": {
               "format": "uuid",
@@ -17736,6 +17895,10 @@
               }
             ]
           },
+          "priority": {
+            "title": "Priority",
+            "type": "integer"
+          },
           "project_id": {
             "format": "uuid",
             "title": "Project Id",
@@ -17775,6 +17938,27 @@
             "title": "Summary",
             "type": "string"
           },
+          "system_tags": {
+            "items": {
+              "type": "string"
+            },
+            "title": "System Tags",
+            "type": "array"
+          },
+          "tags": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tags"
+          },
           "title": {
             "title": "Title",
             "type": "string"
@@ -17789,6 +17973,16 @@
             "title": "Work Item Id",
             "type": "string"
           },
+          "work_summary": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WorkSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "work_version": {
             "minimum": 1.0,
             "title": "Work Version",
@@ -17796,6 +17990,8 @@
           }
         },
         "required": [
+          "created_at",
+          "priority",
           "id",
           "kind",
           "project_id",
@@ -19781,6 +19977,29 @@
             ],
             "title": "Tag"
           },
+          "tag_mode": {
+            "default": "or",
+            "enum": [
+              "or",
+              "and"
+            ],
+            "title": "Tag Mode",
+            "type": "string"
+          },
+          "tags": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tags"
+          },
           "updated_after": {
             "anyOf": [
               {
@@ -19874,6 +20093,16 @@
             "anyOf": [
               {
                 "$ref": "#/components/schemas/SummaryChange"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "tags": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TagsChange"
               },
               {
                 "type": "null"
@@ -21610,6 +21839,17 @@
             "title": "Summary",
             "type": "string"
           },
+          "tags": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AssignedTags"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tags"
+          },
           "title": {
             "maxLength": 200,
             "minLength": 1,
@@ -21822,6 +22062,17 @@
             "title": "Supersede Follow Up Id",
             "type": "string"
           },
+          "tags": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AssignedTags"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tags"
+          },
           "title": {
             "anyOf": [
               {
@@ -21898,6 +22149,24 @@
             ],
             "title": "Status",
             "type": "string"
+          },
+          "system_tags": {
+            "items": {
+              "type": "string"
+            },
+            "title": "System Tags",
+            "type": "array"
+          },
+          "tags": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AssignedTags"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tags"
           },
           "title": {
             "title": "Title",
@@ -22018,6 +22287,24 @@
           "summary": {
             "title": "Summary",
             "type": "string"
+          },
+          "system_tags": {
+            "items": {
+              "type": "string"
+            },
+            "title": "System Tags",
+            "type": "array"
+          },
+          "tags": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AssignedTags"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tags"
           },
           "title": {
             "title": "Title",
@@ -22959,6 +23246,16 @@
             "title": "Summary",
             "type": "string"
           },
+          "tags": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AssignedTags"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "title": {
             "maxLength": 200,
             "minLength": 1,
@@ -23379,6 +23676,24 @@
             "title": "Summary",
             "type": "string"
           },
+          "system_tags": {
+            "items": {
+              "type": "string"
+            },
+            "title": "System Tags",
+            "type": "array"
+          },
+          "tags": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AssignedTags"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tags"
+          },
           "title": {
             "title": "Title",
             "type": "string"
@@ -23437,7 +23752,7 @@
   "info": {
     "description": "Durable project-scoped work with immutable agent checkpoints.",
     "title": "Mnemonic API",
-    "version": "0.109.2"
+    "version": "0.110.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -28592,6 +28907,32 @@
                             ],
                             "title": "Tag"
                           },
+                          "tag_mode": {
+                            "default": "or",
+                            "enum": [
+                              "or",
+                              "and"
+                            ],
+                            "title": "Tag Mode",
+                            "type": "string"
+                          },
+                          "tags": {
+                            "anyOf": [
+                              {
+                                "items": {
+                                  "maxLength": 50,
+                                  "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+                                  "type": "string"
+                                },
+                                "maxItems": 20,
+                                "minItems": 1,
+                                "type": "array"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
                           "updated_after": {
                             "anyOf": [
                               {
@@ -28897,6 +29238,51 @@
         "summary": "Update Project Settings"
       }
     },
+    "/api/v1/projects/{project_id}/tags": {
+      "get": {
+        "operationId": "list_tags_api_v1_projects__project_id__tags_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TagCatalog"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Tags"
+      }
+    },
     "/api/v1/projects/{project_id}/tasks": {
       "get": {
         "operationId": "list_tasks_api_v1_projects__project_id__tasks_get",
@@ -28997,6 +29383,75 @@
               "minimum": 0,
               "title": "Offset",
               "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 1000,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Q"
+            }
+          },
+          {
+            "in": "query",
+            "name": "tags",
+            "required": false,
+            "schema": {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 100,
+              "title": "Tags",
+              "type": "array"
+            }
+          },
+          {
+            "in": "query",
+            "name": "tag_mode",
+            "required": false,
+            "schema": {
+              "default": "or",
+              "enum": [
+                "or",
+                "and"
+              ],
+              "title": "Tag Mode",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "default": "updated",
+              "enum": [
+                "updated",
+                "created",
+                "priority"
+              ],
+              "title": "Sort",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "include_summary",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Include Summary",
+              "type": "boolean"
             }
           }
         ],
@@ -30311,6 +30766,43 @@
           },
           {
             "in": "query",
+            "name": "tags",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "maxLength": 50,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "maxItems": 20,
+                  "minItems": 1,
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Tags"
+            }
+          },
+          {
+            "in": "query",
+            "name": "tag_mode",
+            "required": false,
+            "schema": {
+              "default": "or",
+              "enum": [
+                "or",
+                "and"
+              ],
+              "title": "Tag Mode",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
             "name": "source_client",
             "required": false,
             "schema": {
@@ -31099,6 +31591,43 @@
                 }
               ],
               "title": "Tag"
+            }
+          },
+          {
+            "in": "query",
+            "name": "tags",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "maxLength": 50,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "maxItems": 20,
+                  "minItems": 1,
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Tags"
+            }
+          },
+          {
+            "in": "query",
+            "name": "tag_mode",
+            "required": false,
+            "schema": {
+              "default": "or",
+              "enum": [
+                "or",
+                "and"
+              ],
+              "title": "Tag Mode",
+              "type": "string"
             }
           },
           {
@@ -33440,6 +33969,32 @@
                               }
                             ],
                             "title": "Tag"
+                          },
+                          "tag_mode": {
+                            "default": "or",
+                            "enum": [
+                              "or",
+                              "and"
+                            ],
+                            "title": "Tag Mode",
+                            "type": "string"
+                          },
+                          "tags": {
+                            "anyOf": [
+                              {
+                                "items": {
+                                  "maxLength": 50,
+                                  "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+                                  "type": "string"
+                                },
+                                "maxItems": 20,
+                                "minItems": 1,
+                                "type": "array"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
                           },
                           "updated_after": {
                             "anyOf": [
