@@ -8,7 +8,7 @@ import pytest
 from conftest import PROJECT_ID, WORK_ID, stream_json
 from test_get_prompt import rendered
 from test_phase12 import call, envelope
-from test_tools import adapter, structured
+from test_tools import adapter
 
 
 async def test_resume_uses_current_rendered_project_prompt_without_claiming(settings, work_context):
@@ -69,28 +69,6 @@ async def test_resume_missing_project_prompt_does_not_use_embedded_fallback(
         await adapter(settings, handler).get_prompt(
             "resume_work", {"project_id": PROJECT_ID, "work_item_id": WORK_ID},
         )
-
-
-async def test_settings_return_only_policy_and_lease_values(settings):
-    response = {
-        "lease_default_minutes": 15, "lease_minimum_minutes": 10, "lease_maximum_minutes": 120,
-        "code_review_required_min_priority": 100, "code_review_optional_min_priority": 100,
-        "allow_remediation_code_reviews": False,
-        "project_id": PROJECT_ID, "revision": "3", "recall_pointer_template": "Project instructions",
-        "job_completion_report_prompt": "Custom report context: " + "x" * 9000,
-    }
-
-    def handler(request):
-        assert request.method == "GET"
-        assert request.url.path == f"/api/v1/projects/{PROJECT_ID}/settings"
-        assert not request.url.query
-        return stream_json(response)
-
-    result = structured(await adapter(settings, handler).call_tool(
-        "get_project_settings", {"project_id": PROJECT_ID},
-    ))
-    assert result == {key: value for key, value in response.items()
-                      if key not in {"recall_pointer_template", "job_completion_report_prompt"}}
 
 
 async def test_expanded_report_snapshot_preserves_large_macro_values_and_hash(settings):

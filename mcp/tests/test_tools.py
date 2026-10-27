@@ -699,7 +699,7 @@ async def test_tool_catalog_schemas_and_annotations(settings):
         "list_code_reviews", "get_code_review", "complete_code_review",
         "list_work_follow_ups", "get_work_follow_up", "respond_to_work_follow_up",
         "get_activity",
-        "get_project_settings",
+        "get_project",
         "get_prompt",
         "list_job_completion_reports",
         "get_job_completion_report",

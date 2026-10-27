@@ -17,6 +17,7 @@ from mnemonic_api.application.guards import reject_read_body_and_duplicate_query
 from mnemonic_api.database import Database, database_sqlstate
 from mnemonic_api.errors import ApplicationError, conflict
 from mnemonic_api.models import Project, ProjectSettings
+from mnemonic_api.project_overview_schemas import ProjectOverviewRead
 from mnemonic_api.prompt_storage import default_prompt
 from mnemonic_api.schemas import (
     APIModel,
@@ -29,6 +30,7 @@ from mnemonic_api.schemas import (
     ProjectSettingsRead,
 )
 from mnemonic_api.services.project_mutations import project_mutation
+from mnemonic_api.services.project_overview import project_overview
 from mnemonic_api.services.prompts import render_prompt, storage_for, synchronize_settings
 from mnemonic_api.services.work_items import require_project
 
@@ -80,6 +82,15 @@ def create_project(payload: ProjectCreate, database: Database) -> Project:
 @router.get("/projects/{project_id}", response_model=ProjectRead)
 def get_project(project_id: UUID, database: Database) -> Project:
     return require_project(database, project_id)
+
+
+@router.get(
+    "/projects/{project_id}/overview",
+    response_model=ProjectOverviewRead,
+    dependencies=[Depends(reject_read_body_and_duplicate_query)],
+)
+def get_project_overview(project_id: UUID, database: Database) -> ProjectOverviewRead:
+    return project_overview(database, project_id)
 
 
 @router.patch("/projects/{project_id}", response_model=ProjectRead)

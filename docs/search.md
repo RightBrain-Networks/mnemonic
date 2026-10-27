@@ -17,7 +17,7 @@ project catalog order controls its visual order. See [work tags](work-tags.md).
 
 Application/API/MCP/dashboard `0.43.0` and plugin `0.26.0` add one project search
 surface across work items, artifacts, and transcripts. No migration or new
-configuration was required for that release. Current release 0.110.0 uses migration
+configuration was required for that release. Current release 0.111.0 uses migration
 `0067_project_tags` and also searches decision documents and
 [imported transcripts](transcripts.md#import-existing-transcripts).
 The dashboard retains its separate work, artifact, and transcript interfaces.

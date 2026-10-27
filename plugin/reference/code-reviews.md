@@ -9,7 +9,7 @@ every finding in the same result transaction. Never fan out findings with
 
 ## Prepare implementation closeout
 
-Read `get_project_settings` for review policy and retrieve report instructions
+Read `get_project` and its `settings` for review policy, and retrieve report instructions
 with `get_prompt(project_id, prompt_id="job-completion-report", work_item_id=...)`.
 The two review thresholds use 0 = Always, 100 = Never, otherwise
 priority greater than or equal to the threshold. Mandatory takes precedence

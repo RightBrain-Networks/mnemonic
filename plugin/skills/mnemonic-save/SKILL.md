@@ -122,7 +122,7 @@ Honor an explicit user score. Otherwise, before choosing a new priority or
 making an authorized priority change, call `get_prompt(project_id, prompt_id="priority-rubric")`.
 Use the current project Markdown returned by that dedicated read and record a
 brief rationale in the checkpoint. Humans edit the rubric in Settings >
-Workspace; `get_project_settings` does not include it. Do not use a bundled
+Workspace; `get_project` does not include it. Do not use a bundled
 static rubric or copy nearby scores. If the read fails, report that guidance is
 unavailable rather than silently substituting defaults. Freeze the score and
 rationale before writing; uncertain retries retain the original intent.
@@ -483,7 +483,7 @@ promote it without owner direction.
    Attention, not an FYI.
 2. Fetch `get_prompt(project_id, prompt_id="job-completion-report", work_item_id=...)`
    and follow its current `content`, subject to the shared report reference's
-   fixed schema. Fetch lease/review policy separately with `get_project_settings`
+   fixed schema. Fetch lease/review policy from `get_project.settings`
    when needed.
 3. Freeze `summary`, ordered `fyi_items`, the returned `prompt_revision`,
    expected version, provenance, lease and operation UUID.

@@ -60,7 +60,7 @@ CANONICAL_TOOLS = {
     "list_code_reviews", "get_code_review", "complete_code_review",
     "list_work_follow_ups", "get_work_follow_up", "respond_to_work_follow_up",
     "get_activity",
-    "get_project_settings",
+    "get_project",
     "get_prompt",
     "list_job_completion_reports",
     "get_job_completion_report",
@@ -978,7 +978,7 @@ def validate_phase12_mcp_catalog(tools: dict[str, Any]) -> None:
         )
     for name, expected in {
         "get_activity": "ProjectActivityPage",
-        "get_project_settings": "ProjectSettingsValues",
+        "get_project": "ProjectOverviewRead",
         "get_prompt": "RenderedPrompt",
         "list_job_completion_reports": "JobCompletionReportPage",
         "get_job_completion_report": "JobCompletionReportDetailEnvelope",
@@ -1164,7 +1164,7 @@ async def phase12_human_report_flow(
 def validate_rest_contract(document: Any) -> None:
     """Reject a healthy but contract-incompatible pre-Phase-12 API."""
     try:
-        require(document["info"]["version"] == "0.110.0", "Unexpected REST API version.")
+        require(document["info"]["version"] == "0.111.0", "Unexpected REST API version.")
         schemas = document["components"]["schemas"]
         unified_search = document["paths"]["/api/v1/projects/{project_id}/search"]["post"]
         require(
@@ -1707,14 +1707,14 @@ async def check(args: argparse.Namespace, key: str) -> None:
                 initialized = await session.initialize()
                 require(
                     initialized.serverInfo.name == "Mnemonic"
-                    and initialized.serverInfo.version == "0.110.0",
+                    and initialized.serverInfo.version == "0.111.0",
                     "Unexpected MCP server identity or version.",
                 )
                 catalog = await session.list_tools()
                 validate_mcp_catalog(catalog)
                 await tool(session, "list_projects", {})
                 print(
-                    "PASS: REST 0.110.0 cross-project relationship contract shape, work-move, "
+                    "PASS: REST 0.111.0 cross-project relationship contract shape, work-move, "
                     "code-review contract, real MCP initialization, 79-tool catalog, "
                     "exact twenty-three protected mutation "
                     "schemas/annotations, and REST-backed project listing"

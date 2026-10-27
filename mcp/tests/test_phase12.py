@@ -11,6 +11,7 @@ import pytest
 from conftest import CHECKPOINT_ID, CLIENT_OPERATION_ID, NOW, OTHER_WORK_ID, PROJECT_ID, WORK_ID
 from mcp.server.fastmcp.exceptions import ToolError
 from pydantic import TypeAdapter, ValidationError
+from test_get_project import project_overview
 
 from mnemonic_mcp.api import UNKNOWN_IDEMPOTENT_MUTATION_OUTCOME, MnemonicAPI
 from mnemonic_mcp.code_review_models import CodeReviewHandoffInput, scope_hash
@@ -199,17 +200,8 @@ async def test_four_safe_reads_and_strict_projection_boundaries(settings):
     assert await call(settings, "list_job_completion_reports", report_list) == report_list
     detail = envelope(detail=True)
     assert await call(settings, "get_job_completion_report", detail, {"report_id": REPORT_ID}) == detail
-    settings_response = {
-        "lease_default_minutes": 15, "lease_minimum_minutes": 10, "lease_maximum_minutes": 120,
-        "code_review_required_min_priority": 100, "code_review_optional_min_priority": 100,
-        "allow_remediation_code_reviews": False,
-        "project_id": PROJECT_ID, "revision": "3", "recall_pointer_template": None,
-        "job_completion_report_prompt": AUTHORING_PROMPT,
-    }
-    assert await call(settings, "get_project_settings", settings_response) == {
-        key: value for key, value in settings_response.items()
-        if key not in {"recall_pointer_template", "job_completion_report_prompt"}
-    }
+    document = project_overview()
+    assert await call(settings, "get_project", document) == document
 
 
 async def test_activity_accepts_work_move_witnesses(settings):
@@ -733,7 +725,7 @@ async def test_catalog_is_79_tools_25_protected_and_report_omission_is_replay_on
         }
         assert "historical" in tools[name].description
         assert "get_prompt" in tools[name].description
-    for name in ("get_activity", "get_project_settings", "get_prompt", "list_job_completion_reports", "get_job_completion_report"):
+    for name in ("get_activity", "get_project", "get_prompt", "list_job_completion_reports", "get_job_completion_report"):
         assert tools[name].annotations.readOnlyHint
         assert tools[name].annotations.idempotentHint is True
 

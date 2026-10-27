@@ -50,9 +50,10 @@ Report retrieval synchronizes external file edits and returns matching text and
 revision; stale fresh closeouts are rejected, while exact receipt retries retain
 their original text and revision.
 
-MCP `get_project_settings(project_id)` returns lease durations, code-review policy, and automatic decision-impact-review settings
-without authored text. The existing REST settings representation continues to
-serve dashboard editors. The MCP `resume_work` prompt uses the same fetch path as
+MCP `get_project(project_id)` returns lease durations and code-review policy
+under `settings`, without authored text, alongside project summaries. The existing
+REST settings representation continues to serve dashboard editors. The MCP
+`resume_work` prompt uses the same fetch path as
 `get_prompt`, then appends bounded retained work context. The underlying safe
 read is `POST /projects/{project_id}/prompts/{prompt_id}/render`, with the optional
 context IDs in its body and the response fields described above.
@@ -68,7 +69,7 @@ Upgrade API, MCP, dashboard, and plugin together (plugin 0.49.0). No new databas
 migration is required; the head stays `0051_priority_rubrics`. Existing project
 templates are preserved. Review existing project templates, especially
 `resume-work`, for references to the retired `get_priority_rubric` call or report
-instructions in `get_project_settings`; update those references to `get_prompt`.
+instructions in `get_project`; update those references to `get_prompt`.
 Changing a shipped default does not overwrite an already initialized template.
 The new human-review file is initialized from the
 shipped default on first access, including a library listing. Missing previously

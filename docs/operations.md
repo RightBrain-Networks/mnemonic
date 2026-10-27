@@ -1,5 +1,16 @@
 # Operating Mnemonic
 
+Release 0.111.0 and plugin 0.70.0 rename the MCP `get_project_settings` tool to
+`get_project`. Its existing policy values move under `settings`; the response
+also includes work counts by display state and tag, all Active work metadata,
+the open Needs Attention count, and knowledge-domain document counts. Update
+agent integrations to the new tool name and nested settings shape. API and MCP
+must be upgraded together for the new `GET /projects/{project_id}/overview`
+read. No migration or configuration change is required; Alembic remains
+`0067_project_tags`, and the catalog remains 79 tools. The dashboard's existing
+project and settings endpoints retain their contracts. See
+[project overview](api-contract.md#project-overview) for the response fields.
+
 Release 0.110.0 and plugin 0.69.0 replace decorative tags with project tag
 catalogs and current work assignments. Deploy API, worker, MCP, and dashboard
 together at Alembic `0067_project_tags`. The migration intentionally deletes all

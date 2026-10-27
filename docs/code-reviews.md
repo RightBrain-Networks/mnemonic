@@ -34,7 +34,7 @@ turning the toggle off does not cancel an already-requested review.
 
 Every fresh Done still requires its ordinary checkpoint and human job report,
 with optional completion evidence, an operation UUID, and a matching lease if
-held. Read `get_project_settings` before preparing the report and review policy.
+held. Read the `settings` returned by `get_project` for review policy before preparing the report.
 An intervening settings edit causes `job_report_prompt_changed`; reconsider the
 definitively rejected intent before preparing another UUID.
 

@@ -19,8 +19,10 @@ GUIDES: dict[str, tuple[str, str, str]] = {
                   "or declare tags=null. Catalog edits are dashboard-only.")),
     "create_project": ("Projects", "Create a workspace project.",
                        "Supply a name; slug, description, and repository URL are optional."),
-    "get_project_settings": ("Projects", "Read lease durations and review policy.",
-                             "Authored instructions are omitted; retrieve them with get_prompt."),
+    "get_project": ("Projects", "Read project settings and complete aggregate summaries.",
+                    ("Returns settings, work counts by display state and tag, all Active work details, "
+                     "the open Needs Attention count, and knowledge-domain document counts. "
+                     "Authored instructions are omitted; retrieve them with get_prompt.")),
     "get_prompt": ("Projects", "Read current project instructions with expanded macros.",
                    ("Supply project_id and prompt_id; add work_item_id for work macros or "
                     "code_review_id for an exact review. Use job-completion-report before closeout, "
