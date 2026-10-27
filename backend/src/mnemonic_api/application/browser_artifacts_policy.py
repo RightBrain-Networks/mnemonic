@@ -16,6 +16,7 @@ from mnemonic_api.application.browser_policy.values import (
     text,
     uuid,
 )
+from mnemonic_api.application.browser_policy.work import assigned_tags
 
 COLLECTION = re.compile(rf"projects/{UUID}/artifacts")
 ITEM = re.compile(rf"projects/{UUID}/artifacts/{UUID}")
@@ -29,7 +30,7 @@ DISABLED_MESSAGE = "The artifact library is disabled. Stored files and metadata 
 def artifact_query_keys(path: str, method: str) -> tuple[str, ...] | None:
     routes = (
         (COLLECTION, {"GET": ("q", "sort", "order", "limit", "offset", "include_deleted",
-                               "work_item_id"), "POST": ()}),
+                               "work_item_id", "tags", "tag_mode"), "POST": ()}),
         (ITEM, {"GET": (), "DELETE": (), "PATCH": ()}),
         (CONTENT, {"GET": (), "PUT": ()}),
         (TEXT, {"GET": ("expected_revision", "expected_text_sha256", "offset", "limit")}),
@@ -70,10 +71,11 @@ def valid_artifact_update(value: Any, operation: str) -> bool:
     return (
         allowed_keys(value, ("client_operation_id", "expected_revision", "sensitive",
                              "related_artifact_ids", "related_work_item_ids", "description",
-                             "agent_session_id", "actor_client"))
+                             "agent_session_id", "actor_client", "tags"))
         and uuid(value.get("client_operation_id"))
         and value["client_operation_id"].lower() == operation.lower()
         and integer(value.get("expected_revision"), 1, 2**31 - 1)
+        and optional(value, "tags", assigned_tags)
         and optional(value, "sensitive", lambda item: type(item) is bool)
         and optional(value, "description", lambda item: nullable_text(item, 4000))
         and optional(value, "agent_session_id", lambda item: text(item, 200))
@@ -89,11 +91,14 @@ def valid_artifact_search(value: Any) -> bool:
     return (
         allowed_keys(value, ("q", "query_mode", "semantic", "fulltext", "detail", "work_item_id",
                              "artifact_id", "include_deleted", "limit", "offset", "diagnostics",
+                             "tags", "tag_mode",
                              *DATE_FIELDS))
         and text(value.get("q"), 200) and date_bounds(value)
         and optional(value, "query_mode", lambda item: item in ("terms", "phrase", "literal"))
         and optional(value, "diagnostics", lambda item: item in ("on_empty", "always", "off"))
         and optional(value, "detail", lambda item: item in ("compact", "full"))
+        and optional(value, "tags", assigned_tags)
+        and optional(value, "tag_mode", lambda item: item in ("or", "and"))
         and _search_options(value)
     )
 

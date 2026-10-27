@@ -12,7 +12,7 @@ const operation = "91b9168a-37d1-4a6a-aa1f-bb538b65cb55";
 const root = `projects/${project}/artifacts`;
 const path = `${root}/${artifact}`;
 const environment = { MNEMONIC_API_KEY: "a".repeat(64), MNEMONIC_API_URL: "http://api:8000", MNEMONIC_ARTIFACT_MAX_BYTES: "16" };
-const metadata = { id: artifact, project_id: project, filename: "report.txt", description: null, revision: 1, size_bytes: 3, sha256: "b".repeat(64), mime_type: "text/plain", created_at: "2026-09-01T00:00:00Z", modified_at: "2026-09-01T00:00:00Z", deleted_at: null, content_available: true, created_by_agent_session_id: "tab-1", originating_work_item_id: null, related_work_item_ids: [], sensitive: false, related_artifact_ids: [] };
+const metadata = { id: artifact, project_id: project, filename: "report.txt", description: null, revision: 1, size_bytes: 3, sha256: "b".repeat(64), mime_type: "text/plain", created_at: "2026-09-01T00:00:00Z", modified_at: "2026-09-01T00:00:00Z", deleted_at: null, content_available: true, created_by_agent_session_id: "tab-1", originating_work_item_id: null, related_work_item_ids: [], tags: null, sensitive: false, related_artifact_ids: [] };
 
 function request(route = root, method = "GET", headers = {}, body) {
   return new Request(`http://localhost:3000/api/artifacts/${route}`, { method, headers: { host: "localhost:3000", ...(method !== "GET" ? { origin: "http://localhost:3000", "content-type": "application/octet-stream", "X-Client-Operation-ID": operation, "X-Artifact-Metadata": artifactMetadataHeader({ filename: "report.txt" }) } : {}), ...headers }, body, ...(body instanceof ReadableStream ? { duplex: "half" } : {}) });
@@ -238,4 +238,48 @@ test("pre-0029 receipts retain original bytes and normalize absent fields only o
   assert.throws(() => decodeArtifact(historical, project));
   const patch = { ...intent, method: "PATCH", artifactId: artifact, expectedRevision: 1, metadata: "{}" };
   assert.equal((await dispatchArtifactMutation(patch, async () => Response.json({ ...historical, revision: 2 }, { headers: { "X-Client-Operation-ID": operation, "X-Artifact-Operation-Replayed": "true" } }))).type, "unresolved");
+});
+
+test("artifact tags validate current assignments and nullable clears", () => {
+  assert.deepEqual(decodeArtifact({ ...metadata, tags: ["tests", "infra"] }, project).tags, ["tests", "infra"]);
+  assert.equal(decodeArtifact({ ...metadata, tags: null }, project).tags, null);
+  for (const tags of [undefined, [], ["Wrong Name"], ["tests", "tests"], Array.from({ length: 21 }, (_, n) => `tag-${n}`)]) {
+    assert.throws(() => decodeArtifact({ ...metadata, tags }, project));
+  }
+  assert.equal(validArtifactSearchRequest({ q: "design", tags: ["tests", "infra"], tag_mode: "and" }), true);
+  assert.equal(validArtifactSearchRequest({ q: "design", tags: ["Wrong Name"] }), false);
+  assert.equal(validArtifactSearchRequest({ q: "design", tag_mode: "all" }), false);
+});
+
+test("artifact tag mutation confirmations reject lost assignments and preserve explicit null retries", async () => {
+  const { artifactUpdateIntent } = await import("../lib/artifact-mutations.ts");
+  const assigned = { ...metadata, tags: ["tests", "infra"] };
+  const intent = artifactUpdateIntent(assigned, { tags: ["security"] }, "dashboard-session");
+  const response = (tags) => Response.json({ ...metadata, revision: 2, tags }, { headers: { "X-Client-Operation-ID": intent.operationId } });
+  assert.equal((await dispatchArtifactMutation(intent, async () => response(["tests"]))).type, "unresolved");
+  assert.equal((await dispatchArtifactMutation(intent, async () => response(["security"]))).type, "success");
+  const clear = artifactUpdateIntent(assigned, { tags: null }, "dashboard-session");
+  const requests = [];
+  const fetcher = async (_url, init) => {
+    requests.push({ body: init.body, operation: init.headers.get("X-Client-Operation-ID") });
+    if (requests.length === 1) throw new Error("Response lost");
+    return Response.json({ ...metadata, revision: 2, tags: null }, { headers: { "X-Client-Operation-ID": clear.operationId } });
+  };
+  assert.equal((await dispatchArtifactMutation(clear, fetcher)).type, "unresolved");
+  assert.equal((await dispatchArtifactMutation(clear, fetcher)).type, "success");
+  assert.deepEqual(requests[0], requests[1]);
+  assert.equal(JSON.parse(requests[0].body).tags, null);
+  const unknown = await dispatchArtifactMutation(intent, async () => Response.json({ detail: { code: "unknown_tags", message: "Choose existing project tags.", context: {} } }, { status: 422 }));
+  assert.equal(unknown.type, "rejected");
+});
+
+test("historical artifact receipts can omit tags only on explicit replay", async () => {
+  const { tags: _tags, ...old } = metadata;
+  const file = new File(["abc"], metadata.filename);
+  const intent = { method: "POST", path: `/api/artifacts/${root}`, projectId: project, operationId: operation, metadata: artifactMetadataHeader({ filename: file.name }), file };
+  const saved = (replay) => Response.json(old, { status: 201, headers: { "X-Client-Operation-ID": operation, ...(replay ? { "X-Artifact-Operation-Replayed": "true" } : {}) } });
+  assert.equal((await dispatchArtifactMutation(intent, async () => saved(false))).type, "unresolved");
+  const replayed = await dispatchArtifactMutation(intent, async () => saved(true));
+  assert.equal(replayed.type, "success");
+  assert.equal(replayed.artifact.tags, null);
 });

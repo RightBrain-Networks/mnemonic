@@ -71,7 +71,7 @@ class ArtifactMutation:
     content_size_bytes: int | None = None
 
     def fingerprint(self) -> str:
-        metadata = self.metadata.model_dump(mode="json")
+        metadata = _intent_metadata(self.metadata)
         if isinstance(self.metadata, ArtifactUploadMetadata):
             # Preserve fingerprints of permanent receipts issued before these fields existed.
             if metadata["sensitive"] is None:
@@ -89,6 +89,18 @@ class ArtifactMutation:
         return hashlib.sha256(
             json.dumps(body, sort_keys=True, separators=(",", ":")).encode()
         ).hexdigest()
+
+
+def _intent_metadata(metadata: ArtifactActor) -> dict[str, Any]:
+    # Missing tags preserve prior assignments and the fingerprints of historical receipts.
+    excluded = {"tags"} if "tags" not in metadata.model_fields_set else set()
+    return metadata.model_dump(mode="json", exclude=excluded)
+
+
+def _apply_tags(artifact: Artifact, metadata: ArtifactActor) -> None:
+    if isinstance(metadata, (ArtifactUploadMetadata, ArtifactUpdateMetadata)):
+        if "tags" in metadata.model_fields_set:
+            artifact.tags = metadata.tags
 
 
 def require_artifact(database: Session, project_id: UUID, artifact_id: UUID) -> Artifact:
@@ -244,6 +256,9 @@ def _validate_mutation(database: Session, artifact: Artifact, mutation: Artifact
         if origin is not None and origin != artifact.originating_work_item_id:
             raise conflict("artifact_origin_immutable", "The originating work item cannot change.")
     if isinstance(mutation.metadata, (ArtifactUploadMetadata, ArtifactUpdateMetadata)):
+        from mnemonic_api.services.tags import require_assignments
+
+        require_assignments(database, artifact.project_id, mutation.metadata.tags)
         _add_links(database, artifact, mutation.metadata)
 
 
@@ -346,6 +361,7 @@ def _publish_revision(
         artifact.description = metadata.description
     if metadata.sensitive is not None:
         artifact.sensitive = metadata.sensitive
+    _apply_tags(artifact, metadata)
     artifact.modified_at = datetime.now(UTC)
     _record_revision(database, artifact, metadata)
     _audit(database, artifact, "uploaded" if operation.kind == "upload" else "replaced", metadata)
@@ -367,6 +383,7 @@ def _record_revision(database: Session, artifact: Artifact, actor: ArtifactActor
             related_work_item_ids=[str(value) for value in read.related_work_item_ids],
             related_artifact_ids=[str(value) for value in read.related_artifact_ids],
             sensitive=artifact.sensitive,
+            tags=artifact.tags,
         )
     )
     database.flush()
@@ -381,10 +398,12 @@ def _publish_metadata_revision(
     if metadata.sensitive is not None:
         artifact.sensitive = metadata.sensitive
     artifact.revision += 1
+    _apply_tags(artifact, metadata)
     artifact.modified_at = datetime.now(UTC)
     _record_revision(database, artifact, metadata)
     _audit(database, artifact, "metadata_updated", metadata, {
         "sensitive": artifact.sensitive,
+        "tags": artifact.tags,
         "related_work_item_ids": [str(value) for value in metadata.related_work_item_ids or []],
         "related_artifact_ids": [str(value) for value in metadata.related_artifact_ids or []],
     })
@@ -442,7 +461,7 @@ def _reserve_intent(
         kind=mutation.kind,
         fingerprint=mutation.fingerprint(),
         intent={
-            "metadata": mutation.metadata.model_dump(mode="json"),
+            "metadata": _intent_metadata(mutation.metadata),
             "staged": asdict(mutation.staged) if mutation.staged else None,
         },
     )
@@ -608,6 +627,10 @@ def list_artifacts(
             (Artifact.sensitive.is_(False) & _extraction_metadata_match(Artifact.id, filters.q)),
             *historical,
         ))
+    if filters.tags:
+        from mnemonic_api.services.artifact_tags import artifact_tag_condition
+
+        clauses.append(artifact_tag_condition(filters.tags, filters.tag_mode))
     total = database.scalar(select(func.count()).select_from(Artifact).where(*clauses)) or 0
     column = getattr(Artifact, filters.sort)
     ordering = column.desc() if filters.order == "desc" else column.asc()

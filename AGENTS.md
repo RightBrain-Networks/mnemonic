@@ -105,8 +105,8 @@ one-off ID needed before dispatch. Explicit IDs and REST receipts retain their
 contracts; prepared upload intents keep their helper-generated IDs. See
 `docs/automatic-uuids.md`. The tool idempotence hint is false for these calls.
 
-The current application/API/MCP/dashboard release is `0.111.0`, Claude plugin
-`0.70.0`, and Alembic head `0067_project_tags`. The catalog is exactly
+The current application/API/MCP/dashboard release is `0.112.0`, Claude plugin
+`0.71.0`, and Alembic head `0068_artifact_tags`. The catalog is exactly
 79 MCP tools, 25 receipt-protected MCP writes, 38 REST receipt kinds, 32 protected
 browser mutations, 24 work-event types, and three plugin skills. Project priority
 guidance is editable in Settings > Workspace; agents explicitly call
@@ -127,6 +127,11 @@ separate from checkpoint history; leave checkpoint tags empty on fresh writes.
 System tags `code-review`, `remediation`, and `dir` preserve existing workflow
 semantics. Search supports plural tags with `tag_mode="or"` or `"and"`. See
 `docs/work-tags.md`.
+New projects receive six editable starter tags copied from Fish Food's catalog.
+Artifacts share that vocabulary: read `list_tags` descriptions before assigning
+tags on upload, replacement, or metadata update. Null clears assignments;
+omitted update/replacement tags preserve them. Artifact tag changes advance the
+revision; preserve the exact tags declaration on uncertain retries.
 The suggestion POST is a safe read. Search accepts q/query aliases up to 1,000 characters;
 follow next_offset because 32,768-byte pages can contain fewer than limit items.
 Compact canonical identity, lifecycle/display state, and sensitive-content coverage

@@ -196,6 +196,16 @@ approval, repeat the authorization call with its token and `human_approved=true`
 Only optional direct API helper mode uses `--approval-token TOKEN --human-approved`;
 neither route retries automatically.
 
+## Project tags
+
+Work and artifacts share a project catalog. Call `list_tags(project_id)` and read
+its descriptions before assigning artifact tags. Select existing normalized names
+that describe the file, or explicit null when none apply; definitions are managed
+only by humans in Project settings > Tags. Metadata and revision history include tags.
+Filter discovery with `tags` and `tag_mode="or"` / `"and"` on `list_artifacts`,
+`search_artifact_contents`, or unified `filters.artifacts`. Tags never authorize
+sensitive content access or create workflow episodes.
+
 ## Save and replace
 
 For a local file, resolve the bundled
@@ -208,7 +218,8 @@ workflow. Never inspect client credential files or print/read base64 into contex
    `--actor-client`. Its parent must exist. Include a brief `--description`,
    originating `--work-item-id`, and known `--related-work-item-id` /
    `--related-artifact-id` relationships. `--sensitive` sets the human-approval
-   classification; `--filename` defaults to the safe source basename.
+   classification; `--filename` defaults to the safe source basename. Use repeated
+   `--tag NAME` options for selected existing tags, or `--no-tags` for explicit null.
 2. Pass the exact returned `upload_intent` to
    `authorize_artifact_upload(intent=...)` through the connected MCP server.
    This authorizes one immutable upload/replacement; it does not upload bytes.
@@ -251,7 +262,7 @@ Read `get_artifact` before replacement, then prepare a new request with
 unchanged original filename. The helper uses the existing PUT content endpoint.
 Replacement is atomic for readers, increments
 revision, and permanently removes old content. Old metadata and audit remain.
-Omitted description, sensitivity, and links preserve their current values;
+Omitted description, sensitivity, tags, and links preserve their current values;
 supplied related-work and related-artifact IDs add durable links. Links cannot be removed. `delete_artifact` requires the revision
 just read and removes current bytes permanently while retaining metadata and history.
 Neither operation offers content restoration.
@@ -259,7 +270,9 @@ Neither operation offers content restoration.
 Use `update_artifact(project_id, artifact_id, client_operation_id,
 expected_revision, agent_session_id, actor_client, ...)` to add
 `related_work_item_ids` or `related_artifact_ids`, edit `description`, or set/unset
-`sensitive` without uploading the bytes again. Relationships are durable and
+`sensitive` without uploading the bytes again. A nonempty `tags` list replaces
+assignments; `tags: null` clears them, while omission preserves them. Empty lists
+are invalid. Relationships are durable and
 cannot be removed; self-links and links to other projects are rejected.
 Metadata updates increment revision and preserve the exact bytes. Only unset
 sensitivity when the human authorized changing the classification; never use

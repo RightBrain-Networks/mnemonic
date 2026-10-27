@@ -18,7 +18,7 @@ test("dashboard links artifacts in both directions and work items from either su
   const client = await request.newContext({ baseURL: process.env.MNEMONIC_E2E_API_URL, extraHTTPHeaders: { Authorization: `Bearer ${process.env.MNEMONIC_E2E_API_KEY}` } });
   try {
     await page.goto(`/artifacts?project=${state.projectId}`);
-    await page.getByText("Upload description, links and sensitivity", { exact: true }).click();
+    await page.getByText("Upload tags, description, links and sensitivity", { exact: true }).click();
     await page.getByLabel("Mark new uploads as sensitive").check();
     await page.getByLabel("Upload artifact files").setInputFiles({ name: first, mimeType: "text/plain", buffer: Buffer.from(sensitiveContent) });
     const row = page.getByRole("row").filter({ has: page.getByRole("button", { name: first, exact: true }) });

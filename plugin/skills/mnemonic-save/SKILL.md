@@ -107,6 +107,12 @@ those normalized names in top-level `create_work.tags`. If none apply, supply
 create, edit, delete, and reorder definitions in Project settings > Tags; MCP
 cannot manage the catalog. Menu order and color are presentation only.
 
+Before uploading an artifact or changing its tags, also read `list_tags` and
+choose names by their descriptions. Artifact `tags` accepts a nonempty list or
+explicit null; omission preserves assignments during edits. The local upload
+helper accepts repeated `--tag NAME` or `--no-tags`. See
+[artifact transfers](${CLAUDE_PLUGIN_ROOT}/reference/artifact-transfers.md).
+
 Current work tags are separate from immutable checkpoint history. Leave
 `initial_checkpoint.tags` and later checkpoint tags empty. `update_work.changes.tags`
 replaces selected catalog names; null clears assignments and omission preserves

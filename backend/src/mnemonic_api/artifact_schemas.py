@@ -6,6 +6,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from mnemonic_api.tag_types import AssignedTags, TagName, unique_names
+
 
 class ArtifactModel(BaseModel):
     model_config = ConfigDict(extra="forbid", from_attributes=True)
@@ -35,6 +37,7 @@ class ArtifactUploadMetadata(ArtifactActor):
     filename: str = Field(min_length=1, max_length=255)
     sensitive: bool | None = None
     description: str | None = Field(default=None, max_length=4000)
+    tags: AssignedTags | None = None
     work_item_id: UUID | None = None
     related_work_item_ids: list[UUID] = Field(default_factory=list, max_length=50)
     related_artifact_ids: list[UUID] = Field(default_factory=list, max_length=50)
@@ -54,6 +57,7 @@ class ArtifactUpdateMetadata(ArtifactActor):
     expected_revision: int = Field(ge=1)
     sensitive: bool | None = None
     description: str | None = Field(default=None, max_length=4000)
+    tags: AssignedTags | None = None
     related_work_item_ids: list[UUID] | None = Field(default=None, max_length=50)
     related_artifact_ids: list[UUID] | None = Field(default=None, max_length=50)
 
@@ -101,6 +105,7 @@ class ArtifactRead(ArtifactModel):
     project_id: UUID
     filename: str
     description: str
+    tags: AssignedTags | None = None
     revision: int
     size_bytes: int
     sha256: str
@@ -123,6 +128,7 @@ class ArtifactRevisionRead(ArtifactActor):
     revision: int
     filename: str
     description: str
+    tags: AssignedTags | None = None
     size_bytes: int
     sha256: str
     mime_type: str | None
@@ -161,6 +167,8 @@ class ArtifactHistory(ArtifactModel):
 
 
 class ArtifactListQuery(ArtifactModel):
+    tags: list[TagName] | None = Field(default=None, min_length=1, max_length=20)
+    tag_mode: Literal["or", "and"] = "or"
     q: str | None = Field(default=None, min_length=1, max_length=1000)
     work_item_id: UUID | None = None
     include_deleted: bool = False
@@ -168,6 +176,12 @@ class ArtifactListQuery(ArtifactModel):
     order: Literal["asc", "desc"] = "asc"
     limit: int = Field(default=50, ge=1, le=100)
     offset: int = Field(default=0, ge=0, le=1_000_000)
+
+
+    @field_validator("tags")
+    @classmethod
+    def unique_tags(cls, value: list[str] | None) -> list[str] | None:
+        return unique_names(value) if value is not None else None
 
 
 class ArtifactHistoryQuery(ArtifactModel):

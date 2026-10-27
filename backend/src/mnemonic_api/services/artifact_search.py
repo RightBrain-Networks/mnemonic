@@ -37,6 +37,7 @@ from mnemonic_api.search_schemas import ArtifactSearchFilters
 from mnemonic_api.search_snippets import phrase_snippet, supporting_snippet
 from mnemonic_api.services.artifact_approvals import require_sensitive_access
 from mnemonic_api.services.artifact_exact import literal_artifact_hits
+from mnemonic_api.services.artifact_tags import artifact_tag_condition
 from mnemonic_api.services.artifacts import _has_pending_operation, artifact_read
 from mnemonic_api.services.multi_search_limits import check_artifact_metadata
 from mnemonic_api.services.project_mutations import project_mutation
@@ -56,6 +57,8 @@ def _corpus(
         ~_has_pending_operation(),
         *date_conditions(filters, Artifact.created_at, Artifact.modified_at),
     ]
+    if filters.tags:
+        clauses.append(artifact_tag_condition(filters.tags, filters.tag_mode))
     if not filters.include_deleted:
         clauses.append(Artifact.deleted_at.is_(None))
     if filters.artifact_id is not None:
@@ -96,6 +99,7 @@ def _metadata(artifact: Artifact, extraction: ArtifactExtraction | None) -> dict
     return {
         "filename": artifact.filename,
         "description": artifact.description,
+        "tags": artifact.tags,
         "mime_type": artifact.mime_type,
         "sha256": artifact.sha256,
         "agent_session_id": artifact.created_by_agent_session_id,
@@ -110,6 +114,7 @@ def _metadata_parts(artifact: Artifact, extraction: ArtifactExtraction | None) -
         value for value in _metadata(artifact, extraction).values()
         if isinstance(value, str) and value.strip()
     ]
+    values.extend(artifact.tags or [])
     if extraction is not None and not artifact.sensitive:
         values.extend(
             value for property_values in extraction.extracted_metadata.values()
@@ -233,6 +238,7 @@ def compact_artifact_read(database: Session, artifact: Artifact) -> CompactArtif
     extraction = database.get(ArtifactExtraction, (artifact.id, artifact.revision))
     return CompactArtifactRead(
         id=artifact.id, project_id=artifact.project_id, filename=artifact.filename,
+        tags=artifact.tags,
         revision=artifact.revision, sensitive=artifact.sensitive, deleted_at=artifact.deleted_at,
         content_available=artifact.revision > 0 and artifact.deleted_at is None,
         extraction=CompactExtractionStatus.model_validate({

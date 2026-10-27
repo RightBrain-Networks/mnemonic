@@ -12,7 +12,7 @@ const id = "e36a7e53-938f-4c8a-b75a-af9c7331711a";
 const work = "91b9168a-37d1-4a6a-aa1f-bb538b65cb55";
 const timestamp = "2026-09-10T12:00:00Z";
 const indexing = { pending: 2, ready: 1, failed: 0, truncated: 0 };
-const artifact = { id, project_id: project, filename: "report.txt", description: null, revision: 1, size_bytes: 3, sha256: "a".repeat(64), mime_type: "text/plain", created_at: timestamp, modified_at: timestamp, deleted_at: null, content_available: true, created_by_agent_session_id: "tab-1", originating_work_item_id: work, related_work_item_ids: [], sensitive: false, related_artifact_ids: [] };
+const artifact = { id, project_id: project, filename: "report.txt", description: null, revision: 1, size_bytes: 3, sha256: "a".repeat(64), mime_type: "text/plain", created_at: timestamp, modified_at: timestamp, deleted_at: null, content_available: true, created_by_agent_session_id: "tab-1", originating_work_item_id: work, related_work_item_ids: [], tags: null, sensitive: false, related_artifact_ids: [] };
 const transcript = { id, project_id: project, work_item_id: work, lease_generation_id: work, client: "claude-code", session_id: "session-1", source_path: "/shared/session.jsonl", filename: "session.jsonl", kind: "primary", status: "ready", indexing_started_at: timestamp, indexing_completed_at: timestamp, error_code: null, size_bytes: 128, mime_type: "application/x-ndjson", format: "claude-code-jsonl", sha256: "a".repeat(64), text_sha256: "a".repeat(64), metadata: {}, truncated: false, created_at: timestamp, snippet: null, score: null };
 Object.assign(transcript, { normalization_status: "ready", normalization_error_code: null,
   normalized_revision: "b".repeat(64), normalized_sha256: "c".repeat(64), normalization_schema_version: 1,

@@ -1,3 +1,4 @@
+import { validTagNames } from "./tags.ts";
 import { searchPageKeys, searchPagination, validSearchPagination, type SearchPagination } from "./search-pagination.ts";
 import { decodeArtifactPassage, decodeEmbeddingCoverage, type ArtifactPassage, type ArtifactEmbeddingCoverage } from "./artifact-semantic.ts";
 import { validateSourceRanking, decodeSearchRanking, decodeHitRanking, SEARCH_RANKING_FIELDS, HIT_RANKING_FIELDS, type SearchRanking, type HitRanking } from "./search-ranking.ts";
@@ -55,6 +56,7 @@ export interface Artifact {
   project_id: string;
   filename: string;
   description: string | null;
+  tags: string[] | null;
   revision: number;
   size_bytes: number;
   sha256: string;
@@ -182,7 +184,9 @@ export function decodeArtifactSearchPage(value: unknown, projectId: string, full
 
 export function validArtifactSearchRequest(value: unknown): boolean {
   const request = objectValue(value);
-  return Boolean(request && Object.keys(request).every((key) => ["q", "query_mode", "semantic", "fulltext", "detail", "work_item_id", "artifact_id", "include_deleted", "limit", "offset", "diagnostics", ...SEARCH_DATE_FIELDS].includes(key))
+  return Boolean(request && Object.keys(request).every((key) => ["q", "query_mode", "semantic", "fulltext", "tags", "tag_mode", "detail", "work_item_id", "artifact_id", "include_deleted", "limit", "offset", "diagnostics", ...SEARCH_DATE_FIELDS].includes(key))
+    && (request.tags == null || validTagNames(request.tags))
+    && (request.tag_mode === undefined || request.tag_mode === "or" || request.tag_mode === "and")
     && (request.semantic === undefined || typeof request.semantic === "boolean")
     && (request.semantic !== true || request.fulltext === true && (request.query_mode === undefined || request.query_mode === "terms") && typeof request.q === "string" && !request.q.includes('"'))
     && (request.query_mode === undefined || validQueryMode(request.query_mode)) && validDateBounds(request) && (request.diagnostics === undefined || validDiagnosticsMode(request.diagnostics))
@@ -211,6 +215,7 @@ export function decodeArtifact(value: unknown, projectId: string, expectedArtifa
     || !(row.mime_type === null || boundedText(row.mime_type, 200))
     || !timestamp(row.created_at) || !timestamp(row.modified_at)
     || !(row.deleted_at === null || timestamp(row.deleted_at))
+    || !(row.tags === null || validTagNames(row.tags) && row.tags.length > 0 && row.tags.length <= 20)
     || typeof row.content_available !== "boolean" || typeof row.sensitive !== "boolean"
     || !Array.isArray(row.related_artifact_ids) || row.related_artifact_ids.length > 50
     || !row.related_artifact_ids.every(validUuid)
@@ -260,4 +265,8 @@ export function formatArtifactSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+export function matchesArtifactTags(artifact: Pick<Artifact, "tags">, tags: string[], mode: "or" | "and"): boolean {
+  return !tags.length || (mode === "and" ? tags.every((tag) => artifact.tags?.includes(tag)) : tags.some((tag) => artifact.tags?.includes(tag)));
 }

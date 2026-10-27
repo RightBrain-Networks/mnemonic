@@ -12,6 +12,7 @@ from .search_diagnostics import TermDiagnostics
 from .search_disclosure import SearchDetail, SearchDisclosure
 from .search_pagination import SearchPagination
 from .search_ranking import SearchHitRanking, SearchRanking
+from .tag_models import TagNames
 
 MCP_ARTIFACT_MAX_BYTES = 64 * 1024 * 1024
 ArtifactContent = Annotated[str, Field(max_length=4 * ((MCP_ARTIFACT_MAX_BYTES + 2) // 3))]
@@ -69,6 +70,7 @@ class ArtifactExtraction(ArtifactExtractionStatus):
 
 
 class ArtifactRead(ArtifactModel):
+    tags: TagNames | None
     id: UUID
     project_id: UUID
     filename: ArtifactFilename
@@ -97,6 +99,7 @@ class ArtifactRead(ArtifactModel):
 
 
 class ArtifactRevisionRead(ArtifactModel):
+    tags: TagNames | None
     artifact_id: UUID
     revision: ArtifactRevision
     filename: ArtifactFilename
@@ -180,6 +183,7 @@ class CompactExtractionStatus(ArtifactModel):
 
 
 class CompactArtifactRead(ArtifactModel):
+    tags: TagNames | None
     id: UUID
     project_id: UUID
     filename: ArtifactFilename
@@ -230,6 +234,7 @@ class ArtifactToolHistory(ArtifactHistory):
 
 
 class ArtifactSummary(ArtifactModel):
+    tags: TagNames | None
     sensitive: StrictBool
     id: UUID
     project_id: UUID

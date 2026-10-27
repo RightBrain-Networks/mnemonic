@@ -40,6 +40,7 @@ def artifact_pointer():
     value = ArtifactRead.model_validate(artifact()).model_dump(mode="json")
     selected = {key: value[key] for key in (
         "id", "project_id", "filename", "revision", "sensitive", "deleted_at", "content_available",
+        "tags",
     )}
     selected["extraction"] = {key: value["extraction"][key] for key in (
         "status", "truncated", "error_code",

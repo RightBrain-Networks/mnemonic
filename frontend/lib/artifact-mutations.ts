@@ -15,7 +15,7 @@ const DEFINITIVE_ARTIFACT_ERRORS = new Map<number, ReadonlySet<string>>([
     "artifact_filename_unsafe", "artifact_header_invalid", "artifact_metadata_invalid",
     "artifact_operation_id_invalid", "artifact_revision_invalid", "artifact_query_forbidden",
     "artifact_length_invalid", "artifact_body_forbidden", "artifact_link_limit", "artifact_self_link",
-    "client_operation_secret_echo"
+    "client_operation_secret_echo", "unknown_tags"
   ])]
 ]);
 
@@ -75,14 +75,16 @@ export async function dispatchArtifactMutation(intent: ArtifactMutation, fetcher
     const historicalReplay = intent.method !== "PATCH"
       && response.headers.get("X-Artifact-Operation-Replayed") === "true"
       && row && !("sensitive" in row) && !("related_artifact_ids" in row);
-    const artifact = decodeArtifact(historicalReplay ? { ...row, sensitive: false, related_artifact_ids: [] } : value, intent.projectId);
-    const expectedMetadata = JSON.parse(intent.metadata) as { filename?: string; sensitive?: boolean; related_artifact_ids?: string[]; related_work_item_ids?: string[] };
+    const legacyTags = response.headers.get("X-Artifact-Operation-Replayed") === "true" && row && !("tags" in row);
+    const artifact = decodeArtifact({ ...row, ...(historicalReplay ? { sensitive: false, related_artifact_ids: [] } : {}), ...(legacyTags ? { tags: null } : {}) }, intent.projectId);
+    const expectedMetadata = JSON.parse(intent.metadata) as { filename?: string; tags?: string[] | null; sensitive?: boolean; related_artifact_ids?: string[]; related_work_item_ids?: string[] };
     const expectedRevision = intent.method === "POST" ? 1 : intent.expectedRevision! + (intent.method === "DELETE" ? 0 : 1);
     if (response.status !== (intent.method === "POST" ? 201 : 200)
       || !sameUuid(response.headers.get("X-Client-Operation-ID"), intent.operationId)
       || intent.artifactId && !sameUuid(artifact.id, intent.artifactId)
       || artifact.revision !== expectedRevision
       || (intent.method === "POST" || intent.method === "PUT") && artifact.filename !== expectedMetadata.filename
+      || "tags" in expectedMetadata && JSON.stringify([...(artifact.tags ?? [])].sort()) !== JSON.stringify([...(expectedMetadata.tags ?? [])].sort())
       || expectedMetadata.sensitive !== undefined && artifact.sensitive !== expectedMetadata.sensitive
       || expectedMetadata.related_artifact_ids?.some((id) => !artifact.related_artifact_ids.some((linked) => sameUuid(id, linked)))
       || expectedMetadata.related_work_item_ids?.some((id) => !sameUuid(id, artifact.originating_work_item_id) && !artifact.related_work_item_ids.some((linked) => sameUuid(id, linked)))
@@ -95,7 +97,7 @@ export async function dispatchArtifactMutation(intent: ArtifactMutation, fetcher
   } catch { return { type: "unresolved", message: "The outcome is unknown. Retry this same pending action." }; }
 }
 
-export function artifactUpdateIntent(artifact: Artifact, changes: { sensitive?: boolean; related_artifact_ids?: string[]; related_work_item_ids?: string[] }, sessionId: string): ArtifactMutation {
+export function artifactUpdateIntent(artifact: Artifact, changes: { tags?: string[] | null; sensitive?: boolean; related_artifact_ids?: string[]; related_work_item_ids?: string[] }, sessionId: string): ArtifactMutation {
   const operationId = crypto.randomUUID();
   return Object.freeze({
     method: "PATCH", path: `/api/artifacts/projects/${artifact.project_id}/artifacts/${artifact.id}`,

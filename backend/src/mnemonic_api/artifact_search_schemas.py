@@ -18,10 +18,13 @@ from mnemonic_api.search_exploration_schemas import SearchOptions
 from mnemonic_api.search_pagination import SearchPagination
 from mnemonic_api.search_query import QueryMode, parse_query
 from mnemonic_api.search_ranking import SearchHitRanking, SearchRanking
+from mnemonic_api.tag_types import AssignedTags
 from mnemonic_api.validation_rules import validation_rule
 
 
 class ArtifactSearchRequest(ArtifactAccessRequest, SearchOptions):
+    tags: AssignedTags | None = None
+    tag_mode: Literal["or", "and"] = "or"
     q: str = Field(min_length=1, max_length=1000)
     fulltext: bool = False
     semantic: bool = False
@@ -74,6 +77,7 @@ class CompactExtractionStatus(ArtifactModel):
 
 
 class CompactArtifactRead(ArtifactModel):
+    tags: AssignedTags | None = None
     id: UUID
     project_id: UUID
     filename: str

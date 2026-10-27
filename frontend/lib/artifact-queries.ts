@@ -1,6 +1,6 @@
 import { queryOptions, type QueryClient } from "@tanstack/react-query";
 import { detailMessage } from "./api.ts";
-import { artifactPath, decodeArtifact, decodeArtifactLimitError, decodeArtifactPage, fetchArtifactStatus, type Artifact, type ArtifactPage, type ArtifactSearchMatch, type ArtifactSearchPage, type ArtifactSort } from "./artifacts.ts";
+import { matchesArtifactTags, artifactPath, decodeArtifact, decodeArtifactLimitError, decodeArtifactPage, fetchArtifactStatus, type Artifact, type ArtifactPage, type ArtifactSearchMatch, type ArtifactSearchPage, type ArtifactSort } from "./artifacts.ts";
 import { artifactPassageQuery, decodeArtifactPassageText, verifyArtifactPassageIds } from "./artifact-semantic.ts";
 import { readBoundedJson } from "./bounded-json.ts";
 import { queryKeys } from "./query-keys.ts";
@@ -19,6 +19,7 @@ export const artifactKeys = {
 
 export type ArtifactFilters = {
   projectId: string; search: string; fulltext: boolean; semantic: boolean; includeDeleted: boolean;
+  tags?: string[]; tagMode?: "or" | "and";
   workItemId: string; sort: ArtifactSort; order: "asc" | "desc"; offset: number; limit: number;
 };
 export type ArtifactReadPage = { page: ArtifactPage | null; searchPage: ArtifactSearchPage | null };
@@ -55,7 +56,7 @@ async function artifactJson(client: QueryClient, response: Response, signal: Abo
 }
 
 export function artifactPageOptions(client: QueryClient, filters: ArtifactFilters, enabled = true) {
-  const { projectId, search, fulltext, semantic, includeDeleted, workItemId, sort, order, offset, limit } = filters;
+  const { projectId, search, fulltext, semantic, includeDeleted, workItemId, sort, order, offset, limit, tags = [], tagMode = "or" } = filters;
   return queryOptions({
     queryKey: enabled ? artifactKeys.page(filters) : ["mnemonic", "disabled", "artifact-page", filters] as const,
     // Query owns semantic results, but only explicit user actions may dispatch
@@ -66,20 +67,27 @@ export function artifactPageOptions(client: QueryClient, filters: ArtifactFilter
       // project, search mode or filter must never display the old scope's rows.
       const old = previousQuery?.queryKey[5] as ArtifactFilters | undefined;
       return enabled && old && ["projectId", "search", "fulltext", "semantic", "includeDeleted", "workItemId", "limit"]
-        .every((key) => old[key as keyof ArtifactFilters] === filters[key as keyof ArtifactFilters]) ? previous : undefined;
+        .every((key) => old[key as keyof ArtifactFilters] === filters[key as keyof ArtifactFilters])
+        && JSON.stringify(old.tags ?? []) === JSON.stringify(tags) && (old.tagMode ?? "or") === tagMode ? previous : undefined;
     },
     queryFn: async ({ signal }): Promise<ArtifactReadPage> => {
       if (!await requireArtifactStatus(client, signal)) return { page: null, searchPage: null };
       const params = new URLSearchParams({ sort, order, limit: String(limit), offset: String(offset), include_deleted: String(includeDeleted) });
       if (workItemId) params.set("work_item_id", workItemId);
+      for (const tag of tags) params.append("tags", tag);
+      if (tags.length) params.set("tag_mode", tagMode);
       const response = search ? await fetch(`/api/mnemonic${unifiedSearchPath(projectId)}`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(artifactSearchRequest(search, fulltext, includeDeleted, limit, offset, workItemId || undefined, semantic)),
+        body: JSON.stringify(artifactSearchRequest(search, fulltext, includeDeleted, limit, offset, workItemId || undefined, semantic, tags, tagMode)),
         cache: "no-store", signal
       }) : await fetch(`${artifactPath(projectId)}?${params}`, { cache: "no-store", signal });
       const value = await artifactJson(client, response, signal);
-      if (!search) return { page: decodeArtifactPage(value, projectId), searchPage: null };
-      const matches = decodeUnifiedArtifactSearchPage(value, projectId, fulltext, limit, offset, includeDeleted, workItemId || undefined, search, "terms", semantic);
+      if (!search) {
+        const page = decodeArtifactPage(value, projectId);
+        if (page.items.some((artifact) => !matchesArtifactTags(artifact, tags, tagMode))) throw new Error("Mnemonic returned artifacts outside the selected tags.");
+        return { page, searchPage: null };
+      }
+      const matches = decodeUnifiedArtifactSearchPage(value, projectId, fulltext, limit, offset, includeDeleted, workItemId || undefined, search, "terms", semantic, tags, tagMode);
       await verifyArtifactPassageIds(matches.items);
       signal.throwIfAborted();
       if (!includeDeleted && matches.items.some((item) => item.artifact.deleted_at !== null)) throw new Error("Mnemonic returned deleted artifacts outside the requested search scope.");

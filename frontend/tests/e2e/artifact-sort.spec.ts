@@ -15,7 +15,7 @@ test("artifact sorting preserves scroll position while loading and after reorder
     mime_type: "text/plain", created_at: new Date(Date.UTC(2026, 0, index + 1)).toISOString(),
     modified_at: new Date(Date.UTC(2026, 0, 100 - index)).toISOString(),
     deleted_at: null, content_available: true, sensitive: false, related_artifact_ids: [],
-    created_by_agent_session_id: null, originating_work_item_id: null, related_work_item_ids: [],
+    created_by_agent_session_id: null, originating_work_item_id: null, related_work_item_ids: [], tags: null,
     extraction: { status: "pending", metadata: {}, truncated: false, error_code: null, extracted_at: null }
   }));
   let release: (() => void) | undefined;

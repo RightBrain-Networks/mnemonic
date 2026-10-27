@@ -33,7 +33,7 @@ test("artifact search remembers both contents preferences and supports the slash
   await page.reload();
   await expect(contents).toBeChecked();
 
-  await page.getByText("Upload description, links and sensitivity", { exact: true }).click();
+  await page.getByText("Upload tags, description, links and sensitivity", { exact: true }).click();
   const description = page.getByRole("textbox", { name: "Description", exact: true });
   await description.focus();
   await page.keyboard.type("notes/reference");

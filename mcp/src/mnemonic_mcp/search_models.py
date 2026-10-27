@@ -110,6 +110,8 @@ class WorkSearchFilters(DateBounds, SearchModel):
 
 
 class ArtifactSearchFilters(DateBounds, SearchModel):
+    tags: TagNames | None = Field(default=None, exclude_if=lambda value: value is None)
+    tag_mode: TagMode = Field(default="or", exclude_if=lambda value: value == "or")
     semantic: StrictBool = Field(default=False, description=ARTIFACT_SEMANTIC_DESCRIPTION)
     work_item_id: UUID | None = None
     artifact_id: UUID | None = None

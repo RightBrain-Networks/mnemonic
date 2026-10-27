@@ -15,7 +15,9 @@ later; repository development uses Python 3.14.
 
 Resolve the intended project and known work/artifact relationships through MCP
 metadata reads. Prepare a new private request directory outside Git, using the
-actual caller identity:
+actual caller identity. Read `list_tags(project_id)` and its descriptions before
+selecting tags. Add repeated `--tag NAME` options, or `--no-tags` for explicit
+null; these choices are frozen into the signed intent:
 
 ```sh
 python3 scripts/upload_artifact.py prepare \
@@ -67,7 +69,8 @@ Before replacement, read `get_artifact` for the current revision and original
 filename. Prepare a new request with `--artifact-id ARTIFACT_UUID`,
 `--expected-revision REVISION`, and `--filename ORIGINAL_FILENAME`. Authorize and
 send its exact intent as above. Replacement permanently removes the old bytes;
-omitted description, sensitivity and links retain their existing values.
+omitted description, sensitivity, tags and links retain their existing values.
+`--tag NAME` replaces the complete tag selection; `--no-tags` clears it.
 Use `--no-sensitive` only for a human-authorized classification change.
 
 After a timeout, disconnect, or unverifiable success, retain the entire prepared

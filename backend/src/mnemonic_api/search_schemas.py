@@ -93,6 +93,8 @@ class WorkSearchFilters(APIModel, DateBounds):
 
 
 class ArtifactSearchFilters(APIModel, DateBounds):
+    tags: AssignedTags | None = None
+    tag_mode: Literal["or", "and"] = "or"
     semantic: bool = False
     artifact_id: UUID | None = None
     work_item_id: UUID | None = None

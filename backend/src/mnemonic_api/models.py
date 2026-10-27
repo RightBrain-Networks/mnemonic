@@ -1990,6 +1990,9 @@ class Artifact(Base):
         CheckConstraint("relative_path = project_id::text || '/' || id::text || '/' || filename",
                         name=conv("artifacts_check1")),
         Index("ix_artifacts_project_modified", "project_id", "modified_at", "id"),
+        Index("ix_artifacts_tags", "tags", postgresql_using="gin"),
+        CheckConstraint("tags IS NULL OR cardinality(tags) BETWEEN 1 AND 20",
+                        name="tags_count"),
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
@@ -1999,6 +2002,7 @@ class Artifact(Base):
     filename: Mapped[str] = mapped_column(String(255))
     description: Mapped[str] = mapped_column(String(4000), default="")
     sensitive: Mapped[bool] = mapped_column(Boolean, server_default=text("false"))
+    tags: Mapped[list[str] | None] = mapped_column(ARRAY(String(50)))
     relative_path: Mapped[str] = mapped_column(String(400))
     revision: Mapped[int] = mapped_column(Integer, default=0)
     size_bytes: Mapped[int] = mapped_column(BigInteger, default=0)
@@ -2071,6 +2075,8 @@ class ArtifactRevision(Base):
     __table_args__ = (
         PrimaryKeyConstraint("artifact_id", "revision", name="artifact_revisions_pkey"),
         CheckConstraint("revision > 0", name=conv("artifact_revisions_revision_check")),
+        CheckConstraint("tags IS NULL OR cardinality(tags) BETWEEN 1 AND 20",
+                        name="tags_count"),
         CheckConstraint("size_bytes >= 0 AND size_bytes <= 1073741824",
                         name=conv("artifact_revisions_size_bytes_check")),
         CheckConstraint("sha256 ~ '^[0-9a-f]{64}$'", name=conv("artifact_revisions_sha256_check")),
@@ -2089,6 +2095,7 @@ class ArtifactRevision(Base):
     revision: Mapped[int] = mapped_column(Integer, primary_key=True)
     filename: Mapped[str] = mapped_column(String(255))
     description: Mapped[str] = mapped_column(String(4000))
+    tags: Mapped[list[str] | None] = mapped_column(ARRAY(String(50)))
     size_bytes: Mapped[int] = mapped_column(BigInteger)
     sha256: Mapped[str] = mapped_column(String(64))
     mime_type: Mapped[str | None] = mapped_column(String(120))

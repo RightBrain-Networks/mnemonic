@@ -1,12 +1,19 @@
-# Project work tags
+# Project tags
 
 Each project owns a tag catalog. Humans manage its names, descriptions, colors,
 and visual order in **Project settings > Tags** (`/settings/tags`). Names are
 normalized to lowercase words separated by dashes. A tag definition is shared by
-the project's work items; changing its presentation changes the dashboard labels.
-Renaming or deleting a tag updates current canonical work assignments. Frozen
+the project's work items and artifacts; changing its presentation changes dashboard labels.
+Editing opens a compact form in that tag's row. Renaming or deleting a tag updates
+current canonical work assignments and appends a metadata revision for each affected artifact. Frozen
 duplicate audit records retain their recorded names, preserving their immutable history.
 Color is supplementary: every tag also has a visible name and a description.
+
+New projects also receive six editable starter tags copied from Fish Food's
+production catalog on October 27, 2026: `bug-suspected`, `bug-proven`, `infra`,
+`tests`, `ux-ui`, and `security`. Their initial descriptions, colors, and order
+match that snapshot. These are independent project-owned definitions: humans can
+edit or delete them, and later changes in Fish Food do not change other projects.
 
 The `code-review`, `remediation`, and `dir` definitions are system-owned and cannot
 be renamed, edited, or deleted. Their menu order can change with the rest of the
@@ -14,6 +21,7 @@ catalog. Review episode rows intrinsically carry `code-review`; their original c
 implementation work does not inherit that tag. Work-item reads intrinsically
 carry `remediation` or `dir` when the corresponding lineage is present. Selecting or clearing an ordinary work tag
 does not create a review, change eligibility, remove lineage, or acquire a lease.
+The `dir` description is “Design Impact Review: investigate the impact a revised decision document”.
 
 The work library displays tags below the status controls. **All** clears the tag
 selection, **OR** matches any selected tag, and **AND** requires every selected
@@ -46,16 +54,32 @@ current assignments and intrinsic work-item system tags (`remediation` and `dir`
 `filters.work_items.tags=["name", "another-name"]` and
 `filters.work_items.tag_mode="or"` or `"and"`. The singular `tag` filter remains
 available. `search_work` accepts the same plural names and operation directly.
-Tag filters apply to work results; artifact, decision, and transcript facets
-retain their own filters. A `code-review` work filter matches explicitly assigned
+Artifact filters independently accept `filters.artifacts.tags` and `tag_mode`.
+Decision and transcript facets retain their own filters. A `code-review` work filter matches explicitly assigned
 work labels; review episodes remain discoverable through `list_code_reviews`,
 not a new unified-search record type. Manually assigning `code-review` does not
 create an episode or make an ordinary implementation lease a review lease.
 
+Artifacts use the same catalog and All/OR/AND filtering in the library. Humans
+select tags when uploading or editing artifact details. Agents can pass `tags`
+to upload, replacement, and metadata-update tools after reading the catalog.
+Upload omission starts untagged; update/replacement omission preserves the current
+assignment, and explicit null clears it. A nonempty list replaces the assignment.
+Tag changes advance the artifact revision and retain previous assignments in
+immutable history. They do not change the artifact bytes or grant sensitive
+content access. Keep the exact tags declaration and revision on uncertain retries.
+
 ## Migration
 
-The migration deletes legacy tag definitions and checkpoint assignments and sets
+Migration `0067_project_tags` deletes legacy tag definitions and checkpoint assignments and sets
 existing mutable work assignments to null, then creates each project's three
 system definitions. Review and decision lineage is retained, so intrinsic system
 tags can still identify existing workflows. This intentionally discards legacy
 tag data; it does not reset code review state or change MCP review operations.
+
+Migration `0068_artifact_tags` initializes existing artifact assignments and their
+historical revisions to null, updates the protected `dir` description, and adds
+the starter set only to future projects. Existing custom definitions, colors,
+order, and work assignments are preserved. Downgrade is blocked after artifact
+tag assignments or related durable operations exist; existing starter definitions
+remain project-owned and are never deleted by downgrade.

@@ -36,8 +36,9 @@ def new_work(api, project, names):
 def test_catalog_seeds_normalizes_and_protects_system_tags(api, project):
     path = f"/api/v1/projects/{project['id']}/tags"
     seeded = api.get(path).json()
-    assert [tag['name'] for tag in seeded['items']] == ['code-review', 'remediation', 'dir']
-    assert all(tag['system'] for tag in seeded['items'])
+    assert [tag['name'] for tag in seeded['items'][:3]] == ['code-review', 'remediation', 'dir']
+    assert all(tag['system'] for tag in seeded['items'][:3])
+    assert not any(tag['system'] for tag in seeded['items'][3:])
     created = browser(api, project, 'POST', name='Needs  Design', description='Design work')
     assert created.status_code == 201, created.text
     tag = created.json()['items'][-1]
@@ -52,7 +53,7 @@ def test_catalog_seeds_normalizes_and_protects_system_tags(api, project):
     reordered = browser(api, project, 'PUT', '/order', tag_ids=order)
     assert reordered.status_code == 200, reordered.text
     assert [row['id'] for row in reordered.json()['items']] == order
-    assert [row['menu_order'] for row in reordered.json()['items']] == list(range(4))
+    assert [row['menu_order'] for row in reordered.json()['items']] == list(range(len(order)))
 
 
 def test_current_assignments_edit_and_catalog_rename_delete(api, project):

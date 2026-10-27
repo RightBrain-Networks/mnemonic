@@ -147,7 +147,7 @@ def test_catalog_upgrade_preserves_restored_variants_and_rejects_superseded_guar
 
 
 @pytest.mark.parametrize("expected_head", [
-    "0065_knowledge_management", "0066_candidate_reuse", "0067_project_tags",
+    "0065_knowledge_management", "0066_candidate_reuse", "0067_project_tags", "0068_artifact_tags",
 ])
 def test_catalog_accepts_constraints_restored_after_0065_and_rejects_changed_values(
     postgres_engine: Engine, expected_head: str,
@@ -293,7 +293,7 @@ def test_project_activity_audit_accepts_review_events_and_checks_review_facts(
     close_work(api, project, question_work, checkpoint_fields, review=False)
     report = _audit(postgres_engine)
     assert report["result"] == "pass", report["blocking_findings"]
-    assert report["expected_head"] == "0067_project_tags"
+    assert report["expected_head"] == "0068_artifact_tags"
 
 
 def test_project_and_review_audits_keep_supported_0024_boundary(postgres_engine: Engine):

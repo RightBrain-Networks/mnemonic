@@ -24,8 +24,10 @@ additive, with an immutable originating work item.
 
 Use MCP `update_artifact` or `PATCH /api/v1/projects/{project_id}/artifacts/{artifact_id}`
 with JSON `client_operation_id`, `expected_revision`, caller attribution, and any
-of `description`, `sensitive`, `related_work_item_ids`, or `related_artifact_ids`.
-Omitted/null fields preserve the current value. The operation keeps current file
+of `description`, `sensitive`, `tags`, `related_work_item_ids`, or `related_artifact_ids`.
+Omitted fields preserve the current value. A nonempty `tags` list replaces project
+tag assignments; explicit null clears tags. Empty lists are rejected. Other null
+fields preserve the current value. The operation keeps current file
 bytes and checksum, advances revision, records history and audit, and queues
 extraction for the new revision. Preserve the exact request and operation UUID
 across uncertain retries. Upload/replacement also accept `related_artifact_ids`
@@ -38,6 +40,23 @@ sensitivity toggle. Work detail has a **Link artifact** action for existing file
 Both surfaces show sensitivity badges and navigate existing relationships.
 Permanent pre-0029 upload/replace/delete receipt responses remain unchanged on the
 server; clients accept their historical shape only on a confirmed receipt replay.
+
+## Project tags
+
+Artifacts share the work-item tag catalog. Read `list_tags` for names,
+descriptions, colors, and menu order; humans manage definitions in Settings > Tags.
+Both dashboard users and agents can assign or remove catalog tags on artifacts.
+New uploads default to no tags; replacement and metadata updates preserve omitted
+tags and clear them only with explicit null. The upload helper uses repeated
+`--tag NAME` or `--no-tags`, preserving exact omission/null intent in grants and
+receipt retries. Current metadata and revision history include nullable tags.
+Catalog renames/deletions update current assignments, preserving historical
+revision snapshots. Tag-only edits advance revision and retain existing bytes.
+
+The library offers the same All/OR/AND filtering as work items. Artifact list and
+content search accept `tags` and `tag_mode="or"` / `"and"`; unified search uses
+`filters.artifacts.tags` and `filters.artifacts.tag_mode`. Tag filtering preserves
+sensitive-content controls and coverage reporting.
 
 ## Sensitive content and explicit human approval
 
