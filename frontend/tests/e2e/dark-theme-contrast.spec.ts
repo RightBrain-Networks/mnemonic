@@ -249,7 +249,7 @@ const contrastFixture = `
                 <label class="field">Checkpoint kind<select><option>Progress / finding</option></select></label>
                 <label class="field">Checkpoint text<textarea placeholder="What changed, what was learned…"></textarea>
                   <span class="field-hint">The text is stored exactly and cannot be edited or deleted.</span></label>
-                <details class="edit-context" open><summary>Repository context and tags</summary>
+                <details class="edit-context" open><summary>Repository context</summary>
                   <div class="form-stack"><label class="field">Tags <span class="optional">Comma separated</span><input value="accessibility"></label></div></details>
                 <div class="error-notice"><p>Checkpoint could not be saved.</p></div>
                 <div class="comment-actions"><button class="button button-secondary">Add checkpoint</button>

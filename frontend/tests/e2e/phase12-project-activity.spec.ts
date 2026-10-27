@@ -435,7 +435,6 @@ test("a source merge refreshes both an open follow-up draft and an already-open 
     const followUp = await api.post(`/api/v1/projects/${project.id}/job-completion-reports/${source.reportId}/follow-ups`, { data: {
       title: "Read the exact originating report", summary: "Review the original font decision.", priority: 1,
       actor: { actor_client: "playwright-api", actor_session_id: "phase12" },
-      tags: null,
       initial_checkpoint: { prompt: "Review the original font decision and its source work.", source_client: "playwright-api", source_session_id: "phase12" },
       client_operation_id: crypto.randomUUID()
     }});
