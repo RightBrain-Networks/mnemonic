@@ -74,7 +74,7 @@ test("project tags can be managed, ordered, selected and combined on work items"
     await filters.getByRole("button", { name: "needs-design", exact: true }).click();
     await expect(cards).toHaveCount(2);
     await filters.getByRole("button", { name: "frontend", exact: true }).click();
-    await expect(cards).toHaveCount(9);
+    await expect(cards).toHaveCount(3);
     await filters.getByText("AND", { exact: true }).click();
     await expect(filters.getByRole("radio", { name: "AND", exact: true })).toBeChecked();
     await expect(cards).toHaveCount(1);

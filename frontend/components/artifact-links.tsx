@@ -41,11 +41,23 @@ export function ArtifactPicker({ projectId, excludedIds, disabled, onSelect, wor
   </div>;
 }
 
-export function ArtifactMetadataEditor({ artifact, disabled, onUpdate, onOpenArtifact }: {
-  artifact: Artifact; disabled: boolean; onUpdate: (intent: ArtifactMutation) => Promise<boolean>; onOpenArtifact: (artifact: Artifact) => void;
+export function ArtifactTagEditor({ artifact, disabled, onUpdate }: {
+  artifact: Artifact; disabled: boolean; onUpdate: (intent: ArtifactMutation) => Promise<boolean>;
 }) {
   const [editingTags, setEditingTags] = useState(false);
   const [tagDraft, setTagDraft] = useState<string[]>([]);
+  const update = (changes: Parameters<typeof artifactUpdateIntent>[1]) => onUpdate(artifactUpdateIntent(artifact, changes, dashboardSessionId()));
+  return <section className="artifact-tag-editor" aria-label="Artifact tags"><div className="artifact-tag-heading"><h3>Tags</h3>{!editingTags && !artifact.deleted_at && <button type="button" className="button button-secondary" disabled={disabled} onClick={() => { setTagDraft(artifact.tags ?? []); setEditingTags(true); }}>Edit tags</button>}</div>
+      {editingTags ? <form onSubmit={(event) => { event.preventDefault(); void update({ tags: tagDraft.length ? tagDraft : null }).then((saved) => { if (saved) setEditingTags(false); }); }}>
+        <TagSelector projectId={artifact.project_id} value={tagDraft} onChange={setTagDraft} disabled={disabled} />
+        <div className="settings-actions"><button type="submit" className="button button-primary" disabled={disabled}>Save tags</button><button type="button" className="button button-secondary" disabled={disabled} onClick={() => setEditingTags(false)}>Cancel</button></div>
+      </form> : artifact.tags?.length ? <TagList projectId={artifact.project_id} names={artifact.tags} /> : <p className="field-hint">No tags selected.</p>}
+    </section>;
+}
+
+export function ArtifactMetadataEditor({ artifact, disabled, onUpdate, onOpenArtifact }: {
+  artifact: Artifact; disabled: boolean; onUpdate: (intent: ArtifactMutation) => Promise<boolean>; onOpenArtifact: (artifact: Artifact) => void;
+}) {
   const [workQuery, setWorkQuery] = useState("");
   const [artifactLinkOpen, setArtifactLinkOpen] = useState(false);
   const client = useQueryClient();
@@ -56,12 +68,6 @@ export function ArtifactMetadataEditor({ artifact, disabled, onUpdate, onOpenArt
   const update = (changes: Parameters<typeof artifactUpdateIntent>[1]) => onUpdate(artifactUpdateIntent(artifact, changes, dashboardSessionId()));
   const workItems = workSearch.page?.items.filter((hit) => ![...artifact.related_work_item_ids, artifact.originating_work_item_id].includes(hit.summary.work_item.id));
   return <div className="artifact-metadata-editor">
-    <section className="artifact-tag-editor" aria-label="Artifact tags"><div className="artifact-tag-heading"><h3>Tags</h3>{!editingTags && !artifact.deleted_at && <button type="button" className="button button-secondary" disabled={disabled} onClick={() => { setTagDraft(artifact.tags ?? []); setEditingTags(true); }}>Edit tags</button>}</div>
-      {editingTags ? <form onSubmit={(event) => { event.preventDefault(); void update({ tags: tagDraft.length ? tagDraft : null }).then((saved) => { if (saved) setEditingTags(false); }); }}>
-        <TagSelector projectId={artifact.project_id} value={tagDraft} onChange={setTagDraft} disabled={disabled} />
-        <div className="settings-actions"><button type="submit" className="button button-primary" disabled={disabled}>Save tags</button><button type="button" className="button button-secondary" disabled={disabled} onClick={() => setEditingTags(false)}>Cancel</button></div>
-      </form> : artifact.tags?.length ? <TagList projectId={artifact.project_id} names={artifact.tags} /> : <p className="field-hint">No tags selected.</p>}
-    </section>
     <div className="artifact-sensitivity"><div><strong>{artifact.sensitive ? "Sensitive artifact" : "Standard artifact"}</strong><p>Agents must obtain explicit human approval before each read or content search of a sensitive artifact. Approval is temporary and single use.</p></div><button type="button" className="button button-secondary" disabled={disabled || Boolean(artifact.deleted_at)} onClick={() => void update({ sensitive: !artifact.sensitive })}>{artifact.sensitive ? "Remove sensitive flag" : "Mark as sensitive"}</button></div>
     <div className="artifact-related-list"><h3>Related artifacts · {artifact.related_artifact_ids.length}</h3>{related.map((item) => <button type="button" className="text-button artifact-work-link" key={item.id} disabled={disabled} onClick={() => onOpenArtifact(item)}>{item.filename}{item.sensitive ? " · Sensitive" : ""}{item.deleted_at ? " · Deleted" : ""}</button>)}{!artifact.related_artifact_ids.length && <p>No related artifacts.</p>}{relatedError && <p role="alert">{errorMessage(relatedError)}</p>}</div>
     {!artifact.deleted_at && <div className="artifact-link-columns">

@@ -38,7 +38,13 @@ test("artifact tags can be assigned, filtered, edited and removed with exact ret
     await page.getByRole("button", { name: "Clear", exact: true }).click();
     await filter.getByText("All", { exact: true }).click();
     await expect(rows).toHaveCount(4);
+    await page.getByRole("columnheader", { name: /^Name/ }).getByRole("button").click();
+    await expect(rows.first()).toContainText("artifact-tag-report-both.txt");
+    const viewport = page.viewportSize()!;
+    if (viewport.width > 650) await page.setViewportSize({ ...viewport, height: 1200 });
+    await page.evaluate(() => { document.querySelectorAll(".main-content, .page-content").forEach((element) => { element.scrollTop = 0; }); (document.activeElement as HTMLElement)?.blur(); });
     await page.screenshot({ path: testInfo.outputPath("artifact-tags-library.png"), fullPage: true, animations: "disabled" });
+    await page.setViewportSize(viewport);
 
     const filename = "artifact-tag-report-both.txt";
     await page.getByRole("button", { name: filename, exact: true }).click();
@@ -52,6 +58,8 @@ test("artifact tags can be assigned, filtered, edited and removed with exact ret
     await expect(tags.getByRole("button", { name: "Edit tags", exact: true })).toBeEnabled();
     await expect.poll(async () => (await tags.locator(".work-tag").allTextContents()).sort()).toEqual(["security", "tests"]);
     await expect(details.locator(".artifact-revision")).toHaveText("r2");
+    await details.locator(".artifact-details-body").evaluate((element) => { element.scrollTop = 0; });
+    await page.evaluate(() => (document.activeElement as HTMLElement)?.blur());
     await details.screenshot({ path: testInfo.outputPath("artifact-tags-details.png"), animations: "disabled" });
 
     const attempts: { body: string | null; operation: string | undefined }[] = [];
@@ -103,6 +111,7 @@ test("starter tags are editable inline and deletable without changing system tag
     await form.getByLabel("Description", { exact: true }).fill("Security checks and privacy findings.");
     await form.getByLabel("Tag color hex", { exact: true }).fill("#a8c8e8");
     await form.scrollIntoViewIfNeeded();
+    await page.evaluate(() => (document.activeElement as HTMLElement)?.blur());
     await page.screenshot({ path: testInfo.outputPath("tags-inline-edit.png"), fullPage: true, animations: "disabled" });
     await form.getByRole("button", { name: "Save tag", exact: true }).click();
     await expect(starter).toContainText("Security checks and privacy findings.");

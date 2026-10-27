@@ -27,9 +27,15 @@ def _findings(engine):
 def assert_snapshot_after_tag_reseed(actual, expected):
     # Downgrading below 0067 drops the unused catalog. Re-upgrading gives its
     # three system definitions fresh UUIDs; all authored facts and receipts stay exact.
+    # Starter labels are seeded only for new projects, not these re-upgraded projects.
+    assert len(actual['project_tags']) == 3
+    assert all(row['system'] for row in actual['project_tags'])
+    assert {row['name'] for row in expected['project_tags'] if not row['system']} == {
+        'bug-suspected', 'bug-proven', 'infra', 'tests', 'ux-ui', 'security',
+    }
     def definitions(snapshot):
-        rows = snapshot['project_tags']
-        assert len(rows) == 3 and all(row['system'] for row in rows)
+        rows = [row for row in snapshot['project_tags'] if row['system']]
+        assert len(rows) == 3
         assert {row['name'] for row in rows} == {'code-review', 'remediation', 'dir'}
         return {row['name']: {key: value for key, value in row.items() if key != 'id'}
                 for row in rows}

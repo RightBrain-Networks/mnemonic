@@ -2880,4 +2880,4 @@ html[data-theme="dark"] :is(.operational-badge.planning-cycle, .dependency-cycle
 .artifact-tag-heading h3 { margin: 0; }
 .artifact-tag-editor .settings-actions { margin-top: 12px; }
 .artifact-upload-tags { grid-column: 1 / -1; }
-.artifact-library > .tag-filter-row { padding: 10px 0 14px; }
+.artifact-library > .tag-filter-row { padding: 10px 22px 14px; }

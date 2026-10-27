@@ -14,6 +14,11 @@ or descending search order. Pins do not edit work records or alter agent queues.
 Work items is a top-level navigation item containing ordinary work and code
 reviews. The tag strip below status filters supports All/OR/AND selection; the
 project catalog order controls its visual order. See [work tags](work-tags.md).
+The artifact library uses the same catalog and All/OR/AND controls. Agent unified
+search accepts independent `filters.artifacts.tags=["infra", "tests"]` and
+`filters.artifacts.tag_mode="or"` or `"and"`; these filter current artifact
+assignments. `list_artifacts` and `search_artifact_contents` accept those fields
+directly. Existing `tag_counts` remain counts of matching work items.
 
 Application/API/MCP/dashboard `0.43.0` and plugin `0.26.0` add one project search
 surface across work items, artifacts, and transcripts. No migration or new
