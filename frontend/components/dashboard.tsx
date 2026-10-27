@@ -3030,6 +3030,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
                 onDeselect={deselectWork}
                 onCopySelectedPointer={copyOpenedRecallPointer}
                 onCopyPointer={(item) => void copyRecallPointer(item)}
+                onNotice={(message, error) => setNotice({ message, error })}
                 onStatusAction={(action, item) => void changeManualStatus(action, item)}
                 onMove={(item, targetProjectId) => void moveWork(targetProjectId, item)}
                 detail={selectedReviewId ? <CodeReviewDetailPane key={selectedReviewId} projectId={activeId} enabled={coreReadsEnabled} workId={searchParams.get("work")} reviewId={selectedReviewId} onNavigate={blockNavigationWhilePending} onClose={closeWork} onNotice={(message, error) => setNotice({ message, error })} onChanged={() => { refreshWork(); refreshReports(); }} /> : <WorkDetailPane

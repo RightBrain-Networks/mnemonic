@@ -97,6 +97,7 @@ export type WorkQueueProps = {
   onDeselect: () => void;
   onCopySelectedPointer: () => void;
   onCopyPointer: (summary: WorkSummary) => void;
+  onNotice: (message: string, error?: boolean) => void;
   onStatusAction: (action: ManualStatusAction, summary: WorkSummary) => void;
   onMove: (summary: WorkSummary, targetProjectId: string) => void;
   onFlatSearch: (summary: WorkSummary) => void;
@@ -141,6 +142,7 @@ export default function WorkQueue({
   onDeselect,
   onCopySelectedPointer,
   onCopyPointer,
+  onNotice,
   onFlatSearch,
   onStatusAction,
   onMove,
@@ -335,7 +337,10 @@ export default function WorkQueue({
             loading && !hasData ? <Skeletons count={3} label="Loading work items" /> :
             hasData ? <>
               {items.map((entry) => "review_task" in entry
-                ? <ReviewQueueCard key={entry.review_task.id} summary={entry.summary} />
+                ? <div key={entry.review_task.id} className={flatSearch ? "search-result" : "hierarchy-node-row"}>
+                    {!flatSearch && <span className="hierarchy-toggle-spacer" aria-hidden="true" />}
+                    <div className="hierarchy-card"><ReviewQueueCard summary={entry.summary} onNotice={onNotice} /></div>
+                  </div>
                 : "presentation" in entry
                   ? <WorkHierarchy key={entry.summary.work_item.id} pinnedWorkItemIds={pinnedWorkItemIds} items={[entry]}
                       status={status} sort={sort} tag={tag} tags={tags} tagMode={tagMode} sourceClient={sourceClient} sourceSessionId={sourceSessionId}

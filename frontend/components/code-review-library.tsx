@@ -2,7 +2,7 @@
 
 import Link from "@/components/dashboard-link";
 import { useRouter } from "@tanstack/react-router";
-import { useEffect, useRef, useState, type MouseEvent } from "react";
+import { useEffect, useRef, type MouseEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { codeReviewDetailOptions } from "@/lib/work-panel-queries";
 import { errorMessage } from "@/lib/api";
@@ -46,14 +46,16 @@ export function CodeReviewDetailPane(props: {
   </aside>;
 }
 
-export function ReviewQueueCard({ summary }: { summary: import("@/lib/types").WorkSummary }) {
+export function ReviewQueueCard({ summary, onNotice }: {
+  summary: import("@/lib/types").WorkSummary;
+  onNotice: (message: string, error?: boolean) => void;
+}) {
   const options = useQueueOptions();
   const queryClient = useQueryClient();
-  const [notice, setNotice] = useState("");
   const task = summary.review_task!;
   const actions = useCodeReviewActions(task.project_id,
     () => { void queryClient.invalidateQueries({ queryKey: ["mnemonic", "project", task.project_id] }); },
-    (message) => setNotice(message));
+    onNotice);
   useEffect(() => { options.register(task.id, summary); return () => options.unregister(task.id); }, [task.id, summary, options.register, options.unregister]);
   const selected = options.selectedId === task.id;
   return <article className={`work-item-card queue-card ${selected ? "is-selected" : ""}`} role="option" tabIndex={0}
@@ -64,7 +66,6 @@ export function ReviewQueueCard({ summary }: { summary: import("@/lib/types").Wo
     <h2 className="queue-card-title">{task.title}</h2><p className="queue-card-summary">{task.summary}</p>
     <WorkTags work={task} />
     <div className="queue-card-footer"><span className="queue-card-arrow" aria-hidden="true">→</span><CardActions task={task} actions={actions} /></div>
-    {notice && <p role="status">{notice}</p>}
   </article>;
 }
 

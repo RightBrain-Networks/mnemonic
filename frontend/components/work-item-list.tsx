@@ -88,6 +88,7 @@ export type WorkItemListProps = {
   onDeselect: () => void;
   onCopySelectedPointer: () => void;
   onCopyPointer: (summary: WorkSummary) => void;
+  onNotice: (message: string, error?: boolean) => void;
   // The right column of the work surface (the detail pane).
   onStatusAction: (action: ManualStatusAction, summary: WorkSummary) => void;
   onMove: (summary: WorkSummary, targetProjectId: string) => void;
@@ -98,6 +99,7 @@ export default function WorkItemList({
   projectId, selectedTags, tagMode, onTags, onTagMode,
   pinnedWorkItemIds,
   onTogglePin,
+  onNotice,
   queuePaneRef,
   introductoryContent,
   libraryToolsOpen,
@@ -262,6 +264,7 @@ export default function WorkItemList({
         onDeselect={onDeselect}
         onCopySelectedPointer={onCopySelectedPointer}
         onCopyPointer={onCopyPointer}
+        onNotice={onNotice}
         onStatusAction={onStatusAction}
         onMove={onMove}
         onFlatSearch={(item) => {
