@@ -439,7 +439,7 @@ class SanitizedFastMCP(FastMCP[Any]):
         super().__init__(*args, **kwargs)
         if not server_version:
             raise ValueError("The MCP application version must be nonempty.")
-        # FastMCP 1.29 has no public version argument; both transports read this
+        # FastMCP 1.30 has no public version argument; both transports read this
         # low-level Server field when creating their initialization options.
         self._mcp_server.version = server_version
 
@@ -465,7 +465,7 @@ class SanitizedFastMCP(FastMCP[Any]):
             structured_output=structured_output,
         )
 
-        # mcp==1.29 creates a dynamic model per tool. Harden only this server's
+        # mcp==1.30 creates a dynamic model per tool. Harden only this server's
         # just-registered model, then refresh the schema captured by Tool.
         function_name = getattr(fn, "__name__", None)
         if name is None and not isinstance(function_name, str):
