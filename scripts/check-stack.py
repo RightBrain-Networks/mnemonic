@@ -26,6 +26,7 @@ import asyncio
 import json
 import os
 from builtins import BaseExceptionGroup
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
@@ -1622,10 +1623,43 @@ async def require_cross_project_isolation(
     require(wrong.status_code == 404, "A cross-project ID was accepted.")
 
 
+def dashboard_origin(value: str) -> str:
+    try:
+        url = httpx.URL(value)
+    except httpx.InvalidURL as error:
+        raise argparse.ArgumentTypeError("Use a complete HTTP(S) dashboard origin.") from error
+    if (url.scheme not in {"http", "https"} or not url.host or url.username or url.password
+            or url.path != "/" or url.query or url.fragment):
+        raise argparse.ArgumentTypeError("Use an HTTP(S) origin without credentials or a path.")
+    return str(url).rstrip("/")
+
+
+def dashboard_request_hook(
+    web_url: str, web_origin: str | None,
+) -> Callable[[httpx.Request], Awaitable[None]]:
+    """Use the configured browser identity when connecting through internal Docker DNS."""
+    destination = httpx.URL(web_url)
+    origin = httpx.URL(web_origin) if web_origin else destination
+
+    async def prepare(request: httpx.Request) -> None:
+        if ((request.url.scheme, request.url.host, request.url.port)
+                != (destination.scheme, destination.host, destination.port)):
+            return
+        # Preserve deliberately hostile headers used by the negative boundary checks.
+        if request.headers.get("host") == destination.netloc.decode():
+            request.headers["Host"] = origin.netloc.decode()
+        if request.headers.get("origin") == web_url.rstrip("/"):
+            request.headers["Origin"] = str(origin).rstrip("/")
+
+    return prepare
+
+
 async def check(args: argparse.Namespace, key: str) -> None:
     auth = {"Authorization": f"Bearer {key}"}
     async with (
-        httpx.AsyncClient(timeout=15, trust_env=False) as public,
+        httpx.AsyncClient(timeout=15, trust_env=False, event_hooks={"request": [
+            dashboard_request_hook(args.web_url, args.web_origin),
+        ]}) as public,
         httpx.AsyncClient(
             base_url=args.api_url.rstrip("/") + "/api/v1/",
             headers=auth,
@@ -4177,6 +4211,10 @@ def main() -> None:
     parser.add_argument(
         "--web-url",
         default=f"http://127.0.0.1:{values.get('MNEMONIC_WEB_PORT', '3000')}",
+    )
+    parser.add_argument(
+        "--web-origin", type=dashboard_origin,
+        help="Configured public dashboard origin when --web-url uses an internal address.",
     )
     parser.add_argument(
         "--project-id",

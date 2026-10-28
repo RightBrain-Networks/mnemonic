@@ -90,7 +90,7 @@ class Stack:
                         if line.startswith("MNEMONIC_API_KEY="))
         environment = {**self.environment, "MNEMONIC_VERSION": image_tag,
                        "MNEMONIC_DASHBOARD_ORIGINS":
-                           f"http://127.0.0.1:{self.ports['web']},http://web:3000"}
+                           f"http://127.0.0.1:{self.ports['web']}"}
         result = subprocess.run(
             ["docker", "compose", "-p", self.project, "--project-directory", str(root),
              "--env-file", str(env_file), "-f", str(root / "compose.yaml"),
@@ -172,6 +172,7 @@ class Stack:
         with checker.open("rb") as source:
             self.command("exec", "-T", "mcp", "python", "-", "--api-url", "http://api:8000",
                          "--mcp-url", "http://mcp:8001/mcp", "--web-url", "http://web:3000",
+                         "--web-origin", f"http://127.0.0.1:{self.ports['web']}",
                          stdin=source)
         # Audit a quiescent database, then restore serving for the final health check.
         self.command("stop", "web", "mcp", "api", "worker")

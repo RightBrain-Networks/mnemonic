@@ -18,7 +18,8 @@ REPOSITORY = "https://github.com/RightBrain-Networks/mnemonic"
 SEMVER = re.compile(r"(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)")
 INSTALL_FILES = (
     "compose.yaml", "compose.bind-mounts.yaml", "compose.tls.yaml",
-    "compose.transcripts.yaml", ".env.example", "scripts/setup.py",
+    "compose.transcripts.yaml", ".env.example", "scripts/setup.py", "up_mnemonic.sh",
+    "scripts/export_agent_skills.py",
     "scripts/check-stack.py", "scripts/check_transcript_access.py", "LICENSE",
     "SECURITY.md", "CHANGELOG.md", "README.md", "AGENT-README.md", "AGENTS.md",
     "docs/operations.md", "docs/releases.md",
@@ -102,9 +103,10 @@ def upgrade_notes(root: Path, release: str, plugin: str, previous: str | None) -
         "pre-migration database backup and matching filesystem backup with the previous images.\n\n"
         "### Migrations added\n\n" + migration_lines + "\n\n"
         "### Configuration keys added, changed or removed\n\n" + config_lines + "\n\n"
-        "Review `docs/operations.md` before upgrading. Existing installations must preserve "
-        "their storage bindings with `compose.bind-mounts.yaml`; changing storage defaults "
-        "does not move existing data. Migrations require a successful automatic backup "
+        "Review `docs/operations.md` before upgrading. Existing bind-mounted installations "
+        "must preserve their storage bindings with `compose.bind-mounts.yaml`. Existing "
+        "named-volume installations must retain their volumes without that overlay; changing "
+        "storage defaults does not move existing data. Migrations require a successful backup "
         "unless the operator explicitly opts out.\n"
     )
 
@@ -128,12 +130,12 @@ def payload(root: Path) -> dict[str, bytes]:
         if path.is_symlink():
             raise ValueError(f"Bundle inputs must be regular files: {name}")
         files[name] = path.read_bytes()
-    for directory in ("deploy/nginx", "deploy/empty-transcripts", "docs"):
+    for directory in ("deploy/nginx", "deploy/empty-transcripts", "docs", "examples", "plugin"):
         for name in git(root, "ls-files", "--", directory).splitlines():
             if directory == "docs" and (not name.endswith(".md")
                                         or name.startswith("docs/images/")):
                 continue
-            if "/test/" not in name:
+            if "/test/" not in name and not name.startswith("plugin/tests/"):
                 path = root / name
                 if path.is_symlink() or not path.is_file():
                     raise ValueError(f"Bundle inputs must be regular files: {name}")
@@ -151,14 +153,20 @@ def checksums(files: dict[str, bytes]) -> bytes:
                    for name, data in sorted(files.items())).encode()
 
 
-def archive(files: dict[str, bytes], release: str) -> bytes:
+def executable_files(root: Path) -> set[str]:
+    records = git(root, "ls-files", "--stage", "-z").split("\0")
+    return {name for record in records if record
+            for metadata, name in [record.split("\t", 1)] if metadata.startswith("100755 ")}
+
+
+def archive(files: dict[str, bytes], release: str, executables: set[str]) -> bytes:
     result = io.BytesIO()
     with gzip.GzipFile(fileobj=result, mode="wb", filename="", mtime=0) as compressed:
         with tarfile.open(fileobj=compressed, mode="w", format=tarfile.PAX_FORMAT) as tar:
             for name, data in sorted(files.items()):
                 entry = tarfile.TarInfo(f"mnemonic-{release}/{name}")
                 entry.size = len(data)
-                entry.mode = 0o644
+                entry.mode = 0o755 if name in executables else 0o644
                 tar.addfile(entry, io.BytesIO(data))
     return result.getvalue()
 
@@ -176,7 +184,7 @@ def build(root: Path, output: Path, previous: str | None = None) -> list[Path]:
     files.update({"UPGRADE.md": notes, "COMPATIBILITY.md": compatibility,
                   "marketplace.json": catalog})
     files["SHA256SUMS"] = checksums(files)
-    artifacts = {f"mnemonic-{release}.tar.gz": archive(files, release),
+    artifacts = {f"mnemonic-{release}.tar.gz": archive(files, release, executable_files(root)),
                  "marketplace.json": catalog, "UPGRADE.md": notes,
                  "COMPATIBILITY.md": compatibility}
     artifacts["SHA256SUMS"] = checksums(artifacts)

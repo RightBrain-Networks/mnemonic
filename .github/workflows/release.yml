@@ -15,6 +15,9 @@ jobs:
   validate:
     runs-on: ubuntu-24.04
     if: ${{ github.repository == 'RightBrain-Networks/mnemonic' }}
+    permissions:
+      contents: read
+      checks: read
     outputs:
       version: ${{ steps.baseline.outputs.version }}
       previous_tag: ${{ steps.baseline.outputs.previous_tag }}

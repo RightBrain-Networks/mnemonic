@@ -128,9 +128,11 @@ UID/GID, and API and worker read those paths through read-only binds. Docker Des
 allowed to share configured source directories. Without sources, capture stays disabled.
 See [transcript setup](docs/transcripts.md#filesystem-deployment).
 
-**Existing installs:** setup leaves `.env` unchanged. Preserve all old storage paths and use
-`-f compose.yaml -f compose.bind-mounts.yaml` on every Compose command, adding the build or TLS
-overlay when needed. Base Compose intentionally refuses an implicit legacy storage mode.
+**Existing installs:** setup leaves `.env` unchanged. Legacy bind installations must preserve
+all old storage paths and use `-f compose.yaml -f compose.bind-mounts.yaml` on every Compose
+command, adding the build or TLS overlay when needed. Existing named-volume installations
+retain their volumes and Compose project name without the bind overlay. Base Compose
+intentionally refuses an implicit legacy storage mode.
 Follow [Upgrade from any release](docs/operations.md#upgrade-from-any-release) before starting
 new images against existing data. That procedure stops old writers and backs up before migration.
 
@@ -153,7 +155,23 @@ Open `mnemonic`. Create your first project using the project selector, then conn
 | REST API documentation | `MNEMONIC_API_PORT` | [localhost:8000/docs](http://localhost:8000/docs) |
 | MCP Streamable HTTP    | `MNEMONIC_MCP_PORT` | `http://127.0.0.1:8001/mcp`                       |
 
-Those addresses are defaults, not fixed values. Each port is set in `.env`, so change one there if it collides with something already running on the host, and substitute your own value wherever this README shows a port. If the web port changes, update `MNEMONIC_DASHBOARD_ORIGINS` to match both `http://localhost:<port>` and `http://127.0.0.1:<port>`. With `uv` and Python 3.14 available, `uv run --project mcp python scripts/check-stack.py` resolves all three from `.env` and performs the read-only live-stack checks. See [`docs/development.md`](docs/development.md) before opting into its write path.
+Those addresses are defaults, not fixed values. Each port is set in `.env`, so change one there if it collides with something already running on the host, and substitute your own value wherever this README shows a port. If the web port changes, update `MNEMONIC_DASHBOARD_ORIGINS` to match both `http://localhost:<port>` and `http://127.0.0.1:<port>`.
+
+Run the read-only stack check inside the installed MCP container, which supplies the required
+Python dependencies and API key. These service addresses use internal ports even when host
+ports have changed; retain your installation's Compose overlays:
+
+```sh
+docker compose exec -T mcp python - \
+  --api-url http://api:8000 \
+  --mcp-url http://mcp:8001/mcp \
+  --web-url http://web:3000 --web-origin http://localhost:3000 < scripts/check-stack.py
+```
+
+Set `--web-origin` to a dashboard origin configured in `MNEMONIC_DASHBOARD_ORIGINS`;
+substitute the actual port or HTTPS origin when using changed ports or TLS.
+Do not add `--project-id` to an installation check; that enables durable test mutations in
+the named project. See [`docs/development.md`](docs/development.md) for disposable test usage.
 
 The seven running services are `postgres`, `rabbitmq`, `api`, `tika`, `mcp`, `web`, and `worker`; one-shot `init-storage` and `migrate` services complete before application startup; the shared worker handles background jobs and project backups. PostgreSQL, RabbitMQ, Tika, and the worker have no published ports. Dashboard, REST, and MCP ports bind to loopback only. For LAN access through your existing nginx TLS proxy, use the
 [nginx configuration and setup guide](deploy/nginx/README.md).

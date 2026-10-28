@@ -87,7 +87,7 @@ For Claude Code, keep the marketplace/plugin installation documented in
 Native plugin paths continue to use Claude's supported
 [plugin-root expansion](https://code.claude.com/docs/en/plugins-reference).
 
-For a portable installation, run from the Mnemonic checkout:
+For a portable installation, run from the extracted release bundle or Mnemonic checkout:
 
 ```sh
 python3 scripts/export_agent_skills.py /absolute/path/to/new-skill-export
@@ -97,7 +97,7 @@ The destination must not exist, its parent directory must already exist, and its
 path must not traverse symlinks. The exporter creates exactly three skill folders,
 each containing its own references and executable repository helper. It resolves
 Claude plugin paths into relative paths and requires no Claude environment.
-The output can be moved independently of this checkout. It never modifies client
+The output can be moved independently of the bundle or checkout. It never modifies client
 configuration or overwrites an installed skill.
 
 Place the three complete folders in your chosen skill discovery directory.

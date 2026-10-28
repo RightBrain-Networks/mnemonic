@@ -6,6 +6,7 @@ import io
 import json
 import re
 import subprocess
+import sys
 import tarfile
 import tempfile
 import unittest
@@ -67,6 +68,8 @@ class ReleaseBundleTest(unittest.TestCase):
         self.assertIn("deploy/empty-transcripts/.keep", files)
         self.assertIn("setup.py", files)
         self.assertIn("scripts/setup.py", files)
+        self.assertIn("scripts/export_agent_skills.py", files)
+        self.assertIn("up_mnemonic.sh", files)
         self.assertIn("AGENTS.md", files)
         self.assertIn("README.md", files)
         self.assertIn("AGENT-README.md", files)
@@ -85,6 +88,36 @@ class ReleaseBundleTest(unittest.TestCase):
         self.assertEqual(source["sha"], self.git("rev-parse", "HEAD"))
         self.assertEqual(source["path"], "plugin")
         self.assertIn(b"no previous published-image upgrade", files["UPGRADE.md"])
+        self.assertIn(b"named-volume installations must retain their volumes without that overlay",
+                      files["UPGRADE.md"])
+
+    def test_extracted_repository_bundle_exports_complete_executable_skills(self):
+        root = Path(__file__).resolve().parents[2]
+        output = self.root.parent / "release"
+        artifacts = release_bundle.build(root, output)
+        with tarfile.open(artifacts[0]) as archive:
+            archive.extractall(output, filter="data")
+        extracted = output / f"mnemonic-{release_bundle.version(root)}"
+        destination = output / "portable-skills"
+        subprocess.run([sys.executable, str(extracted / "scripts/export_agent_skills.py"),
+                        str(destination)], check=True, capture_output=True, text=True)
+        self.assertEqual({path.name for path in destination.iterdir()},
+                         {"mnemonic-recall", "mnemonic-save", "mnemonic-search"})
+        for skill in destination.iterdir():
+            self.assertNotIn("${CLAUDE_PLUGIN_ROOT}", (skill / "SKILL.md").read_text())
+            self.assertTrue((skill / "reference/authority-and-provenance.md").is_file())
+            for name in ("upload_artifact.py", "download_artifact.py", "decision_provenance.py"):
+                self.assertTrue((skill / "scripts" / name).is_file())
+            helper = skill / "bin/mnemonic-repository-freshness"
+            self.assertEqual(helper.stat().st_mode & 0o777, 0o755)
+        helper = destination / "mnemonic-recall/bin/mnemonic-repository-freshness"
+        result = subprocess.run([str(helper), "--baseline", self.git("rev-parse", "HEAD"),
+                                 "--path", "LICENSE"], cwd=self.root, check=True,
+                                capture_output=True, text=True, timeout=20)
+        self.assertIn("state=unchanged\n", result.stdout)
+        self.assertTrue((extracted / "examples/codex-AGENTS.md").is_file())
+        for name in ("backend", "mcp", "frontend", "compose.build.yaml", ".env", "plugin/tests"):
+            self.assertFalse((extracted / name).exists(), name)
 
     def test_upgrade_notes_list_only_new_migrations_and_configuration_changes(self):
         self.write("backend/alembic/versions/0002_second.py",

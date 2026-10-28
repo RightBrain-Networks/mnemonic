@@ -1,6 +1,6 @@
 """Check transcript access using the real API/worker identities and Compose mounts.
 
-Run after deployment, or with --one-off before starting a newly built installation.
+Run after deployment, or with --one-off before starting a new installation.
 The bounded sample opens/closes files without reading their bodies. Configuration
 secrets and arbitrary Docker inspection output never enter this report.
 """
@@ -12,7 +12,7 @@ import subprocess
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--one-off", action="store_true", help="Use built service images")
+    parser.add_argument("--one-off", action="store_true", help="Use configured service images")
     parser.add_argument("--sample", type=int, default=100)
     args = parser.parse_args()
     reports = {}
@@ -29,7 +29,7 @@ def main() -> None:
             report = json.loads(result.stdout)
         except ValueError:
             report = {"error": "Service diagnostics unavailable. Check Compose service startup "
-                      "and source bind mounts; rebuild API and worker with the current release."}
+                      "and source bind mounts; use matching API and worker release images."}
         reports[service] = report
         failed |= result.returncode != 0
     api, worker = reports["api"], reports["worker"]

@@ -92,6 +92,12 @@ unpublished. The first public release explicitly reports that no previous public
 image release exists to test; a fresh installation test is not presented as
 upgrade evidence.
 
+If a release run fails after creating its candidate receipt or promoting some exact
+version tags, rerun only the failed job or jobs. That retry reuses the original receipt
+and tested image digests, including the original build attempt. Rerunning every job
+can rebuild different bytes; exact version tags deliberately refuse replacement by
+different digests, even when the source commit is unchanged.
+
 Nightly rehearsals run fresh-install and previous-release upgrade checks on both
 architectures plus browser acceptance tests. Every stack uses an isolated Compose
 project and disposable storage; no rehearsal targets production.
@@ -103,8 +109,10 @@ project and disposable storage; no rehearsal targets production.
 - `mnemonic-X.Y.Z.tar.gz`: Compose configuration and installation overlays,
   `.env.example`, a root `setup.py`, required deployment files, diagnostic scripts,
   the license, and the complete Markdown operations guides, including historical
-  upgrade prerequisites. Contributor build overlays and
-  source trees are excluded.
+  upgrade prerequisites. It also includes `up_mnemonic.sh`, client configuration
+  examples, and the complete plugin resources plus `scripts/export_agent_skills.py`
+  for portable Codex/OpenCode skills. Executable helpers retain their executable
+  permissions. Contributor build overlays and application source trees are excluded.
 - `UPGRADE.md`: before/after database schema heads, migrations added, changed
   configuration keys, plugin version, reconnect guidance, and rollback limits.
 - `COMPATIBILITY.md`: the server/plugin version pair and source commit.
@@ -144,11 +152,15 @@ its Python dependencies:
 docker compose exec -T mcp python - \
   --api-url http://api:8000 \
   --mcp-url http://mcp:8001/mcp \
-  --web-url http://web:3000 < scripts/check-stack.py
+  --web-url http://web:3000 --web-origin http://localhost:3000 < scripts/check-stack.py
 python3 scripts/check_transcript_access.py
 ```
 
-The MCP container receives its API key from Compose. Do not add `--project-id` to
+Set `--web-origin` to the actual configured dashboard origin when its port changes or
+TLS is enabled; it must match `MNEMONIC_DASHBOARD_ORIGINS`. The checker connects through
+internal Docker DNS while retaining that public Host/Origin identity, and still rejects
+untrusted hosts and origins. The MCP container receives its API key from Compose.
+Do not add `--project-id` to
 an ordinary installation check; that option explicitly enables destructive test
 work intended only for a disposable project.
 
@@ -163,6 +175,11 @@ Replace `X.Y.Z` with that exact server release. On a server upgrade, update the
 marketplace URL to the chosen release before updating the plugin, then restart
 Claude Code. The `releases/latest` page can help discover releases; following a
 moving latest catalog can select a plugin that does not match a pinned server.
+
+For Codex or OpenCode, export the complete portable skills directly from the extracted
+bundle with `python3 scripts/export_agent_skills.py /absolute/path/to/new-skill-export`.
+Follow [the client setup guide](mcp-clients.md#install-the-complete-workflow) to install
+the exported folders and the matching configuration examples.
 
 Published assets and images also carry GitHub provenance. For example, with the
 GitHub CLI, verify the downloaded archive or an image digest:
