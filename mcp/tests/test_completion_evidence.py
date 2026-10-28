@@ -1957,7 +1957,7 @@ def test_real_stdio_valid_request_racing_terminal_violation_has_only_valid_frame
 
 
 def test_pinned_sdk_private_stdio_seam_is_explicit():
-    assert importlib.metadata.version("mcp") == "1.29.1"
+    assert importlib.metadata.version("mcp") == "1.30.0"
     source = inspect.getsource(SanitizedFastMCP.run_stdio_async)
     assert "bounded_stdio_server" in source
     assert "self._mcp_server.run" in source
