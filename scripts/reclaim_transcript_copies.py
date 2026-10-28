@@ -43,7 +43,7 @@ def main() -> int:
     try:
         with engine.connect() as connection:
             head = connection.scalar(text('SELECT version_num FROM alembic_version'))
-        if head != '0068_artifact_tags':
+        if head != '0069_transcript_directories':
             raise ExtractionError('transcript_reclaim_schema_mismatch')
         if not storage.root.is_dir():
             raise ExtractionError('transcript_copy_unavailable')

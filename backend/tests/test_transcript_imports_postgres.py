@@ -94,9 +94,10 @@ def test_mixed_import_selects_codex_parent_and_subagent_and_searches_their_text(
 
 
 def test_codex_import_failures_remain_visible_and_replayable(api, project, tmp_path):
+    api.app.state.settings.transcript_max_bytes = 1024
     api.app.state.settings.transcript_allowed_roots = [tmp_path]
     settings = f"/api/v1/projects/{project['id']}/transcript-settings"
-    assert api.patch(settings, json={"enabled": True, "max_file_size_bytes": 1024,
+    assert api.patch(settings, json={"enabled": True, "directories": [],
                                     "expected_revision": 1}).status_code == 200
     malformed = codex_source(tmp_path, "malformed.jsonl")
     with malformed.open("a") as content:
@@ -234,13 +235,16 @@ def test_imports_obey_pause_limits_scope_search_rebuild_and_backup(
     path = source(tmp_path)
     api.app.state.settings.transcript_allowed_roots = [tmp_path]
     settings = f"/api/v1/projects/{project['id']}/transcript-settings"
-    assert api.patch(settings, json={"enabled": False, "max_file_size_bytes": 1024,
+    assert api.patch(settings, json={"enabled": False, "directories": [],
                                     "expected_revision": 1}).status_code == 200
     operation = str(uuid4())
-    imported = import_folder(api, project, tmp_path, operation).json()
+    disabled = import_folder(api, project, tmp_path, operation)
+    assert disabled.status_code == 409
+    assert disabled.json()["detail"]["code"] == "transcript_disabled"
     assert not run(api)
-    assert api.patch(settings, json={"enabled": True, "max_file_size_bytes": 1024,
+    assert api.patch(settings, json={"enabled": True, "directories": [],
                                     "expected_revision": 2}).status_code == 200
+    imported = import_folder(api, project, tmp_path, operation).json()
     assert run(api)
     row = api.get(collection(project), params={"detail": "full"}).json()["items"][0]
     search = f"/api/v1/projects/{project['id']}/search"

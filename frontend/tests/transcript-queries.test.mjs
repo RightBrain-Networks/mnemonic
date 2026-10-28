@@ -16,7 +16,7 @@ const other = "22222222-2222-4222-8222-222222222222";
 const transcript = "33333333-3333-4333-8333-333333333333";
 const digest = "a".repeat(64), revision = "b".repeat(64);
 const filters = { search: "", fulltext: false, offset: 0, workItemId: "", contentKind: "", sortBy: null, sortDirection: "desc" };
-const settings = { enabled: true, max_file_size_bytes: 67108864, revision: 1, operator_max_file_size_bytes: 1073741824, allowed_roots: ["/shared"] };
+const settings = { enabled: true, revision: 1, directories: [], allowed_roots: ["/shared"] };
 const row = {
   id: transcript, project_id: project, work_item_id: null, lease_generation_id: null,
   client: "codex", session_id: null, source_path: "/shared/session.jsonl", filename: "session.jsonl",

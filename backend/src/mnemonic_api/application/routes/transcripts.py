@@ -20,10 +20,12 @@ from mnemonic_api.search_pagination import bound_search_page
 from mnemonic_api.services import transcript_imports, transcripts
 from mnemonic_api.services.project_mutations import project_mutation
 from mnemonic_api.services.transcript_segments import segment_range
+from mnemonic_api.transcript_browse import browse_directories
 from mnemonic_api.transcript_discovery import discover_transcripts
 from mnemonic_api.transcript_fulltext import download_text_chunks
 from mnemonic_api.transcript_health import TranscriptHealthRead, transcript_health
 from mnemonic_api.transcript_schemas import (
+    TranscriptBrowseRead,
     TranscriptImportRead,
     TranscriptImportRequest,
     TranscriptPage,
@@ -74,6 +76,7 @@ def import_transcripts(project_id: UUID, payload: TranscriptImportRequest,
     replay = transcript_imports.replay_import(database, project_id, payload)
     if replay is not None:
         return replay
+    transcripts.require_transcripts_enabled(database, project_id)
     # Do not hold database locks or a read transaction while walking the filesystem.
     database.rollback()
     settings = settings_of(request)
@@ -91,6 +94,20 @@ def get_transcript_health(project_id: UUID, database: Database,
                           request: Request) -> TranscriptHealthRead:
     return transcript_health(database, project_id, settings_of(request),
                              request.app.state.transcript_search_index)
+
+
+@router.get(_collection + "/browse", response_model=TranscriptBrowseRead,
+            dependencies=[Depends(reject_read_body_and_duplicate_query)])
+def browse_transcript_directories(project_id: UUID, database: Database, request: Request,
+                                 directory: str | None = Query(default=None, max_length=4096),
+                                 query: str | None = Query(default=None, max_length=200),
+                                 ) -> TranscriptBrowseRead:
+    from mnemonic_api.services.work_items import require_project
+
+    require_project(database, project_id)
+    settings = settings_of(request)
+    return browse_directories(directory, settings.transcript_allowed_roots,
+                              (settings.transcript_root,), query)
 
 
 @router.get(_collection + "/{transcript_id}", response_model=TranscriptRead,

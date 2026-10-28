@@ -84,7 +84,7 @@ class RecoverySourceFingerprint:
 
 def _target_query(transcript_id: UUID):
     return (select(Transcript, transcript_project_id(), TranscriptSettings.enabled,
-                   TranscriptSettings.max_file_size_bytes, _active_generation())
+                   _active_generation())
         .outerjoin(WorkItem, WorkItem.id == Transcript.work_item_id)
         .outerjoin(TranscriptSettings, TranscriptSettings.project_id == transcript_project_id())
         .where(Transcript.id == transcript_id))
@@ -93,7 +93,7 @@ def _target_query(transcript_id: UUID):
 def _eligible_target(row, settings: Settings, project_id: UUID) -> TranscriptRecoveryTarget:
     if row is None:
         raise not_found("transcript_not_found", "Transcript not found.")
-    record, current_project, enabled, maximum, active = row
+    record, current_project, enabled, active = row
     if current_project != project_id:
         raise conflict("transcript_recovery_stale", "Recovery project identity has changed.")
     if active:
@@ -104,7 +104,7 @@ def _eligible_target(row, settings: Settings, project_id: UUID) -> TranscriptRec
         raise conflict("transcript_recovery_already_copied", "This transcript already has a copy.")
     return TranscriptRecoveryTarget(record.id, current_project, record.source_path,
         record.generation, record.snapshot_id,
-        min(maximum or settings.transcript_max_bytes, settings.transcript_max_bytes))
+        settings.transcript_max_bytes)
 
 
 def inspect_recovery_target(factory: sessionmaker[Session], settings: Settings,

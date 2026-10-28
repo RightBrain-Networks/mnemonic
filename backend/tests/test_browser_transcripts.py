@@ -132,6 +132,8 @@ def test_invalid_queries_never_reach_domain(boundary, suffix, query):
     (COLLECTION, "query=needle&query_mode=phrase&fulltext=true&detail=full&limit=100"
      "&offset=1073741824&sort_by=updated&sort_direction=desc&content_kinds=human_text"
      "&diagnostics=always&created_after=2026-01-01T00:00:00Z"),
+    (COLLECTION + "/browse", ""),
+    (COLLECTION + "/browse", "directory=/private/sessions&query=mnemonic"),
     (COLLECTION + "/" + TRANSCRIPT + "/text", "limit=20000&offset=1073741824"),
     (COLLECTION + "/" + TRANSCRIPT + "/text", "segment_id=" + "a" * 24
      + "&expected_normalized_revision=" + "b" * 64 + "&before=10&after=10"),
@@ -150,7 +152,7 @@ def test_reads_reach_domain_without_caller_authority(boundary, path, query):
 
 
 @pytest.mark.parametrize("method,path,body", [
-    ("PATCH", SETTINGS, {"enabled": True, "max_file_size_bytes": 1_073_741_824,
+    ("PATCH", SETTINGS, {"enabled": True, "directories": ["/private/sessions"],
                          "expected_revision": 1}),
     ("POST", COLLECTION + "/rebuild", {"client_operation_id": PROJECT}),
     ("POST", COLLECTION + "/import", {"client_operation_id": PROJECT,
@@ -166,11 +168,11 @@ def test_exact_controls_reach_domain_with_original_bytes(boundary, method, path,
 
 
 @pytest.mark.parametrize("path,body", [
-    (SETTINGS, {"enabled": True, "max_file_size_bytes": 1024, "expected_revision": 1,
+    (SETTINGS, {"enabled": True, "directories": [], "expected_revision": 1,
                 "lease_token": "private"}),
-    (SETTINGS, {"enabled": 1, "max_file_size_bytes": 1024, "expected_revision": 1}),
+    (SETTINGS, {"enabled": 1, "directories": [], "expected_revision": 1}),
     (SETTINGS, {"enabled": True, "max_file_size_bytes": 1_073_741_825, "expected_revision": 1}),
-    (SETTINGS, {"enabled": True, "max_file_size_bytes": 1024, "expected_revision": 0}),
+    (SETTINGS, {"enabled": True, "directories": [], "expected_revision": 0}),
     (COLLECTION + "/rebuild", {"client_operation_id": PROJECT, "nested": {"gate_id": PROJECT}}),
     (COLLECTION + "/import", {"client_operation_id": PROJECT, "directory": "/private/../root"}),
     (COLLECTION + "/import", {"client_operation_id": PROJECT, "directory": "/private/\nroot"}),

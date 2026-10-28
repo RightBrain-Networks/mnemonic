@@ -45,7 +45,7 @@ class TranscriptCopyJob:
 
 
 def claimable_copies(settings: Settings):
-    return (select(Transcript, TranscriptSettings.max_file_size_bytes)
+    return (select(Transcript)
         .outerjoin(WorkItem, WorkItem.id == Transcript.work_item_id)
         .outerjoin(TranscriptSettings, TranscriptSettings.project_id == transcript_project_id())
         .where(func.coalesce(TranscriptSettings.enabled, True), ~_active_generation(), or_(
@@ -63,7 +63,7 @@ def claimable_copies(settings: Settings):
 
 
 def _start_copy(database: Session, row, settings: Settings) -> TranscriptCopyJob | None:
-    record, maximum = row
+    record = row[0]
     now = database.execute(select(func.clock_timestamp())).scalar_one()
     if record.copy_status == "failed":
         record.copy_attempts = 0
@@ -83,7 +83,7 @@ def _start_copy(database: Session, row, settings: Settings) -> TranscriptCopyJob
         return None
     return TranscriptCopyJob(record.id, record.generation, record.snapshot_id,
         record.copy_lease_token, source,
-        min(maximum or settings.transcript_max_bytes, settings.transcript_max_bytes), expected,
+        settings.transcript_max_bytes, expected,
         record.source_identity if expected is None else None)
 
 

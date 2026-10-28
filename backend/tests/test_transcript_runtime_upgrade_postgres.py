@@ -77,3 +77,47 @@ def test_normalizer_three_repairs_runtime_warnings_without_recopy_or_manual_rebu
         hit, = api.get(collection(project), params={**query, "query": term}).json()["items"]
         assert hit["id"] == record["id"] and hit["content_kind"] == "system_text"
     assert refresh(api) == 0
+
+
+@pytest.mark.parametrize("kind", ["primary", "imported"])
+def test_normalizer_four_repairs_runtime_drift_from_retained_captures(
+    api, project, work_payload, tmp_path, postgres_engine, monkeypatch, kind,
+):
+    record, source = register_runtime_session(
+        api, project, work_payload, tmp_path, postgres_engine, kind)
+    with source.open("a") as output:
+        output.writelines(json.dumps(row) + "\n" for row in [
+            {"type": "cost-state", "totalCostUSD": 1.25},
+            {"type": "api-request-shape", "shape": {"system": [
+                {"type": "text", "text": "restoredrequestneedle"}]}},
+            {"type": "attachment", "attachment": {
+                "type": "hook_non_blocking_error", "stderr": "restoredhookneedle"}},
+            {"type": "attachment", "attachment": {
+                "type": "credential_org", "organizationUuid": "example-org"}},
+        ])
+    normalize = normalization.normalize_transcript
+    with monkeypatch.context() as previous:
+        previous.setattr(normalization, "NORMALIZER_VERSION", 3)
+        previous.setattr(normalization, "BOOKKEEPING_RECORDS",
+                         normalization.BOOKKEEPING_RECORDS - {"cost-state"})
+        previous.setattr(normalization, "CONTEXT_RECORDS", frozenset())
+        previous.setattr(normalization, "CONTEXT_ATTACHMENTS",
+                         normalization.CONTEXT_ATTACHMENTS
+                         - {"hook_non_blocking_error", "credential_org"})
+        previous.setattr("mnemonic_api.transcript_indexing.normalize_transcript",
+                         lambda *args: replace(normalize(*args), normalizer_version=3))
+        assert run(api)
+    original = read(api, project, record)
+    assert original["normalization_incomplete"] and original["normalizer_version"] == 3
+    source.unlink()
+    assert refresh(api) == 1 and refresh(api) == 0
+    assert run(api)
+    current = read(api, project, record)
+    assert current["normalizer_version"] == normalization.NORMALIZER_VERSION
+    assert not current["normalization_incomplete"]
+    assert current["sha256"] == original["sha256"]
+    assert current["copied_at"] == original["copied_at"]
+    assert "transcript:normalization_warnings" not in current["metadata"]
+    for term in ("restoredrequestneedle", "restoredhookneedle"):
+        page = api.get(collection(project), params={"query": term, "fulltext": True}).json()
+        assert page["total"] == 1 and page["items"][0]["id"] == record["id"]

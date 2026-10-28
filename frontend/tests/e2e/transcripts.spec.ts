@@ -42,6 +42,13 @@ async function fixture(api: APIRequestContext, client = "claude-code", limitatio
   return { project, work, runId, primary, subagent, folder };
 }
 
+async function configureFolder(api: APIRequestContext, projectId: string, directory: string) {
+  const path = `/api/v1/projects/${projectId}/transcript-settings`;
+  const settings = await (await api.get(path)).json();
+  const response = await api.patch(path, { data: { enabled: settings.enabled, directories: [directory], expected_revision: settings.revision } });
+  expect(response.ok(), await response.text()).toBe(true);
+}
+
 async function apiContext() {
   return request.newContext({ baseURL: process.env.MNEMONIC_E2E_API_URL, extraHTTPHeaders: { Authorization: `Bearer ${process.env.MNEMONIC_E2E_API_KEY}` } });
 }
@@ -155,15 +162,12 @@ test(`${client} transcripts index after closeout and support search, metadata, s
     await expect(page.getByRole("dialog", { name: filename, exact: true })).toBeVisible();
     await expect(page.getByRole("dialog", { name: filename, exact: true })).toContainText("Native session");
     await page.getByRole("button", { name: "Close details", exact: true }).click();
-    await page.getByRole("button", { name: "Transcript indexing", exact: true }).click();
-    const settings = page.getByRole("region", { name: "Transcript indexing", exact: true });
-    await expect(settings).toContainText(transcriptRoot);
-    await settings.getByRole("checkbox", { name: "Enable transcript indexing" }).uncheck();
-    await settings.getByRole("button", { name: "Save transcript settings" }).click();
-    await expect(settings.getByText("Transcript settings saved.", { exact: true })).toBeVisible();
+    await page.getByText("Index maintenance", { exact: true }).click();
+    const settings = page.getByRole("region", { name: "Transcript settings", exact: true });
+    await settings.getByRole("switch", { name: "Enable transcripts" }).uncheck();
+    await expect(settings.getByRole("switch", { name: "Enable transcripts" })).toBeEnabled();
     await expect(settings.getByRole("button", { name: "Rebuild index", exact: true })).toBeDisabled();
-    await settings.getByRole("checkbox", { name: "Enable transcript indexing" }).check();
-    await settings.getByRole("button", { name: "Save transcript settings" }).click();
+    await settings.getByRole("switch", { name: "Enable transcripts" }).check();
     await expect(settings.getByRole("button", { name: "Rebuild index", exact: true })).toBeEnabled();
     // Only remove these two synthetic fixtures. Rebuilding must use retained
     // snapshots even after both the primary and subagent sources disappear.
@@ -189,8 +193,8 @@ test("transcript rebuild retries preserve the request and block navigation after
     expect(result.ok(), await result.text()).toBe(true);
     const project = await result.json() as { id: string };
     await page.goto(`/transcripts?project=${project.id}`);
-    await page.getByRole("button", { name: "Transcript indexing", exact: true }).click();
-    const settings = page.getByRole("region", { name: "Transcript indexing", exact: true });
+    await page.getByText("Index maintenance", { exact: true }).click();
+    const settings = page.getByRole("region", { name: "Transcript settings", exact: true });
     const requests: string[] = [];
     await page.route(`**/api/transcripts/projects/${project.id}/transcripts/rebuild`, async (route) => {
       requests.push(route.request().postData()!);
@@ -228,8 +232,8 @@ test("transcript rebuild definitive proxy rejection releases navigation without 
     expect(result.ok(), await result.text()).toBe(true);
     const project = await result.json() as { id: string };
     await page.goto(`/transcripts?project=${project.id}`);
-    await page.getByRole("button", { name: "Transcript indexing", exact: true }).click();
-    const settings = page.getByRole("region", { name: "Transcript indexing", exact: true });
+    await page.getByText("Index maintenance", { exact: true }).click();
+    const settings = page.getByRole("region", { name: "Transcript settings", exact: true });
     await page.route(`**/api/transcripts/projects/${project.id}/transcripts/rebuild`, async (route) => {
       // Send an invalid request through the real proxy; it cannot reach the API.
       const rejected = await route.fetch({ postData: JSON.stringify({ client_operation_id: "invalid" }) });
@@ -253,22 +257,20 @@ test("workspace imports existing transcripts recursively and deduplicates active
     const { project, work, runId, primary, subagent, folder } = await fixture(api);
     const claim = await api.post(`/api/v1/projects/${project.id}/work-items/${work.id}/claim`, { data: { holder_client: "claude-code", holder_session_id: runId, claim_request_id: crypto.randomUUID(), session_transcript: { client: "claude-code", path: primary } } });
     expect(claim.ok(), await claim.text()).toBe(true);
+    await configureFolder(api, project.id, folder);
     await page.goto(`/transcripts?project=${project.id}`);
-    await page.getByRole("button", { name: "Transcript indexing", exact: true }).click();
-    const settings = page.getByRole("region", { name: "Transcript indexing", exact: true });
-    await settings.getByRole("checkbox", { name: "Enable transcript indexing" }).uncheck();
-    await settings.getByRole("button", { name: "Save transcript settings" }).click();
-    await expect(settings.getByText("Transcript settings saved.", { exact: true })).toBeVisible();
-    await settings.getByRole("textbox", { name: "Transcript folder" }).fill(folder);
-    await settings.getByRole("button", { name: "Import transcripts", exact: true }).click();
-    await expect(settings.getByRole("status")).toContainText("1 transcript imported; 1 already registered.");
-    await settings.getByRole("button", { name: "Import transcripts", exact: true }).click();
-    await expect(settings.getByRole("status")).toContainText("0 transcripts imported; 2 already registered.");
-    await settings.getByRole("checkbox", { name: "Enable transcript indexing" }).check();
-    await settings.getByRole("button", { name: "Save transcript settings" }).click();
-    await expect(settings.getByText("Transcript settings saved.", { exact: true })).toBeVisible();
-    await settings.getByRole("button", { name: "Import transcripts", exact: true }).click();
-    await expect(settings.getByRole("status")).toContainText("0 transcripts imported; 2 already registered.");
+    const settings = page.getByRole("region", { name: "Transcript settings", exact: true });
+    await settings.getByRole("switch", { name: "Enable transcripts" }).uncheck();
+    await expect(settings.getByRole("switch", { name: "Enable transcripts" })).toBeEnabled();
+    await expect(settings.getByRole("button", { name: `Scan ${folder}`, exact: true })).toBeDisabled();
+    const blocked = await api.post(`/api/v1/projects/${project.id}/transcripts/import`, { data: { directory: folder, client_operation_id: crypto.randomUUID() } });
+    expect(blocked.status()).toBe(409);
+    await settings.getByRole("switch", { name: "Enable transcripts" }).check();
+    await expect(settings.getByRole("switch", { name: "Enable transcripts" })).toBeEnabled();
+    await settings.getByRole("button", { name: `Scan ${folder}`, exact: true }).click();
+    await expect(settings.getByRole("status", { name: "Transcript action result" })).toContainText("1 transcript imported; 1 already registered.");
+    await settings.getByRole("button", { name: `Scan ${folder}`, exact: true }).click();
+    await expect(settings.getByRole("status", { name: "Transcript action result" })).toContainText("0 transcripts imported; 2 already registered.");
     const collection = `/api/v1/projects/${project.id}/transcripts`;
     await expect.poll(async () => {
       const response = await api.get(collection);
@@ -276,7 +278,7 @@ test("workspace imports existing transcripts recursively and deduplicates active
     }, { timeout: 60000 }).toEqual(["ready", "waiting"]);
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await page.evaluate(() => { if (document.activeElement instanceof HTMLElement) document.activeElement.blur(); });
-    await settings.locator(".transcript-import").screenshot({ path: testInfo.outputPath("transcript-import-settings.png"), animations: "disabled" });
+    await settings.locator(".transcript-source-list").screenshot({ path: testInfo.outputPath("transcript-import-settings.png"), animations: "disabled" });
     await testInfo.attach("Import existing transcripts", { path: testInfo.outputPath("transcript-import-settings.png"), contentType: "image/png" });
     await page.goto(`/transcripts?project=${project.id}`);
     await expect(page.locator(".transcript-table tbody tr")).toHaveCount(2);
@@ -292,16 +294,17 @@ test("workspace import retains exact retry requests and allows correcting fresh 
   const api = await apiContext();
   try {
     const { project, folder } = await fixture(api);
+    await configureFolder(api, project.id, `${folder}/missing`);
     await page.goto(`/transcripts?project=${project.id}`);
-    await page.getByRole("button", { name: "Transcript indexing", exact: true }).click();
-    const settings = page.getByRole("region", { name: "Transcript indexing", exact: true });
-    const directory = settings.getByRole("textbox", { name: "Transcript folder" });
-    await directory.fill(`${folder}/missing`);
-    await settings.getByRole("button", { name: "Import transcripts", exact: true }).click();
-    await expect(settings.getByRole("alert")).toContainText("The folder could not be read.");
-    await expect(directory).toBeEnabled();
+    const settings = page.getByRole("region", { name: "Transcript settings", exact: true });
+    await settings.getByRole("button", { name: `Scan ${folder}/missing`, exact: true }).click();
+    await expect(settings.getByRole("alert")).toContainText("folder could not be read");
+    await expect(settings.getByRole("button", { name: "Retry pending import" })).toHaveCount(0);
     await expect(page.locator("#project-select")).toBeEnabled();
-    await directory.fill(folder);
+    await settings.getByRole("button", { name: `Edit ${folder}/missing`, exact: true }).click();
+    await settings.getByRole("textbox", { name: `Folder path for ${folder}/missing` }).fill(folder);
+    await settings.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(settings.getByText("Folder updated. Scan it to import existing sessions.")).toBeVisible();
     const requests: string[] = [];
     await page.route(`**/api/transcripts/projects/${project.id}/transcripts/import`, async (route) => {
       requests.push(route.request().postData()!);
@@ -313,10 +316,10 @@ test("workspace import retains exact retry requests and allows correcting fresh 
       if (requests.length === 1) await route.abort("failed");
       else await route.fulfill({ response });
     });
-    await settings.getByRole("button", { name: "Import transcripts", exact: true }).click();
+    await settings.getByRole("button", { name: `Scan ${folder}`, exact: true }).click();
     const retry = settings.getByRole("button", { name: "Retry pending import" });
     await expect(retry).toBeEnabled();
-    await expect(directory).toBeDisabled();
+    await expect(settings.getByRole("button", { name: `Edit ${folder}`, exact: true })).toBeDisabled();
     await expect(page.locator("#project-select")).toBeDisabled();
     await page.getByRole("link", { name: "Work items", exact: true }).click();
     await expect(page).toHaveURL(/\/transcripts(?:\?|$)/);
@@ -325,7 +328,7 @@ test("workspace import retains exact retry requests and allows correcting fresh 
     await expect(retry).toBeEnabled();
     await expect(page.locator("#project-select")).toBeDisabled();
     await retry.click();
-    await expect(settings.getByRole("status")).toContainText("2 transcripts imported; 0 already registered.");
+    await expect(settings.getByRole("status", { name: "Transcript action result" })).toContainText("2 transcripts imported; 0 already registered.");
     expect(requests).toHaveLength(3);
     expect(requests[1]).toBe(requests[0]);
     expect(requests[2]).toBe(requests[0]);
@@ -336,7 +339,8 @@ test("workspace import retains exact retry requests and allows correcting fresh 
 test("transcript permission warnings name the blocked path and clear after automatic recovery", async ({ page }, testInfo) => {
   test.setTimeout(120000);
   const api = await apiContext();
-  const { project, work, runId, primary } = await fixture(api);
+  const { project, work, runId, primary, folder } = await fixture(api);
+  await configureFolder(api, project.id, folder);
   const compose = ["compose", "-p", requireDisposableE2EComposeProject("Transcript health fixture"), "-f", resolve(process.cwd(), "../compose.e2e.yaml")];
   const permissions = (mode: string) => execFileAsync("docker", [...compose, "exec", "-T", "api", "python", "-c", "import os,sys; os.chmod(sys.argv[1],int(sys.argv[2],8))", primary, mode]);
   try {
@@ -359,10 +363,9 @@ test("transcript permission warnings name the blocked path and clear after autom
       return value.warnings?.some((warning: { code: string; path: string }) => warning.code === "transcript_permission_denied" && warning.path === primary);
     }, { timeout: 60000 }).toBe(true);
     await page.goto(`/transcripts?project=${project.id}`);
-    const notice = page.getByRole("status", { name: "Transcript access warnings" });
+    const notice = page.getByRole("status", { name: `Access warnings for ${folder}` });
     await expect(notice).toContainText(primary);
     await expect(notice).toContainText("read (r) permission");
-    await expect(notice).toContainText("10001");
     expect(await notice.evaluate((element) => element.getBoundingClientRect().top)).toBeLessThan(await page.getByLabel("Search transcript metadata and content").evaluate((element) => element.getBoundingClientRect().top));
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await page.screenshot({ path: testInfo.outputPath("transcript-access-warning.png"), fullPage: true, animations: "disabled" });
@@ -472,95 +475,87 @@ for (const limitation of ["image", "unknown"] as const) {
   });
 }
 
-test("transcript settings keep an edited draft and its original revision through a Query refresh", async ({ page }) => {
+test("transcript folder edits retain their original revision through a refresh", async ({ page }) => {
   const api = await apiContext();
   try {
-    const { project } = await fixture(api);
+    const { project, folder } = await fixture(api);
+    await configureFolder(api, project.id, folder);
     const path = `/api/v1/projects/${project.id}/transcript-settings`;
     const original = await (await api.get(path)).json();
     await page.goto(`/transcripts?project=${project.id}`);
-    await page.getByRole("button", { name: "Transcript indexing", exact: true }).click();
-    const panel = page.getByRole("region", { name: "Transcript indexing", exact: true });
-    const maximum = panel.getByRole("spinbutton", { name: "Maximum transcript size (MB)" });
-    await maximum.fill("32");
-    const changed = await api.patch(path, { data: {
-      enabled: original.enabled, max_file_size_bytes: 64 * 1024 * 1024, expected_revision: original.revision
-    } });
+    const panel = page.getByRole("region", { name: "Transcript settings", exact: true });
+    await panel.getByRole("button", { name: `Edit ${folder}`, exact: true }).click();
+    const input = panel.getByRole("textbox", { name: `Folder path for ${folder}` });
+    await input.fill(`${folder}/new`);
+    const changed = await api.patch(path, { data: { enabled: false, directories: original.directories, expected_revision: original.revision } });
     expect(changed.ok(), await changed.text()).toBe(true);
     const refreshed = page.waitForResponse((response) => response.url().endsWith(`/projects/${project.id}/transcript-settings`) && response.request().method() === "GET");
     await page.getByRole("button", { name: "Refresh", exact: true }).click();
     await refreshed;
-    await expect(maximum).toHaveValue("32");
+    await expect(input).toHaveValue(`${folder}/new`);
     const saved = page.waitForRequest((request) => request.url().endsWith(`/projects/${project.id}/transcript-settings`) && request.method() === "PATCH");
-    await panel.getByRole("button", { name: "Save transcript settings" }).click();
+    await panel.getByRole("button", { name: "Save", exact: true }).click();
     expect((await saved).postDataJSON().expected_revision).toBe(original.revision);
-    const reload = panel.getByRole("button", { name: "Reload transcript settings" });
-    await expect(reload).toBeVisible();
-    await reload.click();
-    await expect(maximum).toHaveValue("64");
-    await expect(reload).not.toBeVisible();
+    await panel.getByRole("button", { name: "Reload transcript settings" }).click();
+    await expect(panel.getByRole("switch", { name: "Enable transcripts" })).not.toBeChecked();
+    await expect(panel.getByRole("textbox")).toHaveCount(0);
   } finally { await api.dispose(); }
 });
 
-test("transcript controls use MB, collapse, sort, report storage and remember dismissed failures", async ({ page }, testInfo) => {
+test("transcript folder browser, inline edits, row warnings and removal work on narrow screens", async ({ page }, testInfo) => {
   test.setTimeout(120000);
   await page.setViewportSize({ width: testInfo.project.name === "chromium-desktop" ? 1280 : 390, height: 1100 });
   const api = await apiContext();
   try {
-    const { project, folder } = await fixture(api);
-    const collection = `/api/v1/projects/${project.id}/transcripts`;
-    await api.post(collection + "/import", { data: { directory: folder, client_operation_id: crypto.randomUUID() } });
-    await expect.poll(async () => (await (await api.get(collection)).json()).items.every((row: { status: string }) => row.status === "ready"), { timeout: 60000 }).toBe(true);
-    await page.goto(`/settings/workspace?project=${project.id}`);
-    await expect(page.getByRole("region", { name: "Transcript indexing", exact: true })).toHaveCount(0);
+    const { project, folder, runId } = await fixture(api);
     await page.goto(`/transcripts?project=${project.id}`);
-    const toggle = page.getByRole("button", { name: "Transcript indexing", exact: true });
-    await expect(toggle).toHaveAttribute("aria-expanded", "false");
-    await toggle.click();
-    const settings = page.getByRole("region", { name: "Transcript indexing", exact: true });
-    const maximum = settings.getByRole("spinbutton", { name: "Maximum transcript size (MB)" });
-    await expect(maximum).toBeVisible();
-    await maximum.fill("32");
-    await settings.getByRole("button", { name: "Save transcript settings" }).click();
-    await expect(settings.getByText("Transcript settings saved.", { exact: true })).toBeVisible();
-    expect((await (await api.get(`/api/v1/projects/${project.id}/transcript-settings`)).json()).max_file_size_bytes).toBe(33554432);
-    await toggle.click();
-    await expect(maximum).not.toBeVisible();
-    for (const name of ["Name", "Size", "Session", "Indexing", "Last Updated"]) {
-      const header = page.getByRole("columnheader").filter({ has: page.getByRole("button", { name: new RegExp(`^${name}`) }) });
-      await header.getByRole("button").click();
-      await expect(header).toHaveAttribute("aria-sort", "ascending");
-      await expect(page.locator(".transcript-table tbody tr")).toHaveCount(2);
-      await header.getByRole("button").click();
-      await expect(header).toHaveAttribute("aria-sort", "descending");
-      await expect(page.locator(".transcript-table tbody tr")).toHaveCount(2);
-    }
-    const storage = page.getByRole("region", { name: "Transcript storage usage" });
-    await expect(storage).toContainText("Retained transcripts");
-    await expect(storage).toContainText("Search index");
-    await expect(storage).toContainText("free on volume");
+    const settings = page.getByRole("region", { name: "Transcript settings", exact: true });
+    await expect(settings.getByRole("switch", { name: "Enable transcripts" })).toBeChecked();
+    await expect(page.getByText("Maximum transcript size (MB)")).toHaveCount(0);
+    await settings.getByRole("button", { name: "Add folder", exact: true }).click();
+    const browser = page.getByRole("dialog", { name: "Choose a transcript folder" });
+    await expect(browser).toBeVisible();
+    await browser.getByRole("button", { name: `Open ${transcriptRoot}`, exact: true }).click();
+    await browser.getByRole("searchbox", { name: "Filter folders" }).fill(runId);
+    await expect(browser.getByRole("list", { name: "Server folders" }).getByRole("button")).toHaveCount(1);
+    await browser.getByRole("button", { name: `Open ${runId}`, exact: true }).click();
+    await expect(browser.locator(".transcript-folder-current")).toContainText(folder);
+    await expect(browser.locator(".transcript-folder-list")).toHaveAttribute("aria-busy", "false");
+    await browser.screenshot({ path: testInfo.outputPath("transcript-folder-browser.png"), animations: "disabled" });
+    await testInfo.attach("Server folder browser", { path: testInfo.outputPath("transcript-folder-browser.png"), contentType: "image/png" });
+    await browser.getByRole("button", { name: "Select folder", exact: true }).click();
+    await expect(browser).not.toBeVisible();
+    await expect(settings.getByRole("status", { name: "Transcript action result" })).toContainText("2 transcripts imported; 0 already registered.");
+    await expect(page.locator(".transcript-table tbody tr")).toHaveCount(2);
     await page.route(`**/api/transcripts/projects/${project.id}/transcripts/health`, async (route) => {
       const response = await route.fetch();
       const health = await response.json();
-      const warning = { code: "transcript_source_missing", service: "worker", path: "/approved/deleted-session.jsonl", message: "Source missing", action: "Restore this exact native source.", affected: 1, retry_at: null, uid: 10001, gid: 10001, owner_uid: null, owner_gid: null, mode: null };
-      await route.fulfill({ response, json: { ...health, warnings: [warning], warnings_omitted: 0, affected_transcripts: 1 } });
+      const warning = { code: "transcript_source_missing", service: "worker", path: `${folder}/deleted-session.jsonl`, message: "Source missing", action: "Restore this exact native source.", affected: 1, retry_at: null, uid: 10001, gid: 10001, owner_uid: null, owner_gid: null, mode: null };
+      const usage = { checked_at: new Date().toISOString(), bytes: Math.round(14043.1 * 1024 ** 2), logical_bytes: 0, free_bytes: 1024 ** 4, total_bytes: 2 * 1024 ** 4, complete: true, error_code: null };
+      await route.fulfill({ response, json: { ...health, warnings: [warning], warnings_omitted: 0, storage: { scope: "all_projects", transcripts: usage, index: { ...usage, bytes: 53248 }, database_bytes: 3 * 1024 ** 3 } } });
     });
     await page.getByRole("button", { name: "Refresh", exact: true }).click();
-    await page.getByRole("button", { name: "Dismiss source missing notification" }).click();
-    await expect(page.getByText("Transcript access needs attention", { exact: true })).toHaveCount(0);
-    await page.reload();
-    await expect(page.getByRole("button", { name: "Show dismissed notifications" })).toBeVisible();
-    await expect(page.getByText("Transcript access needs attention", { exact: true })).toHaveCount(0);
-    await page.getByRole("button", { name: "Show dismissed notifications" }).click();
-    await expect(page.getByText("Transcript access needs attention", { exact: true })).toBeVisible();
-    expect((await (await api.get(collection)).json()).total).toBe(2);
+    const row = settings.getByRole("list", { name: "Configured transcript folders" }).locator(":scope > li");
+    await expect(row).toContainText("Transcript access needs attention");
+    await expect(row).toContainText("Restore this exact native source.");
+    await expect(page.getByRole("button", { name: /Dismiss/ })).toHaveCount(0);
+    const storage = page.getByRole("region", { name: "Transcript storage usage" });
+    await expect(storage).toContainText("14 GB");
+    await expect(storage).toContainText("Search cache");
+    await expect(storage).toContainText("52 KB");
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-    await toggle.click();
-    await page.screenshot({ path: testInfo.outputPath("transcript-controls-storage.png"), fullPage: true, animations: "disabled" });
-    await testInfo.attach("Compact transcript controls and storage", { path: testInfo.outputPath("transcript-controls-storage.png"), contentType: "image/png" });
-    await toggle.click();
-    await page.getByRole("button", { name: "Dismiss source missing notification" }).click();
-    await page.screenshot({ path: testInfo.outputPath("transcript-library-storage.png"), fullPage: true, animations: "disabled" });
-    await testInfo.attach("Collapsed transcript controls and sortable library", { path: testInfo.outputPath("transcript-library-storage.png"), contentType: "image/png" });
+    await page.locator(".page-content").evaluate((element) => element.scrollTo(0, 0));
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.screenshot({ path: testInfo.outputPath("transcript-management.png"), fullPage: true, animations: "disabled" });
+    await testInfo.attach("Transcript management", { path: testInfo.outputPath("transcript-management.png"), contentType: "image/png" });
+    await row.getByRole("button", { name: `Edit ${folder}`, exact: true }).click();
+    await row.getByRole("textbox", { name: `Folder path for ${folder}` }).fill(`${folder}/${runId}`);
+    await row.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(row.locator(".transcript-source-info code")).toHaveText(`${folder}/${runId}`);
+    await expect(row).not.toContainText("Transcript access needs attention");
+    await row.getByRole("button", { name: `Remove ${folder}/${runId}`, exact: true }).click();
+    await row.getByRole("button", { name: "Remove folder", exact: true }).click();
+    await expect(settings.getByText("No source folders configured.")).toBeVisible();
+    await expect(page.locator(".transcript-table tbody tr")).toHaveCount(2);
   } finally { await api.dispose(); }
 });

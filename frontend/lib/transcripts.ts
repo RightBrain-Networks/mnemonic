@@ -65,10 +65,9 @@ export interface TranscriptPage extends SearchDisclosure, SearchRanking, SearchP
 }
 export interface TranscriptSettings {
   enabled: boolean;
-  max_file_size_bytes: number;
   revision: number;
   allowed_roots: string[];
-  operator_max_file_size_bytes: number;
+  directories: string[];
 }
 export interface TranscriptText {
   transcript_id: string;
@@ -159,11 +158,13 @@ export function decodeTranscriptPage(value: unknown, projectId: string, offset =
 
 export function decodeTranscriptSettings(value: unknown): TranscriptSettings {
   const row = objectValue(value);
-  if (!row || !exactKeys(row, ["enabled", "max_file_size_bytes", "revision", "allowed_roots", "operator_max_file_size_bytes"])
-    || typeof row.enabled !== "boolean" || !finiteInteger(row.max_file_size_bytes, 1, TRANSCRIPT_MAX_BYTES)
-    || !finiteInteger(row.operator_max_file_size_bytes, 1, TRANSCRIPT_MAX_BYTES) || row.max_file_size_bytes > row.operator_max_file_size_bytes
-    || !finiteInteger(row.revision, 1) || !Array.isArray(row.allowed_roots) || row.allowed_roots.length > 100
-    || !row.allowed_roots.every((path) => boundedText(path, 4096))) throw new Error("Mnemonic returned invalid transcript settings.");
+  if (!row || !exactKeys(row, ["enabled", "revision", "allowed_roots", "directories"])
+    || typeof row.enabled !== "boolean" || !finiteInteger(row.revision, 1)
+    || !Array.isArray(row.allowed_roots) || row.allowed_roots.length > 100
+    || !row.allowed_roots.every(validTranscriptDirectory)
+    || !Array.isArray(row.directories) || row.directories.length > 100
+    || !row.directories.every(validTranscriptDirectory)
+    || new Set(row.directories).size !== row.directories.length) throw new Error("Mnemonic returned invalid transcript settings.");
   return row as unknown as TranscriptSettings;
 }
 
@@ -267,7 +268,8 @@ export function decodeTranscriptImportRejection(status: number, value: unknown):
   const detail = objectValue(objectValue(value)?.detail);
   // These scan failures happen before any registration. Only a fresh request
   // may dismiss them; a failed retry cannot settle an earlier uncertain attempt.
-  if (status !== 422 || !detail || !["transcript_import_path_not_allowed", "transcript_import_scan_failed", "transcript_import_scan_limit"].includes(String(detail.code))
+  if (!detail || !(status === 422 && ["transcript_import_path_not_allowed", "transcript_import_scan_failed", "transcript_import_scan_limit"].includes(String(detail.code))
+    || status === 409 && detail.code === "transcript_disabled")
     || !boundedText(detail.message, 1000)) return null;
   return detail.message;
 }

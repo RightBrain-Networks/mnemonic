@@ -1,5 +1,15 @@
 # Operating Mnemonic
 
+Release 0.115.0 rebuilds transcript management with a server folder browser, editable
+project source rows, and a project-wide enable switch. Disabled projects stop new
+imports, capture, normalization, and indexing while retaining readable history.
+Migration `0069_transcript_directories` seeds managed folders from prior imports and historical access failures.
+The capture limit moves to `MNEMONIC_TRANSCRIPT_MAX_BYTES`, default 1073741824
+(1 GiB); existing explicit environment values remain operator-controlled. Normalizer
+4 recognizes newer Claude and Codex record types and refreshes retained snapshots.
+Upgrade API, worker, MCP, and dashboard together after backing up PostgreSQL and
+stopping old application writers. Plugin 0.71.0 and tool/receipt counts are unchanged.
+
 Release 0.114.0 places work-item tags above the state and sort controls, with a
 subtle divider between the rows. Plugin 0.71.0, schema 0068, and tool contracts
 are unchanged.

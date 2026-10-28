@@ -56,6 +56,9 @@ def verify_capture(row, storage, counts):
     for code in normalized.metadata.get("transcript:normalization_warnings", []):
         name, value = code.rsplit("=", 1)
         counts[f"coverage:{name}"] += int(value)
+    for label in normalized.metadata.get("transcript:unsupported_native_types", []):
+        name, value = label.rsplit("=", 1)
+        counts[f"native_type:{name}"] += int(value)
     if isinstance(normalized.segments, TranscriptSegments):
         normalized.segments.close()
 

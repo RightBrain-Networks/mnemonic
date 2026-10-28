@@ -218,17 +218,39 @@ class TranscriptText(BaseModel):
 
 class TranscriptSettingsRead(BaseModel):
     enabled: bool
-    max_file_size_bytes: int
     revision: int
     allowed_roots: list[str]
-    operator_max_file_size_bytes: int
+    directories: list[str]
 
 
 class TranscriptSettingsPatch(BaseModel):
     model_config = ConfigDict(extra="forbid")
     enabled: bool
-    max_file_size_bytes: int = Field(ge=1, le=1_073_741_824)
+    directories: list[str] = Field(max_length=100)
     expected_revision: int = Field(ge=1)
+
+    @field_validator("directories")
+    @classmethod
+    def safe_directories(cls, values: list[str]) -> list[str]:
+        from mnemonic_api.transcript_storage import canonical_source_path
+
+        paths = [canonical_source_path(TranscriptLocation(client="codex", path=value).path)
+                 for value in values]
+        if len(set(paths)) != len(paths):
+            raise ValueError("Transcript folders must be unique")
+        return paths
+
+
+class TranscriptDirectory(BaseModel):
+    name: str
+    path: str
+
+
+class TranscriptBrowseRead(BaseModel):
+    directory: str | None
+    parent: str | None
+    entries: list[TranscriptDirectory]
+    truncated: bool = False
 
 
 class TranscriptRebuildRequest(BaseModel):

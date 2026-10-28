@@ -181,7 +181,7 @@ def test_size_failure_rechecks_after_limit_change_but_respects_guards(
             copy_next_attempt_at=datetime.now(UTC) - timedelta(seconds=1)))
     if guard == "paused":
         assert api.patch(f"/api/v1/projects/{project['id']}/transcript-settings", json={
-            "enabled": False, "max_file_size_bytes": 100_000, "expected_revision": 1,
+            "enabled": False, "directories": [], "expected_revision": 1,
         }).status_code == 200
     else:
         from sqlalchemy import text
@@ -191,7 +191,7 @@ def test_size_failure_rechecks_after_limit_change_but_respects_guards(
     assert not copy_next_transcript(api.app.state.session_factory, settings)
     if guard == "paused":
         assert api.patch(f"/api/v1/projects/{project['id']}/transcript-settings", json={
-            "enabled": True, "max_file_size_bytes": 100_000, "expected_revision": 2,
+            "enabled": True, "directories": [], "expected_revision": 2,
         }).status_code == 200
     else:
         expire_lease(postgres_engine, work["id"])

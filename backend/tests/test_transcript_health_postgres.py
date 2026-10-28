@@ -7,7 +7,7 @@ from uuid import UUID, uuid4
 import pytest
 from sqlalchemy import select
 
-from mnemonic_api.models import Transcript, TranscriptWorkerHealth
+from mnemonic_api.models import Transcript, TranscriptSettings, TranscriptWorkerHealth
 from mnemonic_api.transcript_access import RECHECK_SECONDS
 from mnemonic_api.transcript_copying import copy_next_transcript
 from mnemonic_api.transcript_health import TranscriptHealthReporter
@@ -23,6 +23,13 @@ def health(api, project):
     result = api.get(collection(project) + "/health")
     assert result.status_code == 200, result.text
     return result.json()
+
+
+@pytest.fixture(autouse=True)
+def configured_source(api, project, tmp_path):
+    with api.app.state.session_factory.begin() as database:
+        database.add(TranscriptSettings(project_id=UUID(project["id"]),
+                                        directories=[str(tmp_path)]))
 
 
 def worker_report(api):

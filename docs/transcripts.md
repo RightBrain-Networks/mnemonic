@@ -8,16 +8,17 @@ verified [dry-run/apply management command](transcript-storage-deduplication.md)
 Release **0.65.1** and migration `0045_transcript_capacity` separate native capture
 and complete conversation indexing from artifact extraction limits. Native JSONL
 is streamed through disk-backed canonical segments; indexed text is published
-atomically from those segments without Tika. The default capture maximum is
-512 MiB, configurable up to 1 GiB. Existing explicit operator/project limits are
-preserved. Read the [pipeline audit and rollout notes](transcript-pipeline-audit.md)
+atomically from those segments without Tika. That release defaulted to 512 MiB with operator/project overrides;
+0.115.0 replaces this with the operator-only 1 GiB default. Read the [pipeline audit and rollout notes](transcript-pipeline-audit.md)
 for measured failures, capacity boundaries, and regression coverage.
 
-The compact, initially collapsed **Transcript indexing** panel now lives on
-`/transcripts`. Size settings use MB (1 MB = 1,048,576 bytes). The library supports
-ascending/descending column sorting, persistent browser-local warning dismissal,
-and all-project storage measurements for native files, search indexes and the
-conversation database, including free space on each filesystem volume.
+Release **0.115.0** puts project transcript controls directly on `/transcripts`.
+Use **Add folder** to browse approved server directories, then manage each source
+in its own row with **Edit**, **Scan**, and **Remove** actions. Access problems appear with
+the affected source and remain visible until repaired or removed. **Enable transcripts**
+is on by default; switching it off stops new imports, captures, normalization, and
+indexing for this project. Existing indexed history stays readable. Storage uses
+human-scale units and distinguishes retained files, the search cache, and PostgreSQL.
 
 Release **0.52.1** adds [audited operator path recovery](transcript-recovery.md)
 for incorrect historical assertions. Migration `0038_transcript_recovery`
@@ -255,8 +256,8 @@ As of 0.77.0, transcript search has no aggregate content, metadata, or record-co
 ceiling. Growing archives no longer require repeated increases to
 `MNEMONIC_TRANSCRIPT_SEARCH_MAX_BYTES`; that setting is retired and ignored, even
 if an old deployment still supplies it. Remove it from operator environment files
-when convenient. The maximum **source file size** in the Transcript indexing panel
-continues to govern capture, independently of search.
+when convenient. The operator-only `MNEMONIC_TRANSCRIPT_MAX_BYTES`
+governs capture independently of search.
 
 Cold searches stream transcript metadata and one document at a time into the
 private disk-backed Tantivy index. Canonical phrase and content-kind searches
@@ -344,12 +345,18 @@ shown above, including when its variable is absent or empty.
 See the [Tantivy directory and reader API](https://tantivy-py.readthedocs.io/en/latest/api/tantivy/tantivy.html#index)
 for the underlying disk-index and immutable-searcher support.
 
-The **Transcript indexing** panel on `/transcripts` contains the enable/disable
-switch, maximum native file size, folder import and rebuild controls. The default
-source limit is 512 MB, bounded by `MNEMONIC_TRANSCRIPT_MAX_BYTES` (maximum 1 GiB).
-MB uses 1,048,576 bytes and round-trips existing byte values without rounding them
-on save. Existing explicit limits stay in effect until changed. Allowed roots are
-shown in a disclosure as operator-managed deployment configuration.
+The project switch and folder rows live on `/transcripts`. Folder selection uses a
+server directory browser bounded by the operator's mounted, allowed roots. Editing
+or deleting a configured folder changes future imports; it does not erase retained
+conversation history or rewrite native source assertions. Settings use revision checks
+so concurrent editors cannot silently overwrite each other. Migration 0069 seeds
+prior import choices and folders containing historical access failures. Healthy
+automatic enrollments do not create import configuration rows for every worktree.
+
+Native capture size is operator-managed in `.env` using
+`MNEMONIC_TRANSCRIPT_MAX_BYTES=1073741824` (1 GiB by default). There is no dashboard
+size control. Existing explicit environment limits remain in effect; old per-project
+size preferences no longer constrain captures.
 
 **Rebuild index** queues reconstruction from retained canonical segments, or the
 verified native copy when a new normalizer is needed. Already-ready text stays
@@ -364,13 +371,11 @@ Every data-column header sorts ascending or descending across the entire filtere
 result before pagination. Free-text searches retain relevance ordering until a
 column is selected. Ties use transcript identity for stable paging.
 
-**Dismiss** hides an access notification in this browser for this project. It does
-not delete a transcript, change retry state, or hide failure details in its row.
-**Show dismissed notifications** restores them. A changed failure code or filesystem
-identity produces a new notification; retry timestamps do not undo dismissal.
-
 The storage strip measures all projects, including retained superseded captures.
-It shows physically allocated native-file and Tantivy bytes, with available space
+The **Search cache** is built on demand for the latest search scope, not a permanent
+full-library index. It may contain only metadata or a few filtered documents, so a
+small cache beside a large archive is expected. The authoritative normalized content
+is retained in PostgreSQL. The strip shows allocated native-file and cache bytes, with available space
 on each respective volume. These volumes can be the same; their free space must
 not be summed. Conversation database bytes include PostgreSQL tables, TOAST and
 indexes. Filesystem scans are cached for 30 seconds and bounded to five seconds or
@@ -398,9 +403,9 @@ results. A rebuild does not manufacture unavailable history.
 
 ## Import existing transcripts
 
-In **Transcripts → Transcript indexing → Import existing transcripts**,
-enter an absolute shared folder path, such as
-`/home/jamie/.claude/projects/-srv-fishfood`, and select **Import transcripts**.
+In **Transcripts → Add folder**, browse to the project folder and select it.
+Adding a folder scans it immediately when transcripts are enabled. Use **Scan**
+on its row to discover more sessions later.
 The backend must be able to read that path within its configured allowed roots;
 the Docker shared-filesystem mount described above also applies to imports.
 
@@ -437,8 +442,8 @@ The removed imported ID subsequently returns 404; no redirect is created.
 
 Imported sources appear as **Imported**, with no work item, lease generation, or
 agent session assertion. They participate in project browsing, unified search, text
-retrieval, rebuilds, and backups. Importing while indexing is paused queues them until
-indexing is enabled. Source files remain client-managed and are never rewritten.
+retrieval, rebuilds, and backups. Fresh imports are rejected while transcripts are disabled; enable the project
+before importing. Source files remain client-managed and are never rewritten.
 
 `POST /api/v1/projects/{project_id}/transcripts/import` accepts exactly
 `{ "directory": "/shared/folder", "client_operation_id": "<uuid>" }`. The response echoes
@@ -460,7 +465,7 @@ lossy downgrade. The source mount and operator roots remain the deployment bound
 
 See the [transcript reliability RCA](transcript-reliability-rca.md) for the observed
 production causes and coordinated upgrade procedure. `/transcripts` now shows
-project-wide warnings above search, including the exact path, needed permissions,
+source-row warnings, including the exact path, needed permissions,
 actual worker identity, storage problems, mismatched API/worker settings and stale
 worker reports. Search filters do not hide these warnings. A failed health request
 also remains visible. Diagnostics contain metadata, never transcript bodies.

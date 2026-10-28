@@ -110,7 +110,7 @@ def test_indexed_text_segments_download_and_stale_pins_match_machine_reads(
 def test_settings_keep_optimistic_revision_and_operator_limits(api, browser, project):
     path = _settings(project)
     settings = browser.get(_browser_path(path)).json()
-    payload = {"enabled": False, "max_file_size_bytes": 1024,
+    payload = {"enabled": False, "directories": [],
                "expected_revision": settings["revision"]}
     saved = browser.patch(_browser_path(path), json=payload)
     assert saved.status_code == 200, saved.text
@@ -124,8 +124,8 @@ def test_settings_keep_optimistic_revision_and_operator_limits(api, browser, pro
                            "expected_revision": saved.json()["revision"]}
     rejected = browser.patch(_browser_path(path), json=oversized)
     expected = api.patch(path, json=oversized)
-    assert rejected.status_code == expected.status_code == 422
-    assert rejected.json() == expected.json()
+    assert rejected.status_code == 400
+    assert expected.status_code == 422
 
 
 def test_import_receipt_replays_after_source_disappears(api, browser, project, tmp_path):

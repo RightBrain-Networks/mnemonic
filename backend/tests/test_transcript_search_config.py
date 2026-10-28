@@ -29,7 +29,7 @@ def settings():
 def test_retired_search_budget_cannot_limit_or_break_search(monkeypatch, value):
     monkeypatch.setenv("MNEMONIC_TRANSCRIPT_SEARCH_MAX_BYTES", value)
     assert "transcript_search_max_bytes" not in Settings.model_fields
-    assert settings().transcript_max_bytes == 536_870_912
+    assert settings().transcript_max_bytes == 1_073_741_824
 
 
 def test_transcript_index_directory_environment_and_temporary_default(monkeypatch, tmp_path):
