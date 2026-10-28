@@ -597,6 +597,9 @@ test("a hostile-title merge preserves direction and recovers one exact durable e
     );
     await expect(canonicalResult.locator(".matched-member")).toContainText(source.id);
     await expect(canonicalResult.locator(".matched-member bdi")).toHaveText(hostileTitle);
+    await canonicalResult.screenshot({
+      path: testInfo.outputPath("matched-duplicate-disclosure.png"), animations: "disabled"
+    });
   } finally {
     await client.dispose();
   }

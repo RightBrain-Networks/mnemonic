@@ -1424,7 +1424,10 @@ test("the queue appends pages on scroll while the result count shows the total"
       initialCountSent = true;
       const response = await route.fetch();
       const result = await response.json();
-      await route.fulfill({ response, json: { ...result, total: total - 1 } });
+      result.total = total - 1;
+      result.facet_totals.work_items = total - 1;
+      result.project_coverage[0].facet_totals.work_items = total - 1;
+      await route.fulfill({ response, json: result });
     });
     await page.addInitScript(() => {
       const target = window as typeof window & { __appendQueueAnimations: number };

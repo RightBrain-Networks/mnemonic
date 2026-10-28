@@ -148,16 +148,17 @@ async function openDashboard(page: Page): Promise<void> {
 
 async function fillCreateDraft(
   page: Page,
-  draft: { title: string; summary: string; prompt: string; tags?: string }
+  draft: { title: string; summary: string; prompt: string; tags?: string[] }
 ) {
   await page.locator(".topbar").getByRole("button", { name: "New work" }).click();
   const dialog = page.getByRole("dialog", { name: "Create durable work" });
   await dialog.getByLabel("Title").fill(draft.title);
   await dialog.getByLabel("Summary").fill(draft.summary);
   await dialog.getByLabel("Initial context checkpoint").fill(draft.prompt);
-  if (draft.tags) {
-    await dialog.locator("details.edit-context summary").click();
-    await dialog.getByLabel(/Tags/).fill(draft.tags);
+  for (const name of draft.tags ?? []) {
+    await dialog.locator(".tag-selector-option").filter({
+      has: page.getByText(name, { exact: true })
+    }).getByRole("checkbox").check();
   }
   return dialog;
 }
@@ -198,13 +199,18 @@ test("Advisory reveals a completed canonical group through its exact alias, then
       `phase9-advisory-alias-${suffix}`
     );
     await mergeAlias(client, alias.id, canonical.id, suffix);
+    const catalogResponse = await client.get(`/api/v1/projects/${state.projectId}/tags`);
+    expect(catalogResponse.ok(), await catalogResponse.text()).toBe(true);
+    const catalog = await catalogResponse.json() as { items: Array<{ name: string }> };
+    const selectedTags = catalog.items.slice(0, 2).map((tag) => tag.name);
+    expect(selectedTags).toHaveLength(2);
 
     await openDashboard(page);
     const createDialog = await fillCreateDraft(page, {
       title: aliasTitle,
       summary: `A new draft to compare against existing work ${suffix}.`,
       prompt: `Draft-only context ${suffix}.`,
-      tags: "Phase-9, Advisory, phase-9"
+      tags: selectedTags
     });
     const createButton = createDialog.getByRole("button", {
       name: "Create work and checkpoint"
@@ -238,7 +244,7 @@ test("Advisory reveals a completed canonical group through its exact alias, then
       title: aliasTitle,
       summary: `A new draft to compare against existing work ${suffix}.`,
       initial_prompt: `Draft-only context ${suffix}.`,
-      tags: ["phase-9", "advisory"],
+      tags: selectedTags,
       exclude_work_item_id: null,
       limit: 5
     });
