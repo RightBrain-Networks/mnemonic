@@ -159,13 +159,10 @@ services:
       MNEMONIC_ARTIFACT_TIKA_URL: http://tika:9998
       MNEMONIC_BACKUP_TOKEN: ${MNEMONIC_E2E_BACKUP_TOKEN:?Run through scripts/test-e2e.sh}
       MNEMONIC_BACKUP_ROOT: /backups
-      MNEMONIC_BACKUP_RETENTION_COUNT: 2
-      MNEMONIC_BACKUP_INTERVAL_SECONDS: 86400
       MNEMONIC_BACKUP_MAX_BYTES: 2097152
     volumes:
       - *prompt-mount
-      - <<: *artifact-mount
-        read_only: true
+      - *artifact-mount
       - type: bind
         source: ${MNEMONIC_E2E_TRANSCRIPT_DIR:?Run through the isolated test runner}
         target: /var/lib/mnemonic/transcripts

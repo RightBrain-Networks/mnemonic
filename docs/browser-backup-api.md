@@ -1,10 +1,10 @@
 # FastAPI browser backup gateway
 
 FastAPI owns `/api/backups` as a constrained gateway to the existing private
-worker on port 8002. The worker still owns job enqueue/status, scheduled backups,
+worker on port 8002. The worker owns durable job enqueue/status, saved nightly schedules,
 archive storage, project restore guards, and the archive format. This migration
-adds a transport owner; it changes neither those services nor the machine API,
-MCP catalog, database schema, or browser write/retry protocol.
+keeps the machine API and MCP catalog unchanged. Migration 0070 adds per-project
+backup schedules; server backup creation runs independently of browser navigation.
 
 ## Routes and admission
 
@@ -17,6 +17,10 @@ must satisfy the browser UUID contract. Queries are forbidden on every route.
 | POST | `/backups` | Enqueue one manual backup |
 | GET | `/backup-jobs/{job_id}` | Read the existing job state |
 | GET | `/backups/{filename}` | Stream one archive |
+| DELETE | `/backups/{filename}` | Delete one retained archive (repeat-safe) |
+| PUT | `/backup-settings` | Save enabled/time/timezone/retention_days |
+| POST | `/exports` | Stream selected current domains/artifacts as tar.bz2 |
+| POST | `/backups/{filename}/restore` | Restore a confirmed stored archive |
 | POST | `/restore` | Restore the confirmed project from a streamed archive |
 
 Filenames match `[a-zA-Z0-9][a-zA-Z0-9._-]{0,199}\.bz2`. Unsupported paths,
@@ -25,7 +29,10 @@ Origin, fetch metadata, and forbidden operation/lease controls use the existing
 browser policy. Forwarded host/scheme headers confer no trust. Caller cookies,
 Authorization, and human-policy headers never reach the worker.
 
-Nonrestore actions accept no body, including GET. A bodyless POST may supply an
+Settings and export accept application/json bodies bounded to 128 KiB. Export
+requires nonempty unique UUID selections (`domain_ids`, `artifact_ids`). All other
+non-upload actions accept no body, including GET. Stored restore requires the
+exact X-Confirm-Project header. A bodyless POST may supply an
 empty stream; the gateway verifies EOF. Restore requires an exact
 `X-Confirm-Project` matching the URL and `application/octet-stream`. Content
 coding must be absent or identity. Content-Length, when supplied, must be a

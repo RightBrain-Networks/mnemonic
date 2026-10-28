@@ -75,7 +75,7 @@ test("backup catalog and priority rubric reject foreign project responses withou
   t.after(() => client.clear());
   const fetch = t.mock.method(globalThis, "fetch", async (url) => Response.json(url.includes("priority-rubric")
     ? { project_id: project, revision: "1", content: "Prioritize impact." }
-    : { project_id: project, retention_count: 2, backups: [] }));
+    : { project_id: project, schedule: { enabled: false, time: "02:00", timezone: "UTC", retention_days: 7 }, storage: { path: "/backups", total_bytes: 1000, free_bytes: 900, error: null }, latest_job: null, backups: [] }));
   for (const options of [backupCatalogOptions(project), priorityRubricOptions(project)]) {
     const accepted = await client.fetchQuery(options);
     fetch.mock.mockImplementation(async () => Response.json({ ...accepted, project_id: otherProject }));

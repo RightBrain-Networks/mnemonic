@@ -7,6 +7,14 @@ retain their paths with `compose.bind-mounts.yaml`. Begin with
 [Historical upgrade notes](upgrade-history.md) retain migration-specific prerequisites,
 release context, and recovery procedures.
 
+Release 0.117.0 replaces interval/count backups with opt-in per-project nightly
+schedules and retention days, streams large project backups, and centralizes
+selective domain/artifact export. Migration `0070_backup_settings` adds saved
+schedules. Deploy matching API, worker, MCP and dashboard builds together; this
+requires operator authorization before interrupting production services. Existing
+schedules must be enabled in **Backup & export** after upgrading. Legacy interval
+and retention-count environment variables are no longer used.
+
 ## Work summary length
 
 `MNEMONIC_WORK_SUMMARY_MAX_CHARS` is a positive integer in `.env`, defaulting to
@@ -784,18 +792,42 @@ authenticated approval signature.
 
 ## Backups
 
-Project PostgreSQL backups run at startup and every
-`MNEMONIC_BACKUP_INTERVAL_SECONDS` (default 86400). Each archive is a bounded,
-checksummed JSON-lines data export streamed through bzip2 before any archive
-bytes reach disk. Completed files appear atomically under
-`/backups/<project UUID>/project-<UTC timestamp>-<random ID>.json.bz2` inside the worker.
-New installs keep `/backups` on the private `mnemonic_backups` named volume;
-the bind overlay maps the existing `MNEMONIC_BACKUP_DIR` instead.
-Only successful publication prunes older archives for that project:
-`MNEMONIC_BACKUP_RETENTION_COUNT` defaults to **7** (range 1–10000).
-A failed backup retains previous successful archives.
+Project PostgreSQL backups are created asynchronously by the shared RabbitMQ
+worker. **Backup & export** queues manual backups and configures a nightly time,
+IANA timezone and retention days per project. Schedules default to disabled,
+02:00 UTC, and seven days; zero days never prunes. One job is scheduled per local
+calendar date (including daylight-saving folds). Missed times run on the next
+scheduler tick that day. A changed time or newly enabled schedule takes effect at
+its next occurrence. Leaving or reloading the page does not cancel a backup;
+the catalog returns the latest persisted job, including actionable failure details.
 
-Archives include project database records, immutable histories, leases,
+Completed archives appear atomically under
+`/backups/<project UUID>/project-<UTC timestamp>-<job ID>.json.bz2` inside the worker.
+New installs keep `/backups` on the private `mnemonic_backups` named volume. Existing
+bind installations retain their directory through `compose.bind-mounts.yaml`, using
+`MNEMONIC_BACKUP_DIR` in `.env` (default `./backups`). That setting changes storage only
+when the bind overlay is selected; relative paths resolve from the Compose project
+directory. Keep the directory private and writable by the configured API/worker
+identity. The dashboard shows the configured storage location and total/free space
+on its volume. Download, delete and confirmed restore actions are available for each
+archive. Retention prunes archives older than the selected
+number of days only after a new archive is safely published; failed backups never
+prune. A cleanup failure does not discard a successful backup. Keep copies off-machine.
+
+Exports use a read-only PostgreSQL repeatable-read snapshot and stream one record
+at a time through bzip2 without table write locks or whole-project buffering.
+The old 8 MiB row limit and browser upload limits no longer constrain server backup
+creation. Restore spools records to private temporary disk before transactional
+validation/replacement; allow temporary disk capacity for expanded project data.
+The largest individual JSON record still determines peak parsing memory. Stored
+archive restores use `MNEMONIC_BACKUP_SERVER_RESTORE_MAX_BYTES` (default 64 GiB
+expanded). Browser uploads retain separate compressed/expanded limits through
+`MNEMONIC_BACKUP_MAX_BYTES` and `MNEMONIC_BACKUP_EXPANDED_MAX_BYTES`. Restore
+still requires the archive's exact schema; retain a matching release when keeping
+archives across migrations. Restore acquires write locks and should be planned
+when no agents are actively changing project data.
+
+Backups include project database records, immutable histories, leases,
 relationships, settings, reports, artifact metadata, normalized extracted text,
 retained Tika document properties and completed operation
 receipts. **Artifact file contents are excluded.** A separate backup system owns
@@ -811,16 +843,18 @@ operator-managed retention. See [Upgrade from any release](#upgrade-from-any-rel
 for the default-on backup, disk-space guard, and explicit opt-out. Neither kind of local
 backup substitutes for a verified off-machine copy and restore rehearsal.
 
-The service holds bounded database locks for a coherent export or transactional
-restore; active writers can briefly wait or receive their ordinary busy error.
-Pending durable operations must finish recovery first. Keep copies off-machine:
-retention on the database host does not protect against loss of that host.
-
-In the dashboard, select a project and open **Settings → Project backups** to
-inspect archive existence, creation time, age and size, create a backup, download
-an archive, or upload and restore one. Operations use the private backup service
-and a separate server-only credential. They are absent from the application REST
-contract, MCP tools, agent context and plugin skills.
+The **Export** widget selects one or more knowledge domains and/or artifacts and
+downloads `selected-assets.tar.bz2`. It contains a manifest, current live decision
+text and metadata grouped by domain ID, and current artifact bytes/metadata grouped
+by artifact ID. Artifact hashes and sizes are verified before returning any bytes;
+missing or changed selections fail the export instead of producing an incomplete
+archive. Sensitive artifacts are explicitly labeled in the human selection UI;
+the existing human download audit/access behavior applies. This portable asset
+export is not a restorable database backup. The worker shares the API's storage
+identity and writable artifact mount so it can finish journaled recovery of interrupted
+uploads or replacements under the project lock before reading selected files. Export
+verifies the resulting bytes before publishing the archive. No new machine API or
+MCP tools are introduced.
 
 For operator access:
 
@@ -857,9 +891,10 @@ is restored, but the artifact filesystem is never read, written or deleted.
 Coordinate matching artifact content through its separate backup system when
 needed; older metadata may refer to absent or newer file bytes.
 
-Before replacing data, download a current backup. In Settings, choose the
-compressed archive and explicitly confirm the selected project. The dashboard
-reloads after success. If a connection drops, inspect the project before retrying:
+Before replacing data, preserve a current backup. In **Backup & export**, choose
+**Restore** on a retained server archive or upload a compressed project archive,
+then type the selected project's slug to confirm replacement. Server archive restores
+do not pass through the browser upload limit. The dashboard reloads after success. If a connection drops, inspect the project before retrying:
 the server may already have committed the restore.
 
 The explicit operator equivalent is:

@@ -18,6 +18,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from mnemonic_api.application.browser_backups_policy import (
     BACKUP_BROWSER_PREFIX,
+    BACKUP_SELECTION_MAX_BYTES,
     BackupAdmission,
     BackupRejection,
     admit_backup,
@@ -138,6 +139,11 @@ class _BackupOutput:
             headers.update({"Content-Type": "application/octet-stream",
                             "X-Confirm-Project": admission.project_id})
             content = source.stream()
+        elif admission.action in {"settings", "export"}:
+            headers["Content-Type"] = "application/json"
+            content = source.stream()
+        elif admission.action == "restore_stored":
+            headers["X-Confirm-Project"] = admission.project_id
         request = client.build_request(self.scope["method"], f"{admission.url}/{admission.path}",
                                        headers=headers, content=content, timeout=None)
         # A shared client's cookie jar must never turn a worker Set-Cookie into
@@ -146,8 +152,9 @@ class _BackupOutput:
         response = await client.send(request, stream=True, follow_redirects=False)
         try:
             _admit_response(response)
-            if admission.action == "download" and response.is_success:
-                await self.download(response, admission.path)
+            if admission.action in {"download", "export"} and response.is_success:
+                path = "selected-assets.tar.bz2" if admission.action == "export" else admission.path
+                await self.download(response, path)
             else:
                 result = await _json_response(response)
                 self.started = True
@@ -163,9 +170,11 @@ async def _empty_body(request: Request) -> None:
 
 
 async def _exchange(request: Request, admission: BackupAdmission, output: _BackupOutput) -> None:
-    if admission.action != "restore":
+    accepts_body = admission.action in {"restore", "settings", "export"}
+    if not accepts_body:
         await _empty_body(request)
-    source = _BackupInput(output.receive, admission.maximum, admission.action == "restore")
+    maximum = admission.maximum if admission.action == "restore" else BACKUP_SELECTION_MAX_BYTES
+    source = _BackupInput(output.receive, maximum, accepts_body)
     transfer = asyncio.create_task(
         output.forward(request.app.state.backup_client, admission, source))
     watcher = asyncio.create_task(source.pump())

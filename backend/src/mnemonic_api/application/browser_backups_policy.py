@@ -13,6 +13,7 @@ from mnemonic_api.application.state import settings_of
 
 BACKUP_BROWSER_PREFIX = "/api/backups"
 BACKUP_FILENAME = re.compile(r"[a-zA-Z0-9][a-zA-Z0-9._-]{0,199}\.bz2")
+BACKUP_SELECTION_MAX_BYTES = 128 * 1024
 
 
 class BackupRejection(Exception):
@@ -35,14 +36,18 @@ def backup_route(path: str, method: str) -> str | None:
     parts = path.split("/")
     if len(parts) < 3 or parts[0] != "projects" or not uuid(parts[1]):
         return None
+    if (len(parts) == 5 and parts[2] == "backups" and BACKUP_FILENAME.fullmatch(parts[3])
+            and parts[4] == "restore" and method == "POST"):
+        return "restore_stored"
     if len(parts) == 3:
         return {("backups", "GET"): "list", ("backups", "POST"): "create",
+                ("backup-settings", "PUT"): "settings", ("exports", "POST"): "export",
                 ("restore", "POST"): "restore"}.get((parts[2], method))
-    if len(parts) != 4 or method != "GET":
+    if len(parts) != 4:
         return None
     if parts[2] == "backups" and BACKUP_FILENAME.fullmatch(parts[3]):
-        return "download"
-    if parts[2] == "backup-jobs" and uuid(parts[3]):
+        return {"GET": "download", "DELETE": "delete"}.get(method)
+    if parts[2] == "backup-jobs" and uuid(parts[3]) and method == "GET":
         return "job"
     return None
 
@@ -90,10 +95,23 @@ def admit_backup_body(request: Request, admission: BackupAdmission) -> None:
         length = declared_length(headers, MAX_SAFE_INTEGER)
     except ValueError:
         raise BackupRejection(400, "Invalid backup content length.") from None
+    if admission.action in {"settings", "export"}:
+        if headers.get("content-type", "").split(";", 1)[0].strip().lower() != "application/json":
+            raise BackupRejection(415, "Send backup settings or export selections as JSON.")
+        if length is not None and length > BACKUP_SELECTION_MAX_BYTES:
+            raise BackupRejection(413, "The selection is too large.")
+        return
     if admission.action != "restore":
+        if (admission.action == "restore_stored"
+                and headers.get("x-confirm-project") != admission.project_id):
+            raise BackupRejection(400, "Confirm the selected project before restoring.")
         if length not in (None, 0):
             raise BackupRejection(400, "This backup action does not accept a request body.")
         return
+    _admit_restore(headers, admission, length)
+
+
+def _admit_restore(headers, admission: BackupAdmission, length: int | None) -> None:
     if headers.get("x-confirm-project") != admission.project_id:
         raise BackupRejection(400, "Confirm the selected project before restoring.")
     content_type = headers.get("content-type", "").split(";", 1)[0].strip().lower()

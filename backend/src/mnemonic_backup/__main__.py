@@ -36,9 +36,9 @@ def main() -> None:
             if not args.project or args.confirm_project != args.project or not args.file:
                 parser.error("restore requires --project UUID --confirm-project UUID --file PATH")
             with service.store.operation(), args.file.open("rb") as source:
-                if args.file.stat().st_size > settings.max_bytes:
-                    parser.error("The compressed backup exceeds the configured byte limit.")
-                restore_project(engine, args.project, source, max_bytes=settings.expanded_max_bytes)
+                restore_project(engine, args.project, source,
+                                max_bytes=settings.server_restore_max_bytes,
+                                spool_directory=settings.root)
             print("Project database records restored; artifact files were not changed.")
     except BackupError as error:
         parser.exit(1, error.message + "\n")

@@ -79,3 +79,27 @@ def test_acceptance_projects_cannot_replace_each_others_built_images(tmp_path):
         images.append({service["image"] for service in services.values() if "build" in service})
         assert all(image.startswith(project + ":") for image in images[-1])
     assert images[0].isdisjoint(images[1])
+
+
+def test_backup_page_path_matches_selected_storage_and_worker_can_export_artifacts(tmp_path):
+    # A host folder setting alone must not mislabel the default Docker volume.
+    configured_path = str(tmp_path / "private-backups")
+    defaults = config(MNEMONIC_BACKUP_DIR=configured_path)["services"]["worker"]
+    assert defaults["environment"]["MNEMONIC_BACKUP_DIR"] == "/backups"
+    assert defaults["environment"]["MNEMONIC_BACKUP_ROOT"] == "/backups"
+    mounts = {mount["target"]: mount for mount in defaults["volumes"]}
+    assert mounts["/backups"]["type"] == "volume"
+    assert mounts["/backups"]["source"] == "mnemonic_backups"
+    assert defaults["environment"]["MNEMONIC_ARTIFACT_ROOT"] == "/var/lib/mnemonic/artifacts"
+    assert not mounts["/var/lib/mnemonic/artifacts"].get("read_only", False)
+    assert "MNEMONIC_BACKUP_INTERVAL_SECONDS" not in defaults["environment"]
+    assert "MNEMONIC_BACKUP_RETENTION_COUNT" not in defaults["environment"]
+    assert defaults["environment"]["MNEMONIC_BACKUP_SERVER_RESTORE_MAX_BYTES"] == "68719476736"
+
+    bind = config("compose.bind-mounts.yaml",
+                  MNEMONIC_BACKUP_DIR=configured_path)["services"]["worker"]
+    assert bind["environment"]["MNEMONIC_BACKUP_DIR"] == configured_path
+    mounts = {mount["target"]: mount for mount in bind["volumes"]}
+    assert mounts["/backups"]["type"] == "bind"
+    assert mounts["/backups"]["source"] == configured_path
+    assert not mounts["/var/lib/mnemonic/artifacts"].get("read_only", False)

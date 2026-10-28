@@ -12,9 +12,13 @@ class BackupSettings(BaseSettings):
     database_url: SecretStr = Field(validation_alias="DATABASE_URL")
     token: SecretStr = Field(min_length=32)
     root: Path = Path("/backups")
-    retention_count: int = Field(default=7, ge=1, le=10000)
-    interval_seconds: int = Field(default=86400, ge=60, le=31536000)
+    storage_path: str | None = Field(default=None, validation_alias="MNEMONIC_BACKUP_DIR")
+    artifact_root: Path = Field(default=Path("/var/lib/mnemonic/artifacts"),
+                                validation_alias="MNEMONIC_ARTIFACT_ROOT")
+    artifact_max_bytes: int = Field(default=67108864, ge=0, le=1073741824,
+                                    validation_alias="MNEMONIC_ARTIFACT_MAX_BYTES")
     max_bytes: int = Field(default=67108864, ge=1024, le=1073741824)
+    server_restore_max_bytes: int = Field(default=68719476736, ge=1024)
     expanded_max_bytes: int = Field(default=268435456, ge=1024, le=1073741824)
 
     @field_validator("root")
