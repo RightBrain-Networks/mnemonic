@@ -1,6 +1,6 @@
 # mnemonic
 
-> The single-user, multi-agent coordination plane built for experienced engineers rather than vibe coders.
+> The anti-vibe coding AI-agent coordination plane built for experienced engineers.
 
 **`mnemonic`** is a single-user, self-hosted coordination plane for LLM coding agents. Its core thesis: agent sessions are temporary, failure-prone, and locally smart but globally blind. Durable work should live in a *work graph* that survives sessions, rather than in Markdown scratch files, suggested task chips, or an issue tracker flooded with AI-generated tickets. With a strong human-in-the-loop philosophy, it is designed to increase the code quality and throughput of experienced developers building with AI, rather than replace their thinking.
 
