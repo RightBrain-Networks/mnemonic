@@ -1,5 +1,5 @@
 # Official minimal distribution: no OCR tools or extra parser plugins.
-FROM apache/tika:4.0.0-1@sha256:a8b442501f601fb15015de974f9afe13dd242b0f14e49a2b144fadcb214a555b
+FROM apache/tika:4.1.0-2@sha256:fe2c6e3fca77b986ff3368107a20fa5060a3eefd03d14c12b45c0334626335d2
 ARG VERSION=dev
 ARG REVISION=unknown
 LABEL org.opencontainers.image.source="https://github.com/RightBrain-Networks/mnemonic" \
