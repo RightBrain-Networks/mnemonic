@@ -97,6 +97,11 @@ git pull --ff-only origin main
 
 Use Semantic Versioning (`MAJOR.MINOR.PATCH`) for application releases. `MAJOR` version bumps are reserved and require explicit human approval. Increment `MINOR` for user-facing changes and `PATCH` for all other changes.
 
+Run `python scripts/release.py check` to verify coordinated versions. Use
+`python scripts/release.py bump X.Y.Z [--plugin A.B.C]` to update current version
+declarations and regenerate both uv lockfiles, the npm lockfile, and OpenAPI.
+The plugin version remains independent; historical release notes stay unchanged.
+
 Fresh MCP writes and claims mint omitted top-level retry IDs as UUIDv4. Retain
 `_meta.mnemonic_generated_ids` from the response and supply that ID explicitly on
 an exact retry with every other argument unchanged. Never repeat a keyless call
@@ -105,7 +110,7 @@ one-off ID needed before dispatch. Explicit IDs and REST receipts retain their
 contracts; prepared upload intents keep their helper-generated IDs. See
 `docs/automatic-uuids.md`. The tool idempotence hint is false for these calls.
 
-The current application/API/MCP/dashboard release is `0.115.0`, Claude plugin
+The current application/API/MCP/dashboard release is `0.115.1`, Claude plugin
 `0.71.0`, and Alembic head `0069_transcript_directories`. The catalog is exactly
 79 MCP tools, 25 receipt-protected MCP writes, 38 REST receipt kinds, 32 protected
 browser mutations, 24 work-event types, and three plugin skills. Project priority

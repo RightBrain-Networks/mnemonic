@@ -32,6 +32,10 @@ jobs:
           persist-credentials: false
       - name: Test CI scope selection
         run: python3 -m unittest discover -s scripts/tests -p 'test_ci_*.py'
+      - name: Check coordinated release versions
+        run: python3 scripts/release.py check
+      - name: Test release tooling
+        run: python3 -m unittest discover -s scripts/tests -p 'test_release*.py'
       - name: Select checks from the complete diff
         id: scope
         run: python3 scripts/ci_scope.py
@@ -133,6 +137,8 @@ jobs:
             scripts/test_browser_transport_ingress.py \
             scripts/test_project_backups.py \
             scripts/check-stack.py
+          uv run --project backend ruff check --config backend/pyproject.toml \
+            scripts/release.py scripts/tests/test_release.py
 
   ty:
     name: ty
@@ -171,7 +177,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       rabbitmq:
-        image: rabbitmq:4.2-alpine
+        image: rabbitmq:4.2-alpine@sha256:aab85daef4295ab28df229600109434ed6ed7b966dd915baeb0fc396279f0e8e
         env:
           RABBITMQ_DEFAULT_USER: mnemonic_test
           RABBITMQ_DEFAULT_PASS: mnemonic_test_only
@@ -183,7 +189,7 @@ jobs:
           --health-timeout 5s
           --health-retries 20
       postgres:
-        image: postgres:17-alpine
+        image: postgres:17-alpine@sha256:266d3c257594e195b309ae9d1805e54c788f1d7b375f56bf6c367aac6c917e7b
         env:
           POSTGRES_DB: mnemonic_test
           POSTGRES_USER: mnemonic_test

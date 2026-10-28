@@ -1,0 +1,52 @@
+name: Bug report
+description: Report a reproducible bug or installation problem.
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For vulnerabilities, follow [SECURITY.md](https://github.com/RightBrain-Networks/mnemonic/blob/main/SECURITY.md).
+        Do not include secrets, private transcripts, artifacts, or database dumps.
+  - type: input
+    id: version
+    attributes:
+      label: Application and plugin versions
+      description: Include the release version or Git commit and the plugin version, if installed.
+    validations:
+      required: true
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: Deployment method
+      options:
+        - Docker Compose with published images
+        - Docker Compose built from source
+        - Native development environment
+        - Other (describe below)
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Operating system and architecture
+      description: Include Docker and Docker Compose versions for container deployments.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Give the smallest sequence that reproduces the problem.
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Expected and actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Sanitized logs and configuration
+      description: Remove passwords, API keys, tokens, private paths, and user content before posting.
+      render: text

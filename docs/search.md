@@ -22,8 +22,8 @@ directly. Existing `tag_counts` remain counts of matching work items.
 
 Application/API/MCP/dashboard `0.43.0` and plugin `0.26.0` add one project search
 surface across work items, artifacts, and transcripts. No migration or new
-configuration was required for that release. Current release 0.115.0 uses migration
-`0069_transcript_directories` and also searches decision documents and
+configuration was required for that release. See [AGENTS.md](../AGENTS.md#versioning)
+for the current release and migration. Current search also includes decision documents and
 [imported transcripts](transcripts.md#import-existing-transcripts).
 The dashboard retains its separate work, artifact, and transcript interfaces.
 Their searches use the shared API, including the work semantic toggle. Hierarchy

@@ -1,0 +1,32 @@
+name: Feature request
+description: Describe a workflow or capability that Mnemonic could support better.
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Application and plugin versions
+      description: Include the release version or Git commit and the plugin version, if installed.
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: Deployment method
+      options:
+        - Docker Compose with published images
+        - Docker Compose built from source
+        - Native development environment
+        - Not yet installed
+        - Other (describe below)
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or workflow
+      description: Explain what you are trying to do and what gets in the way. Omit secrets and private content.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior and alternatives
+      description: Describe the desired result and any workarounds you have tried.
+    validations:
+      required: true

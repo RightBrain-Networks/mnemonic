@@ -413,8 +413,13 @@ must verify only aggregate behavior and must not commit a merge.
 
 ## Current coordinated cutover
 
-The current coordinated boundary is API/MCP/dashboard `0.60.0`, plugin `0.38.0`,
-and Alembic `0041_artifact_passages`. Follow [the transcript/job migration](transcript-jobs.md)
+Use the [release notes](https://github.com/RightBrain-Networks/mnemonic/releases)
+for the selected release's application version, compatible plugin, migration head,
+and upgrade requirements. The notes below preserve historical migration boundaries;
+they do not identify the current release. Run `python scripts/release.py check` in
+a source checkout to verify its coordinated version declarations.
+
+Follow [the transcript/job migration](transcript-jobs.md)
 to provision RabbitMQ, the shared worker, retained copies, and backup ownership.
 Migration `0041_artifact_passages` adds rebuildable artifact passage caches; follow
 [semantic artifact upgrade and backfill](artifact-semantic-search.md#coordinated-upgrade).
