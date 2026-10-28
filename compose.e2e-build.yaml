@@ -1,0 +1,15 @@
+# Build overlay for the independent disposable acceptance stack.
+services:
+  api: &api-build
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+  worker: *api-build
+  migrate: *api-build
+  web:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+  tika:
+    build:
+      context: ./deploy/tika

@@ -138,7 +138,7 @@ jobs:
             scripts/test_project_backups.py \
             scripts/check-stack.py
           uv run --project backend ruff check --config backend/pyproject.toml \
-            scripts/release.py scripts/tests/test_release.py
+            scripts/release*.py scripts/tests/test_release*.py
 
   ty:
     name: ty

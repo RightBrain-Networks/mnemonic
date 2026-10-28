@@ -34,17 +34,49 @@ services:
       start_period: 10s
     restart: unless-stopped
 
+  init-storage:
+    image: ghcr.io/rightbrain-networks/mnemonic-api:${MNEMONIC_VERSION:-0.116.0}
+    user: "0:0"
+    command: [init-storage]
+    environment:
+      MNEMONIC_API_UID: ${MNEMONIC_API_UID:-10001}
+      MNEMONIC_API_GID: ${MNEMONIC_API_GID:-10001}
+      MNEMONIC_STORAGE_MODE: ${MNEMONIC_STORAGE_MODE:-legacy}
+    volumes: &storage-mounts
+      - mnemonic_artifacts:/var/lib/mnemonic/artifacts
+      - mnemonic_prompts:/var/lib/mnemonic/prompts
+      - mnemonic_transcripts:/var/lib/mnemonic/transcripts
+      - mnemonic_index:/var/lib/mnemonic/transcript-index
+      - mnemonic_backups:/backups
+    network_mode: none
+    restart: "no"
+    security_opt: [no-new-privileges:true]
+
+  migrate:
+    image: ghcr.io/rightbrain-networks/mnemonic-api:${MNEMONIC_VERSION:-0.116.0}
+    user: "${MNEMONIC_API_UID:-10001}:${MNEMONIC_API_GID:-10001}"
+    command: [migrate]
+    environment:
+      DATABASE_URL: postgresql+psycopg://mnemonic:${POSTGRES_PASSWORD}@postgres:5432/mnemonic
+      MNEMONIC_API_KEY: ${MNEMONIC_API_KEY}
+      MNEMONIC_PROMPT_ROOT: /var/lib/mnemonic/prompts
+      MNEMONIC_PRE_MIGRATION_BACKUP: ${MNEMONIC_PRE_MIGRATION_BACKUP:-true}
+    volumes: *storage-mounts
+    depends_on:
+      postgres:
+        condition: service_healthy
+      init-storage:
+        condition: service_completed_successfully
+    restart: "no"
+    security_opt: [no-new-privileges:true]
+
   api:
-    build: &backend-build
-      context: .
-      dockerfile: backend/Dockerfile
-      args:
-        MNEMONIC_API_UID: ${MNEMONIC_API_UID:-10001}
-        MNEMONIC_API_GID: ${MNEMONIC_API_GID:-10001}
+    image: ghcr.io/rightbrain-networks/mnemonic-api:${MNEMONIC_VERSION:-0.116.0}
+    user: "${MNEMONIC_API_UID:-10001}:${MNEMONIC_API_GID:-10001}"
     environment:
       DATABASE_URL: postgresql+psycopg://mnemonic:${POSTGRES_PASSWORD}@postgres:5432/mnemonic
       MNEMONIC_API_KEY: ${MNEMONIC_API_KEY:?Run scripts/setup.py or configure .env first}
-      TIMEZONE: ${TIMEZONE:-America/Detroit}
+      TIMEZONE: ${TIMEZONE:-UTC}
       MNEMONIC_BACKUP_URL: http://worker:8002
       MNEMONIC_BACKUP_TOKEN: ${MNEMONIC_BACKUP_TOKEN:?Configure the private dashboard backup token in .env}
       MNEMONIC_BACKUP_MAX_BYTES: ${MNEMONIC_BACKUP_MAX_BYTES:-67108864}
@@ -58,7 +90,7 @@ services:
       MNEMONIC_CODEX_ARCHIVED_TRANSCRIPT_SOURCE_DIR: ${MNEMONIC_CODEX_ARCHIVED_TRANSCRIPT_SOURCE_DIR:-}
       MNEMONIC_TRANSCRIPT_ALLOWED_ROOTS: ${MNEMONIC_TRANSCRIPT_ALLOWED_ROOTS:-[]}
       MNEMONIC_TRANSCRIPT_MAX_BYTES: ${MNEMONIC_TRANSCRIPT_MAX_BYTES:-1073741824}
-      MNEMONIC_TRANSCRIPT_INDEX_DIR: ${MNEMONIC_TRANSCRIPT_INDEX_DIR:-/var/lib/mnemonic/transcript-index}
+      MNEMONIC_TRANSCRIPT_INDEX_DIR: /var/lib/mnemonic/transcript-index
       MNEMONIC_WORK_SUMMARY_MAX_CHARS: ${MNEMONIC_WORK_SUMMARY_MAX_CHARS:-2048}
       MNEMONIC_ARTIFACT_MAX_BYTES: ${MNEMONIC_ARTIFACT_MAX_BYTES:-67108864}
       MNEMONIC_ARTIFACT_TIKA_URL: http://tika:9998
@@ -77,16 +109,12 @@ services:
       MNEMONIC_DUPLICATE_SUGGESTION_TIMEOUT_SECONDS: ${MNEMONIC_DUPLICATE_SUGGESTION_TIMEOUT_SECONDS:-45}
     volumes:
       - &prompt-mount
-        type: bind
-        source: ${MNEMONIC_PROMPT_DIR:-./prompts/runtime}
+        type: volume
+        source: mnemonic_prompts
         target: /var/lib/mnemonic/prompts
-        bind:
-          create_host_path: false
-      - type: bind
-        source: ${MNEMONIC_ARTIFACT_DIR:-./artifacts}
+      - type: volume
+        source: mnemonic_artifacts
         target: /var/lib/mnemonic/artifacts
-        bind:
-          create_host_path: false
       # Without a configured source, expose only the shipped empty placeholder.
       - &claude-source
         type: bind
@@ -110,17 +138,16 @@ services:
         read_only: true
         bind:
           create_host_path: false
-      - type: bind
-        source: ${MNEMONIC_TRANSCRIPT_INDEX_DIR:-/var/lib/mnemonic/transcript-index}
-        target: ${MNEMONIC_TRANSCRIPT_INDEX_DIR:-/var/lib/mnemonic/transcript-index}
-        bind:
-          create_host_path: false
+      - type: volume
+        source: mnemonic_index
+        target: /var/lib/mnemonic/transcript-index
+      - mnemonic_transcripts:/var/lib/mnemonic/transcripts:ro
     ports:
       - '127.0.0.1:${MNEMONIC_API_PORT:-8000}:8000'
     networks: [default, artifact_parser]
     depends_on:
-      postgres:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     healthcheck:
       test: [CMD, python, -c, 'import urllib.request; urllib.request.urlopen("http://127.0.0.1:8000/readyz", timeout=3)']
       interval: 10s
@@ -132,7 +159,7 @@ services:
     security_opt: [no-new-privileges:true]
 
   tika:
-    build: ./deploy/tika
+    image: ghcr.io/rightbrain-networks/mnemonic-tika:${MNEMONIC_VERSION:-0.116.0}
     environment:
       MNEMONIC_ARTIFACT_EXTRACTION_MAX_CHARS: ${MNEMONIC_ARTIFACT_EXTRACTION_MAX_CHARS:-2000000}
       MNEMONIC_ARTIFACT_EXTRACTION_TIMEOUT_SECONDS: ${MNEMONIC_ARTIFACT_EXTRACTION_TIMEOUT_SECONDS:-60}
@@ -160,7 +187,7 @@ services:
     restart: unless-stopped
 
   mcp:
-    build: ./mcp
+    image: ghcr.io/rightbrain-networks/mnemonic-mcp:${MNEMONIC_VERSION:-0.116.0}
     environment:
       MNEMONIC_API_URL: http://api:8000
       MNEMONIC_API_KEY: ${MNEMONIC_API_KEY}
@@ -185,9 +212,7 @@ services:
     security_opt: [no-new-privileges:true]
 
   web:
-    build:
-      context: .
-      dockerfile: frontend/Dockerfile
+    image: ghcr.io/rightbrain-networks/mnemonic-web:${MNEMONIC_VERSION:-0.116.0}
     ports:
       - '127.0.0.1:${MNEMONIC_WEB_PORT:-3000}:3000'
     depends_on:
@@ -208,8 +233,9 @@ services:
     security_opt: [no-new-privileges:true]
 
   worker:
-    build: *backend-build
-    command: [uvicorn, 'mnemonic_api.job_worker:create_app', --factory, --host, 0.0.0.0, --port, '8002', --no-access-log, --log-config, logging.json]
+    image: ghcr.io/rightbrain-networks/mnemonic-api:${MNEMONIC_VERSION:-0.116.0}
+    user: "${MNEMONIC_API_UID:-10001}:${MNEMONIC_API_GID:-10001}"
+    command: [serve-worker]
     environment:
       DATABASE_URL: postgresql+psycopg://mnemonic:${POSTGRES_PASSWORD}@postgres:5432/mnemonic
       MNEMONIC_API_KEY: ${MNEMONIC_API_KEY}
@@ -233,20 +259,17 @@ services:
       MNEMONIC_BACKUP_MAX_BYTES: ${MNEMONIC_BACKUP_MAX_BYTES:-67108864}
       MNEMONIC_BACKUP_EXPANDED_MAX_BYTES: ${MNEMONIC_BACKUP_EXPANDED_MAX_BYTES:-268435456}
     volumes:
+      - mnemonic_artifacts:/var/lib/mnemonic/artifacts:ro
       - *prompt-mount
       - *claude-source
       - *codex-source
       - *codex-archived-source
-      - type: bind
-        source: ${MNEMONIC_TRANSCRIPT_DIR:-/var/lib/mnemonic/transcripts}
+      - type: volume
+        source: mnemonic_transcripts
         target: /var/lib/mnemonic/transcripts
-        bind:
-          create_host_path: false
-      - type: bind
-        source: ${MNEMONIC_BACKUP_DIR:-./backups}
+      - type: volume
+        source: mnemonic_backups
         target: /backups
-        bind:
-          create_host_path: false
     depends_on:
       api:
         condition: service_healthy
@@ -266,6 +289,11 @@ services:
 volumes:
   mnemonic_data:
   mnemonic_rabbitmq:
+  mnemonic_artifacts:
+  mnemonic_prompts:
+  mnemonic_transcripts:
+  mnemonic_index:
+  mnemonic_backups:
 
 networks:
   artifact_parser:

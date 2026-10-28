@@ -30,15 +30,30 @@ services:
       retries: 30
     restart: "no"
 
+  migrate:
+    image: ${MNEMONIC_E2E_COMPOSE_PROJECT:?Run through the isolated test script}:api
+    command: [migrate]
+    environment:
+      DATABASE_URL: postgresql+psycopg://mnemonic_e2e:mnemonic_e2e_only@postgres:5432/mnemonic_e2e
+      MNEMONIC_API_KEY: ${MNEMONIC_E2E_API_KEY:?Run through scripts/test-e2e.sh}
+      MNEMONIC_PROMPT_ROOT: /var/lib/mnemonic/prompts
+    volumes:
+      - ${MNEMONIC_E2E_ARTIFACT_DIR:?Run through the isolated test runner}:/var/lib/mnemonic/artifacts
+      - ${MNEMONIC_E2E_PROMPT_DIR:?Run through the isolated test runner}:/var/lib/mnemonic/prompts
+      - ${MNEMONIC_E2E_TRANSCRIPT_DIR:?Run through the isolated test runner}:/var/lib/mnemonic/transcripts
+      - ${MNEMONIC_E2E_BACKUP_DIR:?Run through the isolated test runner}:/backups
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
   api:
-    build: &backend-build
-      context: .
-      dockerfile: backend/Dockerfile
+    image: ${MNEMONIC_E2E_COMPOSE_PROJECT:?Run through the isolated test script}:api
     environment:
       DATABASE_URL: postgresql+psycopg://mnemonic_e2e:mnemonic_e2e_only@postgres:5432/mnemonic_e2e
       MNEMONIC_API_KEY: ${MNEMONIC_E2E_API_KEY:?Run through scripts/test-e2e.sh}
       MNEMONIC_DASHBOARD_ORIGINS: ${MNEMONIC_DASHBOARD_ORIGINS:?Run through scripts/test-e2e.sh}
-      TIMEZONE: ${TIMEZONE:-America/Detroit}
+      TIMEZONE: ${TIMEZONE:-UTC}
       MNEMONIC_BACKUP_URL: http://worker:8002
       MNEMONIC_BACKUP_TOKEN: ${MNEMONIC_E2E_BACKUP_TOKEN:?Run through scripts/test-e2e.sh}
       MNEMONIC_BACKUP_MAX_BYTES: 2097152
@@ -71,8 +86,8 @@ services:
       - '127.0.0.1:${MNEMONIC_E2E_API_PORT:?Run through scripts/test-e2e.sh}:8000'
     networks: [default, artifact_parser]
     depends_on:
-      postgres:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     healthcheck:
       test: [CMD, python, -c, 'import urllib.request; urllib.request.urlopen("http://127.0.0.1:8000/readyz", timeout=3)']
       interval: 5s
@@ -84,7 +99,7 @@ services:
     security_opt: [no-new-privileges:true]
 
   tika:
-    build: ./deploy/tika
+    image: ${MNEMONIC_E2E_COMPOSE_PROJECT:?Run through the isolated test script}:tika
     networks: [artifact_parser]
     dns: [127.0.0.1]
     logging:
@@ -108,9 +123,7 @@ services:
     restart: "no"
 
   web:
-    build:
-      context: .
-      dockerfile: frontend/Dockerfile
+    image: ${MNEMONIC_E2E_COMPOSE_PROJECT:?Run through the isolated test script}:web
     ports:
       - '127.0.0.1:${MNEMONIC_E2E_WEB_PORT:?Run through scripts/test-e2e.sh}:3000'
     depends_on:
@@ -133,7 +146,7 @@ services:
     security_opt: [no-new-privileges:true]
 
   worker:
-    build: *backend-build
+    image: ${MNEMONIC_E2E_COMPOSE_PROJECT:?Run through the isolated test script}:api
     command: [uvicorn, 'mnemonic_api.job_worker:create_app', --factory, --host, 0.0.0.0, --port, '8002', --no-access-log, --log-config, logging.json]
     environment:
       DATABASE_URL: postgresql+psycopg://mnemonic_e2e:mnemonic_e2e_only@postgres:5432/mnemonic_e2e

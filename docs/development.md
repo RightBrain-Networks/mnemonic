@@ -15,6 +15,22 @@ dashboard uses `package-lock.json` and `npm ci`.
 Use Python 3.14, uv, and Node 24 for native development. Docker-only users do
 not need these tools to run Mnemonic.
 
+Base `compose.yaml` references versioned published images. Source builds require the
+contributor overlay, which assigns local image names:
+
+```sh
+python3 scripts/setup.py
+docker compose -f compose.yaml -f compose.build.yaml up --build -d --wait
+```
+
+New development installations use named volumes initialized by `init-storage`; no host
+sudo directory commands are needed. Existing bind installations must also include
+`-f compose.bind-mounts.yaml` before the build overlay and preserve their old paths.
+Keep the same file arguments for subsequent Compose operations. The API and worker now
+check the schema at startup; a separate `migrate` service backs up and upgrades it first.
+Read [the upgrade procedure](operations.md#upgrade-from-any-release) before running a new
+build against an existing database. Production interruption requires separate authorization.
+
 ## Contribution workflow and CI
 
 Mnemonic uses trunk-based development: `main` is the only long-lived branch.
@@ -985,7 +1001,7 @@ at teardown. Populated artifact history cannot be downgraded.
 After starting current images with:
 
 ```sh
-docker compose up --build -d --wait
+docker compose -f compose.yaml -f compose.build.yaml up --build -d --wait
 ```
 
 Run the read-only live check from the repository root with the MCP environment:

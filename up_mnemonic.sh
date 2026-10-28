@@ -7,4 +7,4 @@ root=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 exec docker compose --project-directory "$root" \
   -f "$root/compose.yaml" \
   -f "$root/compose.tls.yaml" \
-  up --build -d --wait "$@"
+  up -d --wait "$@"

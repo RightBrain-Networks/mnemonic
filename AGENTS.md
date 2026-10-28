@@ -27,7 +27,7 @@ stacks for validation while authorization is pending.
 - `python scripts/setup.py`: create settings from `.env.example`.
 - `uv tool install pre-commit && pre-commit install --install-hooks`: install the required local gitleaks commit hook.
 - `pre-commit run --all-files`: run all local pre-commit checks manually.
-- `docker compose up --build -d --wait`: build and start the complete stack; production changes require the explicit authorization above.
+- `docker compose -f compose.yaml -f compose.build.yaml up --build -d --wait`: build and start the contributor stack with local image names; production changes require the explicit authorization above. Existing bind installs also require `-f compose.bind-mounts.yaml` before the build overlay.
 - `docker compose -f compose.test.yaml up -d --wait`: start the isolated PostgreSQL test database.
 - `cd backend && uv sync --frozen && uv run pytest -q && uv run ruff check . && uv run ty check src`: test, lint, and type-check the API.
 - `cd mcp && uv sync --frozen && uv run pytest -q && uv run ruff check . && uv run ty check src/mnemonic_mcp`: verify, lint, and type-check the MCP package.
@@ -110,7 +110,7 @@ one-off ID needed before dispatch. Explicit IDs and REST receipts retain their
 contracts; prepared upload intents keep their helper-generated IDs. See
 `docs/automatic-uuids.md`. The tool idempotence hint is false for these calls.
 
-The current application/API/MCP/dashboard release is `0.115.1`, Claude plugin
+The current application/API/MCP/dashboard release is `0.116.0`, Claude plugin
 `0.71.0`, and Alembic head `0069_transcript_directories`. The catalog is exactly
 79 MCP tools, 25 receipt-protected MCP writes, 38 REST receipt kinds, 32 protected
 browser mutations, 24 work-event types, and three plugin skills. Project priority

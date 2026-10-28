@@ -2,7 +2,8 @@
 
 ## Objective
 
-Install and configure the current `main` branch of `mnemonic` for one user. Completion MUST
+Install and configure a pinned published release of `mnemonic` for one user when its install bundle
+is available, or use the source-build overlay for an explicitly selected checkout. Completion MUST
 produce a healthy Docker Compose stack, a private persistent PostgreSQL database, a usable web
 dashboard, a ready REST API, a ready Streamable HTTP MCP endpoint, and a healthy background worker
 with project backups verified when a real project exists.
@@ -14,18 +15,20 @@ after writing configuration: start the stack and perform the validation in this 
 
 ## Vocabulary and observed current state
 
-- `MNEMONIC_ROOT` means the absolute path of the cloned repository. Every repository command in
+- `MNEMONIC_ROOT` means the absolute deployment directory (release bundle or source checkout). Every command in
   this document MUST run from `MNEMONIC_ROOT` unless stated otherwise.
 - The work graph is Mnemonic's durable store of project-placed work items, immutable
   checkpoints, events, leases, cross-project typed relationships, and human-decision gates.
 - [`compose.yaml`](compose.yaml) is the authoritative local deployment. It defines `postgres`,
   `rabbitmq`, `api`, `tika`, `mcp`, `web`, and `worker`. The shared worker handles transcript,
   embedding, and project backup jobs; there is no dedicated `backup` or `restore` service.
-  The `api` service runs database migrations during startup.
+  One-shot `init-storage` and `migrate` services initialize storage and migrate before application
+  startup. API and worker refuse a mismatched schema; they do not run migrations.
 - [`.env.example`](.env.example) is the authoritative configuration-key inventory.
   [`scripts/setup.py`](scripts/setup.py) creates `.env` with four independent random secrets,
-  refuses to replace an existing `.env`, and does not print secrets. It prints the required
-  private-directory creation commands but does not execute them.
+  refuses to replace an existing `.env`, and does not print secrets. New configuration selects
+  private named volumes; Docker initializes their roots without host sudo commands. Release
+  bundles place the same helper at `setup.py`.
 - [`docs/operations.md`](docs/operations.md) is authoritative for configuration, backup, upgrade,
   recovery, and security behavior. [`README.md`](README.md) is authoritative for supported client
   registration. [`examples/`](examples/) contains client configuration examples.
@@ -39,16 +42,17 @@ after writing configuration: start the stack and perform the validation in this 
   and MCP calls use a bearer API key; browser routes enforce exact origin checks, and the API's
   private backup gateway uses a separate worker token. Stored prompts and backups can contain
   sensitive user content.
-- The first image build needs network access for GitHub, container images, application packages,
-  and the bundled local embedding model. Semantic search runs locally after the image is built and
-  does not require a hosted model API key.
+- Published image installs need registry access but no source build or host application toolchain.
+  Contributor builds need package and model downloads too. Semantic search runs locally from
+  the bundled embedding model and does not require a hosted model API key.
 
 ## Desired state
 
-- The expected GitHub repository exists at a known absolute `MNEMONIC_ROOT`.
+- The selected release bundle or expected GitHub checkout exists at an absolute `MNEMONIC_ROOT`.
 - `MNEMONIC_ROOT/.env` is private, untracked, valid, and configured for the user's host.
 - The default Compose project owns persistent `mnemonic_data` and `mnemonic_rabbitmq` volumes,
-  five private storage bind directories, and seven healthy runtime services.
+  five private application storage volumes, and seven healthy runtime services. Existing bind
+  installations keep their original five directories through `compose.bind-mounts.yaml`.
 - Loopback health endpoints, the dashboard, database-backed API readiness, and worker health all
   pass their observable checks. A real project's backup succeeds when a project exists; an empty
   installation has no project archive to create.
@@ -60,9 +64,10 @@ after writing configuration: start the stack and perform the validation in this 
 Included:
 
 1. Verify host prerequisites and choose collision-free local ports.
-2. Clone `https://github.com/RightBrain-Networks/mnemonic.git` or safely reuse an existing clone.
+2. Select a published release bundle, or clone `https://github.com/RightBrain-Networks/mnemonic.git`
+   for a source build; safely preserve any existing installation.
 3. Create and configure a private `MNEMONIC_ROOT/.env`.
-4. Build, start, and validate the complete default Compose stack.
+4. Pull published images (or build with `compose.build.yaml`), start, and validate the stack.
 5. Connect one available MCP client when the user identifies or already has that client.
 6. Report exact non-secret configuration, validation results, and any remaining user action.
 
@@ -91,8 +96,8 @@ Out of scope unless the user explicitly requests it:
   installer MUST NOT change them to `0.0.0.0`, publish internal services, or bypass MCP Host/Origin
   checks.
 - The default installation MUST use the complete compatible Compose stack. Database migration is
-  automatic during `api` startup; no manual migration or compatibility layer is required for a
-  new database.
+  performed by the one-shot `migrate` service before API/worker startup. Existing installations
+  require the separately authorized writer-quiescence and backup procedure.
 - LAN access MUST use host-managed TLS and the checked-in nginx pattern.
 
 ## Negative requirements
@@ -135,7 +140,8 @@ Apply these rules in order:
    changes, also set `MNEMONIC_DASHBOARD_ORIGINS` to the exact comma-separated browser origins with
    the new port, normally both `http://localhost:<port>` and `http://127.0.0.1:<port>`.
 5. **Other settings:** Use the user's IANA time-zone name for `TIMEZONE` when known; otherwise keep
-   `America/Detroit`. Keep the client-operation wait, backup interval, and backup
+   `UTC`. Preserve an explicit existing `TIMEZONE`; an operator relying on the previous implicit
+   `America/Detroit` default must set it explicitly before upgrading. Keep the client-operation wait, backup interval, and backup
    directory defaults unless the user states an operational requirement.
 6. **Client:** Prefer an already-installed client the user names. Use Streamable HTTP at
    `http://127.0.0.1:<MNEMONIC_MCP_PORT>/mcp` with
@@ -155,7 +161,8 @@ docker compose version
 docker info
 ```
 
-All four commands MUST succeed. Docker Desktop on Windows MUST be running Linux containers. If Git,
+The Docker commands MUST succeed; Git is required only for source checkouts. Docker Desktop on
+Windows MUST be running Linux containers. If a required Git,
 Docker, or Compose v2 is missing, obtain approval for host package, repository, account, or service
 changes and follow the current official installation instructions for the detected operating
 system. If the Docker daemon is unavailable, start Docker and repeat `docker info`; do not
@@ -173,7 +180,11 @@ and a host PostgreSQL installation are not required to run the Compose services.
 
 ### 2. Clone or select the repository
 
-For a new installation:
+For a release bundle, select an existing published version from GitHub Releases, verify its
+checksum, and extract it into the chosen directory. Use its root-level `setup.py` in the steps
+below. A source checkout remains necessary for contributor builds and source-only validation tools.
+
+For a new source installation:
 
 ```sh
 git clone https://github.com/RightBrain-Networks/mnemonic.git
@@ -226,6 +237,9 @@ Review `.env` locally without reproducing secret values in output. These keys MU
 
 | Key | Required value or default decision |
 | --- | --- |
+| `MNEMONIC_VERSION` | Exact selected published image version; source builds use local image names. |
+| `MNEMONIC_STORAGE_MODE` | `volumes` for a new install; existing binds require the bind overlay. |
+| `MNEMONIC_PRE_MIGRATION_BACKUP` | Keep `true`; an explicit operator-approved alternative recovery plan is required for `false`. |
 | `POSTGRES_PASSWORD` | Required independent URL-safe random secret. |
 | `MNEMONIC_API_KEY` | Required independent random ASCII secret, at least 32 characters, no spaces. |
 | `MNEMONIC_RABBITMQ_PASSWORD` | Required independent URL-safe broker secret. |
@@ -236,18 +250,18 @@ Review `.env` locally without reproducing secret values in output. These keys MU
 | `MNEMONIC_DASHBOARD_ORIGINS` | Exact dashboard browser origins; MUST match the web port. |
 | `MNEMONIC_CLIENT_OPERATION_WAIT_SECONDS` | `1` through `10`; default `10`. |
 | `MNEMONIC_API_UID`, `MNEMONIC_API_GID` | Positive non-root API/worker identity; defaults `10001:10001`, or the approved transcript source owner's IDs. |
-| `MNEMONIC_ARTIFACT_DIR` | Private host directory; default `./artifacts`. |
-| `MNEMONIC_PROMPT_DIR` | Private host directory; default `./prompts/runtime`. |
-| `MNEMONIC_TRANSCRIPT_DIR` | Private retained-copy directory; default `/var/lib/mnemonic/transcripts`. |
-| `MNEMONIC_TRANSCRIPT_INDEX_DIR` | Dedicated absolute index directory; default `/var/lib/mnemonic/transcript-index`. |
+| `MNEMONIC_ARTIFACT_DIR` | Bind overlay only: preserve the private host directory, default `./artifacts`. |
+| `MNEMONIC_PROMPT_DIR` | Bind overlay only: preserve the private host directory, default `./prompts/runtime`. |
+| `MNEMONIC_TRANSCRIPT_DIR` | Bind overlay only: preserve retained copies, default `/var/lib/mnemonic/transcripts`. |
+| `MNEMONIC_TRANSCRIPT_INDEX_DIR` | Bind overlay only: preserve the index directory, default `/var/lib/mnemonic/transcript-index`. |
 | `MNEMONIC_TRANSCRIPT_ALLOWED_ROOTS` | JSON array; default `[]` derives access from configured source directories, or disables it when none are configured. |
 | `MNEMONIC_TRANSCRIPT_MAX_BYTES` | Per-native-file capture limit; default `1073741824` (1 GiB), maximum 1 GiB. |
-| `MNEMONIC_BACKUP_DIR` | Private host directory; default `./backups`. |
+| `MNEMONIC_BACKUP_DIR` | Bind overlay only: preserve the private directory, default `./backups`. |
 | `MNEMONIC_BACKUP_INTERVAL_SECONDS` | Per-project scheduling interval; default `86400` seconds. |
 | `MNEMONIC_BACKUP_RETENTION_COUNT` | Successful archives retained per project; default `7`, range `1` through `10000`. |
 | `MNEMONIC_BACKUP_MAX_BYTES` | Compressed archive/upload limit; default `67108864` (64 MiB). |
 | `MNEMONIC_BACKUP_EXPANDED_MAX_BYTES` | Expanded archive data limit; default `268435456` (256 MiB). |
-| `TIMEZONE` | IANA time-zone name used by the dashboard; default `America/Detroit`. |
+| `TIMEZONE` | IANA time-zone name used by the dashboard; default `UTC`. |
 
 `MNEMONIC_TLS_HOST` MUST remain commented or unset for local-only use. Before startup, ensure the
 three selected host ports are free. Do not resolve a collision by stopping an unrelated service
@@ -277,52 +291,61 @@ No transcript overlay is required. A nonempty explicit allowlist MUST include ev
 source. Never mount all of `.codex` or a home directory, and do not import a mixed-project session
 directory into one project. Without configured sources or approved roots, capture remains disabled.
 
-Create all five private storage directories before Compose starts. The default Linux commands are:
+New installations use five named volumes for artifacts, prompts, retained transcripts, indexes,
+and backups. `init-storage` creates their roots as mode 0700 for the selected non-root UID/GID.
+No host sudo directory commands are needed. It does not recursively change existing contents.
 
-```sh
-sudo install -d -m 0700 -o 10001 -g 10001 ./artifacts
-sudo install -d -m 0700 -o 10001 -g 10001 ./prompts/runtime
-sudo install -d -m 0700 -o 10001 -g 10001 ./backups
-sudo install -d -m 0700 -o 10001 -g 10001 /var/lib/mnemonic/transcript-index
-sudo install -d -m 0700 -o 10001 -g 10001 /var/lib/mnemonic/transcripts
-```
-
-Substitute the actual configured paths and `MNEMONIC_API_UID`/`MNEMONIC_API_GID`, including the
-identity selected by source-aware setup. Compose uses `create_host_path: false` for these binds;
-missing directories prevent startup. On Docker Desktop, choose host paths Docker can share and
-verify private ownership/access from the containers. Existing storage ownership changes require
-the coordinated upgrade procedure; do not recursively change a populated directory during setup.
+Existing bind installations MUST preserve all five actual host paths, use
+`-f compose.yaml -f compose.bind-mounts.yaml`, and follow the
+[upgrade procedure](docs/operations.md#upgrade-from-any-release). Missing bind paths fail startup;
+never replace them with empty volumes to make the check pass. Base Compose deliberately refuses
+an old `.env` without explicit storage selection. Docker Desktop must still share configured
+host transcript sources and any retained legacy binds. Existing ownership changes require an
+operator-approved offline migration.
 
 ### 4. Validate and start Compose
 
-From `MNEMONIC_ROOT`, run:
+For a new install from an actually published release bundle:
 
 ```sh
 docker compose config --quiet
-docker compose up --build -d --wait
-docker compose ps
+docker compose pull
+docker compose up -d --wait
+docker compose ps -a
 ```
 
-`docker compose config --quiet` MUST exit zero without printing expanded configuration.
-`docker compose up --build -d --wait` MUST exit zero. On first startup, image download/build and
-the local embedding-model download can take several minutes. Compose MUST report `postgres`,
-`rabbitmq`, `api`, `tika`, `mcp`, `web`, and `worker` running and healthy.
-
-If startup fails, inspect bounded logs without changing configuration safeguards:
+A version mentioned in source is not proof that its image exists. Until the matching images are
+published, or for a selected source checkout, use the contributor overlay:
 
 ```sh
-docker compose ps
-docker compose logs --tail=100 postgres rabbitmq api mcp web worker
+docker compose -f compose.yaml -f compose.build.yaml config --quiet
+docker compose -f compose.yaml -f compose.build.yaml up --build -d --wait
+docker compose -f compose.yaml -f compose.build.yaml ps -a
 ```
 
-Correct the specific error, rerun `docker compose config --quiet`, and repeat
-`docker compose up --build -d --wait`.
+Keep the same explicit file arguments for all later operations. Existing bind installs also
+require `-f compose.bind-mounts.yaml` before the build overlay; do not start them until the
+[authorized upgrade procedure](docs/operations.md#upgrade-from-any-release) has quiesced old writers.
+Other commands below show the base-file shorthand; retain every selected overlay when using them.
 
-When transcript sources are configured, run `python3 scripts/check_transcript_access.py` after
-startup. API and worker MUST agree on UID, GID, and roots, and their bounded source checks MUST
-pass. Before starting a new installation, the alternative is `docker compose build api worker`
-followed by `python3 scripts/check_transcript_access.py --one-off`. Tika deliberately retains no
-parser logs; use its Compose health status to diagnose startup.
+Validation MUST exit zero without printing expanded secrets. Startup MUST exit zero with
+`init-storage` and `migrate` completed successfully, and `postgres`, `rabbitmq`, `api`, `tika`,
+`mcp`, `web`, and `worker` healthy. First source builds download the embedding model; published
+images already contain it. The API and worker refuse a schema mismatch or a wholly incorrect
+sampled storage mount instead of running migrations during their own startup.
+
+If startup fails, inspect bounded logs, correct the specific issue, and rerun validation and
+startup with the same overlays. Never bypass schema, storage, backup, or health guards:
+
+```sh
+docker compose ps -a
+docker compose logs --tail=100 init-storage migrate postgres rabbitmq api mcp web worker
+```
+
+When transcript sources are configured in a source checkout, run
+`python3 scripts/check_transcript_access.py` after startup. API and worker MUST agree on UID,
+GID, and roots, and bounded source checks MUST pass. Tika deliberately retains no parser logs;
+use its Compose health status to diagnose startup.
 
 ### 5. Validate the running application
 
@@ -443,10 +466,11 @@ and start with both Compose files:
 
 ```sh
 docker compose -f compose.yaml -f compose.tls.yaml config --quiet
-docker compose -f compose.yaml -f compose.tls.yaml up --build -d --wait
+docker compose -f compose.yaml -f compose.tls.yaml up -d --wait
 ```
 
-The same two `-f` arguments MUST be used for later operations. Keep all Compose bindings on
+Add `-f compose.bind-mounts.yaml` for an existing bind install and `-f compose.build.yaml`
+for a source build. The same selected `-f` arguments MUST be used for later operations. Keep all Compose bindings on
 loopback. nginx and Docker MUST run on the same host. The installer MUST run `nginx -t` before an
 nginx reload and MUST verify HTTPS without disabling certificate validation. A remote MCP client
 MUST use `https://<MNEMONIC_TLS_HOST>/mcp` directly; it MUST NOT send its bearer key to an HTTP URL
@@ -458,7 +482,7 @@ and rely on a redirect.
 | --- | --- |
 | Compose reports a required variable is empty | Run `scripts/setup.py` only if `.env` is absent; otherwise repair the existing private `.env` without replacing unrelated settings. |
 | A published port is already allocated | Select a free host port in `.env`; if it is the web port, update both exact dashboard origins. |
-| `api` is unhealthy | Inspect `postgres` and `api` logs first; API readiness includes a database query and migrations run before readiness. |
+| `api` is unhealthy | Inspect `init-storage`, `migrate`, `postgres`, and `api` logs. Schema or storage mismatch refuses startup; migration failures must be repaired before API readiness. |
 | `mcp` or `web` does not start | Establish API health first because both services depend on it. |
 | Dashboard API requests return `403` | Make `MNEMONIC_DASHBOARD_ORIGINS` exactly match the browser scheme, hostname, and web port; apply it by recreating `api` with production authorization when applicable. |
 | MCP returns `401` | Correct the client's private bearer header from the same `.env`; never expose the key while debugging. |
@@ -472,20 +496,21 @@ and rely on a redirect.
 
 The task is complete only when all applicable statements are true:
 
-- [ ] The expected GitHub repository exists at a known absolute `MNEMONIC_ROOT`; no preexisting
+- [ ] The selected release bundle or source checkout exists at absolute `MNEMONIC_ROOT`; no preexisting
       user files or changes were overwritten.
 - [ ] `MNEMONIC_ROOT/.env` exists, is private, contains distinct valid secrets, and contains the
       selected non-secret ports, exact dashboard origins, time zone, and backup settings.
-- [ ] All five private storage directories exist with the configured API/worker ownership and
-      permissions; any configured transcript sources pass both services' access checks.
-- [ ] `docker compose config --quiet` and `docker compose up --build -d --wait` exit zero.
+- [ ] All five private storage volumes or preserved bind directories have the configured service
+      ownership and permissions; configured transcript sources pass both services' access checks.
+- [ ] Compose validation and startup exit zero with the selected overlays; `init-storage` and
+      `migrate` exit successfully, and the schema is at the image's expected head.
 - [ ] `postgres`, `rabbitmq`, `api`, `tika`, `mcp`, `web`, and `worker` are running and healthy.
 - [ ] API readiness returns `{"status":"ready"}`; API, MCP, and dashboard health endpoints return
       `{"status":"ok"}` on their configured loopback ports.
 - [ ] The dashboard renders in a browser, and its project selector permits creation of the user's
       first real project.
 - [ ] A real project's backup completed and a nonempty `.json.bz2` archive exists in its
-      `MNEMONIC_BACKUP_DIR/<project UUID>/` directory, or backup creation is explicitly deferred
+      `/backups/<project UUID>/` directory inside the worker, or backup creation is explicitly deferred
       until the first real project exists.
 - [ ] If an MCP-capable client is in scope, its user-level configuration retains the key privately,
       survives restart, discovers the Mnemonic tools, and successfully calls `list_projects`.
@@ -494,7 +519,7 @@ The task is complete only when all applicable statements are true:
 
 ## Handoff to the user
 
-Report these commands for routine operation:
+Report these commands for routine operation, including the installation's exact overlay arguments:
 
 ```sh
 docker compose ps
@@ -504,10 +529,10 @@ docker compose up -d --wait
 ```
 
 State that normal stop/restart preserves data, production interruption requires explicit operator
-authorization, and `docker compose down -v` destroys the database and RabbitMQ volumes. Successful
+authorization, and `docker compose down -v` destroys database, RabbitMQ, and application data volumes. Successful
 project backups prune older archives to the configured retention count (default seven). Provide the
-configured dashboard and MCP URLs, the absolute backup directory, and the separate filesystem
-backup paths for artifacts, prompts, and native transcripts. Do not include any secret, expanded
+configured dashboard and MCP URLs, the backup volume or absolute bind directory, and the separate
+filesystem backup volumes/paths for artifacts, prompts, and native transcripts. Do not include any secret, expanded
 Compose output, or backup contents.
 
 ## Unresolved items
@@ -548,7 +573,7 @@ on upload, replacement, or metadata update. Null clears artifact assignments;
 omitted update/replacement tags preserve them. Tag edits advance the artifact
 revision and retain history. New projects receive six editable starter tags.
 
-Application/API/MCP/dashboard 0.115.1, plugin 0.71.0 and Alembic
+Application/API/MCP/dashboard 0.116.0, plugin 0.71.0 and Alembic
 `0069_transcript_directories` ship together: 79 MCP tools, 25
 receipt-protected MCP writes,
 38 REST receipt kinds, 32 protected browser mutations, 24 event types and three
@@ -562,9 +587,9 @@ read-only `scripts/audit_project_activity.py` and
 `scripts/audit_code_reviews.py` at the current head; the activity audit also supports its
 explicit historical-head preflights.
 
-Before starting the new Compose stack, create the private artifact host bind
-directory with the configured API/worker UID/GID (default 10001:10001), as described in
-[artifact deployment](docs/artifacts.md#deployment). Migration 0027 adds normalized
+New installs initialize the private artifact named volume automatically. Existing bind installs
+retain the artifact directory and service identity through the bind overlay; see
+[the current upgrade procedure](docs/operations.md#upgrade-from-any-release). Migration 0027 adds normalized
 current extracted text and retained Tika document properties to the artifact
 metadata, durable work links, append-only history, and operation receipts in
 PostgreSQL. Original file bytes remain outside the database; replacement/deletion

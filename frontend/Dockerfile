@@ -9,7 +9,13 @@ COPY --from=dependencies /app/node_modules ./node_modules
 COPY frontend/ .
 RUN npm run build
 
-FROM nginx:1.27-alpine@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10 AS runner
+FROM nginx:1.30-alpine@sha256:47928bf67eb62a1863cb08d9ecb52d3e704304ba614eaee17884204677702951 AS runner
+ARG VERSION=dev
+ARG REVISION=unknown
+LABEL org.opencontainers.image.source="https://github.com/RightBrain-Networks/mnemonic" \
+      org.opencontainers.image.version="$VERSION" \
+      org.opencontainers.image.revision="$REVISION" \
+      org.opencontainers.image.licenses="AGPL-3.0-only"
 COPY frontend/nginx.conf /etc/nginx/nginx.conf
 COPY deploy/nginx/snippets/ /etc/nginx/snippets/
 COPY --from=builder /app/dist /usr/share/nginx/html
