@@ -11,13 +11,15 @@ from typing import BinaryIO
 from uuid import UUID
 
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
+from starlette.background import BackgroundTask
 from starlette.concurrency import run_in_threadpool
 
+from mnemonic_api.application.browser_file_transport import ClosingStreamingResponse
 from mnemonic_backup.archive import BackupError, export_project, restore_project
 from mnemonic_backup.config import BackupSettings
 from mnemonic_backup.jobs import backup_job, enqueue_backup, latest_backup_job
@@ -254,10 +256,13 @@ def _install_routes(app: FastAPI, service: BackupService,
     @app.get("/projects/{project_id}/backups/{filename}")
     def download_backup(project_id: UUID, filename: str):
         content = service.store.open(project_id, filename)
-        return StreamingResponse(_download(content), media_type="application/x-bzip2", headers={
-            "Content-Disposition": f'attachment; filename="{filename}"',
-            "Content-Length": str(os.fstat(content.fileno()).st_size),
-        })
+        return ClosingStreamingResponse(
+            _download(content), background=BackgroundTask(content.close),
+            media_type="application/x-bzip2", headers={
+                "Content-Disposition": f'attachment; filename="{filename}"',
+                "Content-Length": str(os.fstat(content.fileno()).st_size),
+            },
+        )
 
     @app.post("/projects/{project_id}/backups/{filename}/restore")
     def restore_stored_backup(project_id: UUID, filename: str, request: Request):

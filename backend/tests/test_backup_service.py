@@ -599,3 +599,30 @@ def test_job_losing_lease_during_export_cannot_publish_or_prune(
     assert len(checks) == 2
     assert service.store.list_archives(project) == []
     assert list((service.store.root / str(project)).iterdir()) == []
+
+
+def test_download_closes_archive_when_response_aborts_before_first_byte(
+    backup_app: FastAPI, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+):
+    archive = tmp_path / "download.bz2"
+    archive.write_bytes(bz2.compress(b"retained backup"))
+    content = archive.open("rb")
+    monkeypatch.setattr(backup_app.state.backup_service.store, "open", lambda *_args: content)
+    route = next(route for route in backup_app.routes
+                 if getattr(route, "path", None) == "/projects/{project_id}/backups/{filename}"
+                 and "GET" in route.methods)
+    response = route.endpoint(uuid4(), archive.name)
+
+    async def disconnected(_message):
+        raise RuntimeError("response aborted before archive iteration")
+
+    async def receive():
+        return {"type": "http.disconnect"}
+
+    async def scenario():
+        with pytest.raises(RuntimeError, match="response aborted"):
+            await response({"type": "http", "asgi": {"spec_version": "2.4"}},
+                           receive, disconnected)
+
+    asyncio.run(scenario())
+    assert content.closed

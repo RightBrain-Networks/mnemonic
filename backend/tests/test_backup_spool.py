@@ -1,6 +1,8 @@
 """Large archives retain integrity while restore rows live in private disk spools."""
 
+import errno
 import io
+import sqlite3
 from pathlib import Path
 from uuid import uuid4
 
@@ -61,3 +63,37 @@ def test_corrupt_archive_and_size_failure_remove_restore_spools(tmp_path):
         with pytest.raises(BackupError), RestoreRows(TABLES, directory=tmp_path) as rows:
             read_archive(io.BytesIO(content), maximum, rows=rows)
         assert not list(tmp_path.iterdir())
+
+
+
+def test_sqlite_full_during_restore_maps_to_storage_full_and_cleans_spool(tmp_path):
+    with pytest.raises(OSError) as raised:
+        with RestoreRows(("transcripts",), directory=tmp_path) as rows:
+            pages = rows.database.execute("PRAGMA page_count").fetchone()[0]
+            rows.database.execute(f"PRAGMA max_page_count = {pages}")
+            rows["transcripts"].append({"text": "x" * 131072})
+    assert raised.value.errno == errno.ENOSPC
+    assert not list(tmp_path.iterdir())
+
+
+def test_sqlite_full_during_spool_creation_cleans_private_directory(tmp_path, monkeypatch):
+    connect = sqlite3.connect
+
+    def limited_connection(path):
+        database = connect(path)
+        database.execute("PRAGMA max_page_count = 1")
+        return database
+
+    monkeypatch.setattr("mnemonic_backup.archive_spool.sqlite3.connect", limited_connection)
+    with pytest.raises(OSError) as raised:
+        RestoreRows(("transcripts",), directory=tmp_path)
+    assert raised.value.errno == errno.ENOSPC
+    assert not list(tmp_path.iterdir())
+
+
+def test_other_sqlite_errors_are_not_reported_as_storage_full(tmp_path):
+    with pytest.raises(sqlite3.OperationalError) as raised:
+        with RestoreRows(("transcripts",), directory=tmp_path) as rows:
+            rows.database.execute("SELECT * FROM missing_table")
+    assert raised.value.sqlite_errorcode == sqlite3.SQLITE_ERROR
+    assert not list(tmp_path.iterdir())

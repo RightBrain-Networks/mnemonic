@@ -1,5 +1,6 @@
 """Private disk-backed restore rows; memory use follows one record, not a project."""
 
+import errno
 import json
 import sqlite3
 from collections.abc import Iterator
@@ -90,8 +91,9 @@ class RestoreRows(dict[str, SpoolRows]):
                 "CREATE INDEX segment_groups ON rows (table_name, group_key, ordinal, position)",
             )
             self.update((name, SpoolRows(self.database, name)) for name in tables)
-        except BaseException:
+        except BaseException as error:
             self.close()
+            _raise_storage_full(error)
             raise
 
     def close(self) -> None:
@@ -102,5 +104,14 @@ class RestoreRows(dict[str, SpoolRows]):
     def __enter__(self):
         return self
 
-    def __exit__(self, *_args):
+    def __exit__(self, _type, error, _traceback):
         self.close()
+        _raise_storage_full(error)
+
+
+def _raise_storage_full(error: BaseException | None) -> None:
+    # SQLite wraps disk exhaustion rather than raising the OSError consumed by
+    # the backup HTTP boundary. Preserve all other SQLite errors unchanged.
+    if (isinstance(error, sqlite3.Error)
+            and getattr(error, "sqlite_errorcode", None) == sqlite3.SQLITE_FULL):
+        raise OSError(errno.ENOSPC, "Restore temporary storage is full.") from error
