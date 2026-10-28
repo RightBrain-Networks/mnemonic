@@ -5,9 +5,10 @@ import logging
 from dataclasses import dataclass
 from math import hypot
 from time import monotonic
+from typing import cast as typing_cast
 from uuid import UUID, uuid4
 
-from sqlalchemy import String, cast, exists, func, select, update
+from sqlalchemy import String, Table, cast, exists, func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -25,7 +26,8 @@ from mnemonic_api.services import duplicate_suggestions as suggestions
 from mnemonic_jobs.ledger import JobContext, RetryJob, enqueue_job
 
 logger = logging.getLogger(__name__)
-REFRESHES = DuplicateEmbeddingRefresh.__table__
+# Declarative types ``__table__`` as FromClause; this table is a concrete Table.
+REFRESHES = typing_cast(Table, DuplicateEmbeddingRefresh.__table__)
 
 
 def configuration() -> str:

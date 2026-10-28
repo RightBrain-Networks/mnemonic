@@ -1,7 +1,7 @@
 """Explicit human-consent hints; challenges never grant permission by themselves."""
 
 import json
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Literal
@@ -69,7 +69,7 @@ def approval_metadata(
 
 
 @asynccontextmanager
-async def approval_attempt(approval_token: str | None) -> AsyncIterator[None]:
+async def approval_attempt(approval_token: str | None) -> AsyncGenerator[None]:
     try:
         yield
     except ToolError as error:

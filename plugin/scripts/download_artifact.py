@@ -170,7 +170,7 @@ def validate_approval_challenge(context: dict[str, object]) -> dict[str, object]
         raise ValueError("Invalid approval token")
     expiry = context["expires_at"]
     if not isinstance(expiry, str) or len(expiry) > 64 or (
-        datetime.fromisoformat(expiry.replace("Z", "+00:00")).tzinfo is None
+        datetime.fromisoformat(expiry).tzinfo is None
     ):
         raise ValueError("Invalid approval expiry")
     revision = context["revision"]
@@ -352,7 +352,7 @@ def grant_download(args: argparse.Namespace, opener: OpenerDirector, dest: Path)
     token = grant["download_token"]
     if not isinstance(token, str) or not re.fullmatch(r"[A-Za-z0-9_-]{43}", token):
         raise DownloadError("Invalid download grant token.")
-    expires = datetime.fromisoformat(grant["expires_at"].replace("Z", "+00:00"))
+    expires = datetime.fromisoformat(grant["expires_at"])
     if expires.tzinfo is None or expires.timestamp() <= time.time():
         raise DownloadError("Download grant expired; obtain a new grant through MCP.")
     url = grant["download_url"]

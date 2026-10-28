@@ -5,7 +5,7 @@ queued/future calls, but never releases capacity while native code still runs.
 """
 
 from collections import deque
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Generator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from threading import Condition, Event
@@ -58,7 +58,7 @@ class InferenceResources:
             self._condition.notify_all()
 
     @contextmanager
-    def reserve(self, request: InferenceRequest) -> Iterator[None]:
+    def reserve(self, request: InferenceRequest) -> Generator[None]:
         started = monotonic()
         outcome = "completed"
         try:

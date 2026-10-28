@@ -4,7 +4,7 @@ import fcntl
 import hashlib
 import os
 import stat
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -100,7 +100,7 @@ class PromptStorage:
         self.root = Path(root)
 
     @contextmanager
-    def _directory(self, *components: str) -> Iterator[int]:
+    def _directory(self, *components: str) -> Generator[int]:
         self.root.mkdir(mode=0o700, parents=True, exist_ok=True)
         descriptors = [os.open(self.root, _DIRECTORY_FLAGS)]
         try:
@@ -239,7 +239,7 @@ class PromptStorage:
         )
 
     @contextmanager
-    def lock(self, project_id: UUID) -> Iterator[None]:
+    def lock(self, project_id: UUID) -> Generator[None]:
         with self._directory("projects", str(UUID(str(project_id)))) as directory:
             descriptor = os.open(
                 ".lock",

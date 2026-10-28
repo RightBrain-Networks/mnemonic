@@ -6,7 +6,7 @@ import logging
 import os
 import re
 import stat
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -43,7 +43,7 @@ class BackupStore:
         self.retention_days = retention_days
 
     @contextmanager
-    def directory(self, project_id: UUID | None = None) -> Iterator[int]:
+    def directory(self, project_id: UUID | None = None) -> Generator[int]:
         self.root.mkdir(mode=0o700, parents=True, exist_ok=True)
         descriptor = os.open(self.root, DIRECTORY_FLAGS)
         try:
@@ -74,7 +74,7 @@ class BackupStore:
             os.close(descriptor)
 
     @contextmanager
-    def operation(self) -> Iterator[None]:
+    def operation(self) -> Generator[None]:
         # One lock also coordinates CLI commands and multiple service processes.
         with self.directory() as directory:
             descriptor = os.open(".operation-lock", os.O_RDWR | os.O_CREAT | FILE_FLAGS,
@@ -159,7 +159,7 @@ class BackupStore:
                           reverse=True)
 
     @contextmanager
-    def staging(self, project_id: UUID) -> Iterator[tuple[BinaryIO, int, str]]:
+    def staging(self, project_id: UUID) -> Generator[tuple[BinaryIO, int, str]]:
         with self.directory(project_id) as directory:
             name = ".compressed-" + uuid4().hex + ".partial.bz2"
             descriptor = os.open(name, os.O_RDWR | os.O_CREAT | os.O_EXCL | FILE_FLAGS,

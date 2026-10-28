@@ -5,7 +5,7 @@ import fcntl
 import hashlib
 import os
 import stat
-from collections.abc import Iterator
+from collections.abc import Generator, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
@@ -282,7 +282,7 @@ class TranscriptStorage(ArtifactStorage):
         raise AssertionError("Copy retry policy completed without a disposition")
 
     @contextmanager
-    def open_copy(self, copy: TranscriptCopy) -> Iterator[BinaryIO]:
+    def open_copy(self, copy: TranscriptCopy) -> Generator[BinaryIO]:
         """Read verified retained bytes independently of the current capture limit."""
         try:
             content = self.open(copy.storage_key)

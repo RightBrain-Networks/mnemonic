@@ -4,7 +4,7 @@ import asyncio
 import errno
 import hashlib
 import json
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncGenerator, Generator, Iterator
 from contextlib import asynccontextmanager, contextmanager
 from dataclasses import replace
 from typing import Annotated, Any, BinaryIO, cast
@@ -203,7 +203,7 @@ def _storage_failure_cause(error: OSError | UnsafeArtifactPath) -> str:
 
 
 @contextmanager
-def storage_errors(request: Request, *, attempt_not_committed: bool = False) -> Iterator[None]:
+def storage_errors(request: Request, *, attempt_not_committed: bool = False) -> Generator[None]:
     try:
         yield
     except ArtifactTooLarge:
@@ -300,7 +300,7 @@ def _check_length(request: Request) -> None:
 
 
 @asynccontextmanager
-async def _upload_budget(request: Request) -> AsyncIterator[None]:
+async def _upload_budget(request: Request) -> AsyncGenerator[None]:
     semaphore = cast(asyncio.Semaphore, request.app.state.artifact_upload_slots)
     try:
         await asyncio.wait_for(semaphore.acquire(), timeout=0.25)

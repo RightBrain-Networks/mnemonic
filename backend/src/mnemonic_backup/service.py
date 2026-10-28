@@ -5,7 +5,7 @@ import logging
 import os
 import secrets
 import time
-from collections.abc import AsyncIterator, Callable, Iterator
+from collections.abc import AsyncGenerator, Callable, Iterator
 from contextlib import AbstractAsyncContextManager, AsyncExitStack, asynccontextmanager
 from typing import BinaryIO
 from uuid import UUID
@@ -176,7 +176,7 @@ def create_app(
     service = BackupService(settings, engine)
 
     @asynccontextmanager
-    async def lifespan(application: FastAPI) -> AsyncIterator[None]:
+    async def lifespan(application: FastAPI) -> AsyncGenerator[None]:
         try:
             async with AsyncExitStack() as stack:
                 if worker_lifespan:

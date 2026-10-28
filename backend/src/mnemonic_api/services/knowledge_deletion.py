@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from typing import cast
 from uuid import UUID
 
-from sqlalchemy import ColumnElement, delete, func, or_, select, text
+from sqlalchemy import ColumnElement, Table, delete, func, or_, select, text
 from sqlalchemy.orm import Session
 
 from mnemonic_api.errors import conflict
@@ -133,7 +133,8 @@ def deletion_preview(database: Session, domain: KnowledgeDomain,
     witnesses = []
     counts = {}
     for label, model, predicate in _edge_selections([item.id for item in documents]):
-        table = model.__table__
+        # Declarative types ``__table__`` as FromClause; these tables have one.
+        table = cast(Table, model.__table__)
         rows = database.execute(select(*table.primary_key.columns).where(predicate)).all()
         counts[label] = len(rows)
         witnesses.extend((label, *map(str, row)) for row in rows)
@@ -172,7 +173,8 @@ def _check_preview(preview: KnowledgeDeletionPreview, payload: KnowledgeDeletion
 
 def _remove_edges(database: Session, document_ids: list[UUID], deleted_at: datetime) -> None:
     for _, model, predicate in _edge_selections(document_ids):
-        table = model.__table__
+        # Declarative types ``__table__`` as FromClause; these tables have one.
+        table = cast(Table, model.__table__)
         # Preserve PostgreSQL's exact JSON spelling for the immutable-evidence guard,
         # including timestamp fractions that Python's ISO encoder pads with zeros.
         rows = select(func.to_jsonb(table.table_valued())).where(predicate)

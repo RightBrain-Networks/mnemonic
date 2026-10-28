@@ -28,7 +28,7 @@ from pydantic import (
     model_validator,
 )
 from pydantic.experimental.missing_sentinel import MISSING
-from pydantic.json_schema import SkipJsonSchema, WithJsonSchema
+from pydantic.json_schema import JsonDict, SkipJsonSchema, WithJsonSchema
 
 from mnemonic_api.artifact_schemas import ArtifactRead
 from mnemonic_api.code_review_schemas import (
@@ -1022,9 +1022,9 @@ def _reject_explicit_null(data: object, *field_names: str) -> object:
     return data
 
 
-def _combined_evidence_schema(*, require_nonempty: bool = False) -> dict[str, object]:
+def _combined_evidence_schema(*, require_nonempty: bool = False) -> JsonDict:
     """Describe the cross-array entry cap in executable JSON Schema."""
-    schema: dict[str, object] = {
+    schema: JsonDict = {
         "anyOf": [
             {
                 "properties": {
@@ -1054,7 +1054,7 @@ def _combined_evidence_schema(*, require_nonempty: bool = False) -> dict[str, ob
     return schema
 
 
-_COMMAND_RESULT_SCHEMA = {
+_COMMAND_RESULT_SCHEMA: JsonDict = {
     "oneOf": [
         {
             "required": ["exit_code"],
@@ -1078,7 +1078,7 @@ _COMMAND_RESULT_SCHEMA = {
 }
 
 
-_ARTIFACT_REFERENCE_SCHEMA = {
+_ARTIFACT_REFERENCE_SCHEMA: JsonDict = {
     "allOf": [
         {
             "if": {"properties": {"artifact_type": {"const": "commit"}}},
@@ -2287,7 +2287,8 @@ class CheckpointRead(APIModel):
 
 
 class CompletionCheckpointRead(CheckpointRead):
-    kind: Literal["completion"]
+    # Intentional narrowing: the read shape fixes the discriminator.
+    kind: Literal["completion"]  # ty: ignore[invalid-mutable-override]
 
 
 class CheckpointPointer(APIModel):
@@ -2310,7 +2311,8 @@ class CheckpointPointer(APIModel):
 
 
 class CompletionCheckpointPointer(CheckpointPointer):
-    kind: Literal["completion"]
+    # Intentional narrowing: the pointer shape fixes the discriminator.
+    kind: Literal["completion"]  # ty: ignore[invalid-mutable-override]
     created_at: CanonicalRecordTime
 
 

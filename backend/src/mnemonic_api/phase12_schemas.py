@@ -249,7 +249,8 @@ class JobCompletionReportEnvelope(Phase12Model):
 
 
 class JobCompletionReportDetailEnvelope(JobCompletionReportEnvelope):
-    report: JobCompletionReportDetailRead
+    # Intentional narrowing: the detail envelope always carries the full report.
+    report: JobCompletionReportDetailRead  # ty: ignore[invalid-mutable-override]
 
 
 class JobCompletionReportPage(Phase12Model):

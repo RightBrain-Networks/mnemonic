@@ -1,6 +1,6 @@
 """Search deadlines and failures are read semantics, never mutation receipts."""
 
-from collections.abc import Iterator, Sequence
+from collections.abc import Generator, Sequence
 from contextlib import contextmanager
 from uuid import UUID
 
@@ -28,7 +28,7 @@ def search_unavailable() -> ApplicationError:
 @contextmanager
 def search_transaction(
     database: Session, projects: Sequence[UUID], *, artifacts: bool
-) -> Iterator[None]:
+) -> Generator[None]:
     try:
         if artifacts:
             with project_mutation(

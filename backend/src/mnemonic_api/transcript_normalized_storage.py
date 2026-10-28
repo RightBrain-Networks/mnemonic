@@ -1,9 +1,10 @@
 """Transactional publication and reads of immutable normalized conversation rows."""
 
 from dataclasses import asdict
+from typing import cast
 from uuid import UUID
 
-from sqlalchemy import insert, select
+from sqlalchemy import Table, insert, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
@@ -16,8 +17,8 @@ from mnemonic_api.transcript_normalization import (
 )
 from mnemonic_api.transcript_spool import TranscriptSegments
 
-NORMALIZATIONS = TranscriptNormalization.__table__
-SEGMENTS = TranscriptSegment.__table__
+NORMALIZATIONS = cast(Table, TranscriptNormalization.__table__)
+SEGMENTS = cast(Table, TranscriptSegment.__table__)
 
 
 def load_normalization(database: Session, transcript_id: UUID, snapshot_id: UUID,

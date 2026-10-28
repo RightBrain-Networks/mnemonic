@@ -1,6 +1,6 @@
 """Bounded transcript facet searches retain their immutable index for page snippets."""
 
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from uuid import UUID
 
@@ -127,7 +127,7 @@ def _source(
 def transcript_source(
     database: Session, project_id: ProjectSelection, request: SearchRequest,
     index: ArtifactSearchIndex,
-) -> Iterator[tuple[SearchSource, TranscriptSearchCoverage]]:
+) -> Generator[tuple[SearchSource, TranscriptSearchCoverage]]:
     if not _SEARCH_SLOT.acquire(timeout=0.25):
         raise ApplicationError(503, "transcript_search_busy",
                                "Transcript search is busy. Try this read again shortly.")

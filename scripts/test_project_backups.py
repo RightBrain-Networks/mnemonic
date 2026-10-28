@@ -126,7 +126,7 @@ def check_retention_and_concurrency(project: str, other: str) -> bytes:
     assert raw.startswith(b"BZh"), "Archives must be bzip2 before filesystem publication"
     assert bz2.decompress(raw)
     assert first["size_bytes"] == len(raw)
-    created = datetime.fromisoformat(first["created_at"].replace("Z", "+00:00"))
+    created = datetime.fromisoformat(first["created_at"])
     assert abs((datetime.now(UTC) - created).total_seconds()) < 120
     # Day-based retention removes aged files; creating several backups on one
     # day must preserve each of them. This fixture owns its private /backups.

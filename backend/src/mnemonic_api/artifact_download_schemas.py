@@ -11,8 +11,9 @@ from mnemonic_api.schemas import APIModel
 
 class ArtifactDownloadRequest(ArtifactAccessRequest):
     expected_revision: int = Field(ge=1)
-    agent_session_id: str = Field(min_length=1, max_length=200)
-    actor_client: str = Field(min_length=1, max_length=80)
+    # Intentional narrowing: a download requires both actor identifiers.
+    agent_session_id: str = Field(min_length=1, max_length=200)  # ty: ignore[invalid-mutable-override]
+    actor_client: str = Field(min_length=1, max_length=80)  # ty: ignore[invalid-mutable-override]
 
 
 class ArtifactDownloadGrant(APIModel):

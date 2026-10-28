@@ -218,8 +218,12 @@ def _search_read(
     rendered.rank = rank
     rendered.score_type = search_ranking(query, query_mode).score_type
     rendered.score = hit.score
-    rendered.matched_fields = (["metadata"] if hit.metadata else []) + (
-        ["content"] if hit.content else [])
+    matched_fields: list[Literal["metadata", "content"]] = []
+    if hit.metadata:
+        matched_fields.append("metadata")
+    if hit.content:
+        matched_fields.append("content")
+    rendered.matched_fields = matched_fields
     intent = parse_query(query, query_mode)
     if hit.content and intent.constrained:
         match = exact_evidence(database, record, intent, content_kinds)

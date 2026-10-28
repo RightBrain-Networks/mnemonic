@@ -5,7 +5,7 @@ import fcntl
 import os
 import shutil
 import stat
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
 from uuid import UUID, uuid4
@@ -143,7 +143,7 @@ class SearchIndexStorage:
                     os.close(child)
 
     @contextmanager
-    def _snapshot_directory(self) -> Iterator[int]:
+    def _snapshot_directory(self) -> Generator[int]:
         descriptor = os.open("snapshot", _DIRECTORY, dir_fd=self._root)
         try:
             _private(descriptor, directory=True)
@@ -152,7 +152,7 @@ class SearchIndexStorage:
             os.close(descriptor)
 
     @contextmanager
-    def _generation_directory(self) -> Iterator[int]:
+    def _generation_directory(self) -> Generator[int]:
         assert self._snapshot is not None
         with self._snapshot_directory() as parent:
             descriptor = os.open(self._snapshot, _DIRECTORY, dir_fd=parent)

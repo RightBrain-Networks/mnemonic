@@ -1,7 +1,7 @@
 """Content-free timing events for diagnosing search latency and resource pressure."""
 
 import logging
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from time import monotonic
 from typing import Literal
@@ -26,7 +26,7 @@ def record_timing(operation: str, phase: Phase, started: float, *, outcome: str 
 
 
 @contextmanager
-def timed_phase(operation: str, phase: Phase) -> Iterator[None]:
+def timed_phase(operation: str, phase: Phase) -> Generator[None]:
     started = monotonic()
     outcome = "completed"
     try:

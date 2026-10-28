@@ -1,6 +1,6 @@
 """Per-checkout deadlines without mutating a shared SQLAlchemy pool timeout."""
 
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from time import monotonic
@@ -31,7 +31,7 @@ class DeadlineQueuePool(QueuePool):
 
 
 @contextmanager
-def pool_checkout_deadline(deadline: float) -> Iterator[None]:
+def pool_checkout_deadline(deadline: float) -> Generator[None]:
     token = _checkout_deadline.set(deadline)
     try:
         yield
