@@ -228,7 +228,7 @@ def test_settings_pause_claims_revision_guard_and_effective_operator_limit(
     path = f"/api/v1/projects/{project['id']}/transcript-settings"
     current = api.get(path).json()
     assert current["allowed_roots"] == [str(tmp_path)]
-    payload = {"enabled": False, "max_file_size_bytes": 1024, "expected_revision": 1}
+    payload = {"enabled": False, "directories": [], "expected_revision": 1}
     assert api.patch(path, json=payload).json()["revision"] == 2
     assert api.patch(path, json=payload).status_code == 409
     assert not run(api)
@@ -379,7 +379,7 @@ def test_populated_transcript_archive_restores_snapshots_settings_and_rebuild_re
     expire_lease(postgres_engine, work["id"])
     assert run(api)
     settings_path = f"/api/v1/projects/{project['id']}/transcript-settings"
-    response = api.patch(settings_path, json={"enabled": True, "max_file_size_bytes": 1024,
+    response = api.patch(settings_path, json={"enabled": True, "directories": [],
                                              "expected_revision": 1})
     assert response.status_code == 200, response.text
     payload = {"client_operation_id": str(uuid4())}

@@ -2884,3 +2884,75 @@ html[data-theme="dark"] :is(.operational-badge.planning-cycle, .dependency-cycle
 
 .library-controls > .tag-filter-row { padding: 10px 0; }
 .work-filter-divider { margin: 4px 0 12px; border: 0; border-top: 1px solid var(--line); }
+
+/* Keep transcript configuration visible and problems beside their source. */
+.transcript-management { border: 1px solid var(--line); border-radius: 12px; padding: 20px; margin-bottom: 20px; }
+.transcript-management-heading, .transcript-folders-heading { display: flex; align-items: center; justify-content: space-between; gap: 24px; }
+.transcript-management h2 { font-size: 17px; margin: 0 0 6px; }
+.transcript-management h3 { font-size: 14px; margin: 0 0 5px; display: flex; align-items: center; gap: 8px; }
+.transcript-management-heading p, .transcript-folders-heading p { margin: 0; font-size: 12px; line-height: 1.6; color: var(--muted); }
+.transcript-global-toggle { flex-shrink: 0; gap: 10px; font-size: 13px; }
+.transcript-global-toggle:has(input:disabled) { opacity: .6; }
+.transcript-folders-heading { margin-top: 24px; margin-bottom: 12px; }
+.transcript-source-list { list-style: none; padding: 0; margin: 0; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.transcript-source-list > li + li { border-top: 1px solid var(--line); }
+.transcript-source-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 15px; }
+.transcript-source-info { display: flex; flex-direction: column; gap: 7px; min-width: 0; }
+.transcript-source-info code, .transcript-row-warnings code { font-size: 12px; overflow-wrap: anywhere; }
+.transcript-source-info .field-hint { margin: 0; font-size: 11px; }
+.transcript-source-actions { display: flex; align-items: center; gap: 7px; flex-shrink: 0; }
+.transcript-source-actions .button { padding: 7px 11px; font-size: 12px; min-height: 32px; }
+.transcript-source-actions .transcript-remove { color: var(--danger); }
+.transcript-source-edit { display: flex; align-items: end; width: 100%; gap: 12px; }
+.transcript-source-edit .field { flex: 1; min-width: 0; margin: 0; font-size: 12px; }
+.transcript-source-edit input { width: 100%; font-family: var(--mono); }
+.transcript-source-warning { color: var(--danger); font-size: 11px; }
+.transcript-row-warnings { padding: 0 15px 14px; }
+.transcript-row-warnings ul { list-style: none; margin: 0; padding: 12px; background: color-mix(in srgb, var(--danger) 5%, transparent); border-left: 2px solid var(--danger); border-radius: 3px; }
+.transcript-row-warnings li { font-size: 12px; line-height: 1.6; }
+.transcript-row-warnings li + li { margin-top: 12px; }
+.transcript-row-warnings p { margin: 3px 0; color: var(--muted); }
+.transcript-remove-confirm { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; padding: 0 15px 15px; font-size: 12px; }
+.transcript-remove-confirm p { margin: 0; }
+.transcript-folders-empty { padding: 24px; text-align: center; background: var(--paper); border: 1px dashed var(--line); border-radius: 8px; font-size: 12px; }
+.transcript-folders-empty p { margin: 0 0 5px; font-weight: 600; }
+.transcript-folders-empty span { color: var(--muted); }
+.transcript-maintenance-details { border-top: 1px solid var(--line); margin-top: 20px; padding-top: 14px; font-size: 12px; }
+.transcript-maintenance-details summary { cursor: pointer; color: var(--muted); }
+.transcript-maintenance-details > div { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 12px; }
+.transcript-maintenance-details p { color: var(--muted); margin: 0; line-height: 1.5; }
+.transcript-action-notice { font-size: 12px; background: var(--paper); padding: 10px 12px; border-radius: 6px; margin-bottom: 0; }
+.transcript-folder-dialog { width: min(660px, calc(100vw - 32px)); max-height: min(760px, calc(100dvh - 32px)); }
+.transcript-folder-dialog .dialog-content { padding-top: 0; }
+.transcript-folder-address { display: flex; gap: 10px; align-items: end; margin: 20px 0 14px; }
+.transcript-folder-address .field { min-width: 0; flex: 1; margin: 0; }
+.transcript-folder-address input { font-family: var(--mono); font-size: 12px; }
+.transcript-folder-nav { display: flex; align-items: center; gap: 10px; font-size: 12px; }
+.transcript-folder-current { margin: 16px 0 8px; display: grid; gap: 8px; }
+.transcript-folder-current code { overflow-wrap: anywhere; font-size: 12px; }
+.transcript-folder-list { min-height: 170px; max-height: 300px; overflow: auto; border: 1px solid var(--line); border-radius: 8px; margin-top: 10px; }
+.transcript-folder-list > p, .transcript-folder-list > .error-notice { margin: 16px; font-size: 13px; }
+.transcript-folder-list ul { padding: 0; margin: 0; list-style: none; }
+.transcript-folder-list li + li { border-top: 1px solid var(--line); }
+.transcript-folder-list li button { border: 0; background: transparent; color: var(--ink); display: flex; align-items: center; gap: 12px; padding: 13px 16px; min-height: 48px; width: 100%; cursor: pointer; text-align: left; font: inherit; font-size: 13px; }
+.transcript-folder-list li button:hover { background: var(--paper); }
+.transcript-folder-list li button svg { flex-shrink: 0; color: var(--muted); }
+.transcript-folder-list li button span:first-of-type { flex: 1; overflow-wrap: anywhere; }
+.transcript-folder-empty { color: var(--muted); line-height: 1.6; }
+@media (max-width: 700px) {
+  .transcript-management { padding: 16px; }
+  .transcript-management-heading { align-items: start; flex-direction: column; gap: 14px; }
+  .transcript-folders-heading { gap: 12px; align-items: start; }
+  .transcript-folders-heading > .button { flex-shrink: 0; }
+  .transcript-source-row { flex-direction: column; align-items: stretch; }
+  .transcript-source-actions { flex-wrap: wrap; }
+  .transcript-source-actions .button { min-height: 40px; }
+  .transcript-source-edit { flex-direction: column; align-items: stretch; }
+  .transcript-maintenance-details > div { align-items: start; flex-direction: column; }
+}
+
+.transcript-folder-filter { margin: 16px 0 0; font-size: 12px; }
+.transcript-global-toggle { position: relative; cursor: pointer; min-height: 36px; }
+.transcript-global-toggle > input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; }
+.transcript-global-toggle:has(input:focus-visible) { outline: 2px solid var(--accent-deep); outline-offset: 3px; }
+.transcript-global-toggle:has(input:disabled) { cursor: default; }

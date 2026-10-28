@@ -105,8 +105,8 @@ one-off ID needed before dispatch. Explicit IDs and REST receipts retain their
 contracts; prepared upload intents keep their helper-generated IDs. See
 `docs/automatic-uuids.md`. The tool idempotence hint is false for these calls.
 
-The current application/API/MCP/dashboard release is `0.114.0`, Claude plugin
-`0.71.0`, and Alembic head `0068_artifact_tags`. The catalog is exactly
+The current application/API/MCP/dashboard release is `0.115.0`, Claude plugin
+`0.71.0`, and Alembic head `0069_transcript_directories`. The catalog is exactly
 79 MCP tools, 25 receipt-protected MCP writes, 38 REST receipt kinds, 32 protected
 browser mutations, 24 work-event types, and three plugin skills. Project priority
 guidance is editable in Settings > Workspace; agents explicitly call
@@ -295,7 +295,7 @@ snapshot, generation, and lease fences. Stream marked canonical text from ordere
 segments; preserve exact bytes for unmarked historical projections. Transcript indexing does not
 call Tika or inherit the artifact extraction budget. Keep native record/segment limits
 and the explicit PostgreSQL text capacity failure. Retained copies remain readable
-if later capture policy tightens. The default native limit is 512 MiB, maximum 1 GiB.
+if later capture policy tightens. The operator-only native limit defaults to 1 GiB.
 Use a rebuildable Tantivy transcript index. Compose stores
 the derived index in the private `MNEMONIC_TRANSCRIPT_INDEX_DIR` bind. Transcript
 search streams metadata and content without aggregate archive-size caps;
@@ -316,10 +316,11 @@ allowlists remain invalid. Fresh assertions require a readable native regular fi
 inside approved roots; receipt replays bypass fresh filesystem checks. Environmental
 copy/index failures, oversized captures and changing sources recheck every five minutes
 without rebuilding, preserving lease/pause guards. Recognized task journals are
-rejected at fresh enrollment and skipped by imports. Transcript settings live in a
-compact collapsible panel on `/transcripts`, use MB, and retain exact byte values.
-Column sorting happens before pagination. Warning dismissals persist per project in
-the browser; source records and retries remain intact. Health reports all-project
+rejected at fresh enrollment and skipped by imports. Transcript settings live on `/transcripts` with a project enable switch, server folder
+browser, and editable source rows. Disabling prevents fresh imports, captures,
+normalization, and indexing while retaining readable history. Capture size is
+configured only through `MNEMONIC_TRANSCRIPT_MAX_BYTES`. Column sorting happens
+before pagination. Access warnings are source-row scoped and cannot be dismissed. Health reports all-project
 allocated native/index bytes, their separate volume free space, and database usage;
 partial/unavailable measurements remain explicit. The
 shared worker also queues scheduled/manual project backups; there is no dedicated

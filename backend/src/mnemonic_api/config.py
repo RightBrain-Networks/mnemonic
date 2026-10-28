@@ -140,7 +140,7 @@ class Settings(BaseSettings):
         return self
 
     transcript_max_bytes: int = Field(
-        default=536_870_912, ge=1, le=1_073_741_824,
+        default=1_073_741_824, ge=1, le=1_073_741_824,
         validation_alias=AliasChoices("MNEMONIC_TRANSCRIPT_MAX_BYTES", "transcript_max_bytes"),
     )
     transcript_index_dir: Path | None = Field(

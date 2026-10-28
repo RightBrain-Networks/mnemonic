@@ -1,26 +1,27 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { transcriptBytes, transcriptMegabytes } from "../lib/transcript-settings.ts";
-import { readDismissedTranscriptWarnings, transcriptWarningKey, validTranscriptStorage } from "../lib/transcript-health.ts";
+import { decodeTranscriptFolders, formatTranscriptSize, warningsForTranscriptDirectory } from "../lib/transcript-settings.ts";
+import { validTranscriptStorage } from "../lib/transcript-health.ts";
 
-test("megabyte settings retain exact existing byte values and reject invalid input", () => {
-  for (const bytes of [1, 999999, 67108864, 536870912, 1073741824]) {
-    assert.equal(transcriptBytes(transcriptMegabytes(bytes)), bytes);
-  }
-  assert.equal(transcriptBytes("256"), 268435456);
-  assert.equal(transcriptMegabytes(67108864), "64");
-  for (const invalid of ["", "0", "-1", "1e3", "Infinity", "0.0000001", "1.5.6", " 1", "9007199254740991"]) {
-    assert.equal(transcriptBytes(invalid), null);
-  }
+test("transcript sizes scale from bytes through terabytes", () => {
+  for (const [bytes, label] of [[0, "0 B"], [511, "511 B"], [1024, "1 KB"], [53248, "52 KB"], [14043.1 * 1024 ** 2, "14 GB"], [1.5 * 1024 ** 4, "1.5 TB"], [null, "Unavailable"]]) assert.equal(formatTranscriptSize(bytes), label);
 });
 
-test("dismissal survives retry timestamps but a changed failure remains visible", () => {
-  const warning = { code: "transcript_source_missing", path: "/approved/native.jsonl", service: "worker", affected: 1, retry_at: null, uid: 1000, gid: 1000, owner_uid: null, owner_gid: null, mode: null };
-  const key = transcriptWarningKey(warning);
-  assert.equal(transcriptWarningKey({ ...warning, retry_at: "2026-09-18T00:00:00Z", affected: 2 }), key);
-  assert.notEqual(transcriptWarningKey({ ...warning, code: "transcript_permission_denied" }), key);
-  assert.deepEqual(readDismissedTranscriptWarnings(JSON.stringify([key])), [key]);
-  for (const value of [null, "bad json", "{}", "[1,null]"]) assert.deepEqual(readDismissedTranscriptWarnings(value), []);
+test("folder browsing validates paths and empty, root, partial responses", () => {
+  const root = { directory: null, parent: null, entries: [{ name: "Sessions", path: "/approved" }], truncated: false };
+  assert.equal(decodeTranscriptFolders(root).entries[0].path, "/approved");
+  assert.equal(decodeTranscriptFolders({ ...root, directory: "/approved", entries: [], truncated: true }).truncated, true);
+  for (const change of [{ directory: "relative" }, { parent: "/approved/.." }, { truncated: "false" }, { entries: [{ name: "bad", path: "/approved/../private" }] }, { entries: [{ name: "", path: "/approved" }] }]) assert.throws(() => decodeTranscriptFolders({ ...root, ...change }));
+});
+
+test("access problems belong to the closest configured folder and include blocked ancestors", () => {
+  const directories = ["/sessions", "/sessions/nested", "/sessions-other"];
+  const warnings = [{ path: "/sessions/nested/run.jsonl" }, { path: "/sessions/run.jsonl" }, { path: "/sessions-other/run.jsonl" }, { path: null }];
+  assert.deepEqual(warningsForTranscriptDirectory("/sessions", directories, warnings), [warnings[1]]);
+  assert.deepEqual(warningsForTranscriptDirectory("/sessions/nested", directories, warnings), [warnings[0]]);
+  assert.deepEqual(warningsForTranscriptDirectory("/sessions-other", directories, warnings), [warnings[2]]);
+  assert.deepEqual(warningsForTranscriptDirectory("/sessions/nested", ["/sessions/nested"], [{ path: "/sessions" }]), [{ path: "/sessions" }]);
+  assert.deepEqual(warningsForTranscriptDirectory("/unrelated", ["/unrelated"], warnings), []);
 });
 
 test("storage unavailable and partial measurements remain explicit", () => {

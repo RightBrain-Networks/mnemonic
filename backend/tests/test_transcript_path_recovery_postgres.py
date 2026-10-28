@@ -69,7 +69,7 @@ def test_recovery_waits_for_active_generation_and_enabled_settings(
     assert not run(api)
     expire_lease(postgres_engine, work["id"])
     path = f"/api/v1/projects/{project['id']}/transcript-settings"
-    pause = {"enabled": False, "max_file_size_bytes": 1024, "expected_revision": 1}
+    pause = {"enabled": False, "directories": [], "expected_revision": 1}
     assert api.patch(path, json=pause).status_code == 200
     assert not run(api)
     resumed = api.patch(path, json={**pause, "enabled": True, "expected_revision": 2})

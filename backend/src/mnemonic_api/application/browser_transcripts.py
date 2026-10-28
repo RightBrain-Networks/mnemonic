@@ -38,7 +38,7 @@ _ADMITTED = object()
 _HANDLERS = frozenset({
     "list_transcripts", "rebuild_transcripts", "import_transcripts", "get_transcript_health",
     "get_transcript", "get_transcript_text", "download_transcript", "get_transcript_settings",
-    "update_transcript_settings",
+    "update_transcript_settings", "browse_transcript_directories",
 })
 FAILURE_DETAIL = (
     "The transcript request could not be completed. "
@@ -112,7 +112,7 @@ async def _request_body(request: Request, action: str) -> bytes:
     if content_type != "application/json":
         _reject(415, "Send transcript settings as JSON.")
     try:
-        body = await _read_body(request, 32 * 1024 if action == "import" else 4096)
+        body = await _read_body(request, 512 * 1024 if action == "save" else 32 * 1024)
         value = decode_file_json(body)
     except (ValueError, UnicodeError, RecursionError, TimeoutError):
         _reject(400, "Invalid or oversized transcript settings request.")

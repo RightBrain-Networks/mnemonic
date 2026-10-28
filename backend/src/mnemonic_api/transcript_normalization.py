@@ -18,10 +18,12 @@ from mnemonic_api.artifact_tika import ExtractionError, normalize_extracted_text
 from mnemonic_api.transcript_claude_context import (
     BOOKKEEPING_RECORDS,
     CONTEXT_ATTACHMENTS,
+    CONTEXT_RECORDS,
     SYSTEM_RECORDS,
     context_payload,
 )
 from mnemonic_api.transcript_native_content import INFORMATIONAL_DISPOSITIONS, native_content
+from mnemonic_api.transcript_native_diagnostics import record_unsupported_type
 from mnemonic_api.transcript_parsers import (
     _CODEX_MIRRORED_ITEMS,
     CodexParser,
@@ -36,7 +38,7 @@ from mnemonic_api.transcript_parsers import (
 from mnemonic_api.transcript_spool import TranscriptSegments, discard_on_error
 
 SCHEMA_VERSION = 1
-NORMALIZER_VERSION = 3
+NORMALIZER_VERSION = 4
 _SEGMENT_LIMIT = 250_000
 _PG_STRING_INVALID = re.compile("[\x00\ud800-\udfff]")
 ContentKind = Literal[
@@ -224,17 +226,27 @@ def _claude_context(row: dict, role: str | None):
     if isinstance(kind, str) and kind in BOOKKEEPING_RECORDS:
         return None
     if kind == "attachment":
-        attachment = row.get("attachment")
-        if (isinstance(attachment, dict) and isinstance(attachment.get("type"), str)
-                and attachment["type"] in CONTEXT_ATTACHMENTS):
-            return "system", [("attachment", _context_block(attachment))]
-        return _unsupported_event(disposition="unsupported_attachment")
+        return _claude_attachment(row)
+    if isinstance(kind, str) and kind in CONTEXT_RECORDS:
+        return "system", [("0", _context_block(row))]
     if (kind == "system" and isinstance(row.get("subtype"), str)
             and row["subtype"] in SYSTEM_RECORDS):
         return "system", [("0", _context_block(row))]
     if role is not None or "message" in row:
         return _unsupported_event(role, "unsupported_role")
     return _unsupported_event(disposition="unsupported_record")
+
+
+def _claude_attachment(row: dict):
+    attachment = row.get("attachment")
+    if (not isinstance(attachment, dict) or not isinstance(attachment.get("type"), str)
+            or attachment["type"] not in CONTEXT_ATTACHMENTS):
+        return _unsupported_event(disposition="unsupported_attachment")
+    # Some attachments keep the actual prompt beside, rather than inside, the
+    # attachment descriptor. Preserve that rendered content as well.
+    content = attachment if "rendered" not in row else {
+        "attachment": attachment, "rendered": row["rendered"]}
+    return "system", [("attachment", _context_block(content))]
 
 
 def _codex_output(payload: dict) -> dict:
@@ -250,6 +262,8 @@ def _codex_response(payload: dict) -> tuple[str | None, list[tuple[str, dict]]] 
         if role not in {"user", "assistant", "system", "developer"} or "content" not in payload:
             return _unsupported_event(role, "unsupported_role")
         return role, list(_blocks(payload["content"], role, codex=True))
+    if kind in ("additional_tools", "configuration_update"):
+        return "developer", [("0", _context_block(payload))]
     if kind in ("function_call", "custom_tool_call"):
         return "assistant", [("0", _call_block(payload))]
     if kind in ("function_call_output", "custom_tool_call_output"):
@@ -273,10 +287,10 @@ def _codex_completed(payload: dict) -> tuple[str | None, list[tuple[str, dict]]]
         if kind == "Plan" and isinstance(item.get("text"), str):
             return "assistant", [("0", {"content_kind": "summary",
                 "text": normalize_extracted_text(item["text"])})]
-        if kind == "Extension" and item.get("kind") == "web.search":
+        if kind == "Extension" and item.get("kind") in ("web.search", "clock.sleep"):
             block = _context_block(item)
             return "tool", [("0", block | {"content_kind": "tool_result",
-                                          "tool_name": "web.search"})]
+                                          "tool_name": item["kind"]})]
         if kind == "FunctionCallOutput":
             return "tool", [("0", _codex_output(item))]
     return _unsupported_event()
@@ -444,11 +458,15 @@ def normalize_transcript(content: bytes | BinaryIO, client: str,
         count = 0
         seen: set[bytes] = set()
         stats: Counter = Counter()
+        unsupported_types: Counter = Counter()
         for number, row in enumerate(rows, start=1):
             (_collect_codex_metadata if codex else _collect_metadata)(row, sessions, models)
             _collect_parent_session(row, parents)
             recognized = False
+            unsupported = False
             for path, native, role, block in _event_segments(row, codex, seen, stats):
+                unsupported |= any(code.startswith("unsupported_")
+                                   for code in block.get("dispositions", []))
                 recognized |= not {"unsupported_record", "unsupported_role",
                                    "unsupported_attachment"}.intersection(
                                        block.get("dispositions", []))
@@ -456,6 +474,7 @@ def normalize_transcript(content: bytes | BinaryIO, client: str,
                     raise ExtractionError("transcript_too_many_segments")
                 segments.append(_segment(revision, len(segments), number, path,
                                          role, native, block))
+            record_unsupported_type(row, codex, unsupported_types, unsupported)
             count += recognized
         if not count:
             raise ExtractionError("transcript_unsupported_format")
@@ -463,6 +482,9 @@ def normalize_transcript(content: bytes | BinaryIO, client: str,
         with discard_on_error(segments):
             metadata = {"transcript:message_count": [str(count)],
                         **_coverage_metadata(segments, stats)}
+            if unsupported_types:
+                metadata["transcript:unsupported_native_types"] = [
+                    f"{kind}={count}" for kind, count in sorted(unsupported_types.items())]
             if sessions:
                 metadata["transcript:session_id"] = sorted(sessions)
             if models:

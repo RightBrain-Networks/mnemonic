@@ -172,6 +172,8 @@ def test_unknown_only_journals_do_not_become_valid_transcripts(client):
     codex({"type": "future_event", "text": "unrecognized"}, "event_msg"),
     codex({"type": "item_completed", "item": {
         "type": "Extension", "kind": "future.extension", "text": "unrecognized"}}, "event_msg"),
+    codex({"type": "item_completed", "item": {
+        "type": "Extension", "kind": ["malformed"]}}, "event_msg"),
     {"type": "compacted", "payload": None},
     codex({"replacement_history": {"invalid": "shape"}}, "compacted"),
 ])
@@ -180,3 +182,68 @@ def test_unknown_codex_events_and_malformed_compactions_are_not_silently_ignored
                        row, client="codex")
     assert result.incomplete
     assert "unrecognized" not in conversation_text(result.segments, 1000)[0]
+
+
+@pytest.mark.parametrize("kind", ["api-request", "api-request-shape"])
+def test_claude_request_context_retains_prompts_tools_and_typed_parameters(kind):
+    row = {"type": kind, "params": {"thinking": {"type": "adaptive"}},
+           "shape": {"system": [{"type": "text", "text": "runtime instruction"}],
+                     "tools": [{"name": "read", "description": "tool description"}]}}
+    result = normalize(row)
+    segment, = result.segments
+    assert segment.content_kind == "system_text"
+    assert segment.payload == row and json.loads(segment.text) == row
+    assert not result.incomplete
+
+
+def test_workflow_attachment_retains_prompt_stored_outside_descriptor():
+    attachment = {"type": "workflow_keyword_request"}
+    rendered = [{"content": "actual workflow instruction"}]
+    result = normalize({"type": "attachment", "attachment": attachment, "rendered": rendered})
+    assert result.segments[0].payload == {"attachment": attachment, "rendered": rendered}
+    assert "actual workflow instruction" in result.segments[0].text
+    assert not result.incomplete
+
+
+@pytest.mark.parametrize("payload", [
+    {"type": "additional_tools", "role": "developer", "tools": [
+        {"type": "namespace", "name": "sample", "tools": [
+            {"name": "lookup", "description": "runtime tool description"}]}]},
+    {"type": "configuration_update", "reasoning": {"effort": "high"}},
+])
+def test_codex_runtime_configuration_retains_typed_context(payload):
+    result = normalize(codex(payload), client="codex")
+    segment, = result.segments
+    assert segment.role == "developer" and segment.content_kind == "system_text"
+    assert segment.payload == payload and json.loads(segment.text) == payload
+    assert not result.incomplete
+
+
+def test_codex_clock_completion_retains_duration_without_false_parser_warning():
+    item = {"type": "Extension", "kind": "clock.sleep", "id": "wait-1", "durationMs": 60000}
+    result = normalize(codex({"type": "item_completed", "item": item}, "event_msg"), client="codex")
+    segment, = result.segments
+    assert segment.content_kind == "tool_result" and segment.tool_name == "clock.sleep"
+    assert segment.payload == item and json.loads(segment.text) == item
+    assert not result.incomplete
+
+
+def test_unknown_format_diagnostics_identify_native_types_without_content():
+    result = normalize(codex({"type": "message", "role": "user", "content": "private text"}),
+        codex({"type": "item_completed", "item": {
+            "type": "Extension", "kind": "future.extension", "text": "private text"}}, "event_msg"),
+        client="codex")
+    assert result.incomplete
+    assert result.metadata["transcript:unsupported_native_types"] == [
+        "codex:event_msg:item_completed:Extension:future.extension=1"]
+    assert "private text" not in str(result.metadata)
+
+
+def test_unknown_format_diagnostics_have_bounded_cardinality_and_labels():
+    rows = [{"type": "attachment", "attachment": {"type": f"future-{i}"}} for i in range(100)]
+    rows.append({"type": "attachment", "attachment": {"type": "private arbitrary prose " * 100}})
+    result = normalize({"role": "user", "content": "known"}, *rows)
+    types = result.metadata["transcript:unsupported_native_types"]
+    assert len(types) == 33 and "other_types=69" in types
+    assert "private arbitrary prose" not in str(result.metadata)
+    assert result.incomplete

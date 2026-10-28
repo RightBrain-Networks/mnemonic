@@ -36,10 +36,10 @@ test("preview validates unicode pagination and rejects stale indexed text", () =
   for (const change of [{ text_sha256: "b".repeat(64) }, { total_chars: 5 }, { offset: 1 }, { status: "pending" }, { transcript_id: project }]) assert.throws(() => decodeTranscriptText({ ...text, ...change }, id, digest, 0, project));
 });
 
-test("settings enforce size limits and typed shared folder paths", () => {
-  const settings = { enabled: true, max_file_size_bytes: 67108864, revision: 1, operator_max_file_size_bytes: TRANSCRIPT_MAX_BYTES, allowed_roots: ["/shared/transcripts"] };
+test("settings enforce revision and distinct configured folder paths", () => {
+  const settings = { enabled: true, revision: 1, directories: ["/shared/transcripts/project"], allowed_roots: ["/shared/transcripts"] };
   assert.equal(decodeTranscriptSettings(settings).revision, 1);
-  for (const change of [{ revision: 0 }, { enabled: "true" }, { max_file_size_bytes: TRANSCRIPT_MAX_BYTES + 1 }, { max_file_size_bytes: 0 }, { allowed_roots: [null] }]) assert.throws(() => decodeTranscriptSettings({ ...settings, ...change }));
+  for (const change of [{ revision: 0 }, { enabled: "true" }, { directories: ["/shared", "/shared"] }, { directories: ["relative"] }, { allowed_roots: [null] }]) assert.throws(() => decodeTranscriptSettings({ ...settings, ...change }));
 });
 
 test("imported transcripts require null lease provenance and remain scoped", () => {

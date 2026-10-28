@@ -73,8 +73,7 @@ def access_instruction(code: str, details: dict) -> str:
         return permission_instruction(details)
     instructions = {
         "transcript_too_large": "This native file exceeds the current capture limit. "
-            "Increase the maximum transcript size in Transcript indexing settings "
-            "(and MNEMONIC_TRANSCRIPT_MAX_BYTES for both services if needed). "
+            "Increase MNEMONIC_TRANSCRIPT_MAX_BYTES in .env for both API and worker. "
             "Capture will retry automatically; retained conversations remain readable.",
         "transcript_recovery_content_changed": "The file changed after operator approval. "
             "Wait for the session to stop writing, verify the replacement again, then prepare "
