@@ -1,5 +1,14 @@
 # Keep application dependencies, image digests and CI actions current.
 # https://docs.github.com/en/code-security/reference/supply-chain-security/dependabot-options-reference
+#
+# Lint, type-check and test tooling must never share a group with runtime
+# dependencies. Runtime and tooling updates fail CI for different reasons — a
+# newer ruff or ty adds diagnostics, a newer pytest deprecates behavior — and a
+# grouped pull request is all-or-nothing: one red member blocks every green
+# runtime update in the same PR, the group can never merge, and Dependabot
+# keeps closing and recreating it while overlapping per-dependency PRs pile up.
+# Split groups keep a tooling regression from stalling security and runtime
+# updates, and keep a runtime breakage from holding back tool upgrades.
 version: 2
 updates:
   - package-ecosystem: uv
@@ -8,18 +17,47 @@ updates:
       - /mcp
     schedule:
       interval: weekly
+    open-pull-requests-limit: 3
     groups:
-      python-minor-and-patch:
+      python-runtime-minor-and-patch:
         patterns: ['*']
+        exclude-patterns:
+          - ruff
+          - ty
+          - pytest
+          - pytest-asyncio
+          - pytest-xdist
+          - jsonschema
+        update-types: [minor, patch]
+      python-tooling-minor-and-patch:
+        patterns:
+          - ruff
+          - ty
+          - pytest
+          - pytest-asyncio
+          - pytest-xdist
+          - jsonschema
         update-types: [minor, patch]
 
   - package-ecosystem: npm
     directory: /frontend
     schedule:
       interval: weekly
+    open-pull-requests-limit: 3
     groups:
-      frontend-minor-and-patch:
-        patterns: ['*']
+      frontend-runtime-minor-and-patch:
+        patterns:
+          - react
+          - react-dom
+          - '@tanstack/*'
+        update-types: [minor, patch]
+      frontend-tooling-minor-and-patch:
+        patterns:
+          - typescript
+          - '@types/*'
+          - vite
+          - '@vitejs/*'
+          - '@playwright/test'
         update-types: [minor, patch]
 
   - package-ecosystem: docker
