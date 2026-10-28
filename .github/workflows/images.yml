@@ -1,0 +1,330 @@
+name: Container images
+
+on:
+  workflow_call:
+    inputs:
+      publish:
+        type: boolean
+        default: false
+      upgrade:
+        type: boolean
+        default: false
+      edge:
+        type: boolean
+        default: false
+
+# Permissions come from the caller. PR callers grant contents: read only.
+jobs:
+  native:
+    name: Native images (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Validate release metadata
+        id: metadata
+        run: |
+          python3 scripts/release.py check
+          python3 -m unittest discover -s scripts/tests -p 'test_release*.py'
+          python3 -c 'import tomllib; print("version=" + tomllib.load(open("backend/pyproject.toml", "rb"))["project"]["version"])' >> "$GITHUB_OUTPUT"
+      - name: Set up native builder
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Sign in to GitHub Container Registry
+        if: ${{ inputs.publish && github.event_name != 'pull_request' && github.repository == 'RightBrain-Networks/mnemonic' }}
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build api
+        id: api
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: backend/Dockerfile
+          platforms: linux/${{ matrix.arch }}
+          tags: ${{ inputs.publish && 'ghcr.io/rightbrain-networks/mnemonic-api' || 'mnemonic-api:local' }}
+          outputs: ${{ inputs.publish && 'type=image,push-by-digest=true,name-canonical=true,push=true' || 'type=docker' }}
+          provenance: ${{ inputs.publish && 'mode=max' || 'false' }}
+          sbom: ${{ inputs.publish }}
+          build-args: |
+            VERSION=${{ steps.metadata.outputs.version }}
+            REVISION=${{ github.sha }}
+          cache-from: type=gha,scope=api-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=api-${{ matrix.arch }}
+      - name: Build mcp
+        id: mcp
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: mcp
+          file: mcp/Dockerfile
+          platforms: linux/${{ matrix.arch }}
+          tags: ${{ inputs.publish && 'ghcr.io/rightbrain-networks/mnemonic-mcp' || 'mnemonic-mcp:local' }}
+          outputs: ${{ inputs.publish && 'type=image,push-by-digest=true,name-canonical=true,push=true' || 'type=docker' }}
+          provenance: ${{ inputs.publish && 'mode=max' || 'false' }}
+          sbom: ${{ inputs.publish }}
+          build-args: |
+            VERSION=${{ steps.metadata.outputs.version }}
+            REVISION=${{ github.sha }}
+          cache-from: type=gha,scope=mcp-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=mcp-${{ matrix.arch }}
+      - name: Build web
+        id: web
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: frontend/Dockerfile
+          platforms: linux/${{ matrix.arch }}
+          tags: ${{ inputs.publish && 'ghcr.io/rightbrain-networks/mnemonic-web' || 'mnemonic-web:local' }}
+          outputs: ${{ inputs.publish && 'type=image,push-by-digest=true,name-canonical=true,push=true' || 'type=docker' }}
+          provenance: ${{ inputs.publish && 'mode=max' || 'false' }}
+          sbom: ${{ inputs.publish }}
+          build-args: |
+            VERSION=${{ steps.metadata.outputs.version }}
+            REVISION=${{ github.sha }}
+          cache-from: type=gha,scope=web-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=web-${{ matrix.arch }}
+      - name: Build tika
+        id: tika
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: deploy/tika
+          file: deploy/tika/Dockerfile
+          platforms: linux/${{ matrix.arch }}
+          tags: ${{ inputs.publish && 'ghcr.io/rightbrain-networks/mnemonic-tika' || 'mnemonic-tika:local' }}
+          outputs: ${{ inputs.publish && 'type=image,push-by-digest=true,name-canonical=true,push=true' || 'type=docker' }}
+          provenance: ${{ inputs.publish && 'mode=max' || 'false' }}
+          sbom: ${{ inputs.publish }}
+          build-args: |
+            VERSION=${{ steps.metadata.outputs.version }}
+            REVISION=${{ github.sha }}
+          cache-from: type=gha,scope=tika-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=tika-${{ matrix.arch }}
+      - name: Load exact published digests for native checks
+        if: ${{ inputs.publish }}
+        env:
+          DIGEST_API: ${{ steps.api.outputs.digest }}
+          DIGEST_MCP: ${{ steps.mcp.outputs.digest }}
+          DIGEST_WEB: ${{ steps.web.outputs.digest }}
+          DIGEST_TIKA: ${{ steps.tika.outputs.digest }}
+        run: |
+          for name in api mcp web tika; do
+            variable="DIGEST_${name^^}"
+            reference="ghcr.io/rightbrain-networks/mnemonic-$name@${!variable}"
+            docker pull "$reference"
+            docker tag "$reference" "mnemonic-$name:local"
+          done
+      - name: Scan api for fixable critical vulnerabilities
+        if: ${{ !cancelled() && steps.api.outcome == 'success' }}
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scanners: vuln
+          image-ref: mnemonic-api:local
+          version: v0.70.0
+          format: sarif
+          output: trivy-api.sarif
+          severity: CRITICAL
+          ignore-unfixed: true
+          limit-severities-for-sarif: true
+          exit-code: '1'
+      - name: Scan mcp for fixable critical vulnerabilities
+        if: ${{ !cancelled() && steps.mcp.outcome == 'success' }}
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scanners: vuln
+          image-ref: mnemonic-mcp:local
+          version: v0.70.0
+          format: sarif
+          output: trivy-mcp.sarif
+          severity: CRITICAL
+          ignore-unfixed: true
+          limit-severities-for-sarif: true
+          exit-code: '1'
+      - name: Scan web for fixable critical vulnerabilities
+        if: ${{ !cancelled() && steps.web.outcome == 'success' }}
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scanners: vuln
+          image-ref: mnemonic-web:local
+          version: v0.70.0
+          format: sarif
+          output: trivy-web.sarif
+          severity: CRITICAL
+          ignore-unfixed: true
+          limit-severities-for-sarif: true
+          exit-code: '1'
+      - name: Scan tika for fixable critical vulnerabilities
+        if: ${{ !cancelled() && steps.tika.outcome == 'success' }}
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scanners: vuln
+          image-ref: mnemonic-tika:local
+          version: v0.70.0
+          format: sarif
+          output: trivy-tika.sarif
+          severity: CRITICAL
+          ignore-unfixed: true
+          limit-severities-for-sarif: true
+          exit-code: '1'
+      - name: Retain security reports
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: image-scans-${{ inputs.publish && 'publish' || 'check' }}-${{ matrix.arch }}
+          path: trivy-*.sarif
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Upload api report to code scanning
+        if: ${{ !cancelled() && inputs.publish && hashFiles('trivy-api.sarif') != '' }}
+        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4
+        with:
+          sarif_file: trivy-api.sarif
+          category: image-api-${{ matrix.arch }}
+      - name: Upload mcp report to code scanning
+        if: ${{ !cancelled() && inputs.publish && hashFiles('trivy-mcp.sarif') != '' }}
+        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4
+        with:
+          sarif_file: trivy-mcp.sarif
+          category: image-mcp-${{ matrix.arch }}
+      - name: Upload web report to code scanning
+        if: ${{ !cancelled() && inputs.publish && hashFiles('trivy-web.sarif') != '' }}
+        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4
+        with:
+          sarif_file: trivy-web.sarif
+          category: image-web-${{ matrix.arch }}
+      - name: Upload tika report to code scanning
+        if: ${{ !cancelled() && inputs.publish && hashFiles('trivy-tika.sarif') != '' }}
+        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4
+        with:
+          sarif_file: trivy-tika.sarif
+          category: image-tika-${{ matrix.arch }}
+      - name: Assemble install bundle
+        run: python3 scripts/release_bundle.py --output "$RUNNER_TEMP/bundle"
+      - name: Select nightly upgrade baseline
+        id: previous
+        if: ${{ inputs.upgrade }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ steps.metadata.outputs.version }}
+        run: python3 scripts/release_github.py select --tag "v$RELEASE_VERSION"
+      - name: Download nightly upgrade baseline
+        if: ${{ inputs.upgrade && steps.previous.outputs.previous_tag != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PREVIOUS_TAG: ${{ steps.previous.outputs.previous_tag }}
+          PREVIOUS_VERSION: ${{ steps.previous.outputs.previous_version }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/previous"
+          gh release download "$PREVIOUS_TAG" --repo "$GITHUB_REPOSITORY" --pattern "mnemonic-$PREVIOUS_VERSION.tar.gz" --pattern SHA256SUMS --dir "$RUNNER_TEMP/previous"
+          (cd "$RUNNER_TEMP/previous" && sha256sum --check --ignore-missing --strict SHA256SUMS)
+      - name: Smoke test the native images from the bundle
+        env:
+          RELEASE_VERSION: ${{ steps.metadata.outputs.version }}
+          PREVIOUS_VERSION: ${{ steps.previous.outputs.previous_version }}
+        run: |
+          previous=()
+          if [[ -n "$PREVIOUS_VERSION" ]]; then
+            previous+=(--previous-bundle "$RUNNER_TEMP/previous/mnemonic-$PREVIOUS_VERSION.tar.gz" --previous-version "$PREVIOUS_VERSION")
+          fi
+          python3 scripts/release_smoke.py --bundle "$RUNNER_TEMP/bundle/mnemonic-$RELEASE_VERSION.tar.gz" --version "$RELEASE_VERSION" --local-images "${previous[@]}"
+      - name: Record immutable native digests
+        if: ${{ inputs.publish }}
+        env:
+          DIGEST_API: ${{ steps.api.outputs.digest }}
+          DIGEST_MCP: ${{ steps.mcp.outputs.digest }}
+          DIGEST_WEB: ${{ steps.web.outputs.digest }}
+          DIGEST_TIKA: ${{ steps.tika.outputs.digest }}
+          RELEASE_VERSION: ${{ steps.metadata.outputs.version }}
+          ARCHITECTURE: ${{ matrix.arch }}
+        run: |
+          python3 scripts/release_registry.py record --output digests --architecture "$ARCHITECTURE" --commit "$GITHUB_SHA" --version "$RELEASE_VERSION"
+      - name: Upload native digest receipt
+        if: ${{ inputs.publish }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: native-digests-${{ matrix.arch }}
+          path: digests/*.json
+          retention-days: 7
+
+  merge:
+    name: Merge tested native images
+    needs: native
+    if: ${{ inputs.publish }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: native-digests-*
+          path: digests
+          merge-multiple: true
+      - name: Merge and verify candidate manifests
+        id: merged
+        env:
+          PUBLISH_EDGE: ${{ inputs.edge }}
+        run: |
+          version=$(python3 -c 'import tomllib; print(tomllib.load(open("backend/pyproject.toml", "rb"))["project"]["version"])')
+          extra=()
+          if [[ "$PUBLISH_EDGE" == true ]]; then extra+=(--edge); fi
+          python3 scripts/release_registry.py merge --directory digests --output images.json --commit "$GITHUB_SHA" --version "$version" --candidate-tag "sha-$GITHUB_SHA-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" "${extra[@]}"
+      - name: Attest api manifest provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ghcr.io/rightbrain-networks/mnemonic-api
+          subject-digest: ${{ steps.merged.outputs.api }}
+          push-to-registry: true
+      - name: Attest mcp manifest provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ghcr.io/rightbrain-networks/mnemonic-mcp
+          subject-digest: ${{ steps.merged.outputs.mcp }}
+          push-to-registry: true
+      - name: Attest web manifest provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ghcr.io/rightbrain-networks/mnemonic-web
+          subject-digest: ${{ steps.merged.outputs.web }}
+          push-to-registry: true
+      - name: Attest tika manifest provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ghcr.io/rightbrain-networks/mnemonic-tika
+          subject-digest: ${{ steps.merged.outputs.tika }}
+          push-to-registry: true
+      - name: Verify GitHub attestations
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PYVERIFY'
+          import json, subprocess
+          for name, digest in json.load(open('images.json'))['images'].items():
+              subprocess.run(['gh', 'attestation', 'verify',
+                              f'oci://ghcr.io/rightbrain-networks/mnemonic-{name}@{digest}',
+                              '--repo', 'RightBrain-Networks/mnemonic'], check=True)
+          PYVERIFY
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-image-digests
+          path: images.json
+          retention-days: 30

@@ -83,7 +83,7 @@ For non-blocking FYIs, the *"Summaries"* list contain simplified, plain-language
 ### Copy and paste into your LLM to have it handle this part.
 
 ```text
-Install and configure mnemonic for me from https://github.com/RightBrain-Networks/mnemonic. Clone the repository, then follow AGENT-README.md exactly. Use the default local-only Docker Compose configuration unless I state otherwise, preserve any existing data and configuration, connect my MCP-capable LLM client if one is available, and continue until the documented acceptance checks pass or you need a specific decision or credential from me.
+Install and configure mnemonic for me using a published versioned release bundle from https://github.com/RightBrain-Networks/mnemonic/releases. Follow docs/releases.md and docs/operations.md for that release. Use the default local-only Docker Compose configuration unless I state otherwise, preserve any existing data and configuration, connect my MCP-capable LLM client if one is available, and continue until the documented acceptance checks pass or you need a specific decision or credential from me. If no release is available, explain that before using the contributor build instructions in AGENT-README.md.
 ```
 
 ### Or, if you prefer, old school human instructions...
@@ -180,10 +180,12 @@ Replace every provenance, version, UUID, result, and artifact placeholder with
 facts from the exact attempt; never copy example evidence as if it were
 observed.
 
-The three skills ship as a Claude Code plugin. Register this repository as a marketplace once, then enable the plugin in any project that should have them:
+The three skills ship as a Claude Code plugin. For a published server release, register its
+version-pinned marketplace and enable the matching plugin. Replace `X.Y.Z` with your server
+release; its compatibility table records the independent plugin version:
 
 ```bash
-claude plugin marketplace add /path/to/mnemonic
+claude plugin marketplace add "https://github.com/RightBrain-Networks/mnemonic/releases/download/vX.Y.Z/marketplace.json"
 claude plugin install mnemonic@mnemonic
 ```
 
@@ -192,13 +194,19 @@ To make it automatic for everyone who clones a consuming repository, commit this
 ```json
 {
   "extraKnownMarketplaces": {
-    "mnemonic": { "source": { "source": "github", "repo": "RightBrain-Networks/mnemonic" } }
+    "mnemonic": { "source": { "source": "url", "url": "https://github.com/RightBrain-Networks/mnemonic/releases/download/vX.Y.Z/marketplace.json" } }
   },
   "enabledPlugins": { "mnemonic@mnemonic": true }
 }
 ```
 
-For a local marketplace instead, use `{ "source": "directory", "path": "/absolute/path/to/mnemonic" }`.
+Contributors can register a local checkout with `claude plugin marketplace add /path/to/mnemonic`,
+or use `{ "source": "directory", "path": "/absolute/path/to/mnemonic" }` in that settings file.
+That local catalog follows the checkout. Published catalogs pin both a release tag and its source commit.
+
+Before upgrading the server, select its matching marketplace URL and plugin compatibility entry
+from [the release](https://github.com/RightBrain-Networks/mnemonic/releases). See
+[release installation and verification](docs/releases.md) for checksums and provenance.
 
 Installing copies the plugin into `~/.claude/plugins/cache/` at its manifest version, so editing a skill in place does not change an installed copy. `claude plugin marketplace update mnemonic` refreshes the marketplace listing,
 not the installed files. After a published plugin version changes, run `claude plugin marketplace update mnemonic`, then `claude plugin update mnemonic@mnemonic`, and restart Claude Code.

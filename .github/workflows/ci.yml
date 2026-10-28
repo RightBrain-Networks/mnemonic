@@ -302,16 +302,38 @@ jobs:
         working-directory: frontend
         run: npm run build
 
+  image-checks:
+    name: Build and smoke test images
+    permissions:
+      contents: read
+    uses: ./.github/workflows/images.yml
+
+  publish-edge:
+    name: Publish tested edge images
+    needs: required
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository == 'RightBrain-Networks/mnemonic' }}
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+      security-events: write
+    uses: ./.github/workflows/images.yml
+    with:
+      publish: true
+      edge: true
+
   required:
     name: Required checks
     if: ${{ always() }}
     needs:
-      [changes, gitleaks, ruff, ty, backend-tests, mcp-tests, repository-freshness-runtime, frontend]
+      [changes, gitleaks, ruff, ty, backend-tests, mcp-tests, repository-freshness-runtime, frontend, image-checks]
     runs-on: ubuntu-latest
     steps:
       - name: Verify required jobs succeeded
         env:
           CHANGES_RESULT: ${{ needs.changes.result }}
+          IMAGES_RESULT: ${{ needs.image-checks.result }}
           FULL_CI: ${{ needs.changes.outputs.full_ci }}
           GITLEAKS_RESULT: ${{ needs.gitleaks.result }}
           RUFF_RESULT: ${{ needs.ruff.result }}
@@ -321,6 +343,7 @@ jobs:
           REPOSITORY_FRESHNESS_RUNTIME_RESULT: ${{ needs.repository-freshness-runtime.result }}
           FRONTEND_RESULT: ${{ needs.frontend.result }}
         run: |
+          test "$IMAGES_RESULT" = "success" || exit 1
           test "$CHANGES_RESULT" = "success" || exit 1
           test "$GITLEAKS_RESULT" = "success" || exit 1
           case "$FULL_CI" in
