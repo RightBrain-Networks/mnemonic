@@ -125,8 +125,6 @@ jobs:
             scripts/check_transcript_access.py \
             scripts/ci_scope.py \
             scripts/tests/test_ci_scope.py \
-            scripts/release.py \
-            scripts/tests/test_release*.py \
             scripts/setup.py \
             scripts/export_agent_skills.py \
             scripts/download_artifact.py \
@@ -139,6 +137,8 @@ jobs:
             scripts/test_browser_transport_ingress.py \
             scripts/test_project_backups.py \
             scripts/check-stack.py
+          uv run --project backend ruff check --config backend/pyproject.toml \
+            scripts/release.py scripts/tests/test_release.py
 
   ty:
     name: ty
