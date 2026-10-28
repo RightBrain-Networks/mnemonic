@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Report a vulnerability
+    url: https://github.com/RightBrain-Networks/mnemonic/blob/main/SECURITY.md
+    about: Follow the private reporting instructions before sharing security-sensitive details.

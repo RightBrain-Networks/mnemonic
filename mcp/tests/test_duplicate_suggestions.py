@@ -1,5 +1,6 @@
 import asyncio
 import json
+import tomllib
 from pathlib import Path
 from runpy import run_path
 
@@ -117,7 +118,8 @@ def required_arguments() -> dict[str, object]:
 
 
 def test_advisory_package_version_is_coordinated():
-    assert __version__ == "0.115.0"
+    manifest = Path(__file__).resolve().parents[1] / "pyproject.toml"
+    assert __version__ == tomllib.loads(manifest.read_text())["project"]["version"]
 
 
 async def test_advisory_tool_schema_is_exact_and_capability_free(settings):

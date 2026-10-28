@@ -176,9 +176,9 @@ For a local marketplace instead, use `{ "source": "directory", "path": "/absolut
 Installing copies the plugin into `~/.claude/plugins/cache/` at its manifest version, so editing a skill in place does not change an installed copy. `claude plugin marketplace update mnemonic` refreshes the marketplace listing,
 not the installed files. After a published plugin version changes, run `claude plugin marketplace update mnemonic`, then `claude plugin update mnemonic@mnemonic`, and restart Claude Code.
 
-The current application/API/MCP/dashboard release is `0.87.0`, with plugin version
-`0.52.0` and database head `0056_product_decisions`. Deploy those
-surfaces and the worker together after backup and authorized writer quiescence.
+Consult the [release notes](https://github.com/RightBrain-Networks/mnemonic/releases)
+for published versions, plugin compatibility, and database migration requirements.
+Deploy the API, MCP, dashboard, and worker together after backup and authorized writer quiescence.
 See [the coordinated upgrade procedure](docs/operations.md#current-coordinated-cutover)
 before upgrading an existing database; older processes must not run against the new schema.
 Its repository-freshness helper requires Bash 3.2 or newer and Git 2.45 or newer in the explicitly selected local workspace. It provides:

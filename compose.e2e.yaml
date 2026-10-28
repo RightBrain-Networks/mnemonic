@@ -1,7 +1,7 @@
 # Disposable browser and backup acceptance stack. Invoke through scripts/test-e2e.sh.
 services:
   rabbitmq:
-    image: rabbitmq:4.2-alpine
+    image: rabbitmq:4.2-alpine@sha256:aab85daef4295ab28df229600109434ed6ed7b966dd915baeb0fc396279f0e8e
     hostname: rabbitmq
     environment:
       RABBITMQ_DEFAULT_USER: mnemonic_e2e
@@ -16,7 +16,7 @@ services:
     restart: "no"
 
   postgres:
-    image: postgres:17-alpine
+    image: postgres:17-alpine@sha256:266d3c257594e195b309ae9d1805e54c788f1d7b375f56bf6c367aac6c917e7b
     environment:
       POSTGRES_DB: mnemonic_e2e
       POSTGRES_USER: mnemonic_e2e
