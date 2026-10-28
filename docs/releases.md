@@ -1,7 +1,8 @@
 # Releases and image distribution
 
 Mnemonic publishes stable release bundles and container images so an installation
-needs Docker Compose and Python 3, without a source checkout or local image build.
+needs Docker Compose and a POSIX shell, without host Python, a source checkout, or
+a local image build.
 The server and Claude plugin retain separate version numbers. Every release ships
 an exact compatibility table; use the plugin catalog from the same release as the
 server.
@@ -133,12 +134,29 @@ changing repository files. Release history is available through
 Choose an exact stable version from Releases and download its archive and
 `SHA256SUMS`. Verify the downloaded files with `sha256sum --check --ignore-missing
 --strict SHA256SUMS`, extract the archive, and enter its `mnemonic-X.Y.Z` directory.
+With Docker, Compose v2, and a POSIX shell, replace `X.Y.Z` below with that same release:
 
 ```sh
-python3 setup.py
+docker run --rm --pull always --user "$(id -u):$(id -g)" \
+  --mount "type=bind,source=$(pwd),target=/release" --entrypoint python \
+  ghcr.io/rightbrain-networks/mnemonic-api:X.Y.Z /release/setup.py
 docker compose pull
 docker compose up -d --wait
 ```
+
+Setup runs in the selected API image before Compose reads the required secrets.
+The host user owns the resulting regular `.env` file with mode `0600`; no host
+Python or sudo is needed. Do not run the installer through Compose before `.env`
+exists, because Compose must resolve those secrets first. Host Python 3.10 or newer
+can optionally run `python3 setup.py` instead of the initial Docker command.
+Existing `.env` files are left unchanged.
+
+To configure transcript sources during containerized setup, append the setup options
+after `/release/setup.py` and add a read-only bind for every approved source at its
+original absolute path, such as
+`--mount type=bind,source=/absolute/source,target=/absolute/source,readonly` before the
+image name. This preserves the same source-path, ownership, and permission checks as
+host Python setup. See [transcript setup](transcripts.md#filesystem-deployment).
 
 For an existing installation, follow [operations.md](operations.md) before
 starting the new version. Preserve its database, `.env`, and data stores; existing
@@ -153,8 +171,18 @@ docker compose exec -T mcp python - \
   --api-url http://api:8000 \
   --mcp-url http://mcp:8001/mcp \
   --web-url http://web:3000 --web-origin http://localhost:3000 < scripts/check-stack.py
-python3 scripts/check_transcript_access.py
 ```
+
+If transcript capture is configured, run its read-only diagnostics in both services:
+
+```sh
+docker compose exec -T api python -m mnemonic_api.transcript_doctor
+docker compose exec -T worker python -m mnemonic_api.transcript_doctor --worker
+```
+
+Compare the reported UID, GID and approved roots; API and worker must agree. With
+host Python available, `python3 scripts/check_transcript_access.py` runs both checks
+and compares those fields automatically.
 
 Set `--web-origin` to the actual configured dashboard origin when its port changes or
 TLS is enabled; it must match `MNEMONIC_DASHBOARD_ORIGINS`. The checker connects through

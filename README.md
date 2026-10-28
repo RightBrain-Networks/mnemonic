@@ -88,20 +88,28 @@ Install and configure mnemonic for me using a published versioned release bundle
 
 ### Or, if you prefer, old school human instructions...
 
-Requirements: Docker with Linux containers and Docker Compose v2 (`docker compose`). The
-settings helper uses Python 3.10 or newer. Running published images needs no host Node,
-Python application environment, or source build.
+Requirements: Docker with Linux containers and Docker Compose v2 (`docker compose`).
+The commands below use a POSIX shell, such as Linux, macOS, or WSL. Published-image
+installation needs no host Python, Node, application environment, or source build.
 
 For a published release that includes an install bundle, download its `mnemonic-X.Y.Z.tar.gz`
 and checksum from [GitHub Releases](https://github.com/RightBrain-Networks/mnemonic/releases),
-verify the checksum, and extract it. From the extracted directory, run:
+verify the checksum, and extract it. From the extracted directory, run the following,
+replacing `X.Y.Z` with that same published version:
 
 ```sh
-python3 setup.py
+docker run --rm --pull always --user "$(id -u):$(id -g)" \
+  --mount "type=bind,source=$(pwd),target=/release" --entrypoint python \
+  ghcr.io/rightbrain-networks/mnemonic-api:X.Y.Z /release/setup.py
 docker compose config --quiet
 docker compose pull
 docker compose up -d --wait
 ```
+
+The first command runs setup inside the selected API image and creates a private
+`.env` owned by your host user, without sudo. It does not start the application.
+If Python 3.10 or newer is already installed, `python3 setup.py` is an optional
+replacement for that first command. Existing `.env` files remain unchanged.
 
 Use an actually published release and its matching bundle; a version mentioned on `main`
 does not imply that its images are available. Until that release is published, or when
@@ -123,7 +131,11 @@ The source overlay builds images with local names, separate from published relea
 For transcript capture, add `--transcript-source /absolute/claude/projects`,
 `--codex-source /absolute/codex/sessions`, or
 `--codex-archived-source /absolute/codex/archived_sessions` to the setup command before creating
-`.env`. Use only existing operator-approved directories. The helper selects their owner's
+`.env`. When running setup in Docker, also mount each chosen source read-only at its
+identical absolute path in that setup container, using
+`--mount type=bind,source=/absolute/source,target=/absolute/source,readonly` before the image
+name. Alternatively, run the setup command with host Python 3.10 or newer.
+Use only existing operator-approved directories. The helper selects their owner's
 UID/GID, and API and worker read those paths through read-only binds. Docker Desktop must be
 allowed to share configured source directories. Without sources, capture stays disabled.
 See [transcript setup](docs/transcripts.md#filesystem-deployment).

@@ -2,11 +2,13 @@
 
 import importlib.util
 import io
+import json
 import os
 import tarfile
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 SPEC = importlib.util.spec_from_file_location(
@@ -17,6 +19,68 @@ SPEC.loader.exec_module(smoke)
 
 
 class ReleaseSmokeTests(unittest.TestCase):
+    def test_setup_uses_exact_container_image_and_caller_identity(self):
+        choices = [("0.116.0", False, "ghcr.io/rightbrain-networks/mnemonic-api:0.116.0"),
+                   ("sha-candidate-1-2", False,
+                    "ghcr.io/rightbrain-networks/mnemonic-api:sha-candidate-1-2"),
+                   ("0.116.1", True, "mnemonic-api:local")]
+        with (tempfile.TemporaryDirectory() as directory,
+              patch.object(smoke, "free_port", side_effect=[19001, 19002, 19003])):
+            root = Path(directory)
+            (root / "setup.py").write_text("# release installer\n")
+            stack = smoke.Stack(root)
+            for tag, local, image in choices:
+                with self.subTest(image=image), patch.object(smoke.subprocess, "run") as run:
+                    run.side_effect = lambda *args, **kwargs: smoke.private_write(
+                        root / ".env", "MNEMONIC_API_KEY=disposable-key\n")
+                    stack.setup(root, tag, local)
+                    command = run.call_args.args[0]
+                    self.assertEqual(command[:3], ["docker", "run", "--rm"])
+                    self.assertEqual(command[command.index("--user") + 1],
+                                     f"{os.getuid()}:{os.getgid()}")
+                    self.assertEqual(command[command.index("--pull") + 1],
+                                     "never" if local else "always")
+                    self.assertEqual(command[-4:], ["--entrypoint", "python", image,
+                                                    "/release/setup.py"])
+                    self.assertNotIn("disposable-key", " ".join(command))
+
+    def test_setup_refuses_nonprivate_settings_before_compose(self):
+        with (tempfile.TemporaryDirectory() as directory,
+              patch.object(smoke, "free_port", side_effect=[19001, 19002, 19003])):
+            root = Path(directory)
+            (root / "setup.py").write_text("# release installer\n")
+            (root / ".env").write_text("MNEMONIC_API_KEY=disposable-key\n")
+            (root / ".env").chmod(0o644)
+            with patch.object(smoke.subprocess, "run"), self.assertRaisesRegex(
+                    RuntimeError, "caller-owned regular 0600"):
+                smoke.Stack(root).setup(root, "0.116.1", True)
+
+    def test_upgrade_supplies_existing_settings_and_refuses_installer_changes(self):
+        settings = "MNEMONIC_API_KEY=original-disposable-key\n"
+        config = {"services": {name: {} for name in ("api", "mcp", "web")}}
+        with (tempfile.TemporaryDirectory() as directory,
+              patch.object(smoke, "free_port", side_effect=[19001, 19002, 19003])):
+            root = Path(directory)
+            stack = smoke.Stack(root)
+            for changed in (False, True):
+                def setup(path, tag, local, changed=changed):
+                    self.assertEqual((path / ".env").read_text(), settings)
+                    self.assertEqual((tag, local), ("sha-candidate-1-2", False))
+                    if changed:
+                        smoke.private_write(path / ".env", "MNEMONIC_API_KEY=replaced-key\n")
+
+                with (self.subTest(changed=changed), patch.object(stack, "setup", setup),
+                      patch.object(smoke.subprocess, "run", return_value=SimpleNamespace(
+                          stdout=json.dumps(config))) as run):
+                    if changed:
+                        with self.assertRaisesRegex(RuntimeError, "changed the existing"):
+                            stack.configure(root, "sha-candidate-1-2", False, settings)
+                        run.assert_not_called()
+                    else:
+                        self.assertEqual(stack.configure(root, "sha-candidate-1-2", False,
+                                                         settings), settings)
+                        run.assert_called_once()
+
     def test_inherited_production_configuration_is_removed(self):
         with (patch.dict(os.environ, {"COMPOSE_FILE": "production.yaml",
                                       "MNEMONIC_API_KEY": "production-secret",

@@ -7,8 +7,8 @@ import json
 import os
 import shutil
 import socket
+import stat
 import subprocess
-import sys
 import tarfile
 import tempfile
 import urllib.request
@@ -78,14 +78,33 @@ class Stack:
             env=self.environment, check=True, **kwargs,
         )
 
-    def configure(self, root: Path, image_tag: str, local: bool, settings: str | None) -> str:
+    def setup(self, root: Path, image_tag: str, local: bool) -> None:
         setup = root / "setup.py"
         if not setup.is_file():
             setup = root / "scripts/setup.py"
-        subprocess.run([sys.executable, str(setup)], cwd=root, env=self.environment, check=True)
+        image = "mnemonic-api:local" if local else (
+            f"ghcr.io/rightbrain-networks/mnemonic-api:{image_tag}")
+        subprocess.run([
+            "docker", "run", "--rm", "--pull", "never" if local else "always",
+            "--user", f"{os.getuid()}:{os.getgid()}",
+            "--mount", f"type=bind,source={root},target=/release",
+            "--entrypoint", "python", image, f"/release/{setup.relative_to(root)}",
+        ], env=self.environment, check=True)
         env_file = root / ".env"
-        values = settings or env_file.read_text()
-        private_write(env_file, values)
+        info = env_file.lstat()
+        if (not stat.S_ISREG(info.st_mode) or stat.S_IMODE(info.st_mode) != 0o600
+                or (info.st_uid, info.st_gid) != (os.getuid(), os.getgid())):
+            raise RuntimeError("Container setup must create caller-owned regular 0600 settings")
+        print("PASS: containerized setup retains caller-owned 0600 settings without host sudo")
+
+    def configure(self, root: Path, image_tag: str, local: bool, settings: str | None) -> str:
+        env_file = root / ".env"
+        if settings is not None:
+            private_write(env_file, settings)
+        self.setup(root, image_tag, local)
+        values = env_file.read_text()
+        if settings is not None and values != settings:
+            raise RuntimeError("Upgrade setup changed the existing private settings")
         self.key = next(line.split("=", 1)[1] for line in values.splitlines()
                         if line.startswith("MNEMONIC_API_KEY="))
         environment = {**self.environment, "MNEMONIC_VERSION": image_tag,
