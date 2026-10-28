@@ -68,6 +68,9 @@ def test_ambiguous_move_warns_then_automatically_recovers_after_operator_fix(
     api, project, work_payload, tmp_path, postgres_engine,
 ):
     source, work, _, _, record = enroll(api, project, work_payload, tmp_path)
+    assert api.patch(f"/api/v1/projects/{project['id']}/transcript-settings", json={
+        "enabled": True, "directories": [str(tmp_path)], "expected_revision": 1,
+    }).status_code == 200
     one, two = tmp_path / "one", tmp_path / "two"
     one.mkdir()
     two.mkdir()

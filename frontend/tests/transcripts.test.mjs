@@ -63,6 +63,7 @@ test("import confirmation binds counts, project, folder and operation", async ()
   assert.equal(decodeTranscriptImportRejection(422, rejection), rejection.detail.message);
   assert.equal(decodeTranscriptImportRejection(500, rejection), null);
   assert.equal(decodeTranscriptImportRejection(409, { detail: { code: "transcript_import_conflict", message: "Conflict" } }), null);
+  assert.equal(decodeTranscriptImportRejection(409, { detail: { code: "transcript_disabled", message: "Enable transcripts first." } }), "Enable transcripts first.");
 });
 
 test("Codex transcripts retain client metadata and display their provider name", () => {

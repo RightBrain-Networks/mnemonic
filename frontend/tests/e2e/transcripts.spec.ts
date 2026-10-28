@@ -298,7 +298,7 @@ test("workspace import retains exact retry requests and allows correcting fresh 
     await page.goto(`/transcripts?project=${project.id}`);
     const settings = page.getByRole("region", { name: "Transcript settings", exact: true });
     await settings.getByRole("button", { name: `Scan ${folder}/missing`, exact: true }).click();
-    await expect(settings.getByRole("alert")).toContainText("not readable");
+    await expect(settings.getByRole("alert")).toContainText("folder could not be read");
     await expect(settings.getByRole("button", { name: "Retry pending import" })).toHaveCount(0);
     await expect(page.locator("#project-select")).toBeEnabled();
     await settings.getByRole("button", { name: `Edit ${folder}/missing`, exact: true }).click();
@@ -516,6 +516,7 @@ test("transcript folder browser, inline edits, row warnings and removal work on 
     await expect(browser).toBeVisible();
     await browser.getByRole("button", { name: `Open ${transcriptRoot}`, exact: true }).click();
     await browser.getByRole("searchbox", { name: "Filter folders" }).fill(runId);
+    await expect(browser.getByRole("list", { name: "Server folders" }).getByRole("button")).toHaveCount(1);
     await browser.getByRole("button", { name: `Open ${runId}`, exact: true }).click();
     await expect(browser.locator(".transcript-folder-current")).toContainText(folder);
     await browser.screenshot({ path: testInfo.outputPath("transcript-folder-browser.png"), animations: "disabled" });
