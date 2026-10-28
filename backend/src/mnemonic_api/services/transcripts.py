@@ -64,6 +64,8 @@ def register_transcripts(
 ) -> None:
     from mnemonic_api.services.transcript_imports import take_imported_transcript
 
+    if not transcripts_enabled(database, work.project_id):
+        return
     for source in sources:
         existing = database.scalar(select(Transcript.id).where(
             Transcript.work_item_id == work.id,
@@ -357,11 +359,9 @@ def settings_read(
     require_project(database, project_id)
     record = database.get(TranscriptSettings, project_id)
     return TranscriptSettingsRead(enabled=record.enabled if record else True,
-        max_file_size_bytes=min(record.max_file_size_bytes, settings.transcript_max_bytes)
-            if record else settings.transcript_max_bytes,
         revision=record.revision if record else 1,
         allowed_roots=[str(root) for root in settings.transcript_allowed_roots],
-        operator_max_file_size_bytes=settings.transcript_max_bytes)
+        directories=record.directories if record else [])
 
 
 def update_settings(database: Session, project_id: UUID, payload: TranscriptSettingsPatch,
@@ -369,15 +369,14 @@ def update_settings(database: Session, project_id: UUID, payload: TranscriptSett
     current = settings_read(database, project_id, settings)
     if payload.expected_revision != current.revision:
         raise conflict("transcript_settings_conflict", "Transcript settings changed; reload them.")
-    if payload.max_file_size_bytes > settings.transcript_max_bytes:
-        raise ApplicationError(422, "transcript_size_limit",
-                               "The file limit exceeds the operator-configured maximum.")
     record = database.get(TranscriptSettings, project_id)
     if record is None:
         record = TranscriptSettings(project_id=project_id)
         database.add(record)
     record.enabled = payload.enabled
-    record.max_file_size_bytes = payload.max_file_size_bytes
+    record.directories = payload.directories
+    if current.enabled and not payload.enabled:
+        _fence_disabled_jobs(database, project_id)
     record.revision = current.revision + 1
     database.flush()
     return settings_read(database, project_id, settings)
@@ -388,6 +387,7 @@ def rebuild_transcripts(database: Session, project_id: UUID, operation_id: UUID)
     receipt = database.get(TranscriptRebuild, (project_id, operation_id))
     if receipt is not None:
         return receipt.queued
+    require_transcripts_enabled(database, project_id)
     retained = Transcript.status == "ready"
     snapshot = {name: case((retained, getattr(Transcript, name)),
                           else_=literal(value, type_=getattr(Transcript, name).type))
@@ -411,3 +411,37 @@ def rebuild_transcripts(database: Session, project_id: UUID, operation_id: UUID)
                                    queued=queued))
     database.flush()
     return queued
+
+
+def transcripts_enabled(database: Session, project_id: UUID) -> bool:
+    record = database.get(TranscriptSettings, project_id)
+    return record is None or record.enabled
+
+
+def require_transcripts_enabled(database: Session, project_id: UUID) -> None:
+    if not transcripts_enabled(database, project_id):
+        raise conflict("transcript_disabled", "Enable transcripts before importing or rebuilding.")
+
+
+def _fence_disabled_jobs(database: Session, project_id: UUID) -> None:
+    # Invalidate claims atomically with the switch. Work already in progress may
+    # finish local IO, but cannot publish or become visible after disabling.
+    database.execute(update(Transcript).where(Transcript.id.in_(
+        transcript_query(project_id).with_only_columns(Transcript.id)),
+        (Transcript.status == "processing") | (Transcript.reindex_status == "processing")
+        | (Transcript.copy_status == "processing")).values(
+            generation=Transcript.generation + 1,
+            attempts=case(((Transcript.status == "processing")
+                           | (Transcript.reindex_status == "processing"),
+                           func.greatest(Transcript.attempts - 1, 0)), else_=Transcript.attempts),
+            copy_attempts=case((Transcript.copy_status == "processing",
+                                func.greatest(Transcript.copy_attempts - 1, 0)),
+                               else_=Transcript.copy_attempts),
+            status=case((Transcript.status == "processing", "pending"), else_=Transcript.status),
+            reindex_status=case((Transcript.reindex_status == "processing", "pending"),
+                                else_=Transcript.reindex_status),
+            copy_status=case((Transcript.copy_status == "processing", "pending"),
+                              else_=Transcript.copy_status),
+            lease_token=None, lease_expires_at=None,
+            copy_lease_token=None, copy_lease_expires_at=None,
+        ).execution_options(synchronize_session=False))

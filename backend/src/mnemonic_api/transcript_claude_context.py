@@ -9,7 +9,7 @@ BOOKKEEPING_RECORDS = frozenset({
     "queue-operation", "file-history-snapshot", "progress", "last-prompt", "atis-latch",
     "bridge-session", "relocated", "worktree-state", "pr-link", "file-history-delta",
     "ai-title", "mode", "frame-link", "history-suppression", "artifact-comment-monitor",
-    "artifact-autoreact-ledger", "permission-mode", "custom-title", "agent-name",
+    "artifact-autoreact-ledger", "permission-mode", "custom-title", "agent-name", "cost-state",
 })
 CONTEXT_ATTACHMENTS = frozenset({
     "total_tokens_reminder", "batching_reminder_sent", "deferred_tools_delta", "queued_command",
@@ -21,8 +21,10 @@ CONTEXT_ATTACHMENTS = frozenset({
     "hook_blocking_error", "hook_success", "ultra_effort_enter", "read_truncation_notice",
     "nested_memory", "file", "compact_file_reference", "date_change", "hook_cancelled",
     "invoked_skills", "auto_mode_exit", "thinking_stripped", "ultra_effort_exit", "dynamic_skill",
-    "task_status", "thinking_drop",
+    "task_status", "thinking_drop", "credential_org", "hook_non_blocking_error",
+    "session_cron_carry", "workflow_keyword_request",
 })
+CONTEXT_RECORDS = frozenset({"api-request", "api-request-shape"})
 SYSTEM_RECORDS = frozenset({"stop_hook_summary", "api_error", "turn_duration"})
 
 

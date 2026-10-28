@@ -18623,6 +18623,69 @@
         "title": "TranscriptAppliedFilters",
         "type": "object"
       },
+      "TranscriptBrowseRead": {
+        "properties": {
+          "directory": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Directory"
+          },
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/TranscriptDirectory"
+            },
+            "title": "Entries",
+            "type": "array"
+          },
+          "parent": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent"
+          },
+          "truncated": {
+            "default": false,
+            "title": "Truncated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "directory",
+          "parent",
+          "entries"
+        ],
+        "title": "TranscriptBrowseRead",
+        "type": "object"
+      },
+      "TranscriptDirectory": {
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "path"
+        ],
+        "title": "TranscriptDirectory",
+        "type": "object"
+      },
       "TranscriptFacetHit": {
         "additionalProperties": false,
         "properties": {
@@ -19781,6 +19844,14 @@
       "TranscriptSettingsPatch": {
         "additionalProperties": false,
         "properties": {
+          "directories": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 100,
+            "title": "Directories",
+            "type": "array"
+          },
           "enabled": {
             "title": "Enabled",
             "type": "boolean"
@@ -19789,17 +19860,11 @@
             "minimum": 1.0,
             "title": "Expected Revision",
             "type": "integer"
-          },
-          "max_file_size_bytes": {
-            "maximum": 1073741824.0,
-            "minimum": 1.0,
-            "title": "Max File Size Bytes",
-            "type": "integer"
           }
         },
         "required": [
           "enabled",
-          "max_file_size_bytes",
+          "directories",
           "expected_revision"
         ],
         "title": "TranscriptSettingsPatch",
@@ -19814,17 +19879,16 @@
             "title": "Allowed Roots",
             "type": "array"
           },
+          "directories": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Directories",
+            "type": "array"
+          },
           "enabled": {
             "title": "Enabled",
             "type": "boolean"
-          },
-          "max_file_size_bytes": {
-            "title": "Max File Size Bytes",
-            "type": "integer"
-          },
-          "operator_max_file_size_bytes": {
-            "title": "Operator Max File Size Bytes",
-            "type": "integer"
           },
           "revision": {
             "title": "Revision",
@@ -19833,10 +19897,9 @@
         },
         "required": [
           "enabled",
-          "max_file_size_bytes",
           "revision",
           "allowed_roots",
-          "operator_max_file_size_bytes"
+          "directories"
         ],
         "title": "TranscriptSettingsRead",
         "type": "object"
@@ -24117,7 +24180,7 @@
   "info": {
     "description": "Durable project-scoped work with immutable agent checkpoints.",
     "title": "Mnemonic API",
-    "version": "0.114.0"
+    "version": "0.115.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -30387,6 +30450,85 @@
           }
         ],
         "summary": "List Transcripts"
+      }
+    },
+    "/api/v1/projects/{project_id}/transcripts/browse": {
+      "get": {
+        "operationId": "browse_transcript_directories_api_v1_projects__project_id__transcripts_browse_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "directory",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 4096,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Directory"
+            }
+          },
+          {
+            "in": "query",
+            "name": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Query"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TranscriptBrowseRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Browse Transcript Directories"
       }
     },
     "/api/v1/projects/{project_id}/transcripts/health": {

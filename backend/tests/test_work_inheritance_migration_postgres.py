@@ -23,7 +23,7 @@ from .test_work_lineage_postgres import collection, create
 pytestmark = pytest.mark.postgres
 PREVIOUS = "0063_impact_findings"
 MIGRATION = "0064_work_change_inheritance"
-HEAD = "0068_artifact_tags"
+HEAD = "0069_transcript_directories"
 EXCLUSIONS = "work_change_inheritance_exclusions"
 
 

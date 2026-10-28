@@ -221,3 +221,27 @@ ready imports and enrolled sessions from retained copies. Old search text remain
 available until publication, and active leases, project pauses and bounded retries
 still apply. No database migration, reimport or manual rebuild is required. Unknown
 future types and non-searchable binary bodies retain their coverage warnings.
+
+## Runtime-format drift (normalizer 4)
+
+The Fish Food audit found newer native formats that had outgrown the enumerated
+adapters: Claude API request/context snapshots, organization context, nonblocking
+hook errors, carried cron tasks and rendered workflow prompts; Codex dynamically
+added tool definitions, configuration changes and clock completions. These were
+valid records, not corrupt transcripts. Rebuilding with normalizer 3 reused the
+same incomplete representation and could not repair them.
+
+Normalizer 4 preserves the readable structured context and hook diagnostics,
+including prompts stored alongside an attachment's descriptor. Cost telemetry is
+bookkeeping, and Codex clock completions retain their duration as tool results.
+All of these shapes have synthetic regression fixtures. The ordinary version
+reconciler refreshes existing captures automatically, preserving prior searchable
+text while queued and respecting disabled projects and active sessions. It does
+not require the original source to remain available once the native copy is ready.
+
+Unknown future formats still report incomplete coverage. The bounded metadata
+property `transcript:unsupported_native_types` now records native envelope/type
+labels and counts (at most 32 distinct labels plus an overflow count), without
+message bodies. This identifies client-format drift directly instead of requiring
+a fresh content investigation to decode a generic “Unrecognized native content”
+warning. Native binary/media limitations remain separate, truthful coverage warnings.

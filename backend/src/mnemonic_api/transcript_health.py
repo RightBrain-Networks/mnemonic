@@ -7,7 +7,7 @@ from time import monotonic
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, false, func, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -15,7 +15,7 @@ from mnemonic_api.artifact_index import ArtifactSearchIndex
 from mnemonic_api.config import Settings
 from mnemonic_api.errors import ApplicationError
 from mnemonic_api.models import Transcript, TranscriptWorkerHealth, WorkItem
-from mnemonic_api.services.transcripts import transcript_project_id
+from mnemonic_api.services.transcripts import settings_read, transcript_project_id
 from mnemonic_api.services.work_items import require_project
 from mnemonic_api.transcript_access import (
     RECHECK_SECONDS,
@@ -173,13 +173,16 @@ def _worker_warnings(database: Session, api_report: dict, now: datetime):
     return warnings, last_check
 
 
-def _copy_warnings(database: Session, project_id: UUID):
+def _copy_warnings(database: Session, project_id: UUID, paths: list[Path]):
     source = func.coalesce(Transcript.copy_error_details["path"].astext, effective_copy_path())
     grouped = (select(Transcript.copy_error_code, Transcript.copy_error_details, source,
                       func.count(), func.min(Transcript.copy_next_attempt_at))
         .outerjoin(WorkItem, WorkItem.id == Transcript.work_item_id)
         .where(transcript_project_id() == project_id, Transcript.copy_status != "ready",
-               Transcript.copy_error_code.is_not(None))
+               Transcript.copy_error_code.is_not(None),
+               or_(false(), *(or_(source == str(path),
+                   func.starts_with(source, str(path).rstrip("/") + "/"),
+                   func.starts_with(str(path), source + "/")) for path in paths)))
         .group_by(Transcript.copy_error_code, Transcript.copy_error_details, source)).subquery()
     # One statement keeps counts consistent with rows while copies finish concurrently.
     rows = database.execute(select(grouped, func.count().over(), func.sum(grouped.c[3]).over())
@@ -198,12 +201,29 @@ def transcript_health(database: Session, project_id: UUID,
     now = database.execute(select(func.clock_timestamp())).scalar_one()
     warnings = [warning_for(item["code"], item["details"], "api") for item in report["issues"]]
     workers, checked = _worker_warnings(database, report, now)
-    copies, omitted, affected = _copy_warnings(database, project_id)
+    directories = settings_read(database, project_id, settings).directories
+    paths = [Path(directory) for directory in directories]
+    copies, omitted, affected = _copy_warnings(database, project_id, paths)
     if not report["roots"]:
         warnings.append(TranscriptWarning(code="transcript_sources_unconfigured", service="api",
             message="No shared transcript source directories are configured.",
             action="Configure dedicated transcript source directories and their read-only mounts "
             "for both API and worker. Other machines need an explicitly shared filesystem."))
+    def configured(warning: TranscriptWarning) -> bool:
+        if warning.path is None or warning.code in {
+            "transcript_copy_unavailable", "transcript_storage_full",
+            "transcript_storage_read_only",
+        }:
+            return True
+        location = Path(warning.path)
+        return any(location.is_relative_to(path) or path.is_relative_to(location) for path in paths)
+
+    warnings = [warning for warning in warnings if configured(warning)]
+    workers = [warning for warning in workers if configured(warning)]
+    copies = [warning for warning in copies if configured(warning)]
+    warnings.extend(warning_for(issue["code"], issue["details"], "api")
+                    for path in paths
+                    if (issue := probe_source(path, settings.transcript_allowed_roots)))
     warnings.extend(index_warnings(index, settings))
     # Deduplicate identical findings from multiple workers, not distinct paths.
     unique = {item.model_dump_json(): item for item in [*warnings, *workers, *copies]}

@@ -31,11 +31,12 @@ def replay_import(database: Session, project_id: UUID,
 def import_transcripts(database: Session, project_id: UUID, payload: TranscriptImportRequest,
                        scan: TranscriptDiscovery) -> TranscriptImportRead:
     # The caller holds the same project lock as claims, closeouts, and rebuilds.
-    from mnemonic_api.services.transcripts import transcript_query
+    from mnemonic_api.services.transcripts import require_transcripts_enabled, transcript_query
 
     replay = replay_import(database, project_id, payload)
     if replay is not None:
         return replay
+    require_transcripts_enabled(database, project_id)
     key = _source_key()
     existing = set(database.scalars(transcript_query(project_id).with_only_columns(key)
                                    .where(key.in_(scan.paths))))

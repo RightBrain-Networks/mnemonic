@@ -241,7 +241,7 @@ Review `.env` locally without reproducing secret values in output. These keys MU
 | `MNEMONIC_TRANSCRIPT_DIR` | Private retained-copy directory; default `/var/lib/mnemonic/transcripts`. |
 | `MNEMONIC_TRANSCRIPT_INDEX_DIR` | Dedicated absolute index directory; default `/var/lib/mnemonic/transcript-index`. |
 | `MNEMONIC_TRANSCRIPT_ALLOWED_ROOTS` | JSON array; default `[]` derives access from configured source directories, or disables it when none are configured. |
-| `MNEMONIC_TRANSCRIPT_MAX_BYTES` | Per-native-file capture limit; default `536870912` (512 MiB), maximum 1 GiB. |
+| `MNEMONIC_TRANSCRIPT_MAX_BYTES` | Per-native-file capture limit; default `1073741824` (1 GiB), maximum 1 GiB. |
 | `MNEMONIC_BACKUP_DIR` | Private host directory; default `./backups`. |
 | `MNEMONIC_BACKUP_INTERVAL_SECONDS` | Per-project scheduling interval; default `86400` seconds. |
 | `MNEMONIC_BACKUP_RETENTION_COUNT` | Successful archives retained per project; default `7`, range `1` through `10000`. |
@@ -548,8 +548,8 @@ on upload, replacement, or metadata update. Null clears artifact assignments;
 omitted update/replacement tags preserve them. Tag edits advance the artifact
 revision and retain history. New projects receive six editable starter tags.
 
-Application/API/MCP/dashboard 0.114.0, plugin 0.71.0 and Alembic
-`0068_artifact_tags` ship together: 79 MCP tools, 25
+Application/API/MCP/dashboard 0.115.0, plugin 0.71.0 and Alembic
+`0069_transcript_directories` ship together: 79 MCP tools, 25
 receipt-protected MCP writes,
 38 REST receipt kinds, 32 protected browser mutations, 24 event types and three
 plugin skills. Existing projects default to Never/Never/off review settings;

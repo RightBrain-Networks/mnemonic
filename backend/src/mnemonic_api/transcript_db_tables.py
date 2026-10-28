@@ -114,8 +114,8 @@ def import_elements() -> list:
     ]
 
 
-def settings_elements() -> list:
-    return [
+def settings_elements(*, directories: bool = True) -> list:
+    elements = [
         sa.Column("project_id", UUID, sa.ForeignKey("projects.id", ondelete="RESTRICT"),
                   primary_key=True),
         sa.Column("enabled", sa.Boolean, nullable=False, server_default="true"),
@@ -124,6 +124,14 @@ def settings_elements() -> list:
         sa.CheckConstraint("revision > 0", name="revision_positive"),
         sa.CheckConstraint("max_file_size_bytes BETWEEN 1 AND 1073741824", name="size_valid"),
     ]
+
+    if directories:
+        elements.append(sa.Column("directories", JSONB, nullable=False,
+                                  server_default=sa.text("'[]'::jsonb")))
+        elements.append(sa.CheckConstraint(
+            "jsonb_typeof(directories) = 'array' AND jsonb_array_length(directories) <= 100",
+            name="directories_valid"))
+    return elements
 
 
 def rebuild_elements() -> list:

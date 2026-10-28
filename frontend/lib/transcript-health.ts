@@ -59,9 +59,3 @@ export function transcriptWarningKey(warning: TranscriptWarning): string {
   return JSON.stringify([warning.service, warning.code, warning.path, warning.uid, warning.gid,
     warning.owner_uid, warning.owner_gid, warning.mode]);
 }
-export function readDismissedTranscriptWarnings(value: string | null): string[] {
-  try {
-    const parsed: unknown = JSON.parse(value || "[]");
-    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string" && item.length <= 5000).slice(-200) : [];
-  } catch { return []; }
-}

@@ -17,7 +17,7 @@ depends_on = None
 
 def upgrade() -> None:
     op.create_table("transcripts", *transcript_elements(include_imports=False))
-    op.create_table("transcript_settings", *settings_elements())
+    op.create_table("transcript_settings", *settings_elements(directories=False))
     op.create_table("transcript_rebuilds", *rebuild_elements())
 
 

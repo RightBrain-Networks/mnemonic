@@ -12,7 +12,7 @@ from mnemonic_api.transcript_indexing import _active_generation, _lock_claim_can
 
 
 def _outdated():
-    return (select(Transcript, TranscriptSettings.max_file_size_bytes)
+    return (select(Transcript)
         .outerjoin(WorkItem, WorkItem.id == Transcript.work_item_id)
         .outerjoin(TranscriptSettings, TranscriptSettings.project_id == transcript_project_id())
         .where(func.coalesce(TranscriptSettings.enabled, True), ~_active_generation(),
@@ -48,7 +48,7 @@ def refresh_outdated_normalizations(database: Session, settings: Settings) -> in
                 row = _lock_claim_candidate(maintenance, candidate, settings, statement)
                 if row is None:
                     continue
-                record, _ = row
+                record = row[0]
                 record.generation += 1
                 record.attempts = 0
                 record.reindex_status, record.reindex_error_code = "pending", None

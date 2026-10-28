@@ -343,7 +343,7 @@ def test_queued_retained_reindex_defers_pause_without_losing_its_job(
     context = _queued_context(factory, "transcript_index")
     endpoint = f"/api/v1/projects/{project['id']}/transcript-settings"
     assert api.patch(endpoint, json={"enabled": False, "expected_revision": 1,
-                                    "max_file_size_bytes": 1024}).status_code == 200
+                                    "directories": []}).status_code == 200
     with pytest.raises(RetryJob) as deferred:
         handle_transcript_index(factory, settings, context)
     assert not deferred.value.consume_attempt
@@ -354,7 +354,7 @@ def test_queued_retained_reindex_defers_pause_without_losing_its_job(
         job.due_at = datetime.now(UTC) - timedelta(seconds=1)
     assert read(api, project, record)["status"] == "ready"
     assert api.patch(endpoint, json={"enabled": True, "expected_revision": 2,
-                                    "max_file_size_bytes": 1024}).status_code == 200
+                                    "directories": []}).status_code == 200
     resumed = _queued_context(factory, "transcript_index")
     assert resumed.job_id == context.job_id
     assert handle_transcript_index(factory, settings, resumed) == {"disposition": "ready"}

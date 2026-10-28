@@ -51,7 +51,7 @@ def _collection_route(parts: list[str], method: str) -> str | None:
     if len(parts) == 3:
         return "list" if method == "GET" else None
     if len(parts) == 4 and (parts[3], method) in {
-        ("health", "GET"), ("rebuild", "POST"), ("import", "POST"),
+        ("health", "GET"), ("rebuild", "POST"), ("import", "POST"), ("browse", "GET"),
     }:
         return parts[3]
     if not uuid(parts[3]) or method != "GET":
@@ -73,6 +73,8 @@ def _numeric_value(key: str, value: str, action: str) -> bool:
 
 
 def _query_value(key: str, value: str, action: str) -> bool:
+    if key == "directory":
+        return valid_transcript_directory(value)
     if key in _ENUMS:
         return value in _ENUMS[key]
     if key == "query":
@@ -89,7 +91,7 @@ def _query_value(key: str, value: str, action: str) -> bool:
 
 def valid_transcript_query(query: QueryParams, action: str) -> bool:
     allowed = {"list": _LIST_KEYS, "text": _TEXT_KEYS,
-               "content": {"expected_sha256"}}.get(action, set())
+               "content": {"expected_sha256"}, "browse": {"directory", "query"}}.get(action, set())
     if any(key not in allowed or len(query.getlist(key)) != 1
            or not _query_value(key, value, action) for key, value in query.multi_items()):
         return False
@@ -116,9 +118,10 @@ def valid_transcript_body(value: Any, action: str) -> bool:
     if not isinstance(value, dict):
         return False
     if action == "save":
-        return (exact_keys(value, ["enabled", "max_file_size_bytes", "expected_revision"])
+        return (exact_keys(value, ["enabled", "directories", "expected_revision"])
                 and type(value["enabled"]) is bool
-                and integer(value["max_file_size_bytes"], 1, TRANSCRIPT_MAX_BYTES)
+                and isinstance(value["directories"], list) and len(value["directories"]) <= 100
+                and all(valid_transcript_directory(path) for path in value["directories"])
                 and integer(value["expected_revision"], 1))
     if action == "import":
         return (exact_keys(value, ["client_operation_id", "directory"])

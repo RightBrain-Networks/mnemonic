@@ -104,7 +104,7 @@ def _resolved_path_errors(settings: Settings, *, copying: bool = False):
 
 
 def _claimable_transcripts(settings: Settings):
-    return (select(Transcript, TranscriptSettings.max_file_size_bytes)
+    return (select(Transcript)
         .outerjoin(WorkItem, WorkItem.id == Transcript.work_item_id)
         .outerjoin(TranscriptSettings, TranscriptSettings.project_id == transcript_project_id())
         .where(func.coalesce(TranscriptSettings.enabled, True), ~_active_generation(),
@@ -139,7 +139,7 @@ def _lock_claim_candidate(database: Session, candidate, settings: Settings, stat
 
 
 def _start_claim(database: Session, row, settings: Settings) -> TranscriptJob | None:
-    transcript, maximum = row
+    transcript = row[0]
     now = database.execute(select(func.clock_timestamp())).scalar_one()
     if (transcript.reindex_status or transcript.status) == "failed":
         transcript.attempts = 0
@@ -163,8 +163,7 @@ def _start_claim(database: Session, row, settings: Settings) -> TranscriptJob | 
     assert transcript.copy_size_bytes is not None
     return TranscriptJob(transcript.id, transcript.generation, transcript.lease_token,
                          transcript.source_path, transcript.client,
-                         min(maximum or settings.transcript_max_bytes,
-                             settings.transcript_max_bytes), transcript.kind == "imported",
+                         settings.transcript_max_bytes, transcript.kind == "imported",
                          TranscriptCopy(transcript.storage_key, transcript.copy_sha256,
                                         transcript.copy_size_bytes,
                                         source_modified_at=transcript.source_modified_at),

@@ -2389,6 +2389,7 @@ class TranscriptSettings(Base):
     project_id: Mapped[UUID]
     enabled: Mapped[bool]
     max_file_size_bytes: Mapped[int]
+    directories: Mapped[list[str]]
     revision: Mapped[int]
 
 
