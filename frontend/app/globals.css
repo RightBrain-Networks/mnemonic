@@ -2881,3 +2881,6 @@ html[data-theme="dark"] :is(.operational-badge.planning-cycle, .dependency-cycle
 .artifact-tag-editor .settings-actions { margin-top: 12px; }
 .artifact-upload-tags { grid-column: 1 / -1; }
 .artifact-library > .tag-filter-row { padding: 10px 22px 14px; }
+
+.library-controls > .tag-filter-row { padding: 10px 0; }
+.work-filter-divider { margin: 4px 0 12px; border: 0; border-top: 1px solid var(--line); }

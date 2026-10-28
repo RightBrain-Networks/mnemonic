@@ -23,7 +23,8 @@ carry `remediation` or `dir` when the corresponding lineage is present. Selectin
 does not create a review, change eligibility, remove lineage, or acquire a lease.
 The `dir` description is “Design Impact Review: investigate the impact a revised decision document”.
 
-The work library displays tags below the status controls. **All** clears the tag
+The work library displays tags above the status and sort controls, separated by a
+subtle horizontal divider. **All** clears the tag
 selection, **OR** matches any selected tag, and **AND** requires every selected
 tag. Tag order affects this presentation only. Code review work appears in this
 library and retains its existing review controls and purpose-bound leases.

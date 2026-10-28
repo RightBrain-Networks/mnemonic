@@ -189,6 +189,22 @@ export default function WorkItemList({
           </div></div>
         </div>
       </section>
+      <div className="tag-filter-row" role="group" aria-label="Filter by tags">
+        <div className="sort-group"><span className="sort-label" aria-hidden="true">Filter:</span>
+          <fieldset className="sort-control"><legend className="sr-only">Tag matching</legend><div className="sort-options">
+            {(["all", "or", "and"] as TagMode[]).map((mode) => <label className={`sort-option ${tagMode === mode ? "selected" : ""}`} key={mode}>
+              <input type="radio" name="tag-mode" value={mode} checked={tagMode === mode} onChange={() => { onTagMode(mode); if (mode === "all") onTags([]); }} /><span>{mode === "all" ? "All" : mode.toUpperCase()}</span>
+            </label>)}
+          </div></fieldset>
+        </div>
+        <div className="tag-filter-options">{catalog.data?.items.map((tag) => <button type="button" key={tag.id} className={`tag-filter-button ${selectedTags.includes(tag.name) ? "selected" : ""}`} aria-pressed={selectedTags.includes(tag.name)} title={tag.description} onClick={() => {
+          const next = selectedTags.includes(tag.name) ? selectedTags.filter((name) => name !== tag.name) : [...selectedTags, tag.name];
+          onTags(next); if (next.length && tagMode === "all") onTagMode("or"); if (!next.length) onTagMode("all");
+        }}><TagBadge name={tag.name} tag={tag} /></button>)}</div>
+        {catalog.isPending && <span role="status" className="field-hint">Loading tags…</span>}
+        {catalog.isError && <button type="button" className="text-link" onClick={() => void catalog.refetch()}>Retry loading tags</button>}
+      </div>
+      <hr className="work-filter-divider" />
       <div className="filter-row">
         <div className="status-filters" role="group" aria-label="Filter work items" aria-keyshortcuts="ArrowLeft ArrowRight">
           {workItemStatusFilterOrder.map((filter) => <button type="button" key={filter} className={`filter-button ${status === filter ? "selected" : ""}`} aria-pressed={status === filter} onClick={() => onStatus(filter)}>{filter === "pending" && <span className="filter-dot" />}{statusFilterLabels[filter]}</button>)}
@@ -209,21 +225,7 @@ export default function WorkItemList({
         </div>
       </div>
       {canonicalWorkItemId && <div className="duplicate-group-filter" role="status"><span>Canonical group</span><code>{canonicalWorkItemId}</code><button type="button" className="text-link" onClick={onClearDuplicateGroup}>Clear group</button></div>}
-      <div className="tag-filter-row" role="group" aria-label="Filter by tags">
-        <div className="sort-group"><span className="sort-label" aria-hidden="true">Filter:</span>
-          <fieldset className="sort-control"><legend className="sr-only">Tag matching</legend><div className="sort-options">
-            {(["all", "or", "and"] as TagMode[]).map((mode) => <label className={`sort-option ${tagMode === mode ? "selected" : ""}`} key={mode}>
-              <input type="radio" name="tag-mode" value={mode} checked={tagMode === mode} onChange={() => { onTagMode(mode); if (mode === "all") onTags([]); }} /><span>{mode === "all" ? "All" : mode.toUpperCase()}</span>
-            </label>)}
-          </div></fieldset>
-        </div>
-        <div className="tag-filter-options">{catalog.data?.items.map((tag) => <button type="button" key={tag.id} className={`tag-filter-button ${selectedTags.includes(tag.name) ? "selected" : ""}`} aria-pressed={selectedTags.includes(tag.name)} title={tag.description} onClick={() => {
-          const next = selectedTags.includes(tag.name) ? selectedTags.filter((name) => name !== tag.name) : [...selectedTags, tag.name];
-          onTags(next); if (next.length && tagMode === "all") onTagMode("or"); if (!next.length) onTagMode("all");
-        }}><TagBadge name={tag.name} tag={tag} /></button>)}</div>
-        {catalog.isPending && <span role="status" className="field-hint">Loading tags…</span>}
-        {catalog.isError && <button type="button" className="text-link" onClick={() => void catalog.refetch()}>Retry loading tags</button>}
-      </div>
+
     </section>
 
     <section ref={workSplit.surfaceRef} className={`work-surface ${workSplit.resizing ? "is-resizing" : ""}`} style={workSplit.surfaceStyle} aria-label="Work surface">

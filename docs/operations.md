@@ -1,5 +1,9 @@
 # Operating Mnemonic
 
+Release 0.114.0 places work-item tags above the state and sort controls, with a
+subtle divider between the rows. Plugin 0.71.0, schema 0068, and tool contracts
+are unchanged.
+
 Release 0.113.0 aligns code-review cards with work-item cards and routes the
 code-review copy confirmation through the dashboard toast. API, worker, MCP,
 and dashboard share the release version; plugin 0.71.0 and Alembic
