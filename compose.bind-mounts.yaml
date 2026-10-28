@@ -1,0 +1,104 @@
+# Existing installations: preserve every configured path before upgrading.
+services:
+  init-storage:
+    environment:
+      MNEMONIC_STORAGE_MODE: bind
+    volumes:
+      - type: bind
+        source: ${MNEMONIC_ARTIFACT_DIR:-./artifacts}
+        target: /var/lib/mnemonic/artifacts
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${MNEMONIC_PROMPT_DIR:-./prompts/runtime}
+        target: /var/lib/mnemonic/prompts
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${MNEMONIC_TRANSCRIPT_DIR:-/var/lib/mnemonic/transcripts}
+        target: /var/lib/mnemonic/transcripts
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${MNEMONIC_TRANSCRIPT_INDEX_DIR:-/var/lib/mnemonic/transcript-index}
+        target: /var/lib/mnemonic/transcript-index
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${MNEMONIC_BACKUP_DIR:-./backups}
+        target: /backups
+        bind:
+          create_host_path: false
+  migrate:
+    volumes:
+      - type: bind
+        source: ${MNEMONIC_ARTIFACT_DIR:-./artifacts}
+        target: /var/lib/mnemonic/artifacts
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${MNEMONIC_PROMPT_DIR:-./prompts/runtime}
+        target: /var/lib/mnemonic/prompts
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${MNEMONIC_TRANSCRIPT_DIR:-/var/lib/mnemonic/transcripts}
+        target: /var/lib/mnemonic/transcripts
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${MNEMONIC_TRANSCRIPT_INDEX_DIR:-/var/lib/mnemonic/transcript-index}
+        target: /var/lib/mnemonic/transcript-index
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${MNEMONIC_BACKUP_DIR:-./backups}
+        target: /backups
+        bind:
+          create_host_path: false
+  api:
+    volumes:
+      - type: bind
+        source: ${MNEMONIC_ARTIFACT_DIR:-./artifacts}
+        target: /var/lib/mnemonic/artifacts
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${MNEMONIC_PROMPT_DIR:-./prompts/runtime}
+        target: /var/lib/mnemonic/prompts
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${MNEMONIC_TRANSCRIPT_DIR:-/var/lib/mnemonic/transcripts}
+        target: /var/lib/mnemonic/transcripts
+        bind:
+          create_host_path: false
+        read_only: true
+      - type: bind
+        source: ${MNEMONIC_TRANSCRIPT_INDEX_DIR:-/var/lib/mnemonic/transcript-index}
+        target: /var/lib/mnemonic/transcript-index
+        bind:
+          create_host_path: false
+  worker:
+    volumes:
+      - type: bind
+        source: ${MNEMONIC_ARTIFACT_DIR:-./artifacts}
+        target: /var/lib/mnemonic/artifacts
+        bind:
+          create_host_path: false
+        read_only: true
+      - type: bind
+        source: ${MNEMONIC_PROMPT_DIR:-./prompts/runtime}
+        target: /var/lib/mnemonic/prompts
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${MNEMONIC_TRANSCRIPT_DIR:-/var/lib/mnemonic/transcripts}
+        target: /var/lib/mnemonic/transcripts
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${MNEMONIC_BACKUP_DIR:-./backups}
+        target: /backups
+        bind:
+          create_host_path: false

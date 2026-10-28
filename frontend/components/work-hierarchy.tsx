@@ -212,49 +212,12 @@ function HierarchyBranch(props: BranchProps) {
   </div>;
 }
 
-export default function WorkHierarchy({
-  items,
-  viewKey,
-  motionRevision,
-  motionTotal,
-  motionSnapshotSignal,
-  motionEnabled,
-  ...actions
-}: Actions & {
-  items: HierarchySummary[];
-  status: StatusFilter;
-  sort: WorkSort;
-  tag: string;
-  tags?: string[];
-  tagMode?: "or" | "and";
-  sourceClient: string;
-  sourceSessionId: string;
-  refreshKey: number;
-  viewKey: string;
-  motionRevision: unknown;
-  motionTotal: number;
-  motionSnapshotSignal: unknown;
-  motionEnabled: boolean;
-}) {
-  const motionRef = useWorkItemMotion<HTMLElement>({
-    itemIds: items.map((item) => item.summary.work_item.id),
-    total: motionTotal,
-    viewKey: `${viewKey}:hierarchy`,
-    revision: motionRevision,
-    snapshotSignal: motionSnapshotSignal,
-    enabled: motionEnabled
-  });
-  return <section ref={motionRef} className="work-list hierarchy-list" aria-label="Durable work item hierarchy">
-    {items.map((item) => <HierarchyBranch
-      {...actions}
-      key={item.summary.work_item.id}
-      item={item}
-      viewKey={viewKey}
-      depth={0}
-      visited={new Set()}
-      overrideFilters={false}
-    />)}
-  </section>;
+export default function WorkHierarchyRoot(
+  props: Omit<BranchProps, "depth" | "visited" | "overrideFilters">
+) {
+  // WorkQueue owns root-sequence motion, including adjacent review tasks.
+  // Descendant pages retain their independent motion hooks in HierarchyBranch.
+  return <HierarchyBranch {...props} depth={0} visited={new Set()} overrideFilters={false} />;
 }
 
 export function SearchBreadcrumb({ summary }: { summary: WorkSummary }) {

@@ -426,6 +426,23 @@ const deferHoverFixture = `
   </div>
 </main>`;
 
+test("contrast audit keeps theme limits and checks human-colored tags against AA", async ({ page }) => {
+  await page.setContent(`<main id="audit-fixture">
+    <span class="work-tag" style="background:#fff;color:#000">Light tag</span>
+    <span class="work-tag" style="background:#000;color:#fff"><b>Dark tag</b></span>
+    <span class="work-tag" style="background:#777;color:#000">Midtone tag</span>
+    <span class="work-tag" style="background:#777;color:#888">Unreadable tag</span>
+    <span style="background:#fff;color:#000">Theme above cap</span>
+    <span style="background:#777;color:#000">Theme below target</span>
+  </main>`);
+  const failures = await auditTextContrast(page, page.locator("#audit-fixture"));
+  expect(failures.map(({ text, issue }) => ({ text, issue }))).toEqual([
+    { text: "Unreadable tag", issue: "below 4.5:1" },
+    { text: "Theme above cap", issue: "above 9.5:1" },
+    { text: "Theme below target", issue: "below 7.21:1" }
+  ]);
+});
+
 test("dark-theme text stays in the 7.21:1 to 9.5:1 contrast band", async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem("mnemonic.theme", "dark"));
   await page.goto("/work-items");

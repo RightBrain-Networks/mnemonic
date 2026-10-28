@@ -32,7 +32,9 @@ def test_explicit_source_selects_owner_without_widening_roots(tmp_path):
     assert f"MNEMONIC_TRANSCRIPT_SOURCE_DIR='{source}'" in env
     assert "MNEMONIC_TRANSCRIPT_ALLOWED_ROOTS=[]" in env
     assert (tmp_path / ".env").stat().st_mode & 0o777 == 0o600
-    assert "--one-off" in result.stdout
+    assert "MNEMONIC_STORAGE_MODE=volumes" in env
+    assert "sudo" not in result.stdout
+    assert "docker compose pull" in result.stdout
     # Existing secrets/configuration are never silently changed.
     before = (tmp_path / ".env").read_bytes()
     repeated = subprocess.run([sys.executable, str(script)], capture_output=True, text=True)
@@ -51,3 +53,19 @@ def test_setup_rejects_missing_and_symlink_roots(tmp_path):
                                 capture_output=True, text=True)
         assert result.returncode != 0
         assert not (tmp_path / ".env").exists()
+
+
+def test_release_bundle_setup_without_repository_layout(tmp_path):
+    script = tmp_path / "setup.py"
+    script.write_bytes((ROOT / "scripts/setup.py").read_bytes())
+    (tmp_path / ".env.example").write_bytes((ROOT / ".env.example").read_bytes())
+    result = subprocess.run([sys.executable, str(script)], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    values = dict(line.split("=", 1) for line in (tmp_path / ".env").read_text().splitlines()
+                  if line and not line.startswith("#"))
+    assert values["MNEMONIC_STORAGE_MODE"] == "volumes"
+    assert values["TIMEZONE"] == "UTC"
+    secrets = [values[key] for key in ("POSTGRES_PASSWORD", "MNEMONIC_API_KEY",
+               "MNEMONIC_RABBITMQ_PASSWORD", "MNEMONIC_BACKUP_TOKEN")]
+    assert len(set(secrets)) == 4
+    assert all(len(secret) >= 32 and secret not in result.stdout for secret in secrets)

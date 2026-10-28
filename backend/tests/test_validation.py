@@ -644,10 +644,10 @@ def test_every_token_bearing_request_hides_capability_from_repr_but_serializes_i
     }
 
 
-def test_production_uvicorn_disables_access_logging():
+def test_production_image_uses_guarded_api_entrypoint():
     dockerfile = (Path(__file__).resolve().parents[1] / "Dockerfile").read_text()
-    assert "uvicorn mnemonic_api.main:create_app" in dockerfile
-    assert "--no-access-log" in dockerfile
+    assert 'ENTRYPOINT ["python", "-m", "mnemonic_api.container_runtime"]' in dockerfile
+    assert 'CMD ["serve-api"]' in dockerfile
 
 
 def test_application_error_context_uses_a_strict_safe_allowlist():

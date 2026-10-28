@@ -1,6 +1,6 @@
 {
   "name": "mnemonic-dashboard",
-  "version": "0.115.1",
+  "version": "0.116.1",
   "private": true,
   "type": "module",
   "engines": {

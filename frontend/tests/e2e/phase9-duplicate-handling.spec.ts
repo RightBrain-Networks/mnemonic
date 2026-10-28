@@ -597,6 +597,9 @@ test("a hostile-title merge preserves direction and recovers one exact durable e
     );
     await expect(canonicalResult.locator(".matched-member")).toContainText(source.id);
     await expect(canonicalResult.locator(".matched-member bdi")).toHaveText(hostileTitle);
+    await canonicalResult.screenshot({
+      path: testInfo.outputPath("matched-duplicate-disclosure.png"), animations: "disabled"
+    });
   } finally {
     await client.dispose();
   }
@@ -755,8 +758,7 @@ test("a root with an incoming alias can merge again and regroup every audit unde
     await expect(audit.getByLabel("Checkpoint text")).toHaveCount(0);
 
     await closeDetail(page);
-    await page.getByText("Canonical only", { exact: true }).click();
-    await expect(page.getByRole("radio", { name: "Canonical only" })).toBeChecked();
+    await groupStatus.getByRole("button", { name: "Clear group" }).click();
     await expect(groupStatus).toHaveCount(0);
     const rootNode = page.locator(
       `.hierarchy-node[data-depth="0"][data-work-item-id="${finalRoot.id}"]`

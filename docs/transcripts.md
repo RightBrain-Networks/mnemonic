@@ -165,9 +165,10 @@ text or credentials. Server failures still require the original retry ID and
 identical arguments; they never authorize changing a transcript assertion.
 
 Claude Code can create owner-only (`0600`) files. The API image defaults to UID/GID
-10001, which cannot read files owned by a different host user. Set the build
-arguments `MNEMONIC_API_UID` and `MNEMONIC_API_GID` to that user's numeric IDs.
-The API still runs as the unprivileged `mnemonic` account. Matching the UID handles
+10001, which cannot read files owned by a different host user. Set the runtime
+variables `MNEMONIC_API_UID` and `MNEMONIC_API_GID` to that user's numeric IDs.
+API and worker run with that unprivileged numeric identity without an image rebuild.
+Matching the UID handles
 both existing files and newly created private files without changing transcript
 permissions. A supplementary group or default ACL alone cannot grant access when
 the client explicitly creates files with mode `0600`.
@@ -192,24 +193,18 @@ machine. Native deployments can set `MNEMONIC_TRANSCRIPT_SOURCE_DIR` or configur
 `MNEMONIC_TRANSCRIPT_ALLOWED_ROOTS` directly, under an identity that can read the
 approved files.
 
-Changing the API UID also requires changing ownership of its **artifact directory
-and existing contents**. Artifact storage checks that each directory and file
-belongs to the effective API user. Build images first, then stop API writers before
-changing ownership. For the default artifact directory and example IDs:
-
-```sh
-docker compose build api
-docker compose stop api
-sudo chown -hR -- 1026:1000 ./artifacts
-docker compose up -d --wait api
-```
-
-Use the configured `MNEMONIC_ARTIFACT_DIR` if different. Keep private artifact modes
-(`0700` directories, `0600` files); a fresh installation can use
-`sudo install -d -m 0700 -o 1026 -g 1000 ./artifacts`. Backup storage now uses the
-shared worker UID/GID; migrate ownership from the old service's 10001 if needed.
-A coordinated application/schema upgrade requires stopping older API/MCP/dashboard/backup processes before
-migration, as described below; the commands above cover an identity-only change.
+Changing an existing service UID requires an offline ownership migration of all five
+stores and their existing contents: artifacts, prompts, retained transcripts, transcript
+index, and backups. First verify backups and the actual volume names or bind paths.
+After explicit operator authorization, stop API and worker writers, migrate ownership
+within those exact stores, and recreate both services with the new identity. Preserve
+private directory/file modes; do not change transcript-source ownership or permissions.
+The root initializer changes only store roots, so it cannot migrate existing contents.
+Named-volume installs need volume-aware maintenance; `./artifacts` is only a legacy bind
+default. See [storage and deployment identity](operations.md#preserve-storage-and-deployment-identity).
+New installations use `init-storage` to prepare their named volumes without host sudo.
+A coordinated application/schema upgrade must follow the full
+[upgrade procedure](operations.md#upgrade-from-any-release).
 
 Verify the live configuration without printing credentials:
 
@@ -490,15 +485,17 @@ python scripts/setup.py --transcript-source /home/your-user/.claude/projects \
   --codex-source /home/your-user/.codex/sessions
 ```
 
-Setup selects the chosen source owner's numeric UID/GID for both service images
-and prints matching private-storage creation commands. Existing `.env` files are
+Setup selects the chosen source owner's numeric runtime UID/GID for API and worker.
+The one-shot initializer prepares private named-volume roots. Existing `.env` files are
 left unchanged. Use `--service-uid` and `--service-gid` for an explicit identity;
 multiple owners need an operator-managed access arrangement. A default ACL or
 supplementary group does not override a client's explicit creation of mode 0600
 files. Do not make transcripts world-readable to accommodate a mismatched container.
 
-After configuring mounts/storage and building the images, verify access before
-startup, then verify running services:
+After configuring mounts/storage and pulling the selected images, initialize new storage
+before using the one-off check. Contributor builds additionally require `compose.build.yaml`;
+existing bind installs require `compose.bind-mounts.yaml`. Retain those overlays through
+`COMPOSE_FILE` when invoking the checker. Verify running services after startup:
 
 ```sh
 python scripts/check_transcript_access.py --one-off

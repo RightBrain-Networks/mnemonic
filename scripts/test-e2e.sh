@@ -25,7 +25,7 @@ if [[ ! "$MNEMONIC_E2E_COMPOSE_PROJECT" =~ ^mnemonic-e2e-[a-z0-9-]+$ ]]; then
   echo "Refusing to manage an unexpected Compose project name." >&2
   exit 2
 fi
-compose=(docker compose -p "$MNEMONIC_E2E_COMPOSE_PROJECT" -f "$compose_file")
+compose=(docker compose -p "$MNEMONIC_E2E_COMPOSE_PROJECT" -f "$compose_file" -f "$repo_root/compose.e2e-build.yaml")
 export MNEMONIC_E2E_BROWSER_TRANSPORTS=true
 
 repo_lock_key=$(printf '%s' "$repo_root" | sha256sum | cut -c1-16)

@@ -383,9 +383,11 @@ def test_completion_page_rejects_locally_incoherent_assembly(
         CompletionEvidencePage.model_validate(payload)
 
 
-def test_live_phase11_runbook_captures_recovery_point_before_migration():
+def test_archived_phase11_runbook_preserves_recovery_point_before_migration():
     operations = (REPOSITORY_ROOT / "docs/operations.md").read_text(encoding="utf-8")
-    live_rollout = operations.rsplit("For the live quiesced rollout:", 1)[1].split(
+    assert "upgrade-history.md#phase-11-structured-completion-evidence-cutover" in operations
+    history = (REPOSITORY_ROOT / "docs/upgrade-history.md").read_text(encoding="utf-8")
+    live_rollout = history.rsplit("For the live quiesced rollout:", 1)[1].split(
         "Only while both evidence tables are empty", 1
     )[0]
 

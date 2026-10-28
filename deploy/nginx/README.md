@@ -91,14 +91,22 @@ define those names twice. HTTP/2 is optional and commented for compatibility.
 
 Production service replacement and host nginx reload require explicit operator
 authorization. Validate the isolated stack before scheduling that interruption.
-Run from the Mnemonic checkout on that host. Enable the companion Compose file
+Run from the extracted release bundle or Mnemonic checkout on that host. Enable the companion Compose file
 first; it adds the HTTPS hostname/origin to the API and MCP while retaining
 loopback access and container healthchecks:
 
 ```sh
 docker compose -f compose.yaml -f compose.tls.yaml config --quiet
-docker compose -f compose.yaml -f compose.tls.yaml up -d --build --wait
+docker compose -f compose.yaml -f compose.tls.yaml pull
+docker compose -f compose.yaml -f compose.tls.yaml up -d --wait
 ```
+
+Contributor source builds additionally require `-f compose.build.yaml` and `up --build`.
+Existing bind installations require `-f compose.bind-mounts.yaml` after the base file;
+preserve every existing storage path and follow the
+[coordinated upgrade procedure](../../docs/operations.md#upgrade-from-any-release)
+before starting new images. Existing named-volume installations retain their volumes
+without the bind overlay. Production changes still require the authorization above.
 
 Use both files for future Compose updates/restarts so the TLS allowlists are
 retained. For example:

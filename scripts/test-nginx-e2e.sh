@@ -27,7 +27,7 @@ if [[ ! "$MNEMONIC_E2E_COMPOSE_PROJECT" =~ ^mnemonic-nginx-e2e-[a-z0-9-]+$ ]]; t
   echo "Refusing to manage an unexpected Compose project name." >&2
   exit 2
 fi
-compose=(docker compose -p "$MNEMONIC_E2E_COMPOSE_PROJECT" -f "$base_compose" -f "$nginx_compose")
+compose=(docker compose -p "$MNEMONIC_E2E_COMPOSE_PROJECT" -f "$base_compose" -f "$repo_root/compose.e2e-build.yaml" -f "$nginx_compose")
 
 choose_port() {
   python3 - <<'PY'
@@ -57,7 +57,7 @@ export MNEMONIC_E2E_API_URL="http://127.0.0.1:$MNEMONIC_E2E_API_PORT"
 export MNEMONIC_DASHBOARD_ORIGINS="$MNEMONIC_NGINX_E2E_URL"
 # Keep Compose interpolation and the Python runtime-config oracle identical,
 # including empty overrides and installations with a local .env file.
-export TIMEZONE="${TIMEZONE:-America/Detroit}"
+export TIMEZONE="${TIMEZONE:-UTC}"
 export MNEMONIC_E2E_WORK_SUMMARY_MAX_CHARS="${MNEMONIC_E2E_WORK_SUMMARY_MAX_CHARS:-2048}"
 export MNEMONIC_E2E_API_KEY
 MNEMONIC_E2E_API_KEY=$(openssl rand -hex 32)
@@ -93,7 +93,7 @@ cleanup() {
   if (( status != 0 )); then
     "${compose[@]}" logs --no-color --tail 100 api nginx worker web || true
   fi
-  "${compose[@]}" down -v --remove-orphans --rmi local >/dev/null 2>&1 || true
+  "${compose[@]}" down -v --remove-orphans >/dev/null 2>&1 || true
   rm -rf -- "$test_tmp"
   clean_disposable_directory "$MNEMONIC_E2E_ARTIFACT_DIR" || true
   clean_disposable_directory "$MNEMONIC_E2E_BACKUP_DIR" || true

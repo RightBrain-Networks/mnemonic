@@ -1,0 +1,97 @@
+name: Release rehearsal
+
+on:
+  schedule:
+    - cron: '0 5 * * *'
+    - cron: '0 13 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-rehearsal-${{ github.event.schedule || 'manual' }}
+  cancel-in-progress: false
+
+jobs:
+  upgrade:
+    name: Native installation and upgrade rehearsal
+    if: ${{ github.event.schedule != '0 13 * * 1' }}
+    uses: ./.github/workflows/images.yml
+    with:
+      upgrade: true
+
+  browser:
+    name: Nightly browser acceptance
+    if: ${{ github.event.schedule != '0 13 * * 1' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          version: 0.12.1
+          python-version: '3.14'
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: uv sync --project backend --frozen
+      - run: uv sync --project mcp --frozen
+      - run: npm ci --no-audit --no-fund
+        working-directory: frontend
+      - run: npx playwright install --with-deps chromium firefox
+        working-directory: frontend
+      - run: npm run test:e2e:stack
+        working-directory: frontend
+      - name: Retain queue disclosure screenshots
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: queue-disclosure-screenshots
+          path: frontend/test-results/playwright/**/matched-duplicate-disclosure.png
+          if-no-files-found: ignore
+          retention-days: 14
+      - name: Retain browser reports
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: browser-report
+          path: |
+            frontend/playwright-report
+            frontend/test-results
+          if-no-files-found: ignore
+
+  weekly-preparation:
+    name: Prepare the weekly stable release candidate
+    if: ${{ github.event.schedule == '0 13 * * 1' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check versions and select the baseline
+        id: baseline
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 scripts/release.py check
+          version=$(python3 -c 'import tomllib; print(tomllib.load(open("backend/pyproject.toml", "rb"))["project"]["version"])')
+          python3 scripts/release_github.py select --tag "v$version"
+      - name: Prepare release notes and install bundle
+        env:
+          PREVIOUS_TAG: ${{ steps.baseline.outputs.previous_tag }}
+        run: |
+          previous=()
+          if [[ -n "$PREVIOUS_TAG" ]]; then previous+=(--previous-tag "$PREVIOUS_TAG"); fi
+          python3 scripts/release_bundle.py --output dist "${previous[@]}"
+          echo 'Candidate prepared. A maintainer reviews upgrade notes and tags a commit that passed Required checks. This job never creates a tag or edits main.' >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: weekly-release-candidate
+          path: dist/*
+          retention-days: 14

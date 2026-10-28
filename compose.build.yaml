@@ -1,0 +1,27 @@
+# Contributor overlay. Local image names prevent tagging builds as published releases.
+services:
+  api: &api-build
+    image: mnemonic-api:local
+    pull_policy: build
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+  worker: *api-build
+  migrate: *api-build
+  init-storage: *api-build
+  mcp:
+    image: mnemonic-mcp:local
+    pull_policy: build
+    build:
+      context: ./mcp
+  web:
+    image: mnemonic-web:local
+    pull_policy: build
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+  tika:
+    image: mnemonic-tika:local
+    pull_policy: build
+    build:
+      context: ./deploy/tika

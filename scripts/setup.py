@@ -40,10 +40,12 @@ def transcript_options() -> tuple[dict[str, Path], int, int]:
 
 def main() -> None:
     sources, uid, gid = transcript_options()
-    root = Path(__file__).resolve().parents[1]
+    directory = Path(__file__).resolve().parent
+    root = directory if (directory / ".env.example").exists() else directory.parent
     target = root / ".env"
     if target.exists():
         print(".env already exists; left it unchanged.")
+        print("Existing bind installs: use compose.bind-mounts.yaml and read docs/operations.md.")
         return
     template = (root / ".env.example").read_text(encoding="utf-8")
     content = template.replace(
@@ -61,19 +63,15 @@ def main() -> None:
         descriptor = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     except FileExistsError:
         print(".env already exists; left it unchanged.")
+        print("Existing bind installs: use compose.bind-mounts.yaml and read docs/operations.md.")
         return
     with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as output:
         output.write(content)
     print("Created .env with new local secrets. Do not commit or share it.")
-    print("Create the private artifact bind directory before starting Compose:")
-    print(f"  sudo install -d -m 0700 -o {uid} -g {gid} ./artifacts")
-    print(f"  sudo install -d -m 0700 -o {uid} -g {gid} ./prompts/runtime")
-    print(f"  sudo install -d -m 0700 -o {uid} -g {gid} ./backups")
-    print(f"  sudo install -d -m 0700 -o {uid} -g {gid} /var/lib/mnemonic/transcript-index")
-    print(f"  sudo install -d -m 0700 -o {uid} -g {gid} /var/lib/mnemonic/transcripts")
-    print("After building, check both service identities and source mounts:")
-    print("  python scripts/check_transcript_access.py --one-off")
-    print("Start Mnemonic: docker compose up --build -d --wait")
+    print("Docker will initialize private named volumes for the configured service identity.")
+    print("Start Mnemonic: docker compose pull && docker compose up -d --wait")
+    print("Contributors: docker compose -f compose.yaml -f compose.build.yaml up --build -d --wait")
+    print("Check transcript access after startup: python scripts/check_transcript_access.py")
 
 
 if __name__ == "__main__":

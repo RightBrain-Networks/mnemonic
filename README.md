@@ -83,40 +83,81 @@ For non-blocking FYIs, the *"Summaries"* list contain simplified, plain-language
 ### Copy and paste into your LLM to have it handle this part.
 
 ```text
-Install and configure mnemonic for me from https://github.com/RightBrain-Networks/mnemonic. Clone the repository, then follow AGENT-README.md exactly. Use the default local-only Docker Compose configuration unless I state otherwise, preserve any existing data and configuration, connect my MCP-capable LLM client if one is available, and continue until the documented acceptance checks pass or you need a specific decision or credential from me.
+Install and configure mnemonic for me using a published versioned release bundle from https://github.com/RightBrain-Networks/mnemonic/releases. Follow docs/releases.md and docs/operations.md for that release. Use the default local-only Docker Compose configuration unless I state otherwise, preserve any existing data and configuration, connect my MCP-capable LLM client if one is available, and continue until the documented acceptance checks pass or you need a specific decision or credential from me. If no release is available, explain that before using the contributor build instructions in AGENT-README.md.
 ```
 
 ### Or, if you prefer, old school human instructions...
 
-Requirements: Git, Docker with Linux containers, and Docker Compose v2 (`docker compose`). The optional settings helper uses Python 3.10 or newer; no host Node or Python is needed to run the containers after `.env` is configured.
+Requirements: Docker with Linux containers and Docker Compose v2 (`docker compose`).
+The commands below use a POSIX shell, such as Linux, macOS, or WSL. Published-image
+installation needs no host Python, Node, application environment, or source build.
 
-For transcript capture, add `--transcript-source /absolute/claude/projects`, `--codex-source /absolute/codex/sessions`, or `--codex-archived-source /absolute/codex/archived_sessions` to the setup command below before creating `.env`. Use only existing, operator-approved directories; the helper selects their owner's UID/GID. Without configured sources, transcript filesystem access stays disabled. See [transcript setup](docs/transcripts.md#filesystem-deployment).
+For a published release that includes an install bundle, download its `mnemonic-X.Y.Z.tar.gz`
+and checksum from [GitHub Releases](https://github.com/RightBrain-Networks/mnemonic/releases),
+verify the checksum, and extract it. From the extracted directory, run the following,
+replacing `X.Y.Z` with that same published version:
+
+```sh
+docker run --rm --pull always --user "$(id -u):$(id -g)" \
+  --mount "type=bind,source=$(pwd),target=/release" --entrypoint python \
+  ghcr.io/rightbrain-networks/mnemonic-api:X.Y.Z /release/setup.py
+docker compose config --quiet
+docker compose pull
+docker compose up -d --wait
+```
+
+The first command runs setup inside the selected API image and creates a private
+`.env` owned by your host user, without sudo. It does not start the application.
+If Python 3.10 or newer is already installed, `python3 setup.py` is an optional
+replacement for that first command. Existing `.env` files remain unchanged.
+
+Use an actually published release and its matching bundle; a version mentioned on `main`
+does not imply that its images are available. Until that release is published, or when
+working on the source, use the contributor overlay:
 
 ```sh
 git clone https://github.com/RightBrain-Networks/mnemonic.git
 cd mnemonic
-python scripts/setup.py
+python3 scripts/setup.py
+docker compose -f compose.yaml -f compose.build.yaml config --quiet
+docker compose -f compose.yaml -f compose.build.yaml up --build -d --wait
 ```
 
-Before starting Compose, create the five private bind directories shown by the helper. Substitute the configured paths and `MNEMONIC_API_UID`/`MNEMONIC_API_GID` if customized. For the default paths and service UID/GID `10001:10001` on Linux:
+New setup files select private named volumes. The one-shot `init-storage` container prepares
+them for the configured service UID/GID without host sudo commands; `migrate` initializes the
+database before API and worker startup. Keep the same Compose project name for later runs.
+The source overlay builds images with local names, separate from published release tags.
 
-```sh
-sudo install -d -m 0700 -o 10001 -g 10001 ./artifacts
-sudo install -d -m 0700 -o 10001 -g 10001 ./prompts/runtime
-sudo install -d -m 0700 -o 10001 -g 10001 ./backups
-sudo install -d -m 0700 -o 10001 -g 10001 /var/lib/mnemonic/transcript-index
-sudo install -d -m 0700 -o 10001 -g 10001 /var/lib/mnemonic/transcripts
-docker compose config --quiet
-docker compose up --build -d --wait
-```
+For transcript capture, add `--transcript-source /absolute/claude/projects`,
+`--codex-source /absolute/codex/sessions`, or
+`--codex-archived-source /absolute/codex/archived_sessions` to the setup command before creating
+`.env`. When running setup in Docker, also mount each chosen source read-only at its
+identical absolute path in that setup container, using
+`--mount type=bind,source=/absolute/source,target=/absolute/source,readonly` before the image
+name. Alternatively, run the setup command with host Python 3.10 or newer.
+Use only existing operator-approved directories. The helper selects their owner's
+UID/GID, and API and worker read those paths through read-only binds. Docker Desktop must be
+allowed to share configured source directories. Without sources, capture stays disabled.
+See [transcript setup](docs/transcripts.md#filesystem-deployment).
 
-Docker Desktop must be able to share those host directories. After startup, `python scripts/check_transcript_access.py` checks both services' transcript access. The helper leaves an existing `.env` unchanged; use the [upgrade procedure](docs/operations.md#current-coordinated-cutover) for an existing installation.
+**Existing installs:** setup leaves `.env` unchanged. Legacy bind installations must preserve
+all old storage paths and use `-f compose.yaml -f compose.bind-mounts.yaml` on every Compose
+command, adding the build or TLS overlay when needed. Existing named-volume installations
+retain their volumes and Compose project name without the bind overlay. Base Compose
+intentionally refuses an implicit legacy storage mode.
+Follow [Upgrade from any release](docs/operations.md#upgrade-from-any-release) before starting
+new images against existing data. That procedure stops old writers and backs up before migration.
 
-`sh ./up_mnemonic.sh` starts the stack with the TLS allowlists from
-`compose.tls.yaml`; use it only after configuring `MNEMONIC_TLS_HOST` and the nginx TLS proxy below.
+`sh ./up_mnemonic.sh` starts published images with the TLS allowlists from `compose.tls.yaml`;
+use it only after configuring `MNEMONIC_TLS_HOST` and the nginx TLS proxy. Existing bind
+installs and contributor builds should use explicit `-f` arguments for all their overlays.
 
-On macOS/Linux the Python command may be `python3`. Alternatively, copy `.env.example` to `.env` and supply four independent random secrets yourself: URL-safe `POSTGRES_PASSWORD` and `MNEMONIC_RABBITMQ_PASSWORD` values, plus `MNEMONIC_API_KEY` and `MNEMONIC_BACKUP_TOKEN` values of at least 32 characters each. The
-example deliberately contains no usable credentials. Keep `.env` private (`chmod 600 .env` on POSIX systems). Never commit `.env`.
+On macOS/Linux the Python command may be `python3`; use `python` where that is Python 3.
+Alternatively, copy `.env.example` to `.env` and supply four independent random secrets:
+URL-safe `POSTGRES_PASSWORD` and `MNEMONIC_RABBITMQ_PASSWORD`, plus `MNEMONIC_API_KEY` and
+`MNEMONIC_BACKUP_TOKEN` of at least 32 characters each. The example contains no usable
+credentials. Keep `.env` private (`chmod 600 .env` on POSIX systems), and never commit it.
+New configurations use UTC for dashboard times; explicit existing `TIMEZONE` values are preserved.
 
 Open `mnemonic`. Create your first project using the project selector, then connect your agent to create or continue durable work. The application starts empty; there are no fabricated objectives, checkpoints, or session IDs.
 
@@ -126,9 +167,25 @@ Open `mnemonic`. Create your first project using the project selector, then conn
 | REST API documentation | `MNEMONIC_API_PORT` | [localhost:8000/docs](http://localhost:8000/docs) |
 | MCP Streamable HTTP    | `MNEMONIC_MCP_PORT` | `http://127.0.0.1:8001/mcp`                       |
 
-Those addresses are defaults, not fixed values. Each port is set in `.env`, so change one there if it collides with something already running on the host, and substitute your own value wherever this README shows a port. If the web port changes, update `MNEMONIC_DASHBOARD_ORIGINS` to match both `http://localhost:<port>` and `http://127.0.0.1:<port>`. With `uv` and Python 3.14 available, `uv run --project mcp python scripts/check-stack.py` resolves all three from `.env` and performs the read-only live-stack checks. See [`docs/development.md`](docs/development.md) before opting into its write path.
+Those addresses are defaults, not fixed values. Each port is set in `.env`, so change one there if it collides with something already running on the host, and substitute your own value wherever this README shows a port. If the web port changes, update `MNEMONIC_DASHBOARD_ORIGINS` to match both `http://localhost:<port>` and `http://127.0.0.1:<port>`.
 
-The seven services are `postgres`, `rabbitmq`, `api`, `tika`, `mcp`, `web`, and `worker`; the shared worker handles background jobs and project backups. PostgreSQL, RabbitMQ, Tika, and the worker have no published ports. Dashboard, REST, and MCP ports bind to loopback only. For LAN access through your existing nginx TLS proxy, use the
+Run the read-only stack check inside the installed MCP container, which supplies the required
+Python dependencies and API key. These service addresses use internal ports even when host
+ports have changed; retain your installation's Compose overlays:
+
+```sh
+docker compose exec -T mcp python - \
+  --api-url http://api:8000 \
+  --mcp-url http://mcp:8001/mcp \
+  --web-url http://web:3000 --web-origin http://localhost:3000 < scripts/check-stack.py
+```
+
+Set `--web-origin` to a dashboard origin configured in `MNEMONIC_DASHBOARD_ORIGINS`;
+substitute the actual port or HTTPS origin when using changed ports or TLS.
+Do not add `--project-id` to an installation check; that enables durable test mutations in
+the named project. See [`docs/development.md`](docs/development.md) for disposable test usage.
+
+The seven running services are `postgres`, `rabbitmq`, `api`, `tika`, `mcp`, `web`, and `worker`; one-shot `init-storage` and `migrate` services complete before application startup; the shared worker handles background jobs and project backups. PostgreSQL, RabbitMQ, Tika, and the worker have no published ports. Dashboard, REST, and MCP ports bind to loopback only. For LAN access through your existing nginx TLS proxy, use the
 [nginx configuration and setup guide](deploy/nginx/README.md).
 
 ## Connect Claude Code
@@ -153,10 +210,12 @@ Replace every provenance, version, UUID, result, and artifact placeholder with
 facts from the exact attempt; never copy example evidence as if it were
 observed.
 
-The three skills ship as a Claude Code plugin. Register this repository as a marketplace once, then enable the plugin in any project that should have them:
+The three skills ship as a Claude Code plugin. For a published server release, register its
+version-pinned marketplace and enable the matching plugin. Replace `X.Y.Z` with your server
+release; its compatibility table records the independent plugin version:
 
 ```bash
-claude plugin marketplace add /path/to/mnemonic
+claude plugin marketplace add "https://github.com/RightBrain-Networks/mnemonic/releases/download/vX.Y.Z/marketplace.json"
 claude plugin install mnemonic@mnemonic
 ```
 
@@ -165,22 +224,27 @@ To make it automatic for everyone who clones a consuming repository, commit this
 ```json
 {
   "extraKnownMarketplaces": {
-    "mnemonic": { "source": { "source": "github", "repo": "RightBrain-Networks/mnemonic" } }
+    "mnemonic": { "source": { "source": "url", "url": "https://github.com/RightBrain-Networks/mnemonic/releases/download/vX.Y.Z/marketplace.json" } }
   },
   "enabledPlugins": { "mnemonic@mnemonic": true }
 }
 ```
 
-For a local marketplace instead, use `{ "source": "directory", "path": "/absolute/path/to/mnemonic" }`.
+Contributors can register a local checkout with `claude plugin marketplace add /path/to/mnemonic`,
+or use `{ "source": "directory", "path": "/absolute/path/to/mnemonic" }` in that settings file.
+That local catalog follows the checkout. Published catalogs pin both a release tag and its source commit.
+
+Before upgrading the server, select its matching marketplace URL and plugin compatibility entry
+from [the release](https://github.com/RightBrain-Networks/mnemonic/releases). See
+[release installation and verification](docs/releases.md) for checksums and provenance.
 
 Installing copies the plugin into `~/.claude/plugins/cache/` at its manifest version, so editing a skill in place does not change an installed copy. `claude plugin marketplace update mnemonic` refreshes the marketplace listing,
 not the installed files. After a published plugin version changes, run `claude plugin marketplace update mnemonic`, then `claude plugin update mnemonic@mnemonic`, and restart Claude Code.
 
-Consult the [release notes](https://github.com/RightBrain-Networks/mnemonic/releases)
-for published versions, plugin compatibility, and database migration requirements.
-Deploy the API, MCP, dashboard, and worker together after backup and authorized writer quiescence.
-See [the coordinated upgrade procedure](docs/operations.md#current-coordinated-cutover)
-before upgrading an existing database; older processes must not run against the new schema.
+Use a matching release of the application, worker, and compatible plugin. See
+[GitHub Releases](https://github.com/RightBrain-Networks/mnemonic/releases) and
+[the coordinated upgrade procedure](docs/operations.md#upgrade-from-any-release) before
+upgrading an existing database; older processes must not run against the new schema.
 Its repository-freshness helper requires Bash 3.2 or newer and Git 2.45 or newer in the explicitly selected local workspace. It provides:
 
 - **`mnemonic-save`** searches for existing work, explicitly compares a stable
@@ -237,5 +301,5 @@ docker compose stop
 docker compose up -d --wait
 ```
 
-Normal stop/restart preserves the database. Production stop/restart or recreation requires explicit operator authorization. **Do not use `docker compose down -v` on your working stack:** it removes the database and RabbitMQ volumes. Backups are written to `./backups/<project UUID>/` by default as `.json.bz2` archives and are not committed. The worker schedules them every 24 hours by default and retains seven successful archives per project. No archive is expected before a real project exists. Verify a backup in **Settings → Project backups** after creating your first project. Copy them off the machine and
+Use the same explicit `-f` overlays as at installation for these commands. Normal stop/restart preserves the database. Production stop/restart or recreation requires explicit operator authorization. **Do not use `docker compose down -v` on your working stack:** it removes the database, RabbitMQ, and application data volumes. Project backups are written as `.json.bz2` archives under `/backups/<project UUID>/` in the worker: the private backup named volume for new installs, or `MNEMONIC_BACKUP_DIR` for bind installs. The worker schedules them every 24 hours by default and retains seven successful archives per project. No archive is expected before a real project exists. Verify a backup in **Settings → Project backups** after creating your first project. Copy them off the machine and
 monitor available disk space; a local archive alone does not protect against disk loss. Artifact files, editable prompt files, and retained native transcripts require separate filesystem backups. Restore commands and security limits are in [`docs/operations.md`](docs/operations.md).

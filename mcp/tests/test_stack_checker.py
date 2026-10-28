@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
+import httpx
 import pytest
 
 from mnemonic_mcp.config import Settings
@@ -22,6 +23,44 @@ def stack_checker() -> ModuleType:
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+@pytest.mark.parametrize("value", ["ftp://example.com", "https://user:pass@example.com",
+                                   "https://example.com/path", "https://example.com/?key=value"])
+def test_stack_checker_rejects_non_origin_dashboard_identity(value):
+    with pytest.raises(argparse.ArgumentTypeError):
+        stack_checker().dashboard_origin(value)
+
+
+async def test_internal_dashboard_checks_preserve_public_and_hostile_boundary_headers():
+    checker = stack_checker()
+    hook = checker.dashboard_request_hook("http://web:3000", "https://mnemonic.example.com")
+    observations = []
+
+    async def handle(request):
+        observations.append((str(request.url), request.headers.get("host"),
+                             request.headers.get("origin")))
+        return httpx.Response(200)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handle),
+                                event_hooks={"request": [hook]}) as client:
+        await client.get("http://web:3000/api/mnemonic/projects")
+        await client.post("http://web:3000/api/mnemonic/projects",
+                          headers={"Origin": "http://web:3000"})
+        await client.get("http://web:3000/api/mnemonic/projects",
+                         headers={"Host": "untrusted.example"})
+        await client.get("http://web:3000/api/mnemonic/projects",
+                         headers={"Origin": "https://untrusted.example"})
+        await client.get("http://api:8000/readyz")
+    assert observations == [
+        ("http://web:3000/api/mnemonic/projects", "mnemonic.example.com", None),
+        ("http://web:3000/api/mnemonic/projects", "mnemonic.example.com",
+         "https://mnemonic.example.com"),
+        ("http://web:3000/api/mnemonic/projects", "untrusted.example", None),
+        ("http://web:3000/api/mnemonic/projects", "mnemonic.example.com",
+         "https://untrusted.example"),
+        ("http://api:8000/readyz", "api:8000", None),
+    ]
 
 
 def test_stack_checker_requires_full_truthful_repository_declaration():
