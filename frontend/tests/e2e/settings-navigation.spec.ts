@@ -8,7 +8,7 @@ const sections = [
   { label: "Tags", path: "/settings/tags", cards: ["Tags"] },
   { label: "Prompts", path: "/settings/prompts", cards: ["Project prompts", "Macro glossary"] },
   { label: "Code reviews", path: "/settings/code-reviews", cards: ["Code reviews"] },
-  { label: "Backups", path: "/settings/backups", cards: ["Project backups"] }
+  { label: "Backup & export", path: "/settings/backups", cards: ["Project backups", "Export"] }
 ];
 
 let state: E2EState;

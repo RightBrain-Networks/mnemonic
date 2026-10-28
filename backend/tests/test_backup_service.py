@@ -7,6 +7,7 @@ import io
 import os
 import time
 from collections.abc import Iterator
+from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
@@ -19,7 +20,8 @@ from starlette.requests import Request
 
 from mnemonic_backup.archive import BackupError
 from mnemonic_backup.config import BackupSettings
-from mnemonic_backup.jobs import schedule_backups
+from mnemonic_backup.jobs import ERROR_MESSAGES, schedule_backups
+from mnemonic_backup.schedules import BackupSchedule
 from mnemonic_backup.service import BackupService, _receive_upload, create_app
 from mnemonic_backup.store import BackupStore
 
@@ -27,9 +29,9 @@ TEST_TOKEN = "backup-service-unit-test-credential-32-characters"
 AUTHORIZATION = {"Authorization": "Bearer " + TEST_TOKEN}
 
 
-def test_retention_keeps_new_publication_after_clock_moves_backwards(tmp_path: Path):
+def test_retention_preserves_future_archives_after_clock_moves_backwards(tmp_path: Path):
     project = uuid4()
-    store = BackupStore(tmp_path / "backups", retention_count=1)
+    store = BackupStore(tmp_path / "backups", retention_days=1)
     with store.operation(), store.staging(project) as (output, directory, partial):
         output.write(bz2.compress(b"previous archive"))
         previous = store.publish(project, output, directory, partial)
@@ -39,35 +41,40 @@ def test_retention_keeps_new_publication_after_clock_moves_backwards(tmp_path: P
     with store.operation(), store.staging(project) as (output, directory, partial):
         output.write(bz2.compress(b"latest archive"))
         latest = store.publish(project, output, directory, partial)
-    assert store.list_archives(project) == [latest]
-    assert not prior_path.exists()
+    assert len(store.list_archives(project)) == 2
+    assert prior_path.exists()
     with store.open(project, latest["filename"]) as content:
         assert bz2.decompress(content.read()) == b"latest archive"
 
 
 @pytest.fixture
-def backup_app(tmp_path: Path) -> Iterator[FastAPI]:
+def backup_app(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[FastAPI]:
     settings = BackupSettings(DATABASE_URL="sqlite://", token=TEST_TOKEN, root=tmp_path / "backup")
     engine = create_engine("sqlite://")
+    monkeypatch.setattr("mnemonic_backup.service.read_schedule", lambda *_args: BackupSchedule())
     try:
         yield create_app(settings, engine=engine)
     finally:
         engine.dispose()
 
 
-def test_retention_defaults_to_seven_and_reads_environment(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.delenv("MNEMONIC_BACKUP_RETENTION_COUNT", raising=False)
-    options = {"DATABASE_URL": "sqlite://", "token": TEST_TOKEN}
-    assert BackupSettings(**options).retention_count == 7
-    monkeypatch.setenv("MNEMONIC_BACKUP_RETENTION_COUNT", "3")
-    assert BackupSettings(**options).retention_count == 3
+def test_retention_defaults_to_seven_days_and_zero_disables_pruning():
+    assert BackupSchedule().retention_days == 7
+    assert not BackupSchedule().enabled
+    assert BackupSchedule(retention_days=0).retention_days == 0
 
 
-@pytest.mark.parametrize("value", ["0", "-1", "10001", "seven", "1.5"])
-def test_invalid_retention_fails_startup(value: str, monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setenv("MNEMONIC_BACKUP_RETENTION_COUNT", value)
+@pytest.mark.parametrize("value", [-1, 36501, "seven", 1.5, True])
+def test_invalid_retention_is_rejected(value):
     with pytest.raises(ValidationError):
-        BackupSettings(DATABASE_URL="sqlite://", token=TEST_TOKEN)
+        BackupSchedule(retention_days=value)
+
+
+@pytest.mark.parametrize("values", [{"timezone": "../private"}, {"timezone": "Unknown/Zone"},
+                                     {"time": "25:00"}, {"time": "2:00"}, {"extra": True}])
+def test_invalid_schedule_is_rejected(values):
+    with pytest.raises(ValidationError):
+        BackupSchedule(**values)
 
 
 @pytest.mark.parametrize("root", ["/", "relative/backups"])
@@ -277,14 +284,18 @@ def test_scheduler_reuses_the_same_durable_slot_after_restart(
     service: BackupService = backup_app.state.backup_service
     project = str(uuid4())
     with service.engine.begin() as connection:
-        connection.execute(text("CREATE TABLE projects (id TEXT PRIMARY KEY)"))
-        connection.execute(text("INSERT INTO projects VALUES (:id)"), {"id": project})
+        connection.execute(text("CREATE TABLE backup_settings "
+            "(project_id TEXT, enabled BOOLEAN, time TEXT, timezone TEXT, updated_at TEXT)"))
+        connection.execute(text("INSERT INTO backup_settings VALUES "
+            "(:id, true, '02:00', 'UTC', '2026-01-01T00:00:00+00:00')"), {"id": project})
     calls = []
     monkeypatch.setattr("mnemonic_backup.jobs.enqueue_job",
                         lambda _session, **values: calls.append(values))
     with service.engine.connect() as connection:
-        schedule_backups(connection, service.settings)
-        schedule_backups(connection, service.settings)
+        schedule_backups(connection, service.settings, now=datetime(2026, 10, 28, 1, tzinfo=UTC))
+        assert calls == []
+        schedule_backups(connection, service.settings, now=datetime(2026, 10, 28, 2, tzinfo=UTC))
+        schedule_backups(connection, service.settings, now=datetime(2026, 10, 28, 3, tzinfo=UTC))
     assert calls[0] == calls[1]
     assert calls[0]["kind"] == "backup_create"
     assert calls[0]["payload"] == {"project_id": project}
@@ -294,7 +305,7 @@ def test_job_replay_after_retention_does_not_export_or_prune_again(
     backup_app: FastAPI, monkeypatch: pytest.MonkeyPatch,
 ):
     service: BackupService = backup_app.state.backup_service
-    service.store.retention_count = 1
+    service.store.retention_days = 1
     exports = []
 
     def export(_engine, _project, output, **_kwargs):
@@ -305,6 +316,8 @@ def test_job_replay_after_retention_does_not_export_or_prune_again(
     project, first_job, second_job = uuid4(), uuid4(), uuid4()
     with service.store.operation():
         first = service.create_locked(project, job_id=first_job)
+        old = time.time() - 8 * 86400
+        os.utime(service.store.root / str(project) / first["filename"], (old, old))
         second = service.create_locked(project, job_id=second_job)
         assert service.create_locked(project, job_id=first_job) == first
     assert len(exports) == 2
@@ -340,7 +353,7 @@ def test_retention_recovers_an_interrupted_older_jobs_receipt(
     backup_app: FastAPI, monkeypatch: pytest.MonkeyPatch,
 ):
     service: BackupService = backup_app.state.backup_service
-    service.store.retention_count = 1
+    service.store.retention_days = 1
     project, first_job, next_job = uuid4(), uuid4(), uuid4()
     calls = []
 
@@ -354,6 +367,10 @@ def test_retention_recovers_an_interrupted_older_jobs_receipt(
     with service.store.operation():
         first = service.create_locked(project, job_id=first_job)
     monkeypatch.setattr(service.store, "_record_job", record)
+    old = time.time() - 8 * 86400
+    os.utime(service.store.root / str(project) / first["filename"], (old, old))
+    # The recovered receipt records the actual published file metadata.
+    first["created_at"] = datetime.fromtimestamp(old, UTC).isoformat()
     with service.store.operation():
         latest = service.create_locked(project, job_id=next_job)
         assert service.create_locked(project, job_id=first_job) == first
@@ -403,3 +420,182 @@ def test_failed_project_does_not_skip_others_or_mark_cycle_success(
     assert attempted == [first, second]
     assert service.last_success is None
     assert "secret-project-detail" not in caplog.text
+
+
+def test_day_retention_and_zero_preserve_expected_files(tmp_path: Path):
+    project = uuid4()
+    store = BackupStore(tmp_path / "backups")
+    with store.operation(), store.staging(project) as (output, directory, partial):
+        output.write(bz2.compress(b"old"))
+        old = store.publish(project, output, directory, partial)
+    old_path = store.root / str(project) / old["filename"]
+    stamp = time.time() - 8 * 86400
+    os.utime(old_path, (stamp, stamp))
+    with store.operation(), store.staging(project) as (output, directory, partial):
+        output.write(bz2.compress(b"keep forever"))
+        recent = store.publish(project, output, directory, partial, retention_days=0)
+    assert old_path.exists()
+    with store.operation(), store.staging(project) as (output, directory, partial):
+        output.write(bz2.compress(b"new"))
+        latest = store.publish(project, output, directory, partial, retention_days=7)
+    assert not old_path.exists()
+    assert {item["filename"] for item in store.list_archives(project)} == {
+        recent["filename"], latest["filename"]}
+
+
+def test_delete_is_idempotent_and_retains_job_receipt(tmp_path: Path):
+    project, job = uuid4(), uuid4()
+    store = BackupStore(tmp_path / "backups")
+    with store.operation(), store.staging(project) as (output, directory, partial):
+        output.write(bz2.compress(b"data"))
+        result = store.publish(project, output, directory, partial, job_id=job)
+    store.delete(project, result["filename"])
+    store.delete(project, result["filename"])
+    assert store.list_archives(project) == []
+    assert store.job_result(project, job) == result
+    with pytest.raises(BackupError):
+        store.delete(project, "../outside.bz2")
+
+
+def test_storage_capacity_reports_host_path_and_safe_unavailability(tmp_path: Path):
+    store = BackupStore(tmp_path / "backups")
+    status = store.capacity("/srv/mnemonic/backups")
+    assert status["path"] == "/srv/mnemonic/backups"
+    assert status["total_bytes"] >= status["free_bytes"] > 0
+    assert status["error"] is None
+    store.root.chmod(0o755)
+    status = store.capacity()
+    assert status["total_bytes"] is status["free_bytes"] is None
+    assert status["error"]
+
+
+def test_known_job_failures_explain_recovery_without_secrets():
+    assert "limit" in ERROR_MESSAGES["backup_too_large"]
+    assert "Delete old backups" in ERROR_MESSAGES["storage_full"]
+    assert "permissions" in ERROR_MESSAGES["storage_unavailable"]
+
+
+def test_server_creation_does_not_inherit_browser_upload_limit(
+    backup_app: FastAPI, monkeypatch: pytest.MonkeyPatch,
+):
+    service = backup_app.state.backup_service
+    service.settings.max_bytes = 1024
+    service.settings.expanded_max_bytes = 1024
+    content = os.urandom(4096)
+
+    def export(_engine, _project, output, **kwargs):
+        assert kwargs == {}
+        output.write(bz2.compress(content))
+
+    monkeypatch.setattr("mnemonic_backup.service.export_project", export)
+    project = uuid4()
+    result = service.create(project)
+    assert result["size_bytes"] > 1024
+    with service.store.open(project, result["filename"]) as archived:
+        assert bz2.decompress(archived.read()) == content
+
+
+def test_operation_cleans_abandoned_restore_spools_without_following_symlinks(tmp_path: Path):
+    store = BackupStore(tmp_path / "backups")
+    store.list_archives(uuid4())
+    abandoned = store.root / ".mnemonic-restore-abcdefgh"
+    abandoned.mkdir(mode=0o700)
+    (abandoned / "rows.sqlite").write_bytes(b"large private restore spool")
+    outside = tmp_path / "outside"
+    outside.mkdir(mode=0o700)
+    (outside / "rows.sqlite").write_bytes(b"preserve outside")
+    linked = store.root / ".mnemonic-restore-abcdefgi"
+    linked.symlink_to(outside, target_is_directory=True)
+    mixed = store.root / ".mnemonic-restore-abcdefgj"
+    mixed.mkdir(mode=0o700)
+    (mixed / "rows.sqlite").write_bytes(b"retain unknown directory")
+    (mixed / "unknown").write_bytes(b"user file")
+    linked_file = store.root / ".mnemonic-restore-abcdefgk"
+    linked_file.mkdir(mode=0o700)
+    (linked_file / "rows.sqlite").symlink_to(outside / "rows.sqlite")
+    with store.operation():
+        assert not abandoned.exists()
+    assert linked.is_symlink()
+    assert (outside / "rows.sqlite").read_bytes() == b"preserve outside"
+    assert (mixed / "unknown").exists()
+    assert (linked_file / "rows.sqlite").is_symlink()
+
+
+def test_second_operation_cannot_clean_active_restore_spool(tmp_path: Path):
+    from mnemonic_backup.archive_spool import RestoreRows
+
+    store = BackupStore(tmp_path / "backups")
+    with store.operation(), RestoreRows(("projects",), directory=store.root) as rows:
+        rows["projects"].append({"id": "fixture"})
+        with pytest.raises(BackupError):
+            with BackupStore(store.root).operation():
+                pytest.fail("Concurrent operation must not acquire the cleanup lock")
+        assert list(rows["projects"]) == [{"id": "fixture"}]
+
+
+@pytest.mark.parametrize("error_number, retry", [(errno.ENOSPC, False), (errno.EACCES, True),
+                                                 (errno.EIO, True)])
+def test_worker_retries_recoverable_storage_failures_but_reports_disk_full(
+    backup_app: FastAPI, monkeypatch: pytest.MonkeyPatch, error_number: int, retry: bool,
+):
+    from mnemonic_jobs import JobContext, PermanentJobError, RetryJob
+
+    service = backup_app.state.backup_service
+    project = uuid4()
+    context = JobContext(uuid4(), "backup_create", {"project_id": str(project)}, uuid4(), 1)
+
+    def unavailable():
+        raise OSError(error_number, "private path must not escape")
+
+    monkeypatch.setattr(service.store, "operation", unavailable)
+    with pytest.raises(PermanentJobError) as raised:
+        service.handle_job(context)
+    assert isinstance(raised.value, RetryJob) is retry
+    assert raised.value.code == ("storage_unavailable" if retry else "storage_full")
+
+
+def test_catalog_skips_archive_deleted_between_listing_and_stat(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+):
+    project = uuid4()
+    store = BackupStore(tmp_path / "backups")
+    with store.operation(), store.staging(project) as (output, directory, partial):
+        output.write(bz2.compress(b"data"))
+        result = store.publish(project, output, directory, partial)
+    original = os.stat
+
+    def disappeared(path, *args, **kwargs):
+        if path == result["filename"]:
+            raise FileNotFoundError(path)
+        return original(path, *args, **kwargs)
+
+    monkeypatch.setattr("mnemonic_backup.store.os.stat", disappeared)
+    assert store.list_archives(project) == []
+
+
+def test_job_losing_lease_during_export_cannot_publish_or_prune(
+    backup_app: FastAPI, monkeypatch: pytest.MonkeyPatch,
+):
+    from mnemonic_jobs import JobContext, LostLease
+
+    service = backup_app.state.backup_service
+    project = uuid4()
+    context = JobContext(uuid4(), "backup_create", {"project_id": str(project)}, uuid4(), 1)
+    checks = []
+
+    def owned(self, _database):
+        checks.append(True)
+        if self.lost.is_set():
+            raise LostLease()
+
+    def export(_engine, _project, output):
+        output.write(bz2.compress(b"snapshot before a lost worker lease"))
+        context.lost.set()
+
+    monkeypatch.setattr(JobContext, "assert_owned", owned)
+    monkeypatch.setattr("mnemonic_backup.service.export_project", export)
+    with pytest.raises(LostLease):
+        service.handle_job(context)
+    assert len(checks) == 2
+    assert service.store.list_archives(project) == []
+    assert list((service.store.root / str(project)).iterdir()) == []

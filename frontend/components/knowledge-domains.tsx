@@ -6,10 +6,8 @@ import DomainDialog from "@/components/knowledge-domain-dialog";
 import DomainDecisionReviewSettings from "@/components/domain-decision-review-settings";
 import KnowledgeDeleteDialog from "@/components/knowledge-delete-dialog";
 import { KnowledgeReadError } from "@/components/knowledge-shared";
-import { errorMessage } from "@/lib/api";
 import { formatDateTime } from "@/lib/display-time";
-import { knowledgeNextOffset, knowledgePath, type KnowledgeDomain } from "@/lib/knowledge";
-import { downloadKnowledgeFile } from "@/lib/knowledge-management";
+import { knowledgeNextOffset, type KnowledgeDomain } from "@/lib/knowledge";
 import { knowledgeKeys, readDomainPage } from "@/lib/knowledge-queries";
 
 export default function KnowledgeDomains({ projectId, onPendingChange }: { projectId: string; onPendingChange: (pending: boolean) => void }) {
@@ -19,7 +17,6 @@ export default function KnowledgeDomains({ projectId, onPendingChange }: { proje
   const [pendingDomain, setPendingDomain] = useState<KnowledgeDomain | null>(null);
   const [dialogPending, setDialogPending] = useState(false);
   const [notice, setNotice] = useState("");
-  const [error, setError] = useState("");
   const [expanded, setExpanded] = useState<string | null>(null);
   const domains = useInfiniteQuery({ queryKey: knowledgeKeys.domains(projectId), initialPageParam: 0,
     queryFn: ({ pageParam, signal }) => readDomainPage(projectId, pageParam, signal),
@@ -32,7 +29,6 @@ export default function KnowledgeDomains({ projectId, onPendingChange }: { proje
   return <section className="knowledge-domains" aria-label="Manage knowledge domains">
     <div className="artifact-directory-heading"><div><h2>Knowledge domains<span className="artifact-count">{domains.data?.pages[0]?.total ?? ""}</span></h2><p className="field-hint">Organize decision documents and choose how changes are reviewed in each domain.</p></div><button className="button button-primary" disabled={blocked} onClick={() => setEditing("new")}>Add domain</button></div>
     {notice && <p className="artifact-notice" role="status">{notice}</p>}
-    {error && <p className="error-notice" role="alert">{error}</p>}
     {domains.isError && <KnowledgeReadError error={domains.error} retry={() => void domains.refetch()} />}
     {domains.isPending && <p role="status">Loading domains…</p>}
     <div className="artifact-table-scroll knowledge-domain-directory" role="region" aria-label="Knowledge domain directory" tabIndex={0}>
@@ -46,7 +42,6 @@ export default function KnowledgeDomains({ projectId, onPendingChange }: { proje
             <td><div className="artifact-actions knowledge-domain-actions">
               <button type="button" className="button button-secondary" disabled={blocked} aria-expanded={expanded === domain.id} aria-controls={`domain-settings-${domain.id}`} onClick={() => setExpanded(expanded === domain.id ? null : domain.id)}>Review settings</button>
               <button type="button" className="button button-secondary" disabled={blocked} onClick={() => setEditing(domain)}>Rename</button>
-              <button type="button" className="button button-secondary" onClick={() => { setError(""); void downloadKnowledgeFile(knowledgePath(projectId, `/domains/${domain.id}/export`), `${domain.prefix}-decisions.tar.gz`).catch((failure) => setError(errorMessage(failure))); }}>Export</button>
               <button type="button" className="button button-danger" disabled={blocked || domain.is_product_decision_domain} title={domain.is_product_decision_domain ? "Product Decision Records preserve human question and answer history." : undefined} onClick={() => setDeleting(domain)}>Delete</button>
             </div></td>
           </tr>

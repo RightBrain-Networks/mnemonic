@@ -254,3 +254,53 @@ def test_actual_application_owns_gateway_and_keeps_machine_auth_separate(tmp_pat
         assert client.get(f"/api/mnemonic/projects/{PROJECT}/backups").status_code == 404
         assert not any(path.startswith("/api/backups") for path in app.openapi()["paths"])
     assert app.state.backup_client.is_closed
+
+
+@pytest.mark.parametrize("suffix,method,payload", [
+    ("/backup-settings", "PUT",
+     b'{"enabled":false,"time":"02:00","timezone":"UTC","retention_days":7}'),
+])
+def test_json_backup_actions_forward_bounded_body(boundary, suffix, method, payload):
+    client, calls, _ = boundary
+    response = client.request(method, ROOT + suffix, content=payload,
+                              headers={"content-type": "application/json"})
+    assert response.status_code == 200
+    assert calls[-1][1] == payload
+    assert calls[-1][0].headers["content-type"] == "application/json"
+
+
+def test_backup_delete_is_admitted_without_body(boundary):
+    client, calls, _ = boundary
+    assert client.delete(DOWNLOAD).status_code == 200
+    assert calls[-1][0].method == "DELETE"
+    assert calls[-1][1] == b""
+
+
+def test_stored_restore_requires_confirmation(boundary):
+    client, calls, _ = boundary
+    assert client.post(DOWNLOAD + "/restore").status_code == 400
+    assert not calls
+    response = client.post(DOWNLOAD + "/restore", headers={"x-confirm-project": PROJECT})
+    assert response.status_code == 200
+    assert calls[-1][0].headers["x-confirm-project"] == PROJECT
+    assert calls[-1][1] == b""
+
+
+def test_selection_rejects_large_body_before_worker_contact(boundary):
+    client, calls, _ = boundary
+    response = client.post(ROOT + "/exports", content=b" " * (128 * 1024 + 1),
+                           headers={"content-type": "application/json"})
+    assert response.status_code == 413
+    assert not calls
+
+
+def test_export_stream_has_fixed_download_name():
+    async def handler(request):
+        assert await request.aread() == b'{"domain_ids":["' + PROJECT.encode() + b'"]}'
+        return upstream(b"BZh-data", headers={"content-length": "8"})
+    with TestClient(make_app(handler), headers=HEADERS) as client:
+        result = client.post(ROOT + "/exports", json={"domain_ids": [PROJECT]})
+        assert result.status_code == 200
+        assert result.content == b"BZh-data"
+        assert result.headers["content-disposition"] == (
+            'attachment; filename="selected-assets.tar.bz2"')

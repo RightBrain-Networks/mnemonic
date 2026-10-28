@@ -22,6 +22,7 @@ from mnemonic_backup.archive_schema import (
 )
 from mnemonic_backup.config import BackupSettings
 from mnemonic_backup.jobs import backup_job, schedule_backups
+from mnemonic_backup.schedules import BackupSchedule, save_schedule
 from mnemonic_backup.service import BackupService
 from mnemonic_jobs import enqueue_job
 from mnemonic_jobs.ledger import claim_job
@@ -189,6 +190,9 @@ def test_durable_scheduled_backups_and_manual_handler_replay(
     settings = BackupSettings(DATABASE_URL="postgresql+psycopg://unused",
                               token="unit-test-backup-token-at-least32chars", root=tmp_path)
     service = BackupService(settings, postgres_engine)
+    save_schedule(postgres_engine, UUID(project["id"]), BackupSchedule(enabled=True, time="00:00"))
+    with postgres_engine.begin() as connection:
+        connection.execute(text("UPDATE backup_settings SET updated_at = '2020-01-01'"))
     with Session(postgres_engine) as database, database.begin():
         schedule_backups(database, settings)
     with Session(postgres_engine) as database, database.begin():

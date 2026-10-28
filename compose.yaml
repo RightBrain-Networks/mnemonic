@@ -35,7 +35,7 @@ services:
     restart: unless-stopped
 
   init-storage:
-    image: ghcr.io/rightbrain-networks/mnemonic-api:${MNEMONIC_VERSION:-0.116.1}
+    image: ghcr.io/rightbrain-networks/mnemonic-api:${MNEMONIC_VERSION:-0.117.0}
     user: "0:0"
     command: [init-storage]
     environment:
@@ -53,7 +53,7 @@ services:
     security_opt: [no-new-privileges:true]
 
   migrate:
-    image: ghcr.io/rightbrain-networks/mnemonic-api:${MNEMONIC_VERSION:-0.116.1}
+    image: ghcr.io/rightbrain-networks/mnemonic-api:${MNEMONIC_VERSION:-0.117.0}
     user: "${MNEMONIC_API_UID:-10001}:${MNEMONIC_API_GID:-10001}"
     command: [migrate]
     environment:
@@ -71,7 +71,7 @@ services:
     security_opt: [no-new-privileges:true]
 
   api:
-    image: ghcr.io/rightbrain-networks/mnemonic-api:${MNEMONIC_VERSION:-0.116.1}
+    image: ghcr.io/rightbrain-networks/mnemonic-api:${MNEMONIC_VERSION:-0.117.0}
     user: "${MNEMONIC_API_UID:-10001}:${MNEMONIC_API_GID:-10001}"
     environment:
       DATABASE_URL: postgresql+psycopg://mnemonic:${POSTGRES_PASSWORD}@postgres:5432/mnemonic
@@ -159,7 +159,7 @@ services:
     security_opt: [no-new-privileges:true]
 
   tika:
-    image: ghcr.io/rightbrain-networks/mnemonic-tika:${MNEMONIC_VERSION:-0.116.1}
+    image: ghcr.io/rightbrain-networks/mnemonic-tika:${MNEMONIC_VERSION:-0.117.0}
     environment:
       MNEMONIC_ARTIFACT_EXTRACTION_MAX_CHARS: ${MNEMONIC_ARTIFACT_EXTRACTION_MAX_CHARS:-2000000}
       MNEMONIC_ARTIFACT_EXTRACTION_TIMEOUT_SECONDS: ${MNEMONIC_ARTIFACT_EXTRACTION_TIMEOUT_SECONDS:-60}
@@ -187,7 +187,7 @@ services:
     restart: unless-stopped
 
   mcp:
-    image: ghcr.io/rightbrain-networks/mnemonic-mcp:${MNEMONIC_VERSION:-0.116.1}
+    image: ghcr.io/rightbrain-networks/mnemonic-mcp:${MNEMONIC_VERSION:-0.117.0}
     environment:
       MNEMONIC_API_URL: http://api:8000
       MNEMONIC_API_KEY: ${MNEMONIC_API_KEY}
@@ -212,7 +212,7 @@ services:
     security_opt: [no-new-privileges:true]
 
   web:
-    image: ghcr.io/rightbrain-networks/mnemonic-web:${MNEMONIC_VERSION:-0.116.1}
+    image: ghcr.io/rightbrain-networks/mnemonic-web:${MNEMONIC_VERSION:-0.117.0}
     ports:
       - '127.0.0.1:${MNEMONIC_WEB_PORT:-3000}:3000'
     depends_on:
@@ -233,7 +233,7 @@ services:
     security_opt: [no-new-privileges:true]
 
   worker:
-    image: ghcr.io/rightbrain-networks/mnemonic-api:${MNEMONIC_VERSION:-0.116.1}
+    image: ghcr.io/rightbrain-networks/mnemonic-api:${MNEMONIC_VERSION:-0.117.0}
     user: "${MNEMONIC_API_UID:-10001}:${MNEMONIC_API_GID:-10001}"
     command: [serve-worker]
     environment:
@@ -254,12 +254,16 @@ services:
       MNEMONIC_ARTIFACT_EXTRACTION_TIMEOUT_SECONDS: ${MNEMONIC_ARTIFACT_EXTRACTION_TIMEOUT_SECONDS:-60}
       MNEMONIC_BACKUP_TOKEN: ${MNEMONIC_BACKUP_TOKEN:?Configure the private dashboard backup token in .env}
       MNEMONIC_BACKUP_ROOT: /backups
-      MNEMONIC_BACKUP_INTERVAL_SECONDS: ${MNEMONIC_BACKUP_INTERVAL_SECONDS:-86400}
-      MNEMONIC_BACKUP_RETENTION_COUNT: ${MNEMONIC_BACKUP_RETENTION_COUNT:-7}
+      # This is the actual container path for the default private Docker volume.
+      # The bind overlay replaces this display value with its configured host path.
+      MNEMONIC_BACKUP_DIR: /backups
+      MNEMONIC_BACKUP_SERVER_RESTORE_MAX_BYTES: ${MNEMONIC_BACKUP_SERVER_RESTORE_MAX_BYTES:-68719476736}
+      MNEMONIC_ARTIFACT_ROOT: /var/lib/mnemonic/artifacts
       MNEMONIC_BACKUP_MAX_BYTES: ${MNEMONIC_BACKUP_MAX_BYTES:-67108864}
       MNEMONIC_BACKUP_EXPANDED_MAX_BYTES: ${MNEMONIC_BACKUP_EXPANDED_MAX_BYTES:-268435456}
     volumes:
-      - mnemonic_artifacts:/var/lib/mnemonic/artifacts:ro
+      # Selected exports can finish journaled artifact recovery, as API downloads do.
+      - mnemonic_artifacts:/var/lib/mnemonic/artifacts
       - *prompt-mount
       - *claude-source
       - *codex-source

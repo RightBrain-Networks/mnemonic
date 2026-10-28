@@ -2,12 +2,13 @@
 
 import fcntl
 import json
+import logging
 import os
 import re
 import stat
 from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import BinaryIO
 from uuid import UUID, uuid4
@@ -15,6 +16,7 @@ from uuid import UUID, uuid4
 from mnemonic_backup.archive import BackupError
 
 ARCHIVE_NAME = re.compile(r"project-[0-9]{8}T[0-9]{12}Z-[0-9a-f]{32}\.json\.bz2\Z")
+RESTORE_DIRECTORY = re.compile(r"\.mnemonic-restore-[a-z0-9_]{8}\Z")
 PARTIAL_NAME = re.compile(r"\.compressed-[0-9a-f]{32}\.partial\.bz2\Z")
 DIRECTORY_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
 FILE_FLAGS = os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK
@@ -36,9 +38,9 @@ def metadata(name: str, info: os.stat_result) -> dict:
 
 
 class BackupStore:
-    def __init__(self, root: Path, retention_count: int):
+    def __init__(self, root: Path, retention_days: int = 7):
         self.root = root
-        self.retention_count = retention_count
+        self.retention_days = retention_days
 
     @contextmanager
     def directory(self, project_id: UUID | None = None) -> Iterator[int]:
@@ -92,6 +94,9 @@ class BackupStore:
     def cleanup_staging(self, root: int) -> None:
         # The global operation lock proves no live upload/export owns these files.
         for name in os.listdir(root):
+            if RESTORE_DIRECTORY.fullmatch(name):
+                self._remove_restore_spool(root, name)
+                continue
             try:
                 project = UUID(name)
             except ValueError:
@@ -103,6 +108,28 @@ class BackupStore:
                 continue
             with self.directory(project) as directory:
                 self._remove_partials(directory)
+
+    @staticmethod
+    def _remove_restore_spool(root: int, name: str) -> None:
+        info = os.stat(name, dir_fd=root, follow_symlinks=False)
+        if (not stat.S_ISDIR(info.st_mode) or info.st_uid != os.geteuid()
+                or info.st_mode & 0o077):
+            return
+        directory = os.open(name, DIRECTORY_FLAGS, dir_fd=root)
+        try:
+            entries = os.listdir(directory)
+            if set(entries) - {"rows.sqlite"}:
+                return
+            if entries:
+                payload = os.stat("rows.sqlite", dir_fd=directory, follow_symlinks=False)
+                if not stat.S_ISREG(payload.st_mode) or payload.st_uid != os.geteuid():
+                    return
+                os.unlink("rows.sqlite", dir_fd=directory)
+                os.fsync(directory)
+        finally:
+            os.close(directory)
+        os.rmdir(name, dir_fd=root)
+        os.fsync(root)
 
     @staticmethod
     def _remove_partials(directory: int) -> None:
@@ -120,7 +147,12 @@ class BackupStore:
             for name in os.listdir(directory):
                 if not ARCHIVE_NAME.fullmatch(name):
                     continue
-                info = os.stat(name, dir_fd=directory, follow_symlinks=False)
+                try:
+                    info = os.stat(name, dir_fd=directory, follow_symlinks=False)
+                except FileNotFoundError:
+                    # Catalog polling can overlap deletion or retention. An
+                    # archive removed after listdir is simply no longer listed.
+                    continue
                 if stat.S_ISREG(info.st_mode) and info.st_uid == os.geteuid():
                     entries.append(metadata(name, info))
             return sorted(entries, key=lambda item: (item["created_at"], item["filename"]),
@@ -195,7 +227,7 @@ class BackupStore:
         os.fsync(directory)
 
     def publish(self, project_id: UUID, output: BinaryIO, directory: int, partial: str,
-                *, job_id: UUID | None = None) -> dict:
+                *, job_id: UUID | None = None, retention_days: int | None = None) -> dict:
         output.flush()
         os.fsync(output.fileno())
         stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
@@ -207,16 +239,58 @@ class BackupStore:
         result = metadata(name, os.fstat(output.fileno()))
         if job_id is not None:
             self._record_job(directory, job_id, result)
-        # A backward clock adjustment must never evict the backup just created.
-        previous = [entry for entry in self.list_archives(project_id)
-                    if entry["filename"] != name]
-        for entry in previous[self.retention_count - 1:]:
-            # Another worker may have crashed after publishing this older file.
-            # Preserve its operation result before retention removes the evidence.
-            previous_job = UUID(hex=entry["filename"].removesuffix(".json.bz2").rsplit("-", 1)[1])
-            self.job_result(project_id, previous_job)
-            os.unlink(entry["filename"], dir_fd=directory)
-        os.fsync(directory)
+        # Publication is already durable. A pruning error must not turn a valid
+        # archive into a failed job or prompt creation of another copy.
+        try:
+            self.prune(project_id, keep=name, retention_days=retention_days)
+        except (BackupError, OSError):
+            logging.getLogger(__name__).warning("Backup published; retention cleanup failed")
+        return result
+
+    def prune(self, project_id: UUID, *, keep: str, retention_days: int | None = None) -> None:
+        days = self.retention_days if retention_days is None else retention_days
+        if days == 0:
+            return
+        cutoff = datetime.now(UTC) - timedelta(days=days)
+        with self.directory(project_id) as directory:
+            for entry in self.list_archives(project_id):
+                if (entry["filename"] == keep
+                        or datetime.fromisoformat(entry["created_at"]) >= cutoff):
+                    continue
+                self._remove_archive(project_id, directory, entry["filename"])
+            os.fsync(directory)
+
+    def _remove_archive(self, project_id: UUID, directory: int, filename: str) -> None:
+        # Retain a publication receipt so late job redelivery cannot resurrect
+        # a manually deleted or pruned backup.
+        previous_job = UUID(hex=filename.removesuffix(".json.bz2").rsplit("-", 1)[1])
+        self.job_result(project_id, previous_job)
+        os.unlink(filename, dir_fd=directory)
+
+    def delete(self, project_id: UUID, filename: str) -> None:
+        if not ARCHIVE_NAME.fullmatch(filename):
+            raise BackupError(404, "backup_not_found", "Backup not found.")
+        with self.operation(), self.directory(project_id) as directory:
+            try:
+                with self.open(project_id, filename):
+                    pass
+            except BackupError as error:
+                if error.code == "backup_not_found":
+                    return  # A repeated delete has the same final state.
+                raise
+            self._remove_archive(project_id, directory, filename)
+            os.fsync(directory)
+
+    def capacity(self, path: str | None = None) -> dict:
+        result = {"path": path or str(self.root), "total_bytes": None,
+                  "free_bytes": None, "error": None}
+        try:
+            with self.directory() as directory:
+                info = os.fstatvfs(directory)
+                result.update(total_bytes=info.f_blocks * info.f_frsize,
+                              free_bytes=info.f_bavail * info.f_frsize)
+        except (OSError, BackupError):
+            result["error"] = "Backup storage is unavailable. Check its mount and permissions."
         return result
 
     def open(self, project_id: UUID, filename: str) -> BinaryIO:

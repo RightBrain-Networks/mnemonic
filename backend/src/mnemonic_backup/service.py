@@ -20,7 +20,8 @@ from starlette.concurrency import run_in_threadpool
 
 from mnemonic_backup.archive import BackupError, export_project, restore_project
 from mnemonic_backup.config import BackupSettings
-from mnemonic_backup.jobs import backup_job, enqueue_backup
+from mnemonic_backup.jobs import backup_job, enqueue_backup, latest_backup_job
+from mnemonic_backup.schedules import BackupSchedule, read_schedule, save_schedule
 from mnemonic_backup.store import BackupStore
 from mnemonic_jobs import JobContext, PermanentJobError, RetryJob
 
@@ -31,7 +32,7 @@ class BackupService:
     def __init__(self, settings: BackupSettings, engine: Engine):
         self.settings = settings
         self.engine = engine
-        self.store = BackupStore(settings.root, settings.retention_count)
+        self.store = BackupStore(settings.root)
         self.last_success: float | None = None
 
     def require_project(self, project_id: UUID) -> None:
@@ -41,18 +42,24 @@ class BackupService:
         if exists is None:
             raise BackupError(404, "project_not_found", "Project not found.")
 
-    def create_locked(self, project_id: UUID, *, job_id: UUID | None = None) -> dict:
+    def create_locked(self, project_id: UUID, *, job_id: UUID | None = None,
+                      context: JobContext | None = None) -> dict:
         if job_id is not None:
             existing = self.store.job_result(project_id, job_id)
             if existing is not None:
                 return existing
         with self.store.staging(project_id) as (output, directory, partial):
-            export_project(self.engine, project_id, output,
-                           max_bytes=self.settings.expanded_max_bytes)
-            if output.tell() > self.settings.max_bytes:
-                raise BackupError(413, "backup_too_large",
-                                  "The compressed backup exceeds the limit.")
-            return self.store.publish(project_id, output, directory, partial, job_id=job_id)
+            # Trusted server-created archives are limited by available storage,
+            # not by browser upload limits intended for untrusted restore input.
+            export_project(self.engine, project_id, output)
+            schedule = read_schedule(self.engine, project_id)
+            if context is not None:
+                # A long export can outlive a lost worker lease. Recheck the
+                # publication fence before making the archive visible/pruning.
+                with Session(self.engine) as database:
+                    context.assert_owned(database)
+            return self.store.publish(project_id, output, directory, partial, job_id=job_id,
+                                      retention_days=schedule.retention_days)
 
     def create(self, project_id: UUID) -> dict:
         with self.store.operation():
@@ -82,13 +89,22 @@ class BackupService:
             with self.store.operation():
                 with Session(self.engine) as database:
                     context.assert_owned(database)
-                return self.create_locked(project_id, job_id=context.job_id)
+                return self.create_locked(project_id, job_id=context.job_id, context=context)
         except BackupError as error:
             if error.status in {400, 404, 413, 422} or error.code == "backup_schema_mismatch":
                 raise PermanentJobError(error.code) from None
-            raise RetryJob(error.code, delay_seconds=60) from None
-        except (OSError, SQLAlchemyError):
-            raise RetryJob("backup_unavailable", delay_seconds=60) from None
+            logger.warning("Backup job %s failed: %s", context.job_id, error.code)
+            consume = error.code not in {"backup_busy", "backup_database_busy"}
+            raise RetryJob(error.code, delay_seconds=60, consume_attempt=consume) from None
+        except OSError as error:
+            code = "storage_full" if error.errno == errno.ENOSPC else "storage_unavailable"
+            logger.warning("Backup job %s failed: %s", context.job_id, code)
+            if code == "storage_full":
+                raise PermanentJobError(code) from None
+            raise RetryJob(code, delay_seconds=60) from None
+        except SQLAlchemyError:
+            logger.warning("Backup job %s failed: backup_database_unavailable", context.job_id)
+            raise RetryJob("backup_database_unavailable", delay_seconds=60) from None
 
     def enqueue(self, project_id: UUID) -> dict:
         self.require_project(project_id)
@@ -172,6 +188,10 @@ def create_app(
     app.state.backup_service = service
     _install_handlers(app, settings)
     _install_routes(app, service, health_check)
+    _install_management_routes(app, service)
+    from mnemonic_backup.export_routes import install_export_routes
+
+    install_export_routes(app, service)
     return app
 
 
@@ -215,8 +235,13 @@ def _install_routes(app: FastAPI, service: BackupService,
     @app.get("/projects/{project_id}/backups")
     def list_backups(project_id: UUID):
         service.require_project(project_id)
-        return {"project_id": str(project_id), "retention_count": service.settings.retention_count,
-                "backups": service.store.list_archives(project_id)}
+        with Session(service.engine) as database:
+            latest = latest_backup_job(database, project_id)
+        storage = service.store.capacity(service.settings.storage_path)
+        archives = service.store.list_archives(project_id) if storage["error"] is None else []
+        return {"project_id": str(project_id),
+                "schedule": read_schedule(service.engine, project_id).model_dump(),
+                "storage": storage, "latest_job": latest, "backups": archives}
 
     @app.post("/projects/{project_id}/backups", status_code=202)
     def create_backup(project_id: UUID):
@@ -234,11 +259,36 @@ def _install_routes(app: FastAPI, service: BackupService,
             "Content-Length": str(os.fstat(content.fileno()).st_size),
         })
 
+    @app.post("/projects/{project_id}/backups/{filename}/restore")
+    def restore_stored_backup(project_id: UUID, filename: str, request: Request):
+        if request.headers.get("x-confirm-project") != str(project_id):
+            raise BackupError(400, "confirmation_required", "Confirm the project before restoring.")
+        with service.store.operation(), service.store.open(project_id, filename) as source:
+            restore_project(service.engine, project_id, source,
+                            max_bytes=service.settings.server_restore_max_bytes,
+                            spool_directory=service.settings.root)
+        return {"project_id": str(project_id), "restored": True}
+
     @app.post("/projects/{project_id}/restore")
     async def restore_backup(project_id: UUID, request: Request):
         _validate_upload(request, project_id, service.settings.max_bytes)
         with service.store.operation(), service.store.staging(project_id) as (output, _, _name):
             await _receive_upload(request, output, service.settings.max_bytes)
             await run_in_threadpool(restore_project, service.engine, project_id, output,
-                                    max_bytes=service.settings.expanded_max_bytes)
+                                    max_bytes=service.settings.expanded_max_bytes,
+                                    spool_directory=service.settings.root)
         return {"project_id": str(project_id), "restored": True}
+
+
+def _install_management_routes(app: FastAPI, service: BackupService) -> None:
+    @app.put("/projects/{project_id}/backup-settings")
+    def update_backup_settings(project_id: UUID, schedule: BackupSchedule):
+        service.require_project(project_id)
+        save_schedule(service.engine, project_id, schedule)
+        return {"project_id": str(project_id), "schedule": schedule.model_dump()}
+
+    @app.delete("/projects/{project_id}/backups/{filename}")
+    def delete_backup(project_id: UUID, filename: str):
+        service.require_project(project_id)
+        service.store.delete(project_id, filename)
+        return {"project_id": str(project_id), "filename": filename, "deleted": True}

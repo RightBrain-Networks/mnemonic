@@ -104,6 +104,25 @@ class Project(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class ProjectBackupSettings(Base):
+    """Human-configured nightly backups; absent rows mean scheduling is disabled."""
+
+    __tablename__ = "backup_settings"
+    __table_args__ = (
+        CheckConstraint("retention_days BETWEEN 0 AND 36500", name="retention_days_valid"),
+        CheckConstraint("time ~ '^([01][0-9]|2[0-3]):[0-5][0-9]$'", name="time_valid"),
+        CheckConstraint("length(timezone) BETWEEN 1 AND 100", name="timezone_valid"),
+    )
+
+    project_id: Mapped[UUID] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"), primary_key=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, server_default="false")
+    time: Mapped[str] = mapped_column(String(5), server_default="02:00")
+    timezone: Mapped[str] = mapped_column(String(100), server_default="UTC")
+    retention_days: Mapped[int] = mapped_column(Integer, server_default="7")
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class ProjectSettings(Base):
     """Independent project configuration with a compare-and-set revision."""
 

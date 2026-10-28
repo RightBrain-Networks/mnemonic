@@ -1,3 +1,4 @@
+import { readBoundedJson } from "./bounded-json.ts";
 import { objectValue, validUtcDateTime, validUuid } from "./wire-guards.ts";
 
 export const BACKUP_DEFAULT_MAX_BYTES = 67_108_864;
@@ -13,9 +14,53 @@ export type BackupJob = {
 };
 export type ProjectBackups = {
   project_id: string;
-  retention_count: number;
+  schedule: BackupSchedule;
+  storage: BackupStorage;
+  latest_job: BackupJob | null;
   backups: ProjectBackup[];
 };
+
+export type BackupSchedule = { enabled: boolean; time: string; timezone: string; retention_days: number };
+export type BackupStorage = { path: string; total_bytes: number | null; free_bytes: number | null; error: string | null };
+
+export function decodeBackupSchedule(value: unknown): BackupSchedule {
+  const schedule = objectValue(value);
+  if (!schedule || typeof schedule.enabled !== "boolean" || typeof schedule.time !== "string"
+    || !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(schedule.time) || typeof schedule.timezone !== "string"
+    || !schedule.timezone || !Number.isSafeInteger(schedule.retention_days)
+    || (schedule.retention_days as number) < 0 || (schedule.retention_days as number) > 36500) {
+    throw new Error("The backup service returned an invalid nightly schedule.");
+  }
+  try { new Intl.DateTimeFormat("en", { timeZone: schedule.timezone }); }
+  catch { throw new Error("The backup service returned an invalid schedule timezone."); }
+  return schedule as BackupSchedule;
+}
+
+function decodeBackupStorage(value: unknown): BackupStorage {
+  const storage = objectValue(value);
+  const bytes = (value: unknown) => value === null || Number.isSafeInteger(value) && (value as number) >= 0;
+  if (!storage || typeof storage.path !== "string" || !storage.path || !bytes(storage.total_bytes)
+    || !bytes(storage.free_bytes) || !(storage.error === null || typeof storage.error === "string")
+    || storage.total_bytes !== null && storage.free_bytes !== null && Number(storage.free_bytes) > Number(storage.total_bytes)) {
+    throw new Error("The backup service returned invalid storage information.");
+  }
+  return storage as BackupStorage;
+}
+
+export function backupResponseMessage(value: unknown, fallback: string): string {
+  const result = objectValue(value);
+  const detail = result?.detail ?? result?.error;
+  if (typeof detail === "string") return detail;
+  const error = objectValue(detail);
+  return typeof error?.message === "string" ? error.message : fallback;
+}
+
+export async function backupJson(path: string, init: RequestInit) {
+  const response = await fetch(path, { ...init, cache: "no-store" });
+  const value = await readBoundedJson(response, 4 * 1024 * 1024);
+  if (!response.ok) throw new Error(backupResponseMessage(value, "The backup request failed."));
+  return value;
+}
 
 export function backupMaximumBytes(configured?: string): number {
   if (configured === undefined) return BACKUP_DEFAULT_MAX_BYTES;
@@ -52,15 +97,15 @@ export function decodeBackupJob(value: unknown, projectId: string, jobId?: strin
 
 export function decodeBackups(value: unknown, projectId: string): ProjectBackups {
   const result = objectValue(value);
-  if (!result || result.project_id !== projectId || !Number.isSafeInteger(result.retention_count)
-    || (result.retention_count as number) < 1 || !Array.isArray(result.backups)) {
+  if (!result || result.project_id !== projectId || !Array.isArray(result.backups)) {
     throw new Error("The backup service returned an invalid project backup list.");
   }
   const backups = result.backups.map(decodeBackup);
   if (new Set(backups.map((backup) => backup.filename)).size !== backups.length) {
     throw new Error("The backup service returned duplicate archives.");
   }
-  return { project_id: projectId, retention_count: result.retention_count as number, backups };
+  return { project_id: projectId, backups, schedule: decodeBackupSchedule(result.schedule),
+    storage: decodeBackupStorage(result.storage), latest_job: result.latest_job === null ? null : decodeBackupJob(result.latest_job, projectId) };
 }
 
 export function backupAge(createdAt: string, now = Date.now()): string {

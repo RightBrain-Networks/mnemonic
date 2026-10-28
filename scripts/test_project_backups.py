@@ -60,7 +60,8 @@ def create_project(label: str) -> str:
 def listed(project: str) -> list[dict]:
     payload = json.loads(expect(200, request(f"/projects/{project}/backups")))
     assert payload["project_id"] == project
-    assert payload["retention_count"] == 2
+    assert payload["schedule"]["retention_days"] == 7
+    assert payload["storage"]["total_bytes"] >= payload["storage"]["free_bytes"] > 0
     return payload["backups"]
 
 
@@ -82,6 +83,18 @@ def completed_job(project: str, job: dict) -> dict:
 
 
 def wait_for_scheduled_backup(project: str) -> None:
+    expect(200, request(f"/projects/{project}/backup-settings", method="PUT", body={
+        "enabled": True, "time": "00:00", "timezone": "UTC", "retention_days": 7,
+    }))
+    # Only this disposable acceptance database is backdated so the next worker
+    # scheduler tick can exercise a due nightly backup without waiting a day.
+    engine = create_engine(os.environ["DATABASE_URL"])
+    try:
+        with engine.begin() as connection:
+            connection.execute(text("UPDATE backup_settings SET updated_at = '2020-01-01' "
+                                    "WHERE project_id=CAST(:id AS uuid)"), {"id": project})
+    finally:
+        engine.dispose()
     deadline = time.monotonic() + 30
     while time.monotonic() < deadline:
         if listed(project):
@@ -115,6 +128,11 @@ def check_retention_and_concurrency(project: str, other: str) -> bytes:
     assert first["size_bytes"] == len(raw)
     created = datetime.fromisoformat(first["created_at"].replace("Z", "+00:00"))
     assert abs((datetime.now(UTC) - created).total_seconds()) < 120
+    # Day-based retention removes aged files; creating several backups on one
+    # day must preserve each of them. This fixture owns its private /backups.
+    old = time.time() - 8 * 86400
+    for item in listed(project):
+        os.utime(Path("/backups") / project / item["filename"], (old, old))
     second = backup(project)
     third = backup(project)
     current = listed(project)
@@ -128,8 +146,12 @@ def check_retention_and_concurrency(project: str, other: str) -> bytes:
         )
     assert all(status == 202 for status, _ in responses), responses
     successes = [completed_job(project, json.loads(body)) for _status, body in responses]
-    assert len({item["filename"] for item in successes}) == len(successes)
-    assert len(listed(project)) == 2
+    assert {item["filename"] for item in listed(project)} == {
+        second["filename"], third["filename"], *(item["filename"] for item in successes)}
+    # Explicit deletion is repeatable and scoped to the chosen project.
+    expect(200, request(f"/projects/{project}/backups/{second['filename']}", method="DELETE"))
+    expect(200, request(f"/projects/{project}/backups/{second['filename']}", method="DELETE"))
+    expect(404, request(f"/projects/{project}/backups/{second['filename']}"))
     for item in listed(project):
         content = expect(200, request(f"/projects/{project}/backups/{item['filename']}"))
         assert bz2.decompress(content)
@@ -291,7 +313,6 @@ def main() -> None:
         raise SystemExit("Only scripts/test-e2e.sh may invoke destructive acceptance fixtures")
     assert os.geteuid() == 0, "The isolated fault harness needs root to alter fixture ownership"
     assert os.environ["MNEMONIC_BACKUP_ROOT"] == "/backups"
-    assert os.environ["MNEMONIC_BACKUP_RETENTION_COUNT"] == "2"
     assert os.environ["MNEMONIC_BACKUP_MAX_BYTES"] == "2097152"
     project, other = create_project("faults"), create_project("untouched")
     check_authentication_and_missing(project)

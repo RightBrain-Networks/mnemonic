@@ -80,13 +80,14 @@ services:
         bind:
           create_host_path: false
   worker:
+    environment:
+      MNEMONIC_BACKUP_DIR: ${MNEMONIC_BACKUP_DIR:-./backups}
     volumes:
       - type: bind
         source: ${MNEMONIC_ARTIFACT_DIR:-./artifacts}
         target: /var/lib/mnemonic/artifacts
         bind:
           create_host_path: false
-        read_only: true
       - type: bind
         source: ${MNEMONIC_PROMPT_DIR:-./prompts/runtime}
         target: /var/lib/mnemonic/prompts

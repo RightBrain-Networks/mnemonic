@@ -15,7 +15,7 @@ from sqlalchemy import Connection, text
 
 from mnemonic_api.models import Base
 
-HEAD = "0069_transcript_directories"
+HEAD = "0070_backup_settings"
 # Infrastructure delivery state is neither project data nor a restore target.
 # The reconciler derives transcript jobs anew from the restored domain rows.
 INFRASTRUCTURE_TABLES = frozenset({
@@ -101,7 +101,7 @@ def lock_tables(connection: Connection, *, restore: bool) -> None:
     connection.execute(text("SET LOCAL statement_timeout = '300s'"))
     connection.execute(text("SET LOCAL timezone = 'UTC'"))
     connection.execute(text("SET LOCAL bytea_output = 'hex'"))
-    mode = "ACCESS EXCLUSIVE" if restore else "SHARE"
+    mode = "ACCESS EXCLUSIVE" if restore else "ACCESS SHARE"
     connection.execute(text(f"LOCK TABLE {','.join(map(quote, TABLES))} IN {mode} MODE"))
 
 
@@ -121,25 +121,40 @@ def scope(name: str) -> str:
 
 
 def read_rows(
-    connection: Connection, project: str, *, max_bytes: int | None = None,
-) -> dict[str, list[dict[str, Any]]]:
-    rows = {}
+    connection: Connection, project: str, *, max_bytes: int | None = None, rows: dict | None = None,
+    metadata_only: bool = False,
+) -> dict:
+    rows = {} if rows is None else rows
     size = 0
     for name in TABLES:
-        selected = ",".join(map(quote, columns(name)))
+        selected_columns = _restore_current_columns(name) if metadata_only else columns(name)
+        selected = ",".join(map(quote, selected_columns))
         order = ",".join(map(quote, primary_key(name)))
         statement = f"SELECT row_to_json(record) FROM (SELECT {selected} FROM {quote(name)} " \
             f"WHERE {scope(name)} ORDER BY {order}) record"
-        rows[name] = []
+        if name not in rows:
+            rows[name] = []
         result = connection.execute(text(statement), {"project": project},
-                                    execution_options={"yield_per": 10})
+                                    execution_options={"yield_per": 1})
         for row in result.scalars():
-            size += len(canonical(row))
-            if max_bytes is not None and size > max_bytes:
-                raise BackupError(413, "backup_too_large",
-                                  "Project data exceeds the configured backup byte limit.")
+            if max_bytes is not None:
+                size += len(canonical(row))
+                if size > max_bytes:
+                    raise BackupError(413, "backup_too_large",
+                                      "Project data exceeds the configured backup byte limit.")
             rows[name].append(row)
     return rows
+
+
+def _restore_current_columns(name: str) -> list[str]:
+    # Restoring needs current row identities, operation states and generation
+    # fences; it never needs another copy of the old project text in memory/disk.
+    selected = primary_key(name)
+    if name == "transcripts":
+        selected.append("generation")
+    if name in {"artifact_operations", "client_operations"}:
+        selected.append("state")
+    return selected
 
 
 def validate_ownership(rows: dict[str, list[dict[str, Any]]], project: str) -> None:
@@ -226,9 +241,8 @@ def replace_rows(connection: Connection, current: dict, restored: dict) -> None:
         query = text(f"INSERT INTO {quote(name)} ({selected}) OVERRIDING SYSTEM VALUE "
                      f"SELECT {selected} FROM jsonb_populate_record(NULL::{quote(name)}, "
                      "CAST(:row AS jsonb))")
-        if restored[name]:
-            connection.execute(query, [{"row": canonical(row).decode()}
-                                       for row in restored[name]])
+        for row in restored[name]:
+            connection.execute(query, {"row": canonical(row).decode()})
     _invalidate_restored_approvals(connection, restored)
     connection.execute(text("SET LOCAL session_replication_role = 'origin'"))
 
@@ -249,7 +263,7 @@ def reset_transcript_jobs(connection: Connection, current: dict, restored: dict)
     for identifier, generation in previous_jobs:
         generations[identifier] = max(generations.get(identifier, 0), generation)
     now = datetime.now(UTC).isoformat()
-    for row in rows:
+    for index, row in enumerate(rows):
         row["generation"] = max(row["generation"], generations.get(row["id"], 0)) + 1
         if row.get("reindex_status") == "processing":
             row.update(reindex_status="pending", lease_token=None, lease_expires_at=None,
@@ -264,6 +278,8 @@ def reset_transcript_jobs(connection: Connection, current: dict, restored: dict)
             # An old in-flight copier may still publish after the DB fence.
             # Restored Active sessions must never adopt that uncommitted file.
             row["snapshot_id"] = str(uuid4())
+        # Disk-backed collections return detached rows, so persist the new fence.
+        rows[index] = row
 
 
 def _invalidate_restored_approvals(connection: Connection, restored: dict) -> None:

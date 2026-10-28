@@ -17,7 +17,7 @@ test("info containers render Markdown and persist keyboard expansion and collaps
     await expect(toggle).toHaveAttribute("aria-expanded", "false");
     await expect(content).toBeHidden();
     await expect(page.locator(".page-heading p").filter({ has: toggle })).toContainText(topic.path.endsWith("domains")
-      ? "Organize decisions, export documents, and set review policies for each knowledge domain."
+      ? "Organize decisions and set review policies for each knowledge domain."
       : `Explore decisions, their history, and their implementation in the “${state.projectName}” project.`);
     await toggle.focus();
     await page.keyboard.press("Enter");

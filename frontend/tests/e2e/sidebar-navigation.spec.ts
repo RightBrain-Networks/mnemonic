@@ -68,7 +68,7 @@ test("sidebar navigation keeps the workspace mounted through menu links and brow
     }).observe(document.querySelector(".sidebar")!, { subtree: true, childList: true, attributes: true });
   });
 
-  for (const label of ["Summaries", "Needs Attention", "Artifacts", "Transcripts", "Workspace", "Tags", "Prompts", "Code reviews", "Backups", "Work items"]) {
+  for (const label of ["Summaries", "Needs Attention", "Artifacts", "Transcripts", "Workspace", "Tags", "Prompts", "Code reviews", "Backup & export", "Work items"]) {
     await (label === "Code reviews" ? navigation.locator(".settings-nav") : navigation).getByRole("link", { name: label, exact: label !== "Summaries" }).click();
     await expect(page.locator("h1")).toContainText(label === "Work items" ? `Work items: ${state.projectName}` : `${label}.`);
     expect(documentRequests).toEqual([]);
@@ -79,7 +79,7 @@ test("sidebar navigation keeps the workspace mounted through menu links and brow
     await expect(resources).toHaveAttribute("aria-expanded", "true");
   }
   await page.goBack();
-  await expect(page.locator("h1")).toHaveText("Backups.");
+  await expect(page.locator("h1")).toHaveText("Backup & export.");
   await page.goForward();
   await expect(page.locator("h1")).toContainText(`Work items: ${state.projectName}`);
   await navigation.getByRole("link", { name: "Summaries" }).click();
@@ -164,40 +164,29 @@ test("sidebar navigation restores the artifact URL project after project changes
   } finally { await api.dispose(); }
 });
 
-test("sidebar navigation and browser Back retain a pending backup panel", async ({ page }) => {
+test("sidebar navigation remains available while a manual backup is being queued", async ({ page }) => {
   const state = JSON.parse(await readFile(statePath, "utf8")) as E2EState;
   await page.goto("/work-items");
   await page.locator("#project-select").selectOption(state.projectId);
   const navigation = page.getByRole("navigation", { name: "Workspace navigation" });
   await navigation.getByRole("button", { name: "Project settings" }).click();
-  await navigation.getByRole("link", { name: "Backups", exact: true }).click();
-  await expect(page).toHaveURL("/settings/backups");
+  await navigation.getByRole("link", { name: "Backup & export", exact: true }).click();
   let release!: () => void;
   const released = new Promise<void>((resolve) => { release = resolve; });
   await page.route(`**/api/backups/projects/${state.projectId}/backups`, async (route) => {
     if (route.request().method() !== "POST") { await route.continue(); return; }
     await released;
-    // A definitive failure releases the lock without creating an archive.
     await route.fulfill({ status: 422, json: { error: { code: "invalid_backup", message: "Injected backup rejection" } } });
   });
   try {
     const panel = page.getByRole("region", { name: "Project backups", exact: true });
-    const originalPanel = await panel.elementHandle();
     await panel.getByRole("button", { name: "Back up now", exact: true }).click();
-    await expect(page.locator("#project-select")).toBeDisabled();
-    await navigation.getByRole("button", { name: "Resources", exact: true }).click();
-    await navigation.getByRole("link", { name: "Transcripts", exact: true }).click();
-    await expect(page).toHaveURL("/settings/backups");
-    expect(await originalPanel!.evaluate((element) => element.isConnected)).toBe(true);
-    await navigation.getByRole("link", { name: "Work items" }).click();
-    await expect(page).toHaveURL("/settings/backups");
-    await page.goBack();
-    await expect(page.getByText("Wait for the backup action to finish before leaving this page.")).toBeVisible();
-    await expect(page).toHaveURL("/settings/backups");
-    expect(await originalPanel!.evaluate((element) => element.isConnected)).toBe(true);
-    release();
-    await expect(panel.getByRole("button", { name: "Back up now", exact: true })).toBeEnabled();
+    await expect(page.locator("#project-select")).toBeEnabled();
     await navigation.getByRole("link", { name: "Work items" }).click();
     await expect(page).toHaveURL("/work-items");
+    release();
+    await page.goBack();
+    await expect(page).toHaveURL("/settings/backups");
+    await expect(page.getByText("Wait for the backup action to finish before leaving this page.")).toHaveCount(0);
   } finally { release(); }
 });

@@ -209,7 +209,7 @@ test("humans upload, filter, edit with revision conflicts, replace and download 
   } finally { await api.dispose(); }
 });
 
-test("domain export and deletions show counted relationships and protect changed previews", async ({ page }, testInfo) => {
+test("domain deletions show counted relationships and protect changed previews", async ({ page }, testInfo) => {
   const api = await apiClient();
   try {
     const { project, architecture, current, downstream } = await seed(api);
@@ -217,9 +217,7 @@ test("domain export and deletions show counted relationships and protect changed
     await page.addInitScript(() => Object.defineProperty(window, "showSaveFilePicker", { value: undefined, configurable: true }));
     await page.goto(`/knowledge/domains?project=${project.id}`);
     const card = page.getByRole("row", { name: "Architecture domain", exact: true });
-    const download = page.waitForEvent("download");
-    await card.getByRole("button", { name: "Export", exact: true }).click();
-    expect((await download).suggestedFilename()).toBe("ADR-decisions.tar.gz");
+    await expect(card.getByRole("button", { name: "Export", exact: true })).toHaveCount(0);
     await card.getByRole("button", { name: "Delete", exact: true }).click();
     let dialog = page.getByRole("dialog", { name: "Delete domain?", exact: true });
     await expect(dialog.getByRole("checkbox")).toBeVisible();

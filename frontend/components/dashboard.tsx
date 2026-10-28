@@ -339,7 +339,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
   const [promptPending, setPromptPending] = useState(false);
   const backupPendingRef = useRef(false);
   const blockedNavigation = tagPending ? "Resolve the pending tag action before leaving this page." : knowledgePending ? "Resolve the pending knowledge graph action before leaving this page." : promptPending ? "Save or discard your prompt changes before leaving this page." : transcriptPending ? "Resolve the pending transcript action before leaving this page." : artifactPending ? "Resolve the pending artifact action before leaving this page."
-    : backupPending ? "Wait for the backup action to finish before leaving this page."
+    : backupPending ? "Wait for the restore to finish before leaving this page."
       : mutationRegistry.hasDispatched() ? "Resolve pending mutations before leaving this dashboard document." : null;
   const route = useDashboardRoute(blockedNavigation);
   const { pathname } = route;
@@ -864,7 +864,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
     if (promptPending) { setNotice({ message: "Save or discard your prompt changes before switching projects.", error: true }); return; }
     if (transcriptPending) { setNotice({ message: "Resolve the pending transcript action before switching projects.", error: true }); return; }
     if (artifactPending) { setNotice({ message: "Resolve the pending artifact action before switching projects.", error: true }); return; }
-    if (backupPending) { setNotice({ message: "Wait for the backup action to finish before switching projects.", error: true }); return; }
+    if (backupPending) { setNotice({ message: "Wait for the restore to finish before switching projects.", error: true }); return; }
     if (
       id !== activeId
       && activeId
@@ -2913,7 +2913,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
           {projectsError && <ErrorNotice message={projectsError}><button className="button button-secondary" onClick={() => refreshProjects()}>Try again</button></ErrorNotice>}
           {project ? <TranscriptLibrary key={`${project.id}:${artifactRoute.workItemId ?? ""}`} projectId={project.id} onPendingChange={setTranscriptPending} /> : <div className="loading-state" role="status">{projectsLoading ? "Opening your workspace…" : "Select or create a project to view transcripts."}</div>}
         </> : view === "knowledge" ? <>
-          <DashboardViewChrome eyebrow="DECISIONS AND THE CODE THEY INFORM" title={pathname === "/knowledge/domains" ? "Manage domains" : "Decision documents"} description={pathname === "/knowledge/domains" ? "Organize decisions, export documents, and set review policies for each knowledge domain." : project ? `Explore decisions, their history, and their implementation in the “${project.name}” project.` : "Choose a project to explore its decisions."} info={pathname === "/knowledge/domains" ? knowledgeDomainsHelp : knowledgeDecisionsHelp} />
+          <DashboardViewChrome eyebrow="DECISIONS AND THE CODE THEY INFORM" title={pathname === "/knowledge/domains" ? "Manage domains" : "Decision documents"} description={pathname === "/knowledge/domains" ? "Organize decisions and set review policies for each knowledge domain." : project ? `Explore decisions, their history, and their implementation in the “${project.name}” project.` : "Choose a project to explore its decisions."} info={pathname === "/knowledge/domains" ? knowledgeDomainsHelp : knowledgeDecisionsHelp} />
           {projectsError && <ErrorNotice message={projectsError}><button className="button button-secondary" onClick={() => refreshProjects()}>Try again</button></ErrorNotice>}
           {project ? pathname === "/knowledge/domains" ? <KnowledgeDomains key={project.id} projectId={project.id} onPendingChange={setKnowledgePending} /> : <KnowledgeLibrary key={project.id} projectId={project.id} repositoryUrl={project.repository_url} query={route.query} onPendingChange={setKnowledgePending} /> : <div className="loading-state" role="status">{projectsLoading ? "Opening your workspace…" : "Select or create a project to view decisions."}</div>}
         </> : view === "artifacts" ? <>

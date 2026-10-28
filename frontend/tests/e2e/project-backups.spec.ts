@@ -2,6 +2,8 @@ import { readFile } from "node:fs/promises";
 import { expect, request, test, type APIRequestContext, type Page } from "@playwright/test";
 
 type Project = { id: string; name: string; slug: string; description: string };
+const catalogDefaults = { schedule: { enabled: false, time: "02:00", timezone: "UTC", retention_days: 7 }, storage: { path: "/backups", total_bytes: 1000, free_bytes: 900, error: null }, latest_job: null };
+
 type Work = { id: string; version: number; title: string };
 
 async function client(): Promise<APIRequestContext> {
@@ -53,7 +55,7 @@ async function downloadBackup(page: Page, project: Project) {
   return { name: download.suggestedFilename(), mimeType: "application/x-bzip2", buffer };
 }
 
-test("project backups download compressed data, prune oldest archives and restore only the selected project", async ({ page }, testInfo) => {
+test("project backups download compressed data, delete selected archives and restore only the selected project", async ({ page }, testInfo) => {
   test.setTimeout(120_000);
   const api = await client();
   try {
@@ -71,6 +73,9 @@ test("project backups download compressed data, prune oldest archives and restor
       await panel.getByRole("button", { name: "Back up now", exact: true }).click();
       await expect(panel.getByRole("button", { name: "Back up now", exact: true })).toBeEnabled({ timeout: 30_000 });
     }
+    await expect(panel.getByRole("listitem")).toHaveCount(3);
+    await panel.getByRole("button", { name: `Delete ${archive.name}`, exact: true }).click();
+    await panel.getByRole("button", { name: "Delete backup", exact: true }).click();
     await expect(panel.getByRole("listitem")).toHaveCount(2);
     await expect(panel.getByRole("link", { name: `Download ${archive.name}` })).toHaveCount(0);
 
@@ -152,7 +157,7 @@ test("restore rejects plain, empty, oversized, corrupt and wrong-project archive
   } finally { await api.dispose(); }
 });
 
-test("a lost backup response blocks duplicate actions until the user reloads and inspects", async ({ page }) => {
+test("a lost backup response allows navigation and recovers the durable job without resubmitting", async ({ page }) => {
   const api = await client();
   try {
     const project = await createProject(api, "Uncertain backup outcome");
@@ -171,20 +176,12 @@ test("a lost backup response blocks duplicate actions until the user reloads and
     });
     const panel = await openBackups(page, project);
     await panel.getByRole("button", { name: "Back up now" }).click();
-    await expect(panel.getByRole("alert")).toContainText("The outcome is uncertain.");
+    await expect(panel.getByRole("alert")).toContainText("Refresh backups to inspect the latest job");
     await expect(panel.getByRole("button", { name: "Back up now" })).toBeDisabled();
-    await expect(page.locator("#project-select")).toBeDisabled();
+    await expect(page.locator("#project-select")).toBeEnabled();
     await page.getByRole("navigation", { name: "Workspace navigation" }).getByRole("link", { name: "Work items", exact: true }).click();
-    await expect(page).toHaveURL(/\/settings\/backups$/);
-    const navigation = page.getByRole("navigation", { name: "Workspace navigation" });
-    await navigation.getByRole("link", { name: "Prompts", exact: true }).click();
-    await expect(page).toHaveURL(/\/settings\/backups$/);
-    await panel.getByRole("button", { name: "Refresh backups" }).click();
-    await expect(panel.getByRole("listitem").first()).toBeVisible();
-    expect(attempts).toBe(1);
-    const reloaded = page.waitForEvent("load");
-    await panel.getByRole("button", { name: "Reload and inspect" }).click();
-    await reloaded;
+    await expect(page).toHaveURL(/\/work-items$/);
+    await page.goto("/settings/backups");
     await expect(page.getByRole("region", { name: "Project backups", exact: true }).getByRole("listitem").first()).toBeVisible();
     expect(attempts).toBe(1);
   } finally { await api.dispose(); }
@@ -198,7 +195,7 @@ test("changing projects clears the chosen restore file and ignores a late archiv
     const source = await createProject(api, "Stale archive list");
     const destination = await createProject(api, "Fresh archive list");
     await page.route(`**/api/backups/projects/${destination.id}/backups`, (route) => route.fulfill({
-      json: { project_id: destination.id, retention_count: 2, backups: [] }
+      json: { project_id: destination.id, ...catalogDefaults, backups: [] }
     }));
     let started!: () => void;
     const requested = new Promise<void>((resolve) => { started = resolve; });
@@ -208,7 +205,7 @@ test("changing projects clears the chosen restore file and ignores a late archiv
       started();
       await released;
       try {
-        await route.fulfill({ json: { project_id: source.id, retention_count: 2, backups: [{
+        await route.fulfill({ json: { project_id: source.id, ...catalogDefaults, backups: [{
           filename: "stale-project.json.bz2", created_at: "2026-01-01T00:00:00Z", size_bytes: 123
         }] } });
       } catch { /* The project switch aborts this stale request. */ }
@@ -357,4 +354,122 @@ test("backup Query progress pauses while hidden and stops after a terminal job w
     expect(writes).toBe(1);
     await expect(panel.getByRole("button", { name: "Back up now", exact: true })).toBeEnabled();
   } finally { queued.resolve(); await api.dispose(); }
+});
+
+test("nightly backup settings persist zero-day retention and show server storage", async ({ page }, testInfo) => {
+  const api = await client();
+  try {
+    const project = await createProject(api, "Nightly backup settings");
+    let panel = await openBackups(page, project);
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Backup & export.");
+    await expect(panel).toContainText("MNEMONIC_BACKUP_DIR");
+    await expect(panel).toContainText(".env");
+    await expect(panel.locator(".backup-storage > code")).not.toBeEmpty();
+    await expect(panel.locator(".backup-disk-space")).toContainText(/free.*total/);
+    await expect(panel.getByLabel("Retention days")).toHaveValue("7");
+    await panel.getByLabel("Enable nightly backups").check();
+    await panel.getByLabel("Backup time", { exact: true }).fill("23:59");
+    await panel.getByLabel("Time zone").selectOption("UTC");
+    await panel.getByLabel("Retention days").fill("0");
+    await panel.getByRole("button", { name: "Save schedule", exact: true }).click();
+    await expect(panel.getByText("Nightly backup settings saved.")).toBeVisible();
+    await page.reload();
+    panel = page.getByRole("region", { name: "Project backups", exact: true });
+    await expect(panel.getByLabel("Enable nightly backups")).toBeChecked();
+    await expect(panel.getByLabel("Backup time", { exact: true })).toHaveValue("23:59");
+    await expect(panel.getByLabel("Retention days")).toHaveValue("0");
+    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    const screenshot = testInfo.outputPath("backup-export-settings.png");
+    const viewport = page.viewportSize()!;
+    const height = await page.locator(".settings-stack").evaluate((element) => element.getBoundingClientRect().height);
+    await page.setViewportSize({ width: viewport.width, height: Math.ceil(height) + 360 });
+    await page.screenshot({ path: screenshot, fullPage: true, animations: "disabled" });
+    await page.setViewportSize(viewport);
+    await testInfo.attach("Backup & export", { path: screenshot, contentType: "image/png" });
+  } finally { await api.dispose(); }
+});
+
+test("a stored backup restores directly on the server after project confirmation", async ({ page }) => {
+  const api = await client();
+  try {
+    const project = await createProject(api, "Server restore");
+    const archive = await downloadBackup(page, project);
+    const changed = await api.patch(`/api/v1/projects/${project.id}`, { data: { description: "After backup" } });
+    expect(changed.ok(), await changed.text()).toBe(true);
+    const panel = page.getByRole("region", { name: "Project backups", exact: true });
+    await panel.getByRole("button", { name: `Restore ${archive.name}`, exact: true }).click();
+    await expect(panel.getByRole("button", { name: "Restore selected backup", exact: true })).toBeDisabled();
+    await panel.getByLabel(`Type ${project.slug} to confirm replacement`).fill(project.slug);
+    const request = page.waitForRequest((request) => request.url().endsWith(`/backups/${archive.name}/restore`));
+    const reloaded = page.waitForEvent("load");
+    await panel.getByRole("button", { name: "Restore selected backup", exact: true }).click();
+    expect((await request).postData()).toBeNull();
+    await reloaded;
+    expect((await (await api.get(`/api/v1/projects/${project.id}`)).json()).description).toBe(project.description);
+  } finally { await api.dispose(); }
+});
+
+test("export downloads selected domains and artifact files from Backup & export", async ({ page }) => {
+  const api = await client();
+  try {
+    const project = await createProject(api, "Selected asset export");
+    const domainResponse = await api.post(`/api/v1/projects/${project.id}/knowledge/domains`, { data: { name: "Export architecture", prefix: "ADR", client_operation_id: crypto.randomUUID() } });
+    expect(domainResponse.ok(), await domainResponse.text()).toBe(true);
+    const domain = await domainResponse.json();
+    const decisionResponse = await api.put(`/api/v1/projects/${project.id}/knowledge/decisions`, { data: {
+      domain_id: domain.id, title: "Portable decisions", content: "Exported decision content", media_type: "text/plain", state: "accepted", author_kind: "agent", agent_session_id: "export-acceptance", model_id: "codex", source_work_item_id: null, client_operation_id: crypto.randomUUID()
+    } });
+    expect(decisionResponse.ok(), await decisionResponse.text()).toBe(true);
+    await page.addInitScript(() => Object.defineProperty(window, "showSaveFilePicker", { value: undefined, configurable: true }));
+    await page.goto(`/artifacts?project=${project.id}`);
+    await page.getByLabel("Upload artifact files").setInputFiles({ name: "export-example.txt", mimeType: "text/plain", buffer: Buffer.from("Exported artifact contents") });
+    await expect(page.getByRole("button", { name: "export-example.txt", exact: true })).toBeVisible();
+    await openBackups(page, project);
+    const panel = page.getByRole("region", { name: "Export", exact: true });
+    await expect(panel.getByRole("button", { name: "Download export", exact: true })).toBeDisabled();
+    await panel.getByRole("checkbox", { name: /Export architecture/ }).check();
+    await panel.getByRole("checkbox", { name: /export-example.txt/ }).check();
+    const request = page.waitForRequest((request) => request.url().endsWith(`/projects/${project.id}/exports`));
+    const download = page.waitForEvent("download");
+    await panel.getByRole("button", { name: "Download export", exact: true }).click();
+    const selection = (await request).postDataJSON();
+    expect(selection.domain_ids).toEqual([domain.id]);
+    expect(selection.artifact_ids).toHaveLength(1);
+    const file = await download;
+    expect(file.suggestedFilename()).toBe("selected-assets.tar.bz2");
+    expect((await readFile((await file.path())!)).subarray(0, 3).toString()).toBe("BZh");
+    await page.goto(`/knowledge/domains?project=${project.id}`);
+    await expect(page.getByRole("row", { name: "Export architecture domain", exact: true }).getByRole("button", { name: "Export", exact: true })).toHaveCount(0);
+  } finally { await api.dispose(); }
+});
+
+test("backup progress recovers from a polling outage through the server catalog", async ({ page }) => {
+  const api = await client();
+  try {
+    const project = await createProject(api, "Recover backup progress");
+    const jobId = crypto.randomUUID();
+    let started = false;
+    let finished = false;
+    let writes = 0;
+    const archive = { filename: "recovered.json.bz2", created_at: "2026-10-01T00:00:00Z", size_bytes: 123 };
+    const job = () => ({ project_id: project.id, job_id: jobId, state: finished ? "succeeded" : "running", ...(finished ? { result: archive } : {}) });
+    await page.route(`**/api/backups/projects/${project.id}/backups`, async (route) => {
+      if (route.request().method() === "POST") { started = true; writes++; await route.fulfill({ json: job() }); return; }
+      await route.fulfill({ json: { ...catalogDefaults, project_id: project.id, backups: finished ? [archive] : [], latest_job: started ? job() : null } });
+    });
+    await page.route(`**/api/backups/projects/${project.id}/backup-jobs/${jobId}`, (route) => route.fulfill({ status: 503, json: { error: { code: "unavailable", message: "Temporary status outage" } } }));
+    let panel = await openBackups(page, project);
+    await panel.getByRole("button", { name: "Back up now", exact: true }).click();
+    await expect(panel).toContainText("Backup progress is temporarily unavailable.");
+    await page.getByRole("navigation", { name: "Workspace navigation" }).getByRole("link", { name: "Work items", exact: true }).click();
+    await expect(page).toHaveURL(/\/work-items$/);
+    await page.goto("/settings/backups");
+    panel = page.getByRole("region", { name: "Project backups", exact: true });
+    await expect(panel).toContainText("Backup running. You can leave this page");
+    finished = true;
+    await panel.getByRole("button", { name: "Refresh backups", exact: true }).click();
+    await expect(panel.getByRole("link", { name: `Download ${archive.filename}` })).toBeVisible();
+    await expect(panel.getByRole("button", { name: "Back up now", exact: true })).toBeEnabled();
+    expect(writes).toBe(1);
+  } finally { await api.dispose(); }
 });

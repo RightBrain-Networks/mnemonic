@@ -11,7 +11,6 @@ from uuid import UUID
 from mnemonic_backup.archive_schema import TABLES, BackupError, canonical, invalid
 
 FORMAT = "mnemonic-project-backup-v1"
-MAX_LINE = 8 * 1024 * 1024
 CHUNK = 64 * 1024
 
 
@@ -25,18 +24,33 @@ def _write_all(output: BinaryIO, value: bytes) -> None:
 
 
 def write_archive(output: BinaryIO, header: dict, rows: dict, max_bytes: int) -> None:
+    write_stream_archive(output, _values(header, rows), max_bytes=max_bytes)
+
+
+def write_stream_archive(output: BinaryIO, values: Iterator[dict], *,
+                         max_bytes: int | None = None) -> None:
+    """Incrementally encode and compress rows without buffering a project or line."""
     compressor = bz2.BZ2Compressor(9)
+    encoder = json.JSONEncoder(sort_keys=True, separators=(",", ":"), allow_nan=False)
     digest = hashlib.sha256()
     total = 0
-    for value in _values(header, rows):
-        line = canonical(value) + b"\n"
-        total += len(line)
-        if total > max_bytes or len(line) > MAX_LINE:
-            raise BackupError(413, "backup_too_large", "Project data exceeds the backup limit.")
-        digest.update(line)
-        _write_all(output, compressor.compress(line))
+    for value in values:
+        for token in encoder.iterencode(value):
+            # The JSON encoder can emit one large transcript string; slice it
+            # before UTF-8 encoding/compression to avoid a second full-row copy.
+            for offset in range(0, len(token), CHUNK):
+                chunk = token[offset:offset + CHUNK].encode()
+                total += len(chunk)
+                if max_bytes is not None and total > max_bytes:
+                    raise BackupError(413, "backup_too_large",
+                                      "Project data exceeds the backup limit.")
+                digest.update(chunk)
+                _write_all(output, compressor.compress(chunk))
+        total += 1
+        digest.update(b"\n")
+        _write_all(output, compressor.compress(b"\n"))
     footer = canonical({"sha256": digest.hexdigest()}) + b"\n"
-    if total + len(footer) > max_bytes:
+    if max_bytes is not None and total + len(footer) > max_bytes:
         raise BackupError(413, "backup_too_large", "Project data exceeds the backup limit.")
     _write_all(output, compressor.compress(footer))
     _write_all(output, compressor.flush())
@@ -70,15 +84,18 @@ def _decompressed(source: BinaryIO, max_bytes: int) -> Iterator[bytes]:
 
 def _lines(source: BinaryIO, max_bytes: int) -> Iterator[bytes]:
     pending = bytearray()
+    scanned = 0
     for chunk in _decompressed(source, max_bytes):
         pending.extend(chunk)
-        while (end := pending.find(b"\n")) >= 0:
-            if end + 1 > MAX_LINE:
+        while (end := pending.find(b"\n", scanned)) >= 0:
+            if end + 1 > max_bytes:
                 raise invalid("A backup record exceeds the byte limit.")
-            line = bytes(pending[:end + 1])
+            line = bytes(memoryview(pending)[:end + 1])
             del pending[:end + 1]
+            scanned = 0
             yield line
-        if len(pending) > MAX_LINE:
+        scanned = len(pending)
+        if len(pending) > max_bytes:
             raise invalid("A backup record exceeds the byte limit.")
     if pending:
         raise invalid("The backup is missing its final record terminator.")
@@ -96,14 +113,29 @@ def _unique_object(pairs: list[tuple[str, Any]]) -> dict:
 def _parse(line: bytes) -> dict:
     try:
         value = json.loads(line, object_pairs_hook=_unique_object)
-        if not isinstance(value, dict) or canonical(value) + b"\n" != line:
+        if not isinstance(value, dict) or not _canonical_matches(value, line):
             raise invalid("The backup contains noncanonical JSON data.")
         return value
     except (ValueError, RecursionError, UnicodeError) as error:
         raise invalid() from error
 
 
-def read_archive(source: BinaryIO, max_bytes: int) -> tuple[dict, dict]:
+def _canonical_matches(value: dict, line: bytes) -> bool:
+    encoder = json.JSONEncoder(sort_keys=True, separators=(",", ":"), allow_nan=False)
+    view = memoryview(line)
+    position = 0
+    for token in encoder.iterencode(value):
+        for offset in range(0, len(token), CHUNK):
+            encoded = token[offset:offset + CHUNK].encode()
+            if view[position:position + len(encoded)] != encoded:
+                return False
+            position += len(encoded)
+    return view[position:] == b"\n"
+
+
+def read_archive(
+    source: BinaryIO, max_bytes: int, *, rows: dict | None = None,
+) -> tuple[dict, dict]:
     lines = iter(_lines(source, max_bytes))
     first = next(lines, None)
     if first is None:
@@ -113,7 +145,7 @@ def read_archive(source: BinaryIO, max_bytes: int) -> tuple[dict, dict]:
     if set(header) != required or header["format"] != FORMAT:
         raise invalid("This is not a supported Mnemonic project backup.")
     _validate_header(header)
-    rows: dict[str, list[dict]] = {name: [] for name in TABLES}
+    rows = {name: [] for name in TABLES} if rows is None else rows
     digest = hashlib.sha256(first)
     footer_seen = False
     for line in lines:
@@ -132,7 +164,7 @@ def read_archive(source: BinaryIO, max_bytes: int) -> tuple[dict, dict]:
     return header, rows
 
 
-def _append_row(value: dict, rows: dict[str, list[dict]]) -> None:
+def _append_row(value: dict, rows: dict) -> None:
     if set(value) != {"table", "row"} or not isinstance(value["table"], str):
         raise invalid()
     if value["table"] not in rows or not isinstance(value["row"], dict):

@@ -141,8 +141,10 @@ Apply these rules in order:
    the new port, normally both `http://localhost:<port>` and `http://127.0.0.1:<port>`.
 5. **Other settings:** Use the user's IANA time-zone name for `TIMEZONE` when known; otherwise keep
    `UTC`. Preserve an explicit existing `TIMEZONE`; an operator relying on the previous implicit
-   `America/Detroit` default must set it explicitly before upgrading. Keep the client-operation wait, backup interval, and backup
-   directory defaults unless the user states an operational requirement.
+   `America/Detroit` default must set it explicitly before upgrading. Keep the client-operation
+   wait and storage defaults unless the user states an operational requirement. Nightly project
+   backups are opt-in through **Backup & export**, with a selected local time/timezone and
+   retention days (default seven; zero keeps archives indefinitely).
 6. **Client:** Prefer an already-installed client the user names. Use Streamable HTTP at
    `http://127.0.0.1:<MNEMONIC_MCP_PORT>/mcp` with
    `Authorization: Bearer <MNEMONIC_API_KEY>`. If no MCP-capable client is available, finish and
@@ -256,11 +258,10 @@ Review `.env` locally without reproducing secret values in output. These keys MU
 | `MNEMONIC_TRANSCRIPT_INDEX_DIR` | Bind overlay only: preserve the index directory, default `/var/lib/mnemonic/transcript-index`. |
 | `MNEMONIC_TRANSCRIPT_ALLOWED_ROOTS` | JSON array; default `[]` derives access from configured source directories, or disables it when none are configured. |
 | `MNEMONIC_TRANSCRIPT_MAX_BYTES` | Per-native-file capture limit; default `1073741824` (1 GiB), maximum 1 GiB. |
-| `MNEMONIC_BACKUP_DIR` | Bind overlay only: preserve the private directory, default `./backups`. |
-| `MNEMONIC_BACKUP_INTERVAL_SECONDS` | Per-project scheduling interval; default `86400` seconds. |
-| `MNEMONIC_BACKUP_RETENTION_COUNT` | Successful archives retained per project; default `7`, range `1` through `10000`. |
-| `MNEMONIC_BACKUP_MAX_BYTES` | Compressed archive/upload limit; default `67108864` (64 MiB). |
-| `MNEMONIC_BACKUP_EXPANDED_MAX_BYTES` | Expanded archive data limit; default `268435456` (256 MiB). |
+| `MNEMONIC_BACKUP_DIR` | Bind overlay only: preserve the private host directory, default `./backups`. |
+| `MNEMONIC_BACKUP_SERVER_RESTORE_MAX_BYTES` | Expanded limit for restoring retained server archives; default `68719476736` (64 GiB). |
+| `MNEMONIC_BACKUP_MAX_BYTES` | Compressed browser restore upload limit; default `67108864` (64 MiB). |
+| `MNEMONIC_BACKUP_EXPANDED_MAX_BYTES` | Expanded browser restore upload limit; default `268435456` (256 MiB). |
 | `TIMEZONE` | IANA time-zone name used by the dashboard; default `UTC`. |
 
 `MNEMONIC_TLS_HOST` MUST remain commented or unset for local-only use. Before startup, ensure the
@@ -368,9 +369,9 @@ application error. A new installation is intentionally empty. The user SHOULD cr
 real project in the project selector; the installer MUST NOT invent a project name, repository
 URL, work item, or session ID merely to make the dashboard nonempty.
 
-The shared worker schedules project backups through RabbitMQ once per configured time slot;
-restarting it does not create another backup for the same slot. Check `worker` and `rabbitmq`
-health, then, when a real project exists, use **Settings → Project backups** to create a backup and
+The shared worker schedules opt-in nightly project backups through RabbitMQ once per local date;
+restarting it does not create another backup for the same date. Configure time, timezone and
+retention in **Backup & export**. Check `worker` and `rabbitmq` health, then use that page to create a backup and
 wait for successful completion. The operator CLI alternative is:
 
 ```sh
@@ -378,15 +379,21 @@ docker compose exec -T worker python -m mnemonic_backup once --project PROJECT_U
 ```
 
 Replace `PROJECT_UUID` with the real selected project's UUID. Confirm a successful result and a
-new nonempty `MNEMONIC_BACKUP_DIR/<project UUID>/project-*.json.bz2` archive. These are checksummed,
+new nonempty `/backups/<project UUID>/project-*.json.bz2` archive inside the worker's
+backup volume or configured bind directory. These are checksummed,
 bzip2-compressed JSON-lines database exports, not PostgreSQL `.dump` files. Successful publication
-prunes older archives for that project to `MNEMONIC_BACKUP_RETENTION_COUNT` (default seven).
+prunes archives older than the configured retention days (default seven; zero never prunes).
 Worker health establishes broker/dispatcher availability, not backup success. Do not print or
 upload archive contents.
 
 If no real project exists, no archive is expected: report backup creation as pending the first
 project, without inventing one. Artifact files, editable prompt files, and native transcript copies
 need separate filesystem backups; their original bytes are excluded from project archives.
+The **Export** widget on **Backup & export** downloads selected knowledge domains and/or artifact
+files as `selected-assets.tar.bz2`; it is a portable asset archive, not a project restore archive.
+The worker needs the same artifact storage identity and writable access as the API to finish
+journaled upload/replacement recovery before reading an export. Export verifies file hashes and
+sizes before publishing the archive.
 
 With `uv` installed, the following additional read-only check SHOULD pass:
 
@@ -530,7 +537,9 @@ docker compose up -d --wait
 
 State that normal stop/restart preserves data, production interruption requires explicit operator
 authorization, and `docker compose down -v` destroys database, RabbitMQ, and application data volumes. Successful
-project backups prune older archives to the configured retention count (default seven). Provide the
+project backups prune archives older than the configured retention days (default seven; zero
+never prunes). Nightly scheduling is opt-in in **Backup & export**; restarting the worker does
+not enqueue another backup for the same scheduled local date. Provide the
 configured dashboard and MCP URLs, the backup volume or absolute bind directory, and the separate
 filesystem backup volumes/paths for artifacts, prompts, and native transcripts. Do not include any secret, expanded
 Compose output, or backup contents.
@@ -573,8 +582,8 @@ on upload, replacement, or metadata update. Null clears artifact assignments;
 omitted update/replacement tags preserve them. Tag edits advance the artifact
 revision and retain history. New projects receive six editable starter tags.
 
-Application/API/MCP/dashboard 0.116.1, plugin 0.71.0 and Alembic
-`0069_transcript_directories` ship together: 79 MCP tools, 25
+Application/API/MCP/dashboard 0.117.0, plugin 0.71.0 and Alembic
+`0070_backup_settings` ship together: 79 MCP tools, 25
 receipt-protected MCP writes,
 38 REST receipt kinds, 32 protected browser mutations, 24 event types and three
 plugin skills. Existing projects default to Never/Never/off review settings;
