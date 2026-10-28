@@ -145,7 +145,6 @@ async function advanceReviewContext(
   expectedVersion: number,
   summary: string,
   prompt: string,
-  tag: string,
   sessionId: string
 ): Promise<{ workVersion: number; checkpointId: string }> {
   const patched = await client.patch(
@@ -164,7 +163,7 @@ async function advanceReviewContext(
         source_client: "playwright-api",
         source_session_id: sessionId,
         source_model: null,
-        tags: [tag],
+        tags: [],
         source_metadata: {}
       }
     }
@@ -432,7 +431,7 @@ test("question versions replace graph review and preserve drafts across a concur
     expect(relationship.ok(), await relationship.text()).toBe(true);
     relationshipId = (await relationship.json()).relationship.id;
     await advanceReviewContext(client, counterpartId, related.work_item.version,
-      "Monday is unavailable; Tuesday is open.", "Infrastructure availability confirmed for Tuesday.", sessionId, sessionId);
+      "Monday is unavailable; Tuesday is open.", "Infrastructure availability confirmed for Tuesday.", sessionId);
     async function rewrite(question: string, version: number): Promise<void> {
       const response = await client.post(`/api/v1/projects/${state.projectId}/work-items/${workId}/gates`, { data: {
         question, gate_id: gate.id, expected_question_version: version,
@@ -718,7 +717,6 @@ test("detail reconciliation preserves sibling gate drafts and restores focus", a
       created.work_item.version,
       `Drifted detail summary ${suffix}`,
       `Drifted detail context ${suffix}`,
-      `detail-${suffix}`,
       `${sessionId}-drift`
     );
     const unrelated = await createWork(

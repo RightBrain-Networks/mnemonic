@@ -183,7 +183,7 @@ async function completeFixtureWithoutEvidence(
           source_session_url: null,
           repository_branch: null,
           verified_against: null,
-          tags: ["phase-11", "evidence-free"],
+          tags: [],
           source_metadata: {}
         }
       }

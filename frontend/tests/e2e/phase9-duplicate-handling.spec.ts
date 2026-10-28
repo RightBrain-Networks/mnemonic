@@ -755,8 +755,7 @@ test("a root with an incoming alias can merge again and regroup every audit unde
     await expect(audit.getByLabel("Checkpoint text")).toHaveCount(0);
 
     await closeDetail(page);
-    await page.getByText("Canonical only", { exact: true }).click();
-    await expect(page.getByRole("radio", { name: "Canonical only" })).toBeChecked();
+    await groupStatus.getByRole("button", { name: "Clear group" }).click();
     await expect(groupStatus).toHaveCount(0);
     const rootNode = page.locator(
       `.hierarchy-node[data-depth="0"][data-work-item-id="${finalRoot.id}"]`

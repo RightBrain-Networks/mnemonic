@@ -42,7 +42,8 @@ test("work card pins survive sorting and reload without selecting the card", asy
       await expect(queue.getByRole("option").first()).toHaveAttribute("data-queue-option", first.id);
     }
     await page.getByRole("searchbox", { name: "Search work items" }).fill("dashboard work");
-    await expect(page.locator(".search-results").getByRole("option").first()).toHaveAttribute("data-queue-option", first.id);
+    await expect(queue.getByRole("note", { name: "Supporting search evidence" })).toHaveCount(2);
+    await expect(queue.getByRole("option").first()).toHaveAttribute("data-queue-option", first.id);
     await page.getByRole("searchbox", { name: "Search work items" }).fill("");
     await page.reload();
     await expect(queue.getByRole("option").first()).toHaveAttribute("data-queue-option", first.id);

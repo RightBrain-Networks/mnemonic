@@ -1398,7 +1398,9 @@ test("Move retries keep every draft and follow an item that moves again", async 
   }
 });
 
-test("the queue appends pages on scroll while the result count shows the total", async ({ page }, testInfo) => {
+for (const changedTotal of [false, true]) {
+test("the queue appends pages on scroll while the result count shows the total"
+  + (changedTotal ? " when the backend total changes" : ""), async ({ page }, testInfo) => {
   test.slow();
   const token = searchToken("surfacescroll", testInfo);
   const key = testKey(testInfo);
@@ -1413,6 +1415,26 @@ test("the queue appends pages on scroll while the result count shows the total",
         sessionId: `surface-scroll-${key}-${number}`
       }, project.id)));
     }
+    // Model a concurrent arrival between page reads: the first page's count is
+    // one lower, while later pages report the now-current total and cursor.
+    let initialCountSent = false;
+    if (changedTotal) await page.route(`**/projects/${project.id}/search`, async (route) => {
+      const body = route.request().postDataJSON();
+      if (body.q !== token || body.offset !== 0 || initialCountSent) return route.continue();
+      initialCountSent = true;
+      const response = await route.fetch();
+      const result = await response.json();
+      await route.fulfill({ response, json: { ...result, total: total - 1 } });
+    });
+    await page.addInitScript(() => {
+      const target = window as typeof window & { __appendQueueAnimations: number };
+      target.__appendQueueAnimations = 0;
+      const animate = Element.prototype.animate;
+      Element.prototype.animate = function (...args: Parameters<typeof animate>): Animation {
+        if (this.matches(".work-list > [data-work-item-id]")) target.__appendQueueAnimations += 1;
+        return animate.apply(this, args);
+      };
+    });
 
     const pageRequests: { limit: number; offset: number }[] = [];
     page.on("request", (sent) => {
@@ -1434,7 +1456,7 @@ test("the queue appends pages on scroll while the result count shows the total",
     await page.getByRole("searchbox", { name: "Search work items" }).fill(token);
     const count = page.locator(".result-count");
     const cards = page.locator("article.work-item-card");
-    await expect(count).toHaveText(`${total} work records`);
+    await expect(count).toHaveText(`${changedTotal ? total - 1 : total} work records`);
     let result = await (await firstResponse).json() as {
       items: unknown[]; offset: number; next_offset: number | null; total: number;
     };
@@ -1464,6 +1486,10 @@ test("the queue appends pages on scroll while the result count shows the total",
       await expect(cards).toHaveCount(loaded, { timeout: 15_000 });
       await expect(count).toHaveText(`${total} work records`);
       await expect(page.locator(".work-queue-append-error")).toHaveCount(0);
+      await expect(page.getByRole("status", { name: "Loading more work items" })).toHaveCount(0);
+      await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+      expect(await page.evaluate(() => (window as typeof window & { __appendQueueAnimations: number }).__appendQueueAnimations)).toBe(0);
+      expect(await page.locator(".work-list > [data-work-item-id][inert]").count()).toBe(0);
     }
     expect(loaded).toBe(total);
     expect(expectedOffsets.length).toBeGreaterThan(1);
@@ -1481,6 +1507,7 @@ test("the queue appends pages on scroll while the result count shows the total",
     await client.dispose();
   }
 });
+}
 
 test("tag filters replace the retired panel while duplicate navigation keeps its scope visible", async ({ page }, testInfo) => {
   const token = searchToken("surfacefilters", testInfo);

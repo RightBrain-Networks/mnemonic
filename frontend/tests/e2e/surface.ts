@@ -19,7 +19,8 @@ export function workPane(page: Page): Locator {
 }
 
 export function workCard(page: Page, title: string): Locator {
-  return page.locator("article.work-item-card").filter({ hasText: title });
+  // The All queue can also contain a review child with its parent's title.
+  return page.locator("article.work-item-card:not([data-review-id])").filter({ hasText: title });
 }
 
 // Clicks "Back to work queue" when it is visible (the narrow sheet); otherwise a no-op.

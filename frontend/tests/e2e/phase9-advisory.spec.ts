@@ -101,7 +101,7 @@ async function completeWork(client: APIRequestContext, work: WorkItem, suffix: s
           source_session_url: null,
           repository_branch: null,
           verified_against: null,
-          tags: ["phase-9", "advisory"],
+          tags: [],
           source_metadata: {}
         },
 

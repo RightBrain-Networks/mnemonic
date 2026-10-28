@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { ReviewQueueCard } from "@/components/code-review-library";
 import SearchEvidence from "@/components/search-evidence";
-import WorkHierarchy, { SearchBreadcrumb } from "@/components/work-hierarchy";
+import WorkHierarchyRoot, { SearchBreadcrumb } from "@/components/work-hierarchy";
+import { useWorkItemMotion } from "@/components/use-work-item-motion";
 import WorkQueueCard, { QueueOptionsContext, type QueueOptions } from "@/components/work-queue-card";
 import { dialogOpen, typingTarget } from "@/lib/keyboard-shortcuts";
 import type {
@@ -159,6 +160,18 @@ export default function WorkQueue({
   const shortcutStateRef = useRef({ status, onStatus, onDeselect, onCopySelectedPointer });
   const [scrolled, setScrolled] = useState(false);
   const hasData = total !== null;
+  const previousAppendRef = useRef(appending);
+  const rootMotionRef = useWorkItemMotion<HTMLElement>({
+    itemIds: items.map((entry) => "review_task" in entry ? entry.review_task.id : entry.summary.work_item.id),
+    total,
+    viewKey: `${viewKey}:${flatSearch ? "search" : "hierarchy"}`,
+    revision: items,
+    snapshotSignal: refreshKey,
+    // The completed append can also change total. Snapshot its new rows without
+    // treating older pagination results as live arrivals on the final render.
+    enabled: !appending && !previousAppendRef.current
+  });
+  useLayoutEffect(() => { previousAppendRef.current = appending; });
 
   useEffect(() => { selectedIdRef.current = selectedId; }, [selectedId]);
   useEffect(() => { onSelectRef.current = onSelect; }, [onSelect]);
@@ -336,19 +349,27 @@ export default function WorkQueue({
           {error && !hasData ? <div className="error-notice" role="alert"><p>{error}</p><button className="button button-secondary" type="button" onClick={onRetry}>Try again</button></div> :
             loading && !hasData ? <Skeletons count={3} label="Loading work items" /> :
             hasData ? <>
-              {items.map((entry) => "review_task" in entry
-                ? <div key={entry.review_task.id} className={flatSearch ? "search-result" : "hierarchy-node-row"}>
-                    {!flatSearch && <span className="hierarchy-toggle-spacer" aria-hidden="true" />}
-                    <div className="hierarchy-card"><ReviewQueueCard summary={entry.summary} onNotice={onNotice} /></div>
-                  </div>
-                : "presentation" in entry
-                  ? <WorkHierarchy key={entry.summary.work_item.id} pinnedWorkItemIds={pinnedWorkItemIds} items={[entry]}
-                      status={status} sort={sort} tag={tag} tags={tags} tagMode={tagMode} sourceClient={sourceClient} sourceSessionId={sourceSessionId}
-                      refreshKey={refreshKey} viewKey={viewKey} motionRevision={items} motionTotal={total}
-                      motionSnapshotSignal={refreshKey} motionEnabled={true} onFlatSearch={onFlatSearch} />
-                  : <div className="search-result" data-work-item-id={entry.summary.work_item.id} key={entry.summary.work_item.id}>
-                      <SearchEvidence hit={entry} /><SearchBreadcrumb summary={entry.summary} /><WorkQueueCard summary={entry.summary} />
-                    </div>)}
+              <section ref={rootMotionRef} className={`work-list ${flatSearch ? "search-results" : "hierarchy-list"}`}
+                aria-label={flatSearch ? "Matching durable work records" : "Durable work item hierarchy"}>
+                {items.map((entry) => "review_task" in entry
+                  ? <div key={entry.review_task.id} data-work-item-id={entry.review_task.id}
+                      className={flatSearch ? "search-result" : "hierarchy-node-row"}>
+                      {!flatSearch && <span className="hierarchy-toggle-spacer" aria-hidden="true" />}
+                      <div className="hierarchy-card"><ReviewQueueCard summary={entry.summary} onNotice={onNotice} /></div>
+                    </div>
+                  : "presentation" in entry
+                    ? <WorkHierarchyRoot key={entry.summary.work_item.id} pinnedWorkItemIds={pinnedWorkItemIds} item={entry}
+                        status={status} sort={sort} tag={tag} tags={tags} tagMode={tagMode} sourceClient={sourceClient} sourceSessionId={sourceSessionId}
+                        refreshKey={refreshKey} viewKey={viewKey} onFlatSearch={onFlatSearch} />
+                    : <div className="search-result" data-work-item-id={entry.summary.work_item.id} key={entry.summary.work_item.id}>
+                        <div className="matched-member" role="note">
+                          <span>{entry.matched_member.id.toLowerCase() === entry.summary.work_item.id.toLowerCase()
+                            ? "Matched record" : "Matched duplicate member"}</span>
+                          <bdi dir="auto">{entry.matched_member.title}</bdi><code>{entry.matched_member.id}</code>
+                        </div>
+                        <SearchEvidence hit={entry} /><SearchBreadcrumb summary={entry.summary} /><WorkQueueCard summary={entry.summary} />
+                      </div>)}
+              </section>
               {!items.length && <section className="empty-state queue-empty"><div className="empty-art"><Icon name={flatSearch ? "search" : "box"} size={31} /><span /></div><h2>{flatSearch ? "No matching work records." : status === "pending" ? "No pending work yet." : status === "all" ? "No work yet." : `No ${statusFilterLabels[status].toLowerCase()} work.`}</h2><p>{flatSearch ? "Try another phrase, lifecycle, duplicate scope, or canonical group." : "Create a durable objective here, or ask a connected agent to create one with its first checkpoint."}</p>{flatSearch || status !== "pending" ? <button type="button" className="button button-secondary" onClick={onClearFilters}>Clear filters</button> : <button type="button" className="button button-primary" onClick={onCreate}><Icon name="plus" size={16} />Create work</button>}</section>}
             </> : null}
           <div ref={sentinelRef} className="work-queue-sentinel" aria-hidden="true" />

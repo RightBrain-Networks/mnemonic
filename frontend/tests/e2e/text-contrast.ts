@@ -4,12 +4,12 @@ export type TextContrastFailure = {
   background: string;
   contrast: number;
   foreground: string;
-  issue: "below 7.21:1" | "above 9.5:1";
+  issue: "below 4.5:1" | "below 7.21:1" | "above 9.5:1";
   selector: string;
   text: string;
 };
 
-/** Audit rendered text against the dark theme's readable 7.21:1–9.5:1 target band. */
+/** Audit theme text against its target band and human-colored tags against WCAG AA. */
 export async function auditTextContrast(
   page: Page,
   root?: Locator
@@ -114,7 +114,12 @@ export async function auditTextContrast(
       if (!foreground) continue;
       const renderedForeground = over(foreground, background);
       const ratio = contrast(renderedForeground, background);
-      const issue = ratio + Number.EPSILON < 7.21
+      // Tag backgrounds belong to the human's catalog. Their black/white text
+      // follows tagTextColor's AA contract, not the authored theme's upper cap.
+      const customTag = Boolean(element.closest(".work-tag"));
+      const issue = customTag
+        ? ratio + Number.EPSILON < 4.5 ? "below 4.5:1" : null
+        : ratio + Number.EPSILON < 7.21
         ? "below 7.21:1"
         : ratio - Number.EPSILON > 9.5
           ? "above 9.5:1"
