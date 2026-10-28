@@ -15,8 +15,9 @@ from mnemonic_jobs import enqueue_job
 from mnemonic_jobs.models import BackgroundJob
 
 ERROR_MESSAGES = {
-    "backup_too_large": "Project data exceeds the configured backup size limit. "
-        "Increase MNEMONIC_BACKUP_MAX_BYTES or MNEMONIC_BACKUP_EXPANDED_MAX_BYTES in .env.",
+    "backup_too_large": "This backup exceeded the worker's size limit. "
+        "Confirm that the worker is up to date, then start a new backup. "
+        "Current server backups are not constrained by browser upload limits.",
     "backup_schema_mismatch": "The backup worker and database schema do not match. "
         "Update the worker to the same release as the API and apply its migrations.",
     "backup_operations_pending": "Project operations are still pending. "
