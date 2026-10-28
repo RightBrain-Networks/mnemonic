@@ -8,9 +8,8 @@ verified [dry-run/apply management command](transcript-storage-deduplication.md)
 Release **0.65.1** and migration `0045_transcript_capacity` separate native capture
 and complete conversation indexing from artifact extraction limits. Native JSONL
 is streamed through disk-backed canonical segments; indexed text is published
-atomically from those segments without Tika. The default capture maximum is
-512 MiB, configurable up to 1 GiB. Existing explicit operator/project limits are
-preserved. Read the [pipeline audit and rollout notes](transcript-pipeline-audit.md)
+atomically from those segments without Tika. That release defaulted to 512 MiB with operator/project overrides;
+0.115.0 replaces this with the operator-only 1 GiB default. Read the [pipeline audit and rollout notes](transcript-pipeline-audit.md)
 for measured failures, capacity boundaries, and regression coverage.
 
 Release **0.115.0** puts project transcript controls directly on `/transcripts`.
@@ -257,8 +256,8 @@ As of 0.77.0, transcript search has no aggregate content, metadata, or record-co
 ceiling. Growing archives no longer require repeated increases to
 `MNEMONIC_TRANSCRIPT_SEARCH_MAX_BYTES`; that setting is retired and ignored, even
 if an old deployment still supplies it. Remove it from operator environment files
-when convenient. The maximum **source file size** in the Transcript indexing panel
-continues to govern capture, independently of search.
+when convenient. The operator-only `MNEMONIC_TRANSCRIPT_MAX_BYTES`
+governs capture independently of search.
 
 Cold searches stream transcript metadata and one document at a time into the
 private disk-backed Tantivy index. Canonical phrase and content-kind searches

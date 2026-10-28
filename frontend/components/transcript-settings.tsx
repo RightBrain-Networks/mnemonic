@@ -126,7 +126,7 @@ export default function TranscriptSettingsPanel({ projectId, onPendingChange }: 
       </label>
     </div>
     {error && <div className="error-notice" role="alert"><p>{error}</p></div>}
-    {notice && <p className="transcript-action-notice" role="status">{notice}</p>}
+    {notice && <p className="transcript-action-notice" role="status" aria-label="Transcript action result">{notice}</p>}
     {savedSettings.isPending && <p role="status">Loading transcript settings…</p>}
     {!settings && savedSettings.isError && <button className="button button-secondary" onClick={() => void reloadSettings()}>Retry transcript settings</button>}
     {uncertainSave && <div className="error-notice"><p>Reload saved settings before making another change.</p><button className="button button-secondary" disabled={busy || Boolean(pending)} onClick={() => void reloadSettings()}>Reload transcript settings</button></div>}

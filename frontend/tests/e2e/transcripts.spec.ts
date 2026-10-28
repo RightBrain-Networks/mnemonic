@@ -268,9 +268,9 @@ test("workspace imports existing transcripts recursively and deduplicates active
     await settings.getByRole("switch", { name: "Enable transcripts" }).check();
     await expect(settings.getByRole("switch", { name: "Enable transcripts" })).toBeEnabled();
     await settings.getByRole("button", { name: `Scan ${folder}`, exact: true }).click();
-    await expect(settings.getByRole("status")).toContainText("1 transcript imported; 1 already registered.");
+    await expect(settings.getByRole("status", { name: "Transcript action result" })).toContainText("1 transcript imported; 1 already registered.");
     await settings.getByRole("button", { name: `Scan ${folder}`, exact: true }).click();
-    await expect(settings.getByRole("status")).toContainText("0 transcripts imported; 2 already registered.");
+    await expect(settings.getByRole("status", { name: "Transcript action result" })).toContainText("0 transcripts imported; 2 already registered.");
     const collection = `/api/v1/projects/${project.id}/transcripts`;
     await expect.poll(async () => {
       const response = await api.get(collection);
@@ -328,7 +328,7 @@ test("workspace import retains exact retry requests and allows correcting fresh 
     await expect(retry).toBeEnabled();
     await expect(page.locator("#project-select")).toBeDisabled();
     await retry.click();
-    await expect(settings.getByRole("status")).toContainText("2 transcripts imported; 0 already registered.");
+    await expect(settings.getByRole("status", { name: "Transcript action result" })).toContainText("2 transcripts imported; 0 already registered.");
     expect(requests).toHaveLength(3);
     expect(requests[1]).toBe(requests[0]);
     expect(requests[2]).toBe(requests[0]);
@@ -504,6 +504,7 @@ test("transcript folder edits retain their original revision through a refresh",
 
 test("transcript folder browser, inline edits, row warnings and removal work on narrow screens", async ({ page }, testInfo) => {
   test.setTimeout(120000);
+  await page.setViewportSize({ width: testInfo.project.name === "chromium-desktop" ? 1280 : 390, height: 1100 });
   const api = await apiContext();
   try {
     const { project, folder, runId } = await fixture(api);
@@ -519,11 +520,12 @@ test("transcript folder browser, inline edits, row warnings and removal work on 
     await expect(browser.getByRole("list", { name: "Server folders" }).getByRole("button")).toHaveCount(1);
     await browser.getByRole("button", { name: `Open ${runId}`, exact: true }).click();
     await expect(browser.locator(".transcript-folder-current")).toContainText(folder);
+    await expect(browser.locator(".transcript-folder-list")).toHaveAttribute("aria-busy", "false");
     await browser.screenshot({ path: testInfo.outputPath("transcript-folder-browser.png"), animations: "disabled" });
     await testInfo.attach("Server folder browser", { path: testInfo.outputPath("transcript-folder-browser.png"), contentType: "image/png" });
     await browser.getByRole("button", { name: "Select folder", exact: true }).click();
     await expect(browser).not.toBeVisible();
-    await expect(settings.getByRole("status")).toContainText("2 transcripts imported; 0 already registered.");
+    await expect(settings.getByRole("status", { name: "Transcript action result" })).toContainText("2 transcripts imported; 0 already registered.");
     await expect(page.locator(".transcript-table tbody tr")).toHaveCount(2);
     await page.route(`**/api/transcripts/projects/${project.id}/transcripts/health`, async (route) => {
       const response = await route.fetch();
@@ -542,6 +544,8 @@ test("transcript folder browser, inline edits, row warnings and removal work on 
     await expect(storage).toContainText("Search cache");
     await expect(storage).toContainText("52 KB");
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.locator(".page-content").evaluate((element) => element.scrollTo(0, 0));
+    await page.evaluate(() => window.scrollTo(0, 0));
     await page.screenshot({ path: testInfo.outputPath("transcript-management.png"), fullPage: true, animations: "disabled" });
     await testInfo.attach("Transcript management", { path: testInfo.outputPath("transcript-management.png"), contentType: "image/png" });
     await row.getByRole("button", { name: `Edit ${folder}`, exact: true }).click();

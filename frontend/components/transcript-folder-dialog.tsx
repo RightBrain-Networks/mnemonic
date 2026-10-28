@@ -40,13 +40,13 @@ export default function TranscriptFolderDialog({ projectId, onClose, onSelect }:
         <label className="field">Server folder<input autoFocus value={address} placeholder="Browse below or enter a folder path" autoComplete="off" spellCheck={false} onChange={(event) => setAddress(event.target.value)} /></label>
         <button className="button button-secondary" disabled={!validTranscriptDirectory(address)}>Go</button>
       </form>
-      <nav className="transcript-folder-nav" aria-label="Folder navigation"><button type="button" className="text-button" disabled={directory === null} onClick={() => navigate(null)}>Shared folders</button>{directory && <><span aria-hidden="true">/</span><button type="button" className="text-button" disabled={folders.isFetching} onClick={() => navigate(folders.data?.parent ?? null)}>Up one level</button></>}</nav>
+      <nav className="transcript-folder-nav" aria-label="Folder navigation"><button type="button" className="button button-secondary" disabled={directory === null} onClick={() => navigate(null)}>Shared folders</button>{directory && <><span aria-hidden="true">/</span><button type="button" className="button button-secondary" disabled={folders.isFetching} onClick={() => navigate(folders.data?.parent ?? null)}>Up one level</button></>}</nav>
       <div className="transcript-folder-current"><span className="section-label">{directory ? "Current folder" : "Available folders"}</span>{directory && <code>{directory}</code>}</div>
       <label className="field transcript-folder-filter">Filter folders<input type="search" value={filter} maxLength={200} placeholder="Find a folder by name…" onChange={(event) => setFilter(event.target.value)} /></label>
       <div className="transcript-folder-list" aria-busy={folders.isFetching}>
-        {folders.isPending && <p role="status">Loading folders…</p>}
+        {folders.isFetching && <p role="status">Loading folders…</p>}
         {folders.error && <div className="error-notice" role="alert"><p>{errorMessage(folders.error)}</p><button className="button button-secondary" onClick={() => void folders.refetch()}>Retry</button></div>}
-        {folders.data && <><ul aria-label="Server folders">{folders.data.entries.map((entry) => <li key={entry.path}><button type="button" onClick={() => navigate(entry.path)} aria-label={`Open ${entry.name}`}>
+        {folders.data && !folders.isFetching && <><ul aria-label="Server folders">{folders.data.entries.map((entry) => <li key={entry.path}><button type="button" onClick={() => navigate(entry.path)} aria-label={`Open ${entry.name}`}>
           <svg width="21" height="18" viewBox="0 0 24 20" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><path d="M2 18V2h7l3 3h10v13z" /></svg><span>{entry.name}</span><span aria-hidden="true">›</span>
         </button></li>)}</ul>{!folders.data.entries.length && <p className="transcript-folder-empty">{query ? "No folders match your filter." : directory ? "No subfolders. You can select this folder." : "No shared folders are available. Configure transcript sources on the server first."}</p>}
           {folders.data.truncated && <p role="status">Only some folders are shown. Filter by name or enter a specific path above.</p>}</>}

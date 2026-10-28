@@ -272,7 +272,7 @@ a coherent read snapshot, never a project mutation lock or operation UUID.
 `truncated` in transcript metadata denotes historical bounded text awaiting
 automatic complete-text refresh; `normalization_incomplete` separately denotes
 unsupported records or relationships. Do not conflate these with raw-copy loss.
-Normalizer 3 also retains Claude task-status and thinking-drop diagnostics and recognizes
+Normalizer 4 also retains Claude task-status and thinking-drop diagnostics and recognizes
 session/agent labels as bookkeeping. Context attachments and compaction history remain
 readable; coverage warnings and informational notes have separate metadata counts. Workers automatically
 refresh old ready normalizations after Active/pause guards clear without resetting

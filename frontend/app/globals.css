@@ -2956,3 +2956,5 @@ html[data-theme="dark"] :is(.operational-badge.planning-cycle, .dependency-cycle
 .transcript-global-toggle > input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; }
 .transcript-global-toggle:has(input:focus-visible) { outline: 2px solid var(--accent-deep); outline-offset: 3px; }
 .transcript-global-toggle:has(input:disabled) { cursor: default; }
+
+.transcript-folder-nav .button { min-height: 32px; padding: 6px 10px; font-size: 12px; }
