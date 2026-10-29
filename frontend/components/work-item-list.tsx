@@ -54,6 +54,8 @@ export type WorkItemListProps = {
   canonicalWorkItemId: string;
   status: StatusFilter;
   sort: WorkSort;
+  group: boolean;
+  onGroup: (group: boolean) => void;
   // Accumulated queue pages from useWorkQueuePages.
   items: WorkQueueItem[];
   flatSearch: boolean;
@@ -111,6 +113,8 @@ export default function WorkItemList({
   canonicalWorkItemId,
   status,
   sort,
+  group,
+  onGroup,
   items,
   flatSearch,
   total,
@@ -222,6 +226,9 @@ export default function WorkItemList({
               </div>
             </fieldset>
           </div>
+          <button className={`semantic-toggle ${group ? "selected" : ""}`} type="button" aria-label="Group" aria-pressed={group} onClick={() => onGroup(!group)}>
+            <span className="semantic-switch" aria-hidden="true"><span /></span><span>Group</span>
+          </button>
         </div>
       </div>
       {canonicalWorkItemId && <div className="duplicate-group-filter" role="status"><span>Canonical group</span><code>{canonicalWorkItemId}</code><button type="button" className="text-link" onClick={onClearDuplicateGroup}>Clear group</button></div>}
@@ -235,7 +242,7 @@ export default function WorkItemList({
         paneRef={queuePaneRef}
         items={items}
         flatSearch={flatSearch}
-        semantic={semantic}
+        semantic={semantic && Boolean(searchedQuery)}
         total={total}
         loading={loading}
         refreshing={refreshing}

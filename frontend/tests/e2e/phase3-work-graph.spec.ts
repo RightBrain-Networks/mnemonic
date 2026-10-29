@@ -215,6 +215,34 @@ test("hierarchy navigation and the relationship editor preserve graph semantics"
     await expect(
       page.getByRole("button", { name: `Expand children of ${titles.collapsedRoot}` })
     ).toHaveAttribute("aria-expanded", "false");
+    // Group changes only presentation: hidden matching descendants become peers,
+    // while nonmatching ancestors disappear and graph edges remain unchanged.
+    const groupToggle = page.getByRole("button", { name: "Group", exact: true });
+    await expect(groupToggle).toHaveAttribute("aria-pressed", "true");
+    const beforeGrouping = await client.get(`/api/v1/projects/${projectId}/work-items/${childId}/context`);
+    const beforeContext = await beforeGrouping.json();
+    await groupToggle.click();
+    await expect(groupToggle).toHaveAttribute("aria-pressed", "false");
+    await expect(discoveredChildCard).toHaveCount(1);
+    await expect(grandchildCard).toHaveCount(1);
+    await expect(rootCard).toHaveCount(0);
+    await expect(childCard).toHaveCount(0);
+    await expect(page.locator(".hierarchy-node")).toHaveCount(0);
+    await expect(page.locator(".search-results > .search-result")).not.toHaveCount(0);
+    await page.reload();
+    await expect(groupToggle).toHaveAttribute("aria-pressed", "false");
+    await expect(discoveredChildCard).toHaveCount(1);
+    await page.screenshot({ path: testInfo.outputPath("work-items-flat.png"), fullPage: true });
+    await groupToggle.click();
+    await expect(groupToggle).toHaveAttribute("aria-pressed", "true");
+    await expect(collapsedChildCard).toHaveCount(0);
+    await expect(rootCard).toHaveCount(1);
+    const afterGrouping = await client.get(`/api/v1/projects/${projectId}/work-items/${childId}/context`);
+    const afterContext = await afterGrouping.json();
+    for (const direction of ["incoming_relationships", "outgoing_relationships", "undirected_relationships"]) {
+      expect(afterContext[direction]).toEqual(beforeContext[direction]);
+    }
+    await page.screenshot({ path: testInfo.outputPath("work-items-grouped.png"), fullPage: true });
     const collapsedAggregates = descendantChip(collapsedRootCard);
     await expect(collapsedAggregates).toHaveText("1 descendant");
     await expect(collapsedAggregates).toHaveAttribute("title", /1 active descendant/);

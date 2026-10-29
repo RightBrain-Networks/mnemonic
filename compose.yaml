@@ -35,7 +35,7 @@ services:
     restart: unless-stopped
 
   init-storage:
-    image: ghcr.io/rightbrain-networks/mnemonic-api:${MNEMONIC_VERSION:-0.117.0}
+    image: ghcr.io/rightbrain-networks/mnemonic-api:${MNEMONIC_VERSION:-0.118.0}
     user: "0:0"
     command: [init-storage]
     environment:
@@ -53,7 +53,7 @@ services:
     security_opt: [no-new-privileges:true]
 
   migrate:
-    image: ghcr.io/rightbrain-networks/mnemonic-api:${MNEMONIC_VERSION:-0.117.0}
+    image: ghcr.io/rightbrain-networks/mnemonic-api:${MNEMONIC_VERSION:-0.118.0}
     user: "${MNEMONIC_API_UID:-10001}:${MNEMONIC_API_GID:-10001}"
     command: [migrate]
     environment:
@@ -71,7 +71,7 @@ services:
     security_opt: [no-new-privileges:true]
 
   api:
-    image: ghcr.io/rightbrain-networks/mnemonic-api:${MNEMONIC_VERSION:-0.117.0}
+    image: ghcr.io/rightbrain-networks/mnemonic-api:${MNEMONIC_VERSION:-0.118.0}
     user: "${MNEMONIC_API_UID:-10001}:${MNEMONIC_API_GID:-10001}"
     environment:
       DATABASE_URL: postgresql+psycopg://mnemonic:${POSTGRES_PASSWORD}@postgres:5432/mnemonic
@@ -159,7 +159,7 @@ services:
     security_opt: [no-new-privileges:true]
 
   tika:
-    image: ghcr.io/rightbrain-networks/mnemonic-tika:${MNEMONIC_VERSION:-0.117.0}
+    image: ghcr.io/rightbrain-networks/mnemonic-tika:${MNEMONIC_VERSION:-0.118.0}
     environment:
       MNEMONIC_ARTIFACT_EXTRACTION_MAX_CHARS: ${MNEMONIC_ARTIFACT_EXTRACTION_MAX_CHARS:-2000000}
       MNEMONIC_ARTIFACT_EXTRACTION_TIMEOUT_SECONDS: ${MNEMONIC_ARTIFACT_EXTRACTION_TIMEOUT_SECONDS:-60}
@@ -187,7 +187,7 @@ services:
     restart: unless-stopped
 
   mcp:
-    image: ghcr.io/rightbrain-networks/mnemonic-mcp:${MNEMONIC_VERSION:-0.117.0}
+    image: ghcr.io/rightbrain-networks/mnemonic-mcp:${MNEMONIC_VERSION:-0.118.0}
     environment:
       MNEMONIC_API_URL: http://api:8000
       MNEMONIC_API_KEY: ${MNEMONIC_API_KEY}
@@ -212,7 +212,7 @@ services:
     security_opt: [no-new-privileges:true]
 
   web:
-    image: ghcr.io/rightbrain-networks/mnemonic-web:${MNEMONIC_VERSION:-0.117.0}
+    image: ghcr.io/rightbrain-networks/mnemonic-web:${MNEMONIC_VERSION:-0.118.0}
     ports:
       - '127.0.0.1:${MNEMONIC_WEB_PORT:-3000}:3000'
     depends_on:
@@ -233,7 +233,7 @@ services:
     security_opt: [no-new-privileges:true]
 
   worker:
-    image: ghcr.io/rightbrain-networks/mnemonic-api:${MNEMONIC_VERSION:-0.117.0}
+    image: ghcr.io/rightbrain-networks/mnemonic-api:${MNEMONIC_VERSION:-0.118.0}
     user: "${MNEMONIC_API_UID:-10001}:${MNEMONIC_API_GID:-10001}"
     command: [serve-worker]
     environment:

@@ -5,6 +5,7 @@ export const dashboardStorageKeys = {
   project: "mnemonic.project",
   status: "mnemonic.status",
   sort: "mnemonic.sort",
+  group: "mnemonic.group",
   libraryTools: "mnemonic.library-tools",
   settingsMenu: "mnemonic.settings-menu",
   tasksMenu: "mnemonic.tasks-menu",
@@ -52,4 +53,8 @@ export function dashboardLibraryToolsPreference(value: string | null): boolean {
 // The queue's share of the work surface, or null when the stylesheet defaults should apply.
 export function dashboardWorkSplitPreference(value: string | null): number | null {
   return workSplitPreference(value);
+}
+
+export function dashboardGroupPreference(value: string | null): boolean {
+  return value !== "false";
 }

@@ -24,7 +24,7 @@ test("queue keys distinguish every request filter and canonical scopes", () => {
   const client = createDashboardQueryClient();
   try {
     const key = workQueueQueryOptions(client, filters).queryKey;
-    for (const [field, value] of Object.entries({ projectId: "other", status: "done", sort: "priority", search: "query", semantic: true, duplicateScope: "all", canonicalWorkItemId: "canonical", tag: "tag", sourceClient: "codex", sourceSessionId: "session", pinnedWorkItemIds: ["pinned"] })) {
+    for (const [field, value] of Object.entries({ group: false, projectId: "other", status: "done", sort: "priority", search: "query", semantic: true, duplicateScope: "all", canonicalWorkItemId: "canonical", tag: "tag", sourceClient: "codex", sourceSessionId: "session", pinnedWorkItemIds: ["pinned"] })) {
       assert.notDeepEqual(workQueueQueryOptions(client, { ...filters, [field]: value }).queryKey, key, field);
     }
     assert.notDeepEqual(canonicalWorkQueryOptions({ projectId: filters.projectId, query: "query", excludedWorkId: "a", limit: 10 }).queryKey,
