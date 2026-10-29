@@ -223,7 +223,7 @@ test("hierarchy navigation and the relationship editor preserve graph semantics"
     const beforeContext = await beforeGrouping.json();
     await groupToggle.click();
     await expect(groupToggle).toHaveAttribute("aria-pressed", "false");
-    await expect(collapsedChildCard).toHaveCount(1);
+    await expect(discoveredChildCard).toHaveCount(1);
     await expect(grandchildCard).toHaveCount(1);
     await expect(rootCard).toHaveCount(0);
     await expect(childCard).toHaveCount(0);
@@ -231,7 +231,7 @@ test("hierarchy navigation and the relationship editor preserve graph semantics"
     await expect(page.locator(".search-results > .search-result")).not.toHaveCount(0);
     await page.reload();
     await expect(groupToggle).toHaveAttribute("aria-pressed", "false");
-    await expect(collapsedChildCard).toHaveCount(1);
+    await expect(discoveredChildCard).toHaveCount(1);
     await page.screenshot({ path: testInfo.outputPath("work-items-flat.png"), fullPage: true });
     await groupToggle.click();
     await expect(groupToggle).toHaveAttribute("aria-pressed", "true");
