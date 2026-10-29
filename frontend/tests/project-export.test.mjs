@@ -3,12 +3,11 @@ import test from "node:test";
 import { exportSelection } from "../lib/project-export.ts";
 
 const domain = "11111111-1111-4111-8111-111111111111";
-const artifact = "22222222-2222-4222-8222-222222222222";
-test("exports require an explicit valid selection and support each asset type independently", () => {
-  assert.deepEqual(exportSelection([domain], []), { domain_ids: [domain], artifact_ids: [] });
-  assert.deepEqual(exportSelection([], [artifact]), { domain_ids: [], artifact_ids: [artifact] });
-  assert.deepEqual(exportSelection([domain], [artifact]), { domain_ids: [domain], artifact_ids: [artifact] });
-  for (const [domains, artifacts] of [[[], []], [[domain, domain], []], [[], [artifact, artifact]], [["../domain"], []], [[], ["bad"]]]) {
-    assert.throws(() => exportSelection(domains, artifacts));
+test("exports support selected domains and one all-artifacts choice independently", () => {
+  assert.deepEqual(exportSelection([domain], false), { domain_ids: [domain], include_artifacts: false });
+  assert.deepEqual(exportSelection([], true), { domain_ids: [], include_artifacts: true });
+  assert.deepEqual(exportSelection([domain], true), { domain_ids: [domain], include_artifacts: true });
+  for (const [domains, includeArtifacts] of [[[], false], [[domain, domain], false], [["../domain"], true]]) {
+    assert.throws(() => exportSelection(domains, includeArtifacts));
   }
 });

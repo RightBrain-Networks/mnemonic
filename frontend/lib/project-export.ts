@@ -1,31 +1,19 @@
-import { artifactPath, decodeArtifactPage } from "./artifacts.ts";
 import { backupPath, backupResponseMessage } from "./backups.ts";
 import { readBoundedJson } from "./bounded-json.ts";
 import { validUuid } from "./wire-guards.ts";
 
-export async function readExportArtifacts(projectId: string, offset: number, signal: AbortSignal) {
-  const response = await fetch(`${artifactPath(projectId)}?limit=100&offset=${offset}&sort=filename&order=asc&include_deleted=false`, { cache: "no-store", signal });
-  const value = await readBoundedJson(response, 4 * 1024 * 1024);
-  if (!response.ok) throw new Error(backupResponseMessage(value, "Unable to load project artifacts."));
-  const page = decodeArtifactPage(value, projectId);
-  if (page.offset !== offset || page.limit !== 100 || page.items.some((item) => item.deleted_at !== null)
-    || new Set(page.items.map((item) => item.id)).size !== page.items.length) throw new Error("The artifact list could not be verified.");
-  return page;
-}
-
-export function exportSelection(domainIds: string[], artifactIds: string[]) {
-  if (!domainIds.length && !artifactIds.length) throw new Error("Select at least one knowledge domain or artifact.");
-  if (![...domainIds, ...artifactIds].every(validUuid)
-    || new Set(domainIds).size !== domainIds.length || new Set(artifactIds).size !== artifactIds.length) throw new Error("The export selection is invalid.");
-  return { domain_ids: domainIds, artifact_ids: artifactIds };
+export function exportSelection(domainIds: string[], includeArtifacts: boolean) {
+  if (!domainIds.length && !includeArtifacts) throw new Error("Select at least one knowledge domain or include project artifacts.");
+  if (!domainIds.every(validUuid) || new Set(domainIds).size !== domainIds.length) throw new Error("The export selection is invalid.");
+  return { domain_ids: domainIds, include_artifacts: includeArtifacts };
 }
 
 type SavePicker = (options: { suggestedName: string }) => Promise<{ createWritable: () => Promise<{
   write: (data: Uint8Array) => Promise<void>; close: () => Promise<void>; abort: () => Promise<void>;
 }> }>;
 
-export async function downloadProjectExport(projectId: string, domainIds: string[], artifactIds: string[]) {
-  const selection = exportSelection(domainIds, artifactIds);
+export async function downloadProjectExport(projectId: string, domainIds: string[], includeArtifacts: boolean) {
+  const selection = exportSelection(domainIds, includeArtifacts);
   const filename = "selected-assets.tar.bz2";
   const picker = (window as Window & { showSaveFilePicker?: SavePicker }).showSaveFilePicker;
   let handle: Awaited<ReturnType<SavePicker>> | undefined;

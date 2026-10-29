@@ -53,13 +53,16 @@ def test_export_rejects_missing_selection_without_partial_download(
         export_file(postgres_engine, artifact_storage, UUID(project["id"]), selection)
 
 
-def test_export_rejects_corrupt_artifact(api, project, postgres_engine, artifact_storage):
+@pytest.mark.parametrize("all_artifacts", [False, True])
+def test_export_rejects_corrupt_artifact(api, project, postgres_engine, artifact_storage,
+                                         all_artifacts):
     artifact = upload(api, project)
     path = next(artifact_storage.root.rglob("confidential.pdf"))
     path.write_bytes(b"corrupted")
     with pytest.raises(BackupError, match="changed or is damaged"):
         export_file(postgres_engine, artifact_storage, UUID(project["id"]),
-                    ExportSelection(artifact_ids=[artifact["id"]]))
+                    ExportSelection(include_artifacts=True) if all_artifacts
+                    else ExportSelection(artifact_ids=[artifact["id"]]))
 
 
 def test_export_cannot_select_domain_from_another_project(api, project, postgres_engine,
@@ -105,3 +108,36 @@ def test_export_finishes_pending_artifact_replacement_before_reading_current_byt
             assert metadata["revision"] == 2
     current = api.get(f"{collection(project)}/{artifact['id']}")
     assert current.status_code == 200 and current.json()["revision"] == 2
+
+
+def test_all_artifacts_exports_live_project_files_including_sensitive(
+    api, project, postgres_engine, artifact_storage,
+):
+    first = upload(api, project, filename="first.txt", body=b"first file")
+    second = upload(api, project, filename="second.txt", body=b"second file",
+                    metadata={"sensitive": True})
+    deleted = upload(api, project, filename="deleted.txt")
+    response = api.delete(f"{collection(project)}/{deleted['id']}", headers=headers(revision=1))
+    assert response.status_code == 200, response.text
+    other = api.post("/api/v1/projects", json={"name": "Other export project"}).json()
+    foreign = upload(api, other, filename="foreign.txt")
+    with export_file(postgres_engine, artifact_storage, UUID(project["id"]),
+                     ExportSelection(include_artifacts=True)) as output:
+        with tarfile.open(fileobj=output, mode="r:bz2") as archive:
+            names = archive.getnames()
+            assert archive.extractfile(
+                f"artifacts/{first['id']}/files/first.txt"
+            ).read() == b"first file"
+            assert archive.extractfile(
+                f"artifacts/{second['id']}/files/second.txt"
+            ).read() == b"second file"
+            assert not any(deleted["id"] in name or foreign["id"] in name for name in names)
+
+
+@pytest.mark.parametrize("selection", [
+    {"include_artifacts": True, "artifact_ids": [str(uuid4())]},
+    {"include_artifacts": "true"},
+])
+def test_all_artifacts_choice_requires_an_unambiguous_boolean(selection):
+    with pytest.raises(ValidationError):
+        ExportSelection.model_validate(selection)

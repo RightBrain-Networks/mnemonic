@@ -5,6 +5,7 @@ import io
 import json
 import os
 import tarfile
+from collections.abc import Iterable
 from datetime import UTC, datetime
 from tempfile import TemporaryFile
 from typing import BinaryIO
@@ -17,20 +18,23 @@ from sqlalchemy.orm import Session, undefer
 from mnemonic_api.artifact_schemas import ArtifactActor
 from mnemonic_api.artifact_storage import ArtifactStorage
 from mnemonic_api.database import begin_coherent_read
-from mnemonic_api.models import DecisionDocument, DecisionRevision
+from mnemonic_api.models import Artifact, DecisionDocument, DecisionRevision
 from mnemonic_api.services import artifacts, knowledge
 from mnemonic_backup.archive import BackupError
 
 
 class ExportSelection(BaseModel):
     model_config = ConfigDict(extra="forbid")
+    include_artifacts: bool = Field(default=False, strict=True)
     domain_ids: list[UUID] = Field(default_factory=list, max_length=1000)
     artifact_ids: list[UUID] = Field(default_factory=list, max_length=1000)
 
     @model_validator(mode="after")
     def selected(self) -> ExportSelection:
-        if not self.domain_ids and not self.artifact_ids:
+        if not self.domain_ids and not self.artifact_ids and not self.include_artifacts:
             raise ValueError("Select at least one knowledge domain or artifact.")
+        if self.include_artifacts and self.artifact_ids:
+            raise ValueError("Select all artifacts or individual artifacts, not both.")
         for values in (self.domain_ids, self.artifact_ids):
             if len(set(values)) != len(values):
                 raise ValueError("Selections must be unique.")
@@ -98,6 +102,22 @@ def _artifact(archive: tarfile.TarFile, database: Session, storage: ArtifactStor
     _json(archive, f"artifacts/{artifact_id}/metadata.json", metadata.model_dump(mode="json"))
 
 
+def _export_artifacts(archive: tarfile.TarFile, engine: Engine, storage: ArtifactStorage,
+                      project: UUID, selection: ExportSelection) -> None:
+    with Session(engine) as catalog:
+        if selection.include_artifacts:
+            begin_coherent_read(catalog)
+            ids: Iterable[UUID] = catalog.scalars(select(Artifact.id).where(
+                Artifact.project_id == project, Artifact.deleted_at.is_(None),
+                Artifact.revision > 0,
+            ).order_by(Artifact.id).execution_options(yield_per=100))
+        else:
+            ids = selection.artifact_ids
+        for artifact_id in ids:
+            with Session(engine) as database:
+                _artifact(archive, database, storage, project, artifact_id)
+
+
 def export_assets(engine: Engine, storage: ArtifactStorage, project: UUID,
                   selection: ExportSelection, output: BinaryIO) -> None:
     with tarfile.open(fileobj=output, mode="w:bz2") as archive:
@@ -110,9 +130,7 @@ def export_assets(engine: Engine, storage: ArtifactStorage, project: UUID,
         })
         with Session(engine) as database:
             _domains(archive, database, project, selection.domain_ids)
-        for artifact_id in selection.artifact_ids:
-            with Session(engine) as database:
-                _artifact(archive, database, storage, project, artifact_id)
+        _export_artifacts(archive, engine, storage, project, selection)
     output.seek(0)
 
 

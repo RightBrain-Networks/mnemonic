@@ -20,7 +20,8 @@ def install_export_routes(app: FastAPI, service: BackupService) -> None:
     @app.post("/projects/{project_id}/exports")
     def export_selected(project_id: UUID, selection: ExportSelection):
         service.require_project(project_id)
-        if selection.artifact_ids and service.settings.artifact_max_bytes == 0:
+        if (selection.include_artifacts or selection.artifact_ids) \
+                and service.settings.artifact_max_bytes == 0:
             raise BackupError(503, "artifact_library_disabled",
                               "Artifact library is disabled (MNEMONIC_ARTIFACT_MAX_BYTES=0).")
         storage = ArtifactStorage(service.settings.artifact_root,
