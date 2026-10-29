@@ -132,3 +132,13 @@ test("rapid hierarchy-filter edits produce one request-driving committed key", (
     sourceSessionId: "session-7"
   }]);
 });
+
+test("ungrouped browse uses all matching records with unchanged filters and pagination", () => {
+  const input = { status: "pending", sort: "priority", limit: 20, offset: 40, query: "", tags: ["api"], tagMode: "and" };
+  const grouped = workSearchParams({ ...input, group: true });
+  const flat = workSearchParams({ ...input, group: false });
+  assert.equal(grouped.get("view"), "roots");
+  assert.equal(flat.get("view"), "full");
+  flat.set("view", "roots");
+  assert.equal(flat.toString(), grouped.toString());
+});

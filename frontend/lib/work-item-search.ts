@@ -47,6 +47,7 @@ export type WorkSearchOptions = {
   offset: number;
   query: string;
   semantic?: boolean;
+  group?: boolean;
   tags?: readonly string[];
   tagMode?: "or" | "and";
   tag?: string;
@@ -59,9 +60,10 @@ export type WorkSearchOptions = {
 
 export function isFlatWorkSearch(input: Pick<
   WorkSearchOptions,
-  "query" | "duplicateScope" | "canonicalWorkItemId"
+  "query" | "duplicateScope" | "canonicalWorkItemId" | "group"
 >): boolean {
-  return input.query.trim().length > 0
+  return input.group === false
+    || input.query.trim().length > 0
     || (input.duplicateScope ?? "canonical") !== "canonical"
     || Boolean(input.canonicalWorkItemId);
 }
@@ -86,6 +88,7 @@ export function workSearchParams({
   offset,
   query,
   semantic = false,
+  group,
   tag,
   tags,
   tagMode,
@@ -102,7 +105,7 @@ export function workSearchParams({
     status,
     sort,
     detail: "full",
-    view: isFlatWorkSearch({ query, duplicateScope, canonicalWorkItemId }) ? "full" : "roots",
+    view: isFlatWorkSearch({ query, duplicateScope, canonicalWorkItemId, group }) ? "full" : "roots",
     limit: String(limit),
     offset: String(offset),
     duplicate_scope: duplicateScope

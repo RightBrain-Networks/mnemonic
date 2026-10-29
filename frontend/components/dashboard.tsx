@@ -86,6 +86,7 @@ import {
 } from "@/lib/mutation-intent";
 import { mutationLabels, selectMutationRecovery } from "@/lib/mutation-recovery";
 import {
+  dashboardGroupPreference,
   dashboardLibraryToolsPreference,
   dashboardSortPreference,
   dashboardStatusPreference,
@@ -376,6 +377,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
   const [duplicateScope, setDuplicateScope] = useState<DuplicateScope>("canonical");
   const [canonicalWorkItemId, setCanonicalWorkItemId] = useState("");
   const [status, setStatus] = useState<StatusFilter>("pending");
+  const [group, setGroup] = useState(true);
   const [sort, setSort] = useState<WorkSort>("updated");
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [tagMode, setTagMode] = useState<TagMode>("all");
@@ -521,6 +523,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
   const queue = useWorkQueuePages({
     enabled: view === "library" && Boolean(activeId) && activityReadyProjectId === activeId && preferencesReady && pins.ready,
     pinnedWorkItemIds: pins.ids,
+    group,
     projectId: activeId,
     status,
     sort,
@@ -582,6 +585,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
       setLibraryToolsOpen(storedLibraryToolsOpen);
       const savedStatus = dashboardStatusPreference(localStorage.getItem(dashboardStorageKeys.status));
       setStatus(savedStatus === "to-review" ? "done" : savedStatus);
+      setGroup(dashboardGroupPreference(localStorage.getItem(dashboardStorageKeys.group)));
       setSort(dashboardSortPreference(localStorage.getItem(dashboardStorageKeys.sort)));
     } catch {
       // Preferences are optional when storage is unavailable.
@@ -630,10 +634,11 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
       );
       localStorage.setItem(dashboardStorageKeys.status, status);
       localStorage.setItem(dashboardStorageKeys.sort, sort);
+      localStorage.setItem(dashboardStorageKeys.group, String(group));
     } catch {
       // Preferences are optional when storage is unavailable.
     }
-  }, [libraryToolsOpen, preferencesReady, sort, status]);
+  }, [group, libraryToolsOpen, preferencesReady, sort, status]);
 
   useEffect(() => {
     const timer = setTimeout(() => setSearch(query.trim()), 300);
@@ -3020,6 +3025,8 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
                 onToggleSemantic={() => setSemantic((value) => !value)}
                 onClearDuplicateGroup={() => { setCanonicalWorkItemId(""); setDuplicateScope("canonical"); }}
                 onStatus={filterByStatus}
+                group={group}
+                onGroup={setGroup}
                 onSort={setSort}
                 onRetry={queue.retry}
                 onRetryAppend={queue.retryAppend}

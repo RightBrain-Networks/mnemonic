@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { runInNewContext } from "node:vm";
 import test from "node:test";
 import {
+  dashboardGroupPreference,
   dashboardLibraryToolsPreference,
   libraryToolsInitializationScript,
   dashboardSortPreference,
@@ -15,6 +16,7 @@ test("dashboard preferences use stable local-storage keys", () => {
     project: "mnemonic.project",
     status: "mnemonic.status",
     sort: "mnemonic.sort",
+    group: "mnemonic.group",
     libraryTools: "mnemonic.library-tools",
     settingsMenu: "mnemonic.settings-menu",
     tasksMenu: "mnemonic.tasks-menu",
@@ -79,4 +81,9 @@ test("the work-surface split restores a bounded number and otherwise stays uncus
   for (const value of [null, "", "half", "Infinity"]) {
     assert.equal(dashboardWorkSplitPreference(value), null);
   }
+});
+
+test("grouping defaults on and restores an explicit false preference", () => {
+  assert.equal(dashboardGroupPreference("false"), false);
+  for (const value of [null, "", "true", "invalid"]) assert.equal(dashboardGroupPreference(value), true);
 });

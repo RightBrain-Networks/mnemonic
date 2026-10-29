@@ -55,7 +55,7 @@ function useImplementationQueuePages({ enabled, ...filters }: WorkQueuePagesInpu
   useFailedReadRetry({ scope: `queue-append:${viewKey}`, failed: Boolean(appendError), busy: query.isFetching, enabled: automaticRetry, retry: loadMore });
   return {
     viewKey,
-    flatSearch: isFlatWorkSearch({ query: filters.search, duplicateScope: filters.duplicateScope, canonicalWorkItemId: filters.canonicalWorkItemId }),
+    flatSearch: isFlatWorkSearch({ query: filters.search, duplicateScope: filters.duplicateScope, canonicalWorkItemId: filters.canonicalWorkItemId, group: filters.group }),
     items: merged?.items ?? EMPTY_ITEMS,
     total: merged?.total ?? null,
     loading: enabled && query.isPending,
