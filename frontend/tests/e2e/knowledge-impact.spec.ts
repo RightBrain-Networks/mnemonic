@@ -7,9 +7,9 @@ const originalHash = "c".repeat(40), mergedHash = "d".repeat(40);
 async function apiClient() {
   return request.newContext({ baseURL: process.env.MNEMONIC_E2E_API_URL, extraHTTPHeaders: { Authorization: `Bearer ${process.env.MNEMONIC_E2E_API_KEY}`, Accept: "application/json" } });
 }
-async function json(response: Awaited<ReturnType<APIRequestContext["post"]>>) {
+async function json<T = any>(response: Awaited<ReturnType<APIRequestContext["post"]>>): Promise<T> {
   expect(response.ok(), await response.text()).toBe(true);
-  return response.json();
+  return await response.json() as T;
 }
 async function work(api: APIRequestContext, projectId: string, title: string) {
   return (await json(await api.post(`/api/v1/projects/${projectId}/work-items`, { data: { title, summary: "Trace decision changes through implementation and reassessment.", priority: 10, discovered_from_work_item_id: null,

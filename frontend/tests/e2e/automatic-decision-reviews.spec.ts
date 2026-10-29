@@ -11,9 +11,9 @@ async function apiClient() {
   if (!baseURL || !apiKey) throw new Error("The disposable E2E API is not configured.");
   return request.newContext({ baseURL, extraHTTPHeaders: { Authorization: `Bearer ${apiKey}` } });
 }
-async function json(response: Awaited<ReturnType<APIRequestContext["post"]>>) {
+async function json<T = any>(response: Awaited<ReturnType<APIRequestContext["post"]>>): Promise<T> {
   expect(response.ok(), await response.text()).toBe(true);
-  return response.json();
+  return await response.json() as T;
 }
 async function createProject(api: APIRequestContext) {
   return await json(await api.post("/api/v1/projects", {
