@@ -59,7 +59,11 @@ def _record_assignment(database: Session, artifact: Artifact, tags: list[str] | 
     database.add(operation)
     database.flush()
     _publish_metadata_revision(database, artifact, operation)
+    # Read the clock and the response body before completing the operation: a
+    # query between the terminal assignments would autoflush a completed row
+    # that still has no completed_at, which artifact_operations_check rejects.
+    completed = database_now(database)
     operation.response_body = artifact_read(database, artifact).model_dump(mode="json")
     operation.state = "completed"
-    operation.completed_at = database_now(database)
+    operation.completed_at = completed
     database.flush()

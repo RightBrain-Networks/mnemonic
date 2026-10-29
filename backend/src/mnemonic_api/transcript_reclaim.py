@@ -5,6 +5,7 @@ import hashlib
 import os
 from dataclasses import dataclass
 from datetime import datetime
+from typing import cast
 from uuid import UUID
 
 from sqlalchemy import func, select, update
@@ -57,7 +58,10 @@ def snapshots(factory: sessionmaker[Session]) -> list[ReclaimSnapshot]:
             func.coalesce(Transcript.copy_source_path, Transcript.source_path),
             Transcript.source_modified_at).where(Transcript.copy_status == 'ready')
             .order_by(Transcript.copy_size_bytes, Transcript.id))
-        return [ReclaimSnapshot(*row) for row in rows]
+        # Only ready copies with their payload still present reach this query,
+        # so the nullable copy columns are never NULL here.
+        row_type = tuple[UUID, UUID, str, str, int, str, datetime | None]
+        return [ReclaimSnapshot(*cast(row_type, row)) for row in rows]
 
 
 def _raw_legacy_bytes(storage: TranscriptStorage, row: ReclaimSnapshot) -> int:

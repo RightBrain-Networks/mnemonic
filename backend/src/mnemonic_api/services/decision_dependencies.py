@@ -1,5 +1,7 @@
 """New dependency annotations are sealed with their source decision revision."""
 
+from typing import Literal, cast
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -43,9 +45,10 @@ def pinned_links(database: Session, revision: DecisionRevision) -> dict:
             if isinstance(edge, DecisionDependency):
                 result[key].append(DependencyRead(**fields, rationale=edge.rationale))
             else:
-                result[key].append(
-                    SupersessionDetail(**fields, extent=edge.extent, reason=edge.reason)
-                )
+                result[key].append(SupersessionDetail(
+                    **fields, extent=cast(Literal["full", "partial"], edge.extent),
+                    reason=edge.reason,
+                ))
         result[key].sort(key=lambda item: (item.decision_id, item.revision))
     return result
 
