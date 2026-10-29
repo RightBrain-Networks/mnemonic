@@ -1,14 +1,28 @@
 # Keep application dependencies, image digests and CI actions current.
 # https://docs.github.com/en/code-security/reference/supply-chain-security/dependabot-options-reference
 #
-# Lint, type-check and test tooling must never share a group with runtime
-# dependencies. Runtime and tooling updates fail CI for different reasons — a
-# newer ruff or ty adds diagnostics, a newer pytest deprecates behavior — and a
-# grouped pull request is all-or-nothing: one red member blocks every green
-# runtime update in the same PR, the group can never merge, and Dependabot
-# keeps closing and recreating it while overlapping per-dependency PRs pile up.
-# Split groups keep a tooling regression from stalling security and runtime
-# updates, and keep a runtime breakage from holding back tool upgrades.
+# Two deliberate policies:
+#
+# 1. Lint, type-check and test tooling must never share a group with runtime
+#    dependencies. Runtime and tooling updates fail CI for different reasons —
+#    a newer ruff or ty adds diagnostics, a newer pytest deprecates behavior —
+#    and a grouped pull request is all-or-nothing: one red member blocks every
+#    green runtime update in the same PR, the group can never merge, and
+#    Dependabot keeps closing and recreating it while overlapping
+#    per-dependency PRs pile up. Split groups keep a tooling regression from
+#    stalling security and runtime updates, and keep a runtime breakage from
+#    holding back tool upgrades.
+#
+# 2. Major versions are proposed by nobody but humans. A major bump is, by
+#    definition, a breaking API change (mcp 2.x removing
+#    mcp.server.fastmcp and renaming it to MCPServer is the current example),
+#    so each one is adopted deliberately as planned migration work — not as
+#    an auto-mergeable pull request. Every ecosystem below ignores
+#    version-update:semver-major; security fixes that only exist in a major
+#    are still reported by the Dependabot alerts page, but their pull request
+#    also waits for a human decision. When a major is adopted, relax the
+#    manifest pin in the same change; Dependabot then tracks the new line's
+#    minor and patch updates automatically.
 version: 2
 updates:
   - package-ecosystem: uv
@@ -19,13 +33,8 @@ updates:
       interval: weekly
     open-pull-requests-limit: 3
     ignore:
-      # The manifest pins mcp<2 deliberately: mcp 2.x removed
-      # mcp.server.fastmcp and renamed it to MCPServer, and the adapter's
-      # SanitizedFastMCP hardening and SessionMessage transport are written
-      # against 1.30 internals. Adopting 2.x is a planned migration, not an
-      # auto-mergeable bump; ignore its proposals until that work lands.
-      - dependency-name: mcp
-        versions: ["2.x"]
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
     groups:
       python-runtime-minor-and-patch:
         patterns: ['*']
@@ -52,6 +61,9 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 3
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
     groups:
       frontend-runtime-minor-and-patch:
         patterns:
@@ -76,6 +88,9 @@ updates:
       - /deploy/tika
     schedule:
       interval: weekly
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
     groups:
       images-minor-and-patch:
         patterns: ['*']
@@ -85,6 +100,9 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
     groups:
       services-minor-and-patch:
         patterns: ['*']
@@ -94,6 +112,9 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
     groups:
       actions-minor-and-patch:
         patterns: ['*']
