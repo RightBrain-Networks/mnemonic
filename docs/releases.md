@@ -192,17 +192,29 @@ Do not add `--project-id` to
 an ordinary installation check; that option explicitly enables destructive test
 work intended only for a disposable project.
 
-Install the Claude plugin using the catalog belonging to the server release:
+Install the Claude plugin using the catalog belonging to the server release. From the
+extracted, checksum-verified release directory, copy its catalog into a persistent
+marketplace directory:
 
 ```sh
-claude plugin marketplace add "https://github.com/RightBrain-Networks/mnemonic/releases/download/vX.Y.Z/marketplace.json"
+mnemonic_catalog_dir="$HOME/.local/share/mnemonic/marketplace"
+mkdir -p "$mnemonic_catalog_dir/.claude-plugin"
+cp marketplace.json "$mnemonic_catalog_dir/.claude-plugin/marketplace.json"
+claude plugin marketplace add "$mnemonic_catalog_dir"
 claude plugin install mnemonic@mnemonic
 ```
 
-Replace `X.Y.Z` with that exact server release. On a server upgrade, update the
-marketplace URL to the chosen release before updating the plugin, then restart
-Claude Code. The `releases/latest` page can help discover releases; following a
-moving latest catalog can select a plugin that does not match a pinned server.
+Keep that directory for future refreshes. Claude Code 2.1.303 treats a GitHub release
+download URL passed directly to `marketplace add` as a Git repository and fails to
+clone it. The local directory works and preserves the catalog's release tag and full
+commit pin. The `.claude-plugin/marketplace.json` layout is required for subsequent
+plugin discovery and refreshes.
+
+On a server upgrade, replace the catalog in that same directory with `marketplace.json`
+from the chosen verified release, run `claude plugin marketplace update mnemonic` and
+`claude plugin update mnemonic@mnemonic`, then restart Claude Code. The `releases/latest`
+page can help discover releases; following a moving latest catalog can select a plugin
+that does not match a pinned server.
 
 For Codex or OpenCode, export the complete portable skills directly from the extracted
 bundle with `python3 scripts/export_agent_skills.py /absolute/path/to/new-skill-export`.
