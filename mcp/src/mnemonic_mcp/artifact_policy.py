@@ -1,6 +1,6 @@
 """Discover authoritative artifact configuration without touching artifact data."""
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import cast
 
@@ -41,6 +41,6 @@ async def _status(api: MnemonicAPI) -> ArtifactToolStatus:
 
 
 @asynccontextmanager
-async def artifact_access(api: MnemonicAPI) -> AsyncIterator[ArtifactToolStatus]:
+async def artifact_access(api: MnemonicAPI) -> AsyncGenerator[ArtifactToolStatus]:
     status = await _status(api)
     yield status

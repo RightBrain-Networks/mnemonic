@@ -291,7 +291,8 @@ class JobCompletionReportEnvelope(Phase12Wire):
 
 
 class JobCompletionReportDetailEnvelope(JobCompletionReportEnvelope):
-    report: JobCompletionReportDetailRead
+    # Intentional narrowing: the detail envelope always carries the full report.
+    report: JobCompletionReportDetailRead  # ty: ignore[invalid-mutable-override]
 
 
 class ActivityCursorDocument(Phase12Wire):

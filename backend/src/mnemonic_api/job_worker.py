@@ -2,7 +2,7 @@
 
 import asyncio
 import logging
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager, suppress
 from functools import partial
 from urllib.parse import urlsplit
@@ -93,7 +93,7 @@ def create_app() -> FastAPI:
     health = TranscriptHealthReporter()
 
     @asynccontextmanager
-    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         # Only unlocked abandoned partial files older than 24 hours are removed;
         # final immutable copies and concurrent writers are never selected.
         try:

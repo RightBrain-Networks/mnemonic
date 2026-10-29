@@ -8,7 +8,7 @@ or LLM authoring belongs inside this scope.
 
 import math
 import time
-from collections.abc import Iterable, Iterator
+from collections.abc import Generator, Iterable
 from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any
@@ -106,7 +106,7 @@ def project_mutation(
     additional_project_ids: Iterable[UUID] = (),
     protected: bool = False,
     domain_seconds: float | None = None,
-) -> Iterator[None]:
+) -> Generator[None]:
     """Bound fresh execution through its commit and lock every project in UUID order.
 
     None is only for project creation. Cross-project mutations provide their

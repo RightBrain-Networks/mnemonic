@@ -3,7 +3,7 @@
 from collections.abc import Iterable
 from copy import deepcopy
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 from pydantic import JsonValue
@@ -176,12 +176,12 @@ def stage_work_created(
         metadata={
             "initial": {
                 "title": work_item.title,
-                **({"tags": work_item.tags} if work_item.tags else {}),
+                **({"tags": cast(JsonValue, work_item.tags)} if work_item.tags else {}),
                 "summary": work_item.summary,
                 "status": work_item.status,
                 "priority": work_item.priority,
                 "version": work_item.version,
-                **({"external_references": deepcopy(work_item.external_references)}
+                **({"external_references": cast(JsonValue, deepcopy(work_item.external_references))}
                    if work_item.external_references else {}),
             }
         },
@@ -251,7 +251,10 @@ def stage_work_changed(
 ) -> WorkEvent:
     fields = sorted(set(requested_fields))
     changes = {
-        field: {"before": before[field], "after": deepcopy(getattr(work_item, field))}
+        field: cast(
+            JsonValue,
+            {"before": before[field], "after": deepcopy(getattr(work_item, field))},
+        )
         for field in fields
     }
     old_status = str(before["status"])

@@ -549,7 +549,7 @@ def load_grant(path: Path, manifest: dict[str, Any]) -> dict[str, Any]:
         r"v1\.[0-9]{1,12}\.[0-9a-f]{64}", token
     ):
         raise UploadError("Invalid upload grant token.")
-    expires = datetime.fromisoformat(grant["expires_at"].replace("Z", "+00:00"))
+    expires = datetime.fromisoformat(grant["expires_at"])
     if expires.tzinfo is None or expires.timestamp() != int(token.split(".")[1]):
         raise UploadError("Invalid upload grant expiry.")
     if expires.timestamp() <= time.time():

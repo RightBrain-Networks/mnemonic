@@ -34,7 +34,7 @@ from pydantic import (
     model_validator,
 )
 from pydantic.experimental.missing_sentinel import MISSING
-from pydantic.json_schema import SkipJsonSchema
+from pydantic.json_schema import JsonDict, SkipJsonSchema
 
 from .artifact_models import ArtifactRead
 from .code_review_models import (
@@ -442,7 +442,7 @@ _HTTPS_ARTIFACT_SCHEMA_PATTERN = (
 )
 
 
-def _evidence_text_json_schema(maximum_bytes: int) -> dict[str, object]:
+def _evidence_text_json_schema(maximum_bytes: int) -> JsonDict:
     return {
         "pattern": _EVIDENCE_TEXT_SCHEMA_PATTERN,
         "x-utf8-max-bytes": maximum_bytes,
@@ -1317,7 +1317,7 @@ def _reject_explicit_nulls(model: BaseModel, fields: tuple[str, ...]) -> None:
         raise ValueError("Optional completion evidence fields cannot be null.")
 
 
-_COMMAND_VERIFICATION_JSON_SCHEMA = {
+_COMMAND_VERIFICATION_JSON_SCHEMA: JsonDict = {
     "oneOf": [
         {
             "properties": {
@@ -1449,7 +1449,7 @@ VerificationResultRead = Annotated[
 ]
 
 
-_ARTIFACT_REFERENCE_JSON_SCHEMA = {
+_ARTIFACT_REFERENCE_JSON_SCHEMA: JsonDict = {
     "oneOf": [
         {
             "properties": {

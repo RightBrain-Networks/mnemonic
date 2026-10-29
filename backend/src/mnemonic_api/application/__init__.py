@@ -13,7 +13,7 @@ Read the package from a request's point of view:
 """
 
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager, suppress
 from typing import Any, cast
 
@@ -64,7 +64,7 @@ def create_app(
     connection_pool = engine if engine is not None else build_engine(config)
 
     @asynccontextmanager
-    async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+    async def lifespan(_: FastAPI) -> AsyncGenerator[None]:
         start_transcript_services(config, app.state.transcript_search_index)
         maintenance = None
         extraction = None

@@ -15,7 +15,7 @@ import re
 import stat
 import time
 import unicodedata
-from collections.abc import AsyncIterable, Iterable, Iterator
+from collections.abc import AsyncIterable, Generator, Iterable, Iterator
 from concurrent.futures import Future
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -152,7 +152,7 @@ def _verify_regular(descriptor: int) -> None:
 
 
 @contextmanager
-def _read_file(directory: int, filename: str) -> Iterator[BinaryIO]:
+def _read_file(directory: int, filename: str) -> Generator[BinaryIO]:
     descriptor = os.open(filename, _READ_FLAGS, dir_fd=directory)
     try:
         _verify_regular(descriptor)
@@ -258,7 +258,7 @@ class ArtifactStorage:
         self.max_bytes = max_bytes
 
     @contextmanager
-    def _directory(self, project: str, artifact: str, *, create: bool = False) -> Iterator[int]:
+    def _directory(self, project: str, artifact: str, *, create: bool = False) -> Generator[int]:
         if create:
             self.root.mkdir(mode=0o700, parents=True, exist_ok=True)
         descriptors = [os.open(self.root, _DIRECTORY_FLAGS)]
@@ -291,7 +291,7 @@ class ArtifactStorage:
     @contextmanager
     def _writer(
         self, project_id: UUID | str, artifact_id: UUID | str, filename: str,
-    ) -> Iterator[tuple[_StagingWriter, str, str]]:
+    ) -> Generator[tuple[_StagingWriter, str, str]]:
         validate_filename(filename)
         project, artifact = str(UUID(str(project_id))), str(UUID(str(artifact_id)))
         temporary_name = ".pending-" + uuid4().hex
