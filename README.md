@@ -211,31 +211,41 @@ facts from the exact attempt; never copy example evidence as if it were
 observed.
 
 The three skills ship as a Claude Code plugin. For a published server release, register its
-version-pinned marketplace and enable the matching plugin. Replace `X.Y.Z` with your server
-release; its compatibility table records the independent plugin version:
+version-pinned marketplace and enable the matching plugin. From the extracted, checksum-verified
+release directory, copy its catalog into a persistent marketplace directory:
 
 ```bash
-claude plugin marketplace add "https://github.com/RightBrain-Networks/mnemonic/releases/download/vX.Y.Z/marketplace.json"
+mnemonic_catalog_dir="$HOME/.local/share/mnemonic/marketplace"
+mkdir -p "$mnemonic_catalog_dir/.claude-plugin"
+cp marketplace.json "$mnemonic_catalog_dir/.claude-plugin/marketplace.json"
+claude plugin marketplace add "$mnemonic_catalog_dir"
 claude plugin install mnemonic@mnemonic
 ```
 
-To make it automatic for everyone who clones a consuming repository, commit this to that repository's `.claude/settings.json` instead:
+Keep that directory for future plugin refreshes. Claude Code 2.1.303 interprets the GitHub
+release download URL as a Git repository when passed directly to `marketplace add`; the local
+directory avoids that failure. Its catalog still pins the release tag and full source commit.
+The release's compatibility table records the independent plugin version.
+
+The registration stores a directory source in your Claude settings. If you manage those
+settings yourself, use the actual absolute path to that persistent directory:
 
 ```json
 {
   "extraKnownMarketplaces": {
-    "mnemonic": { "source": { "source": "url", "url": "https://github.com/RightBrain-Networks/mnemonic/releases/download/vX.Y.Z/marketplace.json" } }
+    "mnemonic": { "source": { "source": "directory", "path": "/absolute/path/to/mnemonic/marketplace" } }
   },
   "enabledPlugins": { "mnemonic@mnemonic": true }
 }
 ```
 
 Contributors can register a local checkout with `claude plugin marketplace add /path/to/mnemonic`,
-or use `{ "source": "directory", "path": "/absolute/path/to/mnemonic" }` in that settings file.
+or use `{ "source": "directory", "path": "/absolute/path/to/mnemonic" }` in their settings.
 That local catalog follows the checkout. Published catalogs pin both a release tag and its source commit.
 
-Before upgrading the server, select its matching marketplace URL and plugin compatibility entry
-from [the release](https://github.com/RightBrain-Networks/mnemonic/releases). See
+Before upgrading the server, replace the local catalog with `marketplace.json` from the chosen
+verified release and check its plugin
+compatibility entry in [the release](https://github.com/RightBrain-Networks/mnemonic/releases). See
 [release installation and verification](docs/releases.md) for checksums and provenance.
 
 Installing copies the plugin into `~/.claude/plugins/cache/` at its manifest version, so editing a skill in place does not change an installed copy. `claude plugin marketplace update mnemonic` refreshes the marketplace listing,
