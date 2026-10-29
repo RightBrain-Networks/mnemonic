@@ -4,6 +4,7 @@ import bz2
 from tempfile import TemporaryFile
 from uuid import uuid4
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 
@@ -11,7 +12,9 @@ from mnemonic_backup.config import BackupSettings
 from mnemonic_backup.service import create_app
 
 
-def test_disabled_artifacts_cannot_be_read_via_export(tmp_path, monkeypatch):
+@pytest.mark.parametrize("selection", [{"artifact_ids": [str(uuid4())]},
+                                       {"include_artifacts": True}])
+def test_disabled_artifacts_cannot_be_read_via_export(tmp_path, monkeypatch, selection):
     token = "export-policy-test-token-at-least-32-characters"
     settings = BackupSettings(DATABASE_URL="sqlite://", token=token, root=tmp_path,
                               MNEMONIC_ARTIFACT_MAX_BYTES=0)
@@ -26,7 +29,7 @@ def test_disabled_artifacts_cannot_be_read_via_export(tmp_path, monkeypatch):
     try:
         with TestClient(app, headers={"Authorization": f"Bearer {token}"}) as client:
             response = client.post(f"/projects/{uuid4()}/exports",
-                                   json={"artifact_ids": [str(uuid4())]})
+                                   json=selection)
         assert response.status_code == 503
         assert response.json()["error"]["code"] == "artifact_library_disabled"
     finally:

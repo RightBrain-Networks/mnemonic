@@ -843,12 +843,12 @@ operator-managed retention. See [Upgrade from any release](#upgrade-from-any-rel
 for the default-on backup, disk-space guard, and explicit opt-out. Neither kind of local
 backup substitutes for a verified off-machine copy and restore rehearsal.
 
-The **Export** widget selects one or more knowledge domains and/or artifacts and
+The **Export** widget selects one or more knowledge domains and/or all project artifacts and
 downloads `selected-assets.tar.bz2`. It contains a manifest, current live decision
 text and metadata grouped by domain ID, and current artifact bytes/metadata grouped
 by artifact ID. Artifact hashes and sizes are verified before returning any bytes;
 missing or changed selections fail the export instead of producing an incomplete
-archive. Sensitive artifacts are explicitly labeled in the human selection UI;
+archive. The artifact checkbox explicitly includes sensitive files;
 the existing human download audit/access behavior applies. This portable asset
 export is not a restorable database backup. The worker shares the API's storage
 identity and writable artifact mount so it can finish journaled recovery of interrupted
