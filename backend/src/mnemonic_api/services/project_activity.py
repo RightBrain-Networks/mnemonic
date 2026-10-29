@@ -1,5 +1,6 @@
 """Snapshot reads of the database-produced project activity journal."""
 
+from typing import cast
 from uuid import UUID
 
 from sqlalchemy import select
@@ -7,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from mnemonic_api.errors import ApplicationError
 from mnemonic_api.models import ProjectActivity, ProjectActivityHead, WorkEvent
-from mnemonic_api.phase12_schemas import ProjectActivityPage, ProjectActivityRead
+from mnemonic_api.phase12_schemas import ProjectActivityPage, ProjectActivityRead, WorkEventType
 from mnemonic_api.services.activity_cursors import cursor_base, decode_cursor, encode_cursor
 from mnemonic_api.services.work_items import require_project
 
@@ -55,7 +56,7 @@ def activity_page(
         }
         for field in ("sequence", "work_event_id", "settings_revision"):
             data[field] = str(data[field]) if data[field] is not None else None
-        items.append(ProjectActivityRead(**data, event_type=event_type))
+        items.append(ProjectActivityRead(**data, event_type=cast(WorkEventType, event_type)))
     last = int(items[-1].sequence) if items else position
     result = ProjectActivityPage(
         project_id=project_id,

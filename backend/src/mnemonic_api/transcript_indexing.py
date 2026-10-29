@@ -269,8 +269,6 @@ def complete_transcript_job(
             if (detected_client is not None and job.imported and record.kind == "imported"
                     and (result is not None or record.status != "ready")):
                 record.client = detected_client
-            record.lease_token = None
-            record.lease_expires_at = None
             if normalized is not None:
                 publish_normalization(database, record, normalized,
                                       activate=result is not None or record.status != "ready")
@@ -280,9 +278,17 @@ def complete_transcript_job(
             if error is not None:
                 _index_failure(record, error, source_size, source_details)
             elif result is not None:
+                # The lease check has no legal row between a held claim and its
+                # terminal status, so release the claim only once the terminal
+                # attributes are set and every autoflush between them still sees
+                # the intact claimed row.
+                record.lease_token = None
+                record.lease_expires_at = None
                 _publish_success(database, record, job, result)
             else:
                 raise ValueError("Transcript publication requires result or safe error")
+            record.lease_token = None
+            record.lease_expires_at = None
             database.commit()
 
 

@@ -4516,8 +4516,7 @@
               {
                 "type": "null"
               }
-            ],
-            "title": "Tags"
+            ]
           },
           "title": {
             "title": "Title",
@@ -5093,8 +5092,7 @@
               {
                 "type": "null"
               }
-            ],
-            "title": "Tags"
+            ]
           },
           "title": {
             "title": "Title",
@@ -10496,8 +10494,7 @@
             "title": "Client Operation Id"
           },
           "decision_metadata": {
-            "$ref": "#/components/schemas/HumanGateDecisionMetadata",
-            "title": "Decision Metadata"
+            "$ref": "#/components/schemas/HumanGateDecisionMetadata"
           },
           "expected_question_version": {
             "anyOf": [
@@ -10953,8 +10950,7 @@
             "type": "string"
           },
           "projection": {
-            "$ref": "#/components/schemas/ImpactProjection",
-            "title": "Projection"
+            "$ref": "#/components/schemas/ImpactProjection"
           },
           "reason": {
             "anyOf": [
@@ -11119,8 +11115,7 @@
             "type": "string"
           },
           "projection": {
-            "$ref": "#/components/schemas/ImpactProjection",
-            "title": "Projection"
+            "$ref": "#/components/schemas/ImpactProjection"
           },
           "reason": {
             "anyOf": [
@@ -11281,8 +11276,7 @@
         "description": "Read projection only: persisted candidates retain their complete original schema.",
         "properties": {
           "citation_excerpts": {
-            "$ref": "#/components/schemas/CitationExcerpts",
-            "title": "Citation Excerpts"
+            "$ref": "#/components/schemas/CitationExcerpts"
           },
           "decision_id": {
             "title": "Decision Id",
@@ -11364,8 +11358,7 @@
             "type": "integer"
           },
           "scope_summary": {
-            "$ref": "#/components/schemas/ImpactScopeSummary",
-            "title": "Scope Summary"
+            "$ref": "#/components/schemas/ImpactScopeSummary"
           },
           "scopes": {
             "items": {
@@ -11790,8 +11783,7 @@
         "additionalProperties": false,
         "properties": {
           "actor": {
-            "$ref": "#/components/schemas/MutationActor",
-            "title": "Actor"
+            "$ref": "#/components/schemas/MutationActor"
           },
           "assessment_id": {
             "format": "uuid",
@@ -12126,8 +12118,7 @@
             "type": "string"
           },
           "projection": {
-            "$ref": "#/components/schemas/ImpactProjection",
-            "title": "Projection"
+            "$ref": "#/components/schemas/ImpactProjection"
           },
           "total": {
             "title": "Total",
@@ -22275,8 +22266,7 @@
               {
                 "type": "null"
               }
-            ],
-            "title": "Tags"
+            ]
           },
           "title": {
             "maxLength": 200,
@@ -22498,8 +22488,7 @@
               {
                 "type": "null"
               }
-            ],
-            "title": "Tags"
+            ]
           },
           "title": {
             "anyOf": [
@@ -22593,8 +22582,7 @@
               {
                 "type": "null"
               }
-            ],
-            "title": "Tags"
+            ]
           },
           "title": {
             "title": "Title",
@@ -22731,8 +22719,7 @@
               {
                 "type": "null"
               }
-            ],
-            "title": "Tags"
+            ]
           },
           "title": {
             "title": "Title",
@@ -24119,8 +24106,7 @@
               {
                 "type": "null"
               }
-            ],
-            "title": "Tags"
+            ]
           },
           "title": {
             "title": "Title",

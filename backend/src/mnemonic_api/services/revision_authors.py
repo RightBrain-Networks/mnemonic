@@ -1,5 +1,7 @@
 """Report recorded authorship and active leases without inferring implementation use."""
 
+from typing import Literal, cast
+
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -45,7 +47,8 @@ def revision_author_context(
         work_observed_at=observed_at,
         active_work_items=[RevisionAuthorWork(
             work_item_id=work.id, title=work.title, holder_client=lease.holder_client,
-            purpose=lease.purpose, expires_at=lease.expires_at,
+            purpose=cast(Literal["implementation", "code_review"], lease.purpose),
+            expires_at=lease.expires_at,
         ) for work, lease in held[:_WORK_LIMIT]],
         active_work_items_truncated=len(held) > _WORK_LIMIT,
     )

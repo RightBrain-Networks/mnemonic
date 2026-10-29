@@ -374,8 +374,12 @@ def dismiss_report(
     assert review is not None
     applied = review.dismissal_id is None
     if applied:
+        # Read the clock before touching the row: a query between these
+        # assignments would autoflush a half-dismissed review that the
+        # dismissal consistency check rejects.
+        dismissed_at = database_now(database)
         review.dismissal_id = uuid4()
-        review.dismissed_at = database_now(database)
+        review.dismissed_at = dismissed_at
         review.dismissal_actor_client = actor.actor_client
         review.dismissal_actor_session_id = actor.actor_session_id
         review.dismissal_actor_model = actor.actor_model
