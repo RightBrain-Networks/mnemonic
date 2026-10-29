@@ -18,6 +18,14 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 3
+    ignore:
+      # The manifest pins mcp<2 deliberately: mcp 2.x removed
+      # mcp.server.fastmcp and renamed it to MCPServer, and the adapter's
+      # SanitizedFastMCP hardening and SessionMessage transport are written
+      # against 1.30 internals. Adopting 2.x is a planned migration, not an
+      # auto-mergeable bump; ignore its proposals until that work lands.
+      - dependency-name: mcp
+        versions: ["2.x"]
     groups:
       python-runtime-minor-and-patch:
         patterns: ['*']
