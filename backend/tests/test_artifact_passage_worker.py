@@ -16,14 +16,17 @@ def test_scheduler_obeys_artifact_availability_without_pausing_other_job_kinds(
     monkeypatch, maximum,
 ):
     calls = {}
-    for name in ("refresh_outdated_normalizations", "enqueue_transcript_jobs",
+    for name in ("recover_held_answers", "refresh_outdated_normalizations",
+                 "enqueue_transcript_jobs",
                  "enqueue_artifact_passage_jobs", "enqueue_duplicate_embedding_jobs",
                  "schedule_backups"):
         calls[name] = Mock()
         monkeypatch.setattr(f"mnemonic_api.job_worker.{name}", calls[name])
-    schedule_jobs(None, SimpleNamespace(artifact_max_bytes=maximum), None,
+    schedule_jobs(SimpleNamespace(info={}),
+                  SimpleNamespace(artifact_max_bytes=maximum, prompt_root="/unused"), None,
                   embedder=SimpleNamespace(passage_tokenizer=passage_policy))
     assert calls["enqueue_artifact_passage_jobs"].call_count == int(maximum > 0)
+    calls["recover_held_answers"].assert_called_once()
     calls["enqueue_transcript_jobs"].assert_called_once()
     calls["schedule_backups"].assert_called_once()
 
@@ -40,7 +43,8 @@ def test_disabled_existing_delivery_defers_without_inference_or_attempt_exhausti
 
 def test_tokenizer_preparation_precedes_sql_and_failure_keeps_other_jobs(monkeypatch):
     order = []
-    for name in ("refresh_outdated_normalizations", "enqueue_transcript_jobs",
+    for name in ("recover_held_answers", "refresh_outdated_normalizations",
+                 "enqueue_transcript_jobs",
                  "enqueue_artifact_passage_jobs", "enqueue_duplicate_embedding_jobs",
                  "schedule_backups"):
         monkeypatch.setattr(f"mnemonic_api.job_worker.{name}",
@@ -50,9 +54,11 @@ def test_tokenizer_preparation_precedes_sql_and_failure_keeps_other_jobs(monkeyp
         order.append("prepare_tokenizer")
         return passage_policy()
 
-    settings = SimpleNamespace(artifact_max_bytes=1024)
-    schedule_jobs(None, settings, None, embedder=SimpleNamespace(passage_tokenizer=tokenizer))
-    assert order == ["prepare_tokenizer", "refresh_outdated_normalizations",
+    settings = SimpleNamespace(artifact_max_bytes=1024, prompt_root="/unused")
+    database = SimpleNamespace(info={})
+    schedule_jobs(database, settings, None, embedder=SimpleNamespace(passage_tokenizer=tokenizer))
+    assert order == ["prepare_tokenizer", "recover_held_answers",
+                     "refresh_outdated_normalizations",
                      "enqueue_transcript_jobs",
                      "enqueue_artifact_passage_jobs", "enqueue_duplicate_embedding_jobs",
                      "schedule_backups"]
@@ -61,8 +67,9 @@ def test_tokenizer_preparation_precedes_sql_and_failure_keeps_other_jobs(monkeyp
     def unavailable():
         raise RuntimeError("private model failure")
 
-    schedule_jobs(None, settings, None, embedder=SimpleNamespace(passage_tokenizer=unavailable))
-    assert order == ["refresh_outdated_normalizations", "enqueue_transcript_jobs",
+    schedule_jobs(database, settings, None, embedder=SimpleNamespace(passage_tokenizer=unavailable))
+    assert order == ["recover_held_answers", "refresh_outdated_normalizations",
+                     "enqueue_transcript_jobs",
                      "enqueue_duplicate_embedding_jobs", "schedule_backups"]
 
 

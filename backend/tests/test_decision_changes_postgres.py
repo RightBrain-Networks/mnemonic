@@ -100,7 +100,7 @@ def test_related_revisions_extend_one_review_and_stale_ack_fails(
     assert result.status_code == 200, result.text
 
 
-def test_closed_lineage_requires_dashboard_admission_and_never_reopens(
+def test_closed_lineage_automatically_advances_and_never_reopens(
     api, project, work_payload, checkpoint_fields,
 ):
     target, _, new, review = root_review(api, project)
@@ -110,30 +110,18 @@ def test_closed_lineage_requires_dashboard_admission_and_never_reopens(
     retire(api, project, review, checkpoint_fields)
     body = put_body(target, "New exception", decision_id=new["decision_id"],
                     expected_revision=1, source_work_item_id=child["id"])
-    refused = api.put(path(project) + "/decisions", json=body)
-    assert refused.status_code == 409 and "decision_change_closed" in refused.text
-    assert len(reviews(api, project)) == 1
-    forged = api.post(path(project) + "/changes", json={
-        "action": "admit", "change_id": change_id, "expected_scope_version": 1,
-        "actor_client": "dashboard", "actor_session_id": "pretending-human",
-        "client_operation_id": str(uuid4()),
-    })
-    assert forged.status_code == 403
-    admitted, intent = update(api, project, "admit", change_id=change_id,
-                              expected_scope_version=1)
-    assert admitted.status_code == 200, admitted.text
-    successor = admitted.json()["id"]
-    assert len(reviews(api, project)) == 1
-    body["change"] = {"kind": "substantive", "change_id": successor}
-    body["client_operation_id"] = str(uuid4())
     result = put(api, project, body)
-    assert result["decision"]["change"]["change_id"] == successor
+    successor = result["decision"]["change"]["change_id"]
+    assert successor != change_id
+    assert group(api, project, successor)["parent_change_id"] == change_id
+    assert group(api, project, change_id)["scope_version"] == 1
     assert len(reviews(api, project)) == 2
     assert context(api, project, review["id"])["work_item"]["status"] == "wont-do"
     assert put(api, project, body) == result
-    duplicate, _ = update(api, project, "admit", change_id=change_id,
-                         expected_scope_version=1)
-    assert duplicate.status_code == 409
+    retired, _ = update(api, project, "admit", change_id=change_id,
+                        expected_scope_version=1)
+    assert retired.status_code == 422
+    assert "decision_change_admission_retired" in retired.text
 
 
 def test_maintenance_is_audited_and_record_existing_requires_exact_governance(api, project):
@@ -183,27 +171,20 @@ def test_adoption_binds_ordinary_work_and_enforces_full_scope(
     assert result.status_code == 200, result.text
 
 
-def test_accepted_answer_is_retained_until_owner_admits_review(
+def test_accepted_answer_automatically_creates_next_review(
     api, project, work_payload, checkpoint_fields,
 ):
     _, _, new, review = root_review(api, project)
     child = create_work(api, project, {**work_payload,
         "discovered_from_work_item_id": review["id"]}, title="Ask about a new exception")
     retire(api, project, review, checkpoint_fields)
-    gates = gate_path(project, child)
-    question = api.post(gates, json=gate_request())
-    assert question.status_code == 201, question.text
-    gate = question.json()
-    answered = api.post(gates + f"/{gate['id']}/resolve", json=resolution_payload(
-        revision=gate["current_context_revision"]))
-    assert answered.status_code == 200, answered.text
+    answered = answer_question(api, project, child)
+    retained = api.get(path(project) + f"/decisions/{answered['decision']['reference']}").json()
     change_id = new["change"]["change_id"]
-    assert group(api, project, change_id)["pending_revision_count"] == 1
-    assert len(reviews(api, project)) == 1
-    admitted, intent = update(api, project, "admit", change_id=change_id,
-                              expected_scope_version=1)
-    assert admitted.status_code == 200, admitted.text
-    assert admitted.json()["scope_version"] == 1
+    assert retained["change"].get("requires_admission", False) is False
+    successor = group(api, project, change_id)["successor_change_id"]
+    assert successor == retained["change"]["change_id"]
+    assert group(api, project, successor)["scope_version"] == 1
     assert group(api, project, change_id)["pending_revision_count"] == 0
     assert len(reviews(api, project)) == 2
 
@@ -219,7 +200,7 @@ def answer_question(api, project, created):
     return answered.json()
 
 
-def test_combined_adoption_propagates_existing_descendants_and_cannot_escape_closed_roots(
+def test_combined_adoption_preserves_lineage_and_advances_after_completion(
     api, project, work_payload, checkpoint_fields,
 ):
     target, _, new, first = root_review(api, project)
@@ -239,25 +220,21 @@ def test_combined_adoption_propagates_existing_descendants_and_cannot_escape_clo
     change_id = adopted.json()["id"]
     inherited = context(api, project, child["work_item"]["id"])["work_item"]["decision_change_ids"]
     assert change_id in inherited and len(inherited) == 3
-    refused = api.put(path(project) + "/decisions", json=put_body(
-        target, "A new ruling pretending adoption admitted it",
+    saved = api.put(path(project) + "/decisions", json=put_body(
+        target, "A new ruling grouped under the combined investigation",
         source_work_item_id=child["work_item"]["id"],
         change={"kind": "substantive", "change_id": change_id},
     ))
-    assert refused.status_code == 409 and "decision_change_closed" in refused.text
+    assert saved.status_code == 200, saved.text
     retire(api, project, context(api, project, work["id"])["work_item"], checkpoint_fields)
     answer_question(api, project, child)
-    assert group(api, project, change_id)["pending_revision_count"] == 1
-    admitted, _ = update(api, project, "admit", change_id=change_id, expected_scope_version=2)
-    assert admitted.status_code == 200, admitted.text
-    assert admitted.json()["revision_count"] == 1
-    # A later human answer joins the now-open admitted successor; it is not stranded
-    # on the original closed group and does not create another automatic review.
+    successor = group(api, project, change_id)["successor_change_id"]
+    assert group(api, project, successor)["revision_count"] == 1
     before = len(reviews(api, project))
     answer_question(api, project, child)
     assert group(api, project, change_id)["pending_revision_count"] == 0
     assert len(reviews(api, project)) == before
-    assert group(api, project, admitted.json()["id"])["scope_version"] == 2
+    assert group(api, project, successor)["scope_version"] == 2
 
 
 def test_moved_followup_can_record_owner_answer_without_losing_source_boundary(
@@ -276,12 +253,8 @@ def test_moved_followup_can_record_owner_answer_without_losing_source_boundary(
     reference = answer["decision"]["reference"]
     retained = api.get(path(destination) + f"/decisions/{reference}").json()
     local_change = retained["change"]["change_id"]
-    assert retained["change"]["requires_admission"] is True
+    assert retained["change"].get("requires_admission", False) is False
     assert local_change != new["change"]["change_id"]
-    assert reviews(api, destination) == []
-    admitted, _ = update(api, destination, "admit", change_id=local_change,
-                         expected_scope_version=0)
-    assert admitted.status_code == 200, admitted.text
     assert len(reviews(api, destination)) == 1
     assert group(api, destination, local_change)["pending_revision_count"] == 0
 

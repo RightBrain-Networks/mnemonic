@@ -242,12 +242,17 @@ def test_assessment_capture_and_reuse_enrollment_are_sealed(api, project, postgr
                            {"id": fresh["id"]})
 
 
-def test_later_owner_admission_enrolls_reuse_in_new_assessment_transaction(
-    api, project, work_payload, checkpoint_fields, monkeypatch,
+def test_legacy_answer_recovery_enrolls_reuse_in_new_assessment_transaction(
+    api, project, work_payload, checkpoint_fields, monkeypatch, postgres_engine,
 ):
-    from mnemonic_api.services import decision_impact
+    from sqlalchemy.orm import Session
 
-    from .test_decision_changes_postgres import group, retire, update
+    from mnemonic_api.models import DecisionRevisionChange
+    from mnemonic_api.services import decision_impact
+    from mnemonic_api.services.decision_change_recovery import recover_held_answers
+    from mnemonic_api.services.decision_supersession_declarations import record_declarations
+
+    from .test_decision_changes_postgres import group, retire
     from .test_decision_reviews_postgres import context, settings
     from .test_work_items_postgres import create_work
 
@@ -260,10 +265,13 @@ def test_later_owner_admission_enrolls_reuse_in_new_assessment_transaction(
         "work_item"
     ]
     retire(api, project, work, checkpoint_fields)
-    create = decision_impact.create_assessments
-
     def hold(database, document, revision, payload, **kwargs):
-        return create(database, document, revision, payload, hold_closed=True, **kwargs)
+        database.add(DecisionRevisionChange(
+            revision_id=revision.id, change_id=UUID(change_id), kind="substantive",
+            source_work_item_id=UUID(child["id"]), requires_admission=True,
+        ))
+        record_declarations(database, revision, payload)
+        database.flush()
 
     # Exercise the held-revision service path used by retained owner decisions.
     with monkeypatch.context() as scoped:
@@ -277,8 +285,8 @@ def test_later_owner_admission_enrolls_reuse_in_new_assessment_transaction(
     assess(api, project, original["id"], old["reference"], "not-affected")
     latest_source = next(row for row in detail(api, project, original)["dispositions"]
                          if row["candidate_reference"] == old["reference"])
-    admitted, _ = update(api, project, "admit", change_id=change_id, expected_scope_version=1)
-    assert admitted.status_code == 200, admitted.text
+    with Session(postgres_engine, info={"prompt_root": api.app.state.settings.prompt_root}) as db:
+        assert recover_held_answers(db) == 1
     fresh = next(row for row in assessments(api, project)
                  if row["trigger"] == "supersession"
                  and row["after_reference"] == revised["reference"])

@@ -24,6 +24,7 @@ from mnemonic_api.duplicate_embedding_jobs import (
     handle_duplicate_embedding,
 )
 from mnemonic_api.semantic import FastembedEmbedder
+from mnemonic_api.services.decision_change_recovery import RecoveryCursor, recover_held_answers
 from mnemonic_api.transcript_copies import TranscriptStorage
 from mnemonic_api.transcript_health import TranscriptHealthReporter
 from mnemonic_api.transcript_job_queue import (
@@ -57,7 +58,8 @@ class WorkerSettings(BaseSettings):
 
 
 def schedule_jobs(database: Session, settings: Settings, backups: BackupSettings, *,
-                  embedder, health: TranscriptHealthReporter | None = None) -> None:
+                  embedder, health: TranscriptHealthReporter | None = None,
+                  decision_recovery: RecoveryCursor | None = None) -> None:
     # The worker supplies a fresh Session without a checked-out connection here.
     # Model/tokenizer preparation must happen before the first scheduling SQL.
     tokenizer = None
@@ -66,6 +68,8 @@ def schedule_jobs(database: Session, settings: Settings, backups: BackupSettings
             tokenizer = passage_tokenizer(embedder)
         except Exception:
             pass  # Other job kinds remain available if local model loading fails.
+    database.info["prompt_root"] = settings.prompt_root
+    recover_held_answers(database, decision_recovery)
     refresh_outdated_normalizations(database, settings)
     if health is not None:
         health.publish(database, settings)
@@ -115,7 +119,7 @@ def create_app() -> FastAPI:
                 "artifact_embed": partial(
                     _artifact_embedding_job, settings, factory, embedder),
             }, partial(schedule_jobs, settings=settings, backups=backups,
-                       embedder=embedder, health=health),
+                       embedder=embedder, health=health, decision_recovery=RecoveryCursor()),
             state=state, queue_name=worker.job_queue,
         ))
         try:

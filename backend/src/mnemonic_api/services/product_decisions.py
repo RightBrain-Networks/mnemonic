@@ -139,8 +139,7 @@ def _append(
     knowledge.add_pinned_links(database, document, revision, payload)
     database.flush()
     from mnemonic_api.services.decision_impact import create_assessments
-    create_assessments(database, document, revision, payload,
-                       hold_closed=payload.author_kind == "human")
+    create_assessments(database, document, revision, payload)
 
 
 def write_question_decision(

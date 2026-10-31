@@ -40,7 +40,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
-HEAD = "0070_backup_settings"
+HEAD = "0071_automatic_review_cycles"
 MAX_MANIFEST_BYTES = 8 * 1024 * 1024
 
 

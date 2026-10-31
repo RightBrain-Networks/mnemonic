@@ -87,6 +87,7 @@ export function matchDecisionChangeMutation(value: unknown, projectId: string, b
     : body.action === "acknowledge"
       ? sameUuid(row.id, body.change_id) && row.scope_version === body.expected_scope_version
         && row.acknowledged_scope_version === body.expected_scope_version
+      // Retain decoding only for a historical receipt retry; the UI cannot create this action.
       : body.action === "admit" && sameUuid(row.parent_change_id, body.change_id)
         && !sameUuid(row.id, body.change_id) && finiteInteger(body.expected_scope_version);
   if (!matches) throw new Error("Mnemonic returned a decision change that does not match this action.");

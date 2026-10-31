@@ -582,8 +582,8 @@ on upload, replacement, or metadata update. Null clears artifact assignments;
 omitted update/replacement tags preserve them. Tag edits advance the artifact
 revision and retain history. New projects receive six editable starter tags.
 
-Application/API/MCP/dashboard 0.120.0, plugin 0.71.0 and Alembic
-`0070_backup_settings` ship together: 79 MCP tools, 25
+Application/API/MCP/dashboard 0.121.0, plugin 0.72.0 and Alembic
+`0071_automatic_review_cycles` ship together: 79 MCP tools, 25
 receipt-protected MCP writes,
 38 REST receipt kinds, 32 protected browser mutations, 24 event types and three
 plugin skills. Existing projects default to Never/Never/off review settings;
@@ -724,8 +724,9 @@ acknowledgement. Use decision_change_get and page decision_assessments(change_id
 then acknowledge the current scope before Done. Fresh agent decision_put declares
 source_work_item_id (or explicit null for an external trigger) and defaults to a
 substantive change. Record-existing names its governing change and exact revision;
-maintenance requires a reason. Follow-ups inherit lineage; a closed cycle requires
-explicit dashboard admission before new obligations. Managed owner answers are
-retained while awaiting admission. Explicit adoption binds named episodes into
+maintenance requires a reason. Follow-ups inherit lineage; new obligations after a
+closed cycle automatically use an open successor. Completed reviews remain closed,
+and new review creation follows the changed domain policy. Retained owner answers
+are recovered automatically. Explicit adoption binds named episodes into
 ordinary combined investigations. Investigate only; create separate remediation
 work. See docs/knowledge-graph.md#automatic-decision-impact-reviews.

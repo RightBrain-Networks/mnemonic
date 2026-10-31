@@ -77,7 +77,7 @@ class Base(DeclarativeBase):
 
 
 DECISION_CHANGE_TABLE = Table(
-    "decision_changes", Base.metadata, *decision_changes.change_elements(),
+    "decision_changes", Base.metadata, *decision_changes.change_elements(automatic_successors=True),
 )
 DECISION_CHANGE_WORK_TABLE = Table(
     "decision_change_work", Base.metadata, *decision_changes.work_elements(),

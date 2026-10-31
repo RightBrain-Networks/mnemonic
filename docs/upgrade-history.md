@@ -6,6 +6,27 @@ the current startup procedure. Begin with [Upgrade from any release](operations.
 then apply the prerequisites for each boundary your database crosses. No command here
 authorizes a production interruption or a downgrade.
 
+## Automatic review cycles (0.121.0)
+
+Upgrade API, worker, MCP and dashboard together with migration
+`0071_automatic_review_cycles`. Back up PostgreSQL and the native artifact/transcript
+stores using the normal coordinated upgrade procedure. The migration permits
+system-attributed successors and enforces one successor per parent, preserving
+historical dashboard attributions, completed scope and permanent receipts.
+Downgrade refuses to discard automatic successor provenance.
+
+Decision saves no longer stop for owner admission. Existing open successors are
+reused through any number of generations; later obligations create an open
+successor when necessary. The changed decision domain still controls whether a
+review is queued. The worker automatically processes previously held owner answers
+in bounded transactions; original classifications remain immutable. Its next
+maintenance sweeps may therefore queue reviews for retained answers in enabled
+domains. The old admission mutation accepts only exact historical receipt replays.
+
+The shipped review prompt is refreshed only when its stored hash matches a known
+shipped default. Customized prompt text remains unchanged; owners can remove any
+old admission instructions from their customized review prompt.
+
 ## Release notes through 0.115.0
 
 Release 0.115.0 rebuilds transcript management with a server folder browser, editable

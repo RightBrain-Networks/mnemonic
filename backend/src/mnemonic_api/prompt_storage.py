@@ -34,6 +34,7 @@ _DIRECTORY_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
 _READ_FLAGS = os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK
 _REPLACED_DEFAULTS = {
     "decision-impact-review": {
+        "481b628f4cf2ce0dc482222ac66345a7077d8cad8acdb6824b6d2210f04e6dd7",
         "c1ba220c867681c7a909f3dab0044d614d83c2e275e31e2bdaa529c8647ec2bf",
         "7c8df35e3dc9d79ca9b8addb07938451b617d3dd364da909ce22bb025170ed9f",
         "db431809248375efccf70eb90e96d9e786ebb2eaaefbdb920de9e7b97221602f",

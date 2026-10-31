@@ -38,22 +38,13 @@ function LoadedScope({ work, change, disabled, execute, onLineageOffset }: {
   onLineageOffset: (offset: number) => void;
 }) {
   const navigate = useNavigate();
-  const registry = useMutationIntentRegistry();
   const [offset, setOffset] = useState(0);
   const [selected, setSelected] = useState<string | null>(null);
   const [assessmentPending, setAssessmentPending] = useState(false);
   const [reviewedVersion, setReviewedVersion] = useState<number | null>(null);
-  const [admittedVersion, setAdmittedVersion] = useState<number | null>(null);
-  const [successor, setSuccessor] = useState<DecisionChange | null>(null);
-  useEffect(() => registry.subscribeConfirmed((confirmation) => {
-    if (confirmation.kind === "decision_change_update"
-      && confirmation.result.parent_change_id === change.id) setSuccessor(confirmation.result);
-  }), [registry, change.id]);
   const episodes = useQuery(changeAssessmentsOptions(change.project_id, change.id, change.scope_version, offset));
   const driver = change.review_work_item_id === work.id;
   const closed = change.review_closed;
-  const admissionRequired = closed || !change.review_work_item_id && change.pending_revision_count > 0;
-  const successorId = successor?.id ?? change.successor_change_id;
   const acknowledged = change.scope_version === change.acknowledged_scope_version;
   const locked = disabled || assessmentPending;
   return <section className="impact-assessment" aria-label={`Decision change ${change.id}`}>
@@ -61,7 +52,7 @@ function LoadedScope({ work, change, disabled, execute, onLineageOffset }: {
     <p className="field-hint">{acknowledged ? `Scope version ${change.scope_version} acknowledged.` : `Acknowledged version ${change.acknowledged_scope_version}; current scope needs review.`}</p>
     <p className="field-hint">Change <code>{change.id}</code>{change.parent_change_id && <> · Successor of <code>{change.parent_change_id}</code></>}</p>
     {change.finding_summary && <p>{findingSummaryLabel(change.finding_summary)} · {change.finding_summary.change_required_row_count} rows require changes</p>}
-    {change.pending_revision_count > 0 && <p>{change.pending_revision_count} accepted decision {change.pending_revision_count === 1 ? "revision is" : "revisions are"} retained awaiting owner admission. Admission adds their assessment obligations to the new review cycle.</p>}
+    {change.pending_revision_count > 0 && <p>{change.pending_revision_count} accepted decision {change.pending_revision_count === 1 ? "revision is" : "revisions are"} awaiting automatic assessment processing.</p>}
     {!driver && change.review_work_item_id && <Link href={`/work-items?project=${change.review_work_project_id ?? change.project_id}&work=${change.review_work_item_id}`}>Open the review work item</Link>}
     {change.lineage_work && <DecisionLineageWork page={change.lineage_work} busy={locked} onOffset={onLineageOffset} />}
     {selected ? <>
@@ -84,16 +75,30 @@ function LoadedScope({ work, change, disabled, execute, onLineageOffset }: {
       <button type="button" className="button button-secondary" disabled={locked || reviewedVersion !== change.scope_version || !episodes.data || episodes.isError}
         onClick={() => void execute({ action: "acknowledge", change_id: change.id, expected_scope_version: change.scope_version }, change.project_id)}>Acknowledge scope version {change.scope_version}</button>
     </div>}
-    {admissionRequired && !successorId && <div className="form-stack">
-      <p>{closed ? "This review is closed." : "These retained decision revisions have no review driver."} A new substantive change or additional assessment obligation needs an owner-admitted review cycle.</p>
-      <label className="toggle-field"><input type="checkbox" checked={admittedVersion === change.scope_version} disabled={locked} onChange={(event) => setAdmittedVersion(event.target.checked ? change.scope_version : null)} />Authorize a new review cycle for this change.</label>
-      <button type="button" className="button button-secondary" disabled={locked || admittedVersion !== change.scope_version} onClick={async () => {
-        const saved = await execute({ action: "admit", change_id: change.id, expected_scope_version: change.scope_version }, change.project_id);
-        if (saved) setSuccessor(saved);
-      }}>Admit a new review cycle</button>
-    </div>}
-    {successorId && <p role="status">New cycle admitted: <code>{successorId}</code>. {successor?.review_work_item_id && <Link href={`/work-items?project=${successor.review_work_project_id ?? successor.project_id}&work=${successor.review_work_item_id}`}>Open its review</Link>}</p>}
+    {closed && <p>This review is closed. Later substantive changes continue in a new cycle automatically when the decision domain enables reviews.</p>}
+    {change.successor_change_id && <SuccessorReviews projectId={change.project_id} changeId={change.successor_change_id} previousIds={[change.id]} />}
   </section>;
+}
+
+function SuccessorReviews({ projectId, changeId, previousIds }: {
+  projectId: string; changeId: string; previousIds: string[];
+}) {
+  const [showLater, setShowLater] = useState(false);
+  const result = useQuery(decisionChangeOptions(projectId, changeId));
+  if (result.isError) return <KnowledgeReadError error={result.error} retry={() => void result.refetch()} />;
+  if (!result.data) return <p role="status">Loading next review cycle…</p>;
+  const next = result.data;
+  const visited = [...previousIds, changeId];
+  return <>
+    <p>Next review cycle: <code>{next.id}</code>. {next.review_work_item_id
+      ? <Link href={`/work-items?project=${next.review_work_project_id ?? next.project_id}&work=${next.review_work_item_id}`}>Open {next.review_closed ? "completed" : "current"} successor review</Link>
+      : "No review work item has been queued for this cycle."}</p>
+    {next.successor_change_id && (visited.includes(next.successor_change_id)
+      ? <p role="alert">The successor cycle repeats an earlier change. Review navigation is incomplete.</p>
+      : <details onToggle={(event) => setShowLater(event.currentTarget.open)}><summary>Later review cycles</summary>
+        {showLater && <SuccessorReviews projectId={next.project_id} changeId={next.successor_change_id} previousIds={visited} />}
+      </details>)}
+  </>;
 }
 
 export default function DecisionChangePanel({ work, disabled, sourceProjectId }: { work: WorkItem; disabled: boolean; sourceProjectId?: unknown }) {

@@ -190,8 +190,9 @@ not rewrite existing investigations. The default instructs agents to investigate
 without changing code and to create separate standard work items for remediation
 or further investigation. It classifies rule/scope/reference changes before
 candidate review, reads the current native change scope and every attached assessment,
-requires acknowledgement before Done, preserves inherited follow-up lineage, and stops
-new obligations on a closed review for human admission. It requires dispositions for incoming related citations of unknown
+requires acknowledgement before Done and preserves inherited follow-up lineage.
+New obligations after closed reviews automatically use an open successor, with
+review creation governed by the changed domain policy. It requires dispositions for incoming related citations of unknown
 causality, preserves historical assessment requirements, separates required verdicts
 from optional contextual contradiction notes, and gives fallback repository searches
 for missing commits.

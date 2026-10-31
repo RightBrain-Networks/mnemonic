@@ -200,24 +200,18 @@ def create_assessments(
     document: DecisionDocument,
     revision: DecisionRevision,
     payload: DecisionPutRequest,
-    *, hold_closed: bool = False, admitted_change: DecisionChange | None = None,
+    *, retained_change: DecisionChange | None = None,
 ) -> ExtendedDecisionReview | None:
     from mnemonic_api.services import knowledge
     from mnemonic_api.services.decision_change_classification import classify_revision
-    from mnemonic_api.services.decision_changes import attach_assessments, require_open
+    from mnemonic_api.services.decision_changes import attach_assessments, bind_work
 
-    change, governing = (admitted_change, None) if admitted_change is not None else (
-        classify_revision(database, revision, payload, hold_closed=hold_closed)
+    change, governing = (retained_change, None) if retained_change is not None else (
+        classify_revision(database, revision, payload)
     )
-    classification = database.get(DecisionRevisionChange, revision.id)
-    if (admitted_change is None and classification is not None
-            and classification.requires_admission):
-        return
     if payload.change is not None and payload.change.kind == "maintenance":
         return
     assert change is not None
-    if governing is None:
-        require_open(database, change)
     replacement = governing or revision
 
     episodes = []
@@ -251,10 +245,30 @@ def create_assessments(
         ))
     episodes = _reuse_identical_assessments(database, change.id, episodes, revision)
     database.flush()
+    change = _assessment_cycle(database, change, episodes)
+    classification = database.get(DecisionRevisionChange, revision.id)
+    if classification is not None and classification.source_work_item_id is not None:
+        bind_work(database, classification.source_work_item_id, change.id)
     notice = attach_assessments(database, change, episodes, causing_revision=revision)
     from mnemonic_api.services.decision_reviews import create_decision_review
     create_decision_review(database, document, revision, episodes, change=change)
     return extended_review(database, notice) if notice is not None else None
+
+
+def _assessment_cycle(
+    database: Session, change: DecisionChange,
+    episodes: list[DecisionImpactAssessment],
+) -> DecisionChange:
+    from mnemonic_api.services.decision_change_cycles import open_cycle
+
+    retained = set(database.scalars(select(DecisionChangeAssessment.assessment_id).where(
+        DecisionChangeAssessment.change_id == change.id,
+    )))
+    # Exact existing obligations stay on their original completed review. Only
+    # additions need a new cycle; governing revision provenance remains unchanged.
+    if any(episode.id not in retained for episode in episodes):
+        return open_cycle(database, change)
+    return change
 
 
 def _reuse_identical_assessments(

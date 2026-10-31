@@ -110,8 +110,8 @@ one-off ID needed before dispatch. Explicit IDs and REST receipts retain their
 contracts; prepared upload intents keep their helper-generated IDs. See
 `docs/automatic-uuids.md`. The tool idempotence hint is false for these calls.
 
-The current application/API/MCP/dashboard release is `0.120.0`, Claude plugin
-`0.71.0`, and Alembic head `0070_backup_settings`. The catalog is exactly
+The current application/API/MCP/dashboard release is `0.121.0`, Claude plugin
+`0.72.0`, and Alembic head `0071_automatic_review_cycles`. The catalog is exactly
 79 MCP tools, 25 receipt-protected MCP writes, 38 REST receipt kinds, 32 protected
 browser mutations, 24 work-event types, and three plugin skills. Project priority
 guidance is editable in Settings > Workspace; agents explicitly call
@@ -403,8 +403,9 @@ change_id, then acknowledge the exact current scope before Done. Fresh agent
 decision_put declares source_work_item_id (or explicit null for an external trigger).
 Changes default to substantive; record-existing names its governing change and exact
 revision, and maintenance requires a reason. Follow-ups inherit lineage. Closed
-cycles require explicit dashboard admission; managed owner answers remain retained
-while awaiting admission. Adoption binds named episodes into an ordinary combined
+cycles automatically use an open successor for new obligations; completed reviews remain
+closed. New review creation follows the changed domain policy. Retained owner answers
+are recovered automatically. Adoption binds named episodes into an ordinary combined
 investigation. Investigate only; create separate work for remediation. Impact and
 assessment reads default to kind=code-impact for the
 origin and reverse depends_on dependents; kind=context separately pages

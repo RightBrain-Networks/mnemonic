@@ -209,3 +209,55 @@ async def test_missing_retained_supersession_declaration_is_unknown_outcome(sett
                     "governing_reference": "ADR-00001-0", "reason": "Same supersession rule"}],
             },
         })
+
+
+@pytest.mark.parametrize("failure", [None, "unrelated", "cycle", "unavailable", "wrong-project"])
+async def test_substantive_put_verifies_automatic_successor_ancestry(settings, failure):
+    calls = []
+    declaration = {"kind": "substantive", "change_id": CHANGE_ID}
+
+    def handler(request):
+        calls.append((request.method, request.url.path))
+        if request.method == "PUT":
+            assert json.loads(request.content)["change"]["change_id"] == CHANGE_ID
+            return httpx.Response(200, json={"created": True, "decision": decision(change={
+                "kind": "substantive", "change_id": ASSESSMENT_ID, "reason": None,
+                "governing_reference": None, "source_work_item_id": None,
+            })})
+        if failure == "unavailable":
+            return stream_json({}, status=503)
+        if request.url.path.endswith(ASSESSMENT_ID):
+            return stream_json(change(id=ASSESSMENT_ID, parent_change_id=WORK_ID,
+                                      project_id=WORK_ID if failure == "wrong-project" else PROJECT_ID))
+        assert request.url.path.endswith(WORK_ID)
+        parent = None if failure == "unrelated" else ASSESSMENT_ID if failure == "cycle" else CHANGE_ID
+        return stream_json(change(id=WORK_ID, parent_change_id=parent))
+
+    server = adapter(settings, handler)
+    intent = {**arguments(), "source_work_item_id": None, "change": declaration}
+    if failure:
+        with pytest.raises(ToolError, match=UNKNOWN_IDEMPOTENT_MUTATION_OUTCOME):
+            await server.call_tool("decision_put", intent)
+    else:
+        result = structured(await server.call_tool("decision_put", intent))
+        assert result["decision"]["change"]["change_id"] == ASSESSMENT_ID
+        await server.call_tool("decision_put", intent)
+        assert calls[:3] == calls[3:]
+    assert all(method == "GET" for method, _ in calls[1:3])
+
+
+async def test_record_existing_cannot_reassign_its_governing_change(settings):
+    def handler(request):
+        assert request.method == "PUT"
+        return httpx.Response(200, json={"created": True, "decision": decision(change={
+            "kind": "record-existing", "change_id": ASSESSMENT_ID, "reason": "Records the ruling",
+            "governing_reference": "ADR-00001-0", "source_work_item_id": None,
+        })})
+
+    with pytest.raises(ToolError, match=UNKNOWN_IDEMPOTENT_MUTATION_OUTCOME):
+        await adapter(settings, handler).call_tool("decision_put", {
+            **arguments(), "source_work_item_id": None, "change": {
+                "kind": "record-existing", "change_id": CHANGE_ID, "reason": "Records the ruling",
+                "governing_reference": "ADR-00001-0",
+            },
+        })

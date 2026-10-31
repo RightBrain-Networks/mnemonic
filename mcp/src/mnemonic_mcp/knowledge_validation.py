@@ -48,9 +48,12 @@ def text_matches(
     return True
 
 
-def put_matches(result: DecisionPutResult, project_id: UUID, intent: DecisionPut) -> bool:
+def put_matches(
+    result: DecisionPutResult, project_id: UUID, intent: DecisionPut,
+    *, allow_successor: bool = False,
+) -> bool:
     item = result.decision
-    if not _put_metadata_matches(result, intent):
+    if not _put_metadata_matches(result, intent, allow_successor=allow_successor):
         return False
     encoded = intent.content.encode("utf-8")
     return (
@@ -64,14 +67,16 @@ def put_matches(result: DecisionPutResult, project_id: UUID, intent: DecisionPut
     )
 
 
-def _put_metadata_matches(result: DecisionPutResult, intent: DecisionPut) -> bool:
+def _put_metadata_matches(
+    result: DecisionPutResult, intent: DecisionPut, *, allow_successor: bool,
+) -> bool:
     item = result.decision
     if item.domain_id != intent.domain_id:
         return False
     # A new upload deduplicates by domain/content hash and retains the original metadata.
     if not result.created and intent.decision_id is None:
         return True
-    if result.created and not _change_matches(item, intent):
+    if result.created and not _change_matches(item, intent, allow_successor=allow_successor):
         return False
     fields = {"title", "media_type", "state"}
     if result.created:
@@ -86,7 +91,9 @@ def _put_metadata_matches(result: DecisionPutResult, intent: DecisionPut) -> boo
             and _pinned_links(item) == _pinned_links(intent))
 
 
-def _change_matches(item: DecisionRead, intent: DecisionPut) -> bool:
+def _change_matches(
+    item: DecisionRead, intent: DecisionPut, *, allow_successor: bool,
+) -> bool:
     if intent.source_work_item_id is MISSING and intent.change is None:
         return True  # Historical receipt replay retains its original sparse result.
     if item.change is None:
@@ -99,11 +106,20 @@ def _change_matches(item: DecisionRead, intent: DecisionPut) -> bool:
     return all(getattr(item.change, key) == value for key, value in intent.change.model_dump(
         exclude={"change_id", "unchanged_supersessions"},
     ).items()) and (
-        intent.change.change_id is None or item.change.change_id == intent.change.change_id
+        _change_identity_matches(item, intent, allow_successor=allow_successor)
     ) and (
         sorted(entry.model_dump_json() for entry in item.change.unchanged_supersessions)
         == sorted(entry.model_dump_json() for entry in intent.change.unchanged_supersessions)
     )
+
+
+def _change_identity_matches(
+    item: DecisionRead, intent: DecisionPut, *, allow_successor: bool,
+) -> bool:
+    assert item.change is not None and intent.change is not None
+    return (intent.change.change_id is None or item.change.change_id == intent.change.change_id
+            or (allow_successor and intent.change.kind == "substantive"
+                and item.change.change_id is not None))
 
 
 def _pinned_links(item: DecisionRead | DecisionPut) -> tuple[set[tuple], set[tuple]]:
