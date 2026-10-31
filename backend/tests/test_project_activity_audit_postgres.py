@@ -116,7 +116,8 @@ def test_catalog_upgrade_preserves_restored_variants_and_rejects_superseded_guar
             config.attributes["connection"] = connection
             command.downgrade(config, previous)
             definitions = _reparse_previous_catalog_variants(connection, audit, previous)
-        assert _audit(postgres_engine, previous)["result"] == "pass"
+        before_upgrade = _audit(postgres_engine, previous)
+        assert before_upgrade["result"] == "pass", before_upgrade["blocking_findings"]
         with postgres_engine.begin() as connection:
             config.attributes["connection"] = connection
             command.upgrade(config, "head")
@@ -148,7 +149,7 @@ def test_catalog_upgrade_preserves_restored_variants_and_rejects_superseded_guar
 
 @pytest.mark.parametrize("expected_head", [
     "0065_knowledge_management", "0066_candidate_reuse", "0067_project_tags", "0068_artifact_tags",
-    "0069_transcript_directories", "0070_backup_settings",
+    "0069_transcript_directories", "0070_backup_settings", "0071_automatic_review_cycles",
 ])
 def test_catalog_accepts_constraints_restored_after_0065_and_rejects_changed_values(
     postgres_engine: Engine, expected_head: str,
@@ -294,7 +295,7 @@ def test_project_activity_audit_accepts_review_events_and_checks_review_facts(
     close_work(api, project, question_work, checkpoint_fields, review=False)
     report = _audit(postgres_engine)
     assert report["result"] == "pass", report["blocking_findings"]
-    assert report["expected_head"] == "0070_backup_settings"
+    assert report["expected_head"] == "0071_automatic_review_cycles"
 
 
 def test_project_and_review_audits_keep_supported_0024_boundary(postgres_engine: Engine):

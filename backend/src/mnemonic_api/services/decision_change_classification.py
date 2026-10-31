@@ -1,4 +1,4 @@
-"""Explicit author declarations, immutable provenance, and inherited review boundaries."""
+"""Explicit author declarations, immutable provenance, and inherited review grouping."""
 
 
 from uuid import UUID
@@ -17,10 +17,10 @@ from mnemonic_api.models import (
     DecisionRevisionChange,
     WorkItem,
 )
-from mnemonic_api.services.decision_changes import bind_work, closed, lock_change, require_change
+from mnemonic_api.services.decision_changes import bind_work, lock_change, require_change
 
 
-def _admitted_ancestors(database: Session, change: DecisionChange) -> set[UUID]:
+def _lineage_ancestors(database: Session, change: DecisionChange) -> set[UUID]:
     result: set[UUID] = set()
     parent_id = change.parent_change_id
     while parent_id is not None and parent_id not in result:
@@ -45,27 +45,10 @@ def _admitted_ancestors(database: Session, change: DecisionChange) -> set[UUID]:
     return result
 
 
-def _needs_admission(
-    database: Session, change: DecisionChange, inherited: list[DecisionChange],
-) -> bool:
-    admitted = _admitted_ancestors(database, change)
-    return any(item.id not in admitted and (
-        closed(database, item) or item.project_id != change.project_id
-    ) for item in inherited)
-
-
-def _require_inherited_boundary(
-    database: Session, change: DecisionChange, inherited: list[DecisionChange],
-) -> None:
-    if _needs_admission(database, change, inherited):
-        raise conflict("decision_change_closed",
-                       "An inherited review cycle is closed; explicit human admission is required.")
-
-
 def _leaf_changes(database: Session, inherited: list[DecisionChange]) -> list[DecisionChange]:
     parents = {item.parent_change_id for item in inherited}
     for item in inherited:
-        parents.update(_admitted_ancestors(database, item) - {item.id})
+        parents.update(_lineage_ancestors(database, item) - {item.id})
     for item in inherited:
         if item.id not in parents and item.review_work_item_id is not None:
             parents.update(database.scalars(select(DecisionChangeWork.change_id).where(
@@ -95,28 +78,26 @@ def _lineage(database: Session, source: WorkItem | None) -> list[DecisionChange]
 
 def _select_change(
     database: Session, revision: DecisionRevision, declaration: DecisionChangeDeclaration,
-    source: WorkItem | None, *, hold_closed: bool,
+    source: WorkItem | None,
 ) -> DecisionChange | None:
     inherited = _lineage(database, source)
     if declaration.change_id is not None:
         change = require_change(database, revision.project_id, declaration.change_id)
         allowed = {item.id for item in inherited}
-        if inherited and change.id not in allowed and change.parent_change_id not in allowed:
+        if inherited and change.id not in allowed and not (
+            _lineage_ancestors(database, change) & allowed
+        ):
             raise conflict("decision_change_lineage_conflict",
-                           "Review-derived work must retain its change or an admitted successor.")
-        if declaration.kind != "maintenance" and not hold_closed:
-            _require_inherited_boundary(database, change, inherited)
+                           "Review-derived work must retain its change or a successor.")
         return lock_change(database, change)
     if declaration.kind == "maintenance":
         return None
     local = [item for item in inherited if item.project_id == revision.project_id]
     leaves = _leaf_changes(database, local)
-    if (local and not leaves) or len(leaves) > 1 or (inherited and not local and not hold_closed):
+    if (local and not leaves) or len(leaves) > 1:
         raise conflict("decision_change_lineage_conflict",
                        "Select the governing change explicitly; inherited scope is ambiguous.")
     if leaves:
-        if not hold_closed:
-            _require_inherited_boundary(database, leaves[0], inherited)
         return lock_change(database, leaves[0])
     change = DecisionChange(project_id=revision.project_id, origin_revision_id=revision.id,
                             scope_version=0, acknowledged_scope_version=0)
@@ -152,14 +133,17 @@ def _governing(
 
 def classify_revision(
     database: Session, revision: DecisionRevision, payload: DecisionPutRequest,
-    *, hold_closed: bool = False,
 ) -> tuple[DecisionChange | None, DecisionRevision | None]:
     from mnemonic_api.services.decision_supersession_declarations import record_declarations
 
     declaration = payload.change or DecisionChangeDeclaration()
     source = _source(database, payload)
-    change = _select_change(database, revision, declaration, source, hold_closed=hold_closed)
+    change = _select_change(database, revision, declaration, source)
     governing = _governing(database, revision, declaration, change)
+    if change is not None and declaration.kind == "substantive":
+        from mnemonic_api.services.decision_change_cycles import open_cycle
+
+        change = open_cycle(database, change)
     if change is not None and change.origin_revision_id is None:
         change.origin_revision_id = revision.id
     database.add(DecisionRevisionChange(
@@ -167,9 +151,7 @@ def classify_revision(
         kind=declaration.kind, reason=declaration.reason,
         governing_revision_id=governing.id if governing else None,
         source_work_item_id=source.id if source else None,
-        requires_admission=bool(hold_closed and change is not None
-                                and _needs_admission(database, change, _lineage(database, source))
-                                and declaration.kind == "substantive"),
+        requires_admission=False,
     ))
     record_declarations(database, revision, payload)
     if source is not None and change is not None:

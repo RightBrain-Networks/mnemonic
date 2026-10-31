@@ -1,4 +1,4 @@
-"""Explicit, audited decision change grouping and review scope admission."""
+"""Explicit, audited decision change grouping and review scope acknowledgement."""
 
 from datetime import datetime
 from typing import Annotated, Literal, Self
@@ -111,6 +111,7 @@ class DecisionChangeRead(APIModel):
 
 
 class DecisionChangeUpdateRequest(APIModel):
+    # "admit" is retained solely to parse permanent historical receipt replays.
     action: Literal["adopt", "acknowledge", "admit"]
     change_id: UUID | None = None
     work_item_id: UUID | None = None
@@ -137,7 +138,9 @@ class DecisionChangeUpdateRequest(APIModel):
         elif (self.change_id is None or self.expected_scope_version is None
               or self.work_item_id is not None or self.expected_work_version is not None
               or self.assessment_ids):
-            raise ValueError("Acknowledgement/admission requires change and current scope version")
+            raise ValueError(
+                "Acknowledgement or historical admission requires change and current scope version"
+            )
         return self
 
 

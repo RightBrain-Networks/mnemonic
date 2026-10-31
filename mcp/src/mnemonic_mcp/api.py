@@ -200,7 +200,7 @@ _APPLICATION_ERRORS = {
         "reopened. Its history is retained; save any continuation as new work."
     ),
     "work_blocked": "This work item has an unresolved blocker.",
-    "decision_change_closed": "This change is closed. Ask the owner to admit a successor through the dashboard before adding obligations.",
+    "decision_change_closed": "This review cycle is closed. Read its successor and current scope; completed reviews remain closed.",
     "decision_change_scope_conflict": "Read the current change scope and inspect added assessments before a new intent.",
     "decision_change_scope_unacknowledged": "Inspect every current assessment, then acknowledge the current scope version before Done.",
     "decision_change_lineage_conflict": "Preserve the session-origin work and inherited change identity. Do not create an unrelated root to bypass a review.",
@@ -208,7 +208,8 @@ _APPLICATION_ERRORS = {
     "decision_change_source_required": "Fresh agent decision writes require source_work_item_id: exact session-origin work, or explicit null for an external trigger.",
     "decision_change_governance_invalid": "Use an exact governing reference and its existing change for record-existing; uncertainty remains substantive.",
     "decision_supersession_reuse_invalid": "Inspect the latest prior supersession capture for this same replacement document. Declare its exact target and governing replacement reference only when the ruling, target revision, extent and reason remained unchanged; otherwise omit reuse and review a fresh episode.",
-    "decision_change_human_admission_required": "Only the human dashboard can admit a successor review cycle.",
+    "decision_change_human_admission_required": "Dashboard operations must use the browser session.",
+    "decision_change_admission_retired": "Review cycles are created automatically; admission is no longer supported.",
     "decision_change_not_found": "The decision change was not found in this project.",
     "decision_impact_review_incomplete": (
         "Append an evidenced disposition for every required candidate in the attached impact assessments. "

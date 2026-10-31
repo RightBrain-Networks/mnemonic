@@ -259,7 +259,7 @@ test("changed decisions create ordinary investigation tasks with editable instru
   } finally { await api.dispose(); }
 });
 
-test("ordinary work adopts assessments and closed reviews require explicit owner admission", async ({ page }, testInfo) => {
+test("ordinary work adopts assessments and later changes queue reviews without owner admission", async ({ page }, testInfo) => {
   const api = await apiClient();
   try {
     const project = await createProject(api);
@@ -324,34 +324,53 @@ test("ordinary work adopts assessments and closed reviews require explicit owner
       reviewed_context_revision: gate.current_context_revision, client_operation_id: crypto.randomUUID()
     } }));
     const answer = await json(await api.get(`/api/v1/projects/${destination.id}/knowledge/decisions/${answered.decision.reference}`));
-    expect(answer.change.requires_admission).toBe(true);
+    expect(answer.change.requires_admission ?? false).toBe(false);
     await page.goto(`/work-items?project=${destination.id}&work=${child.id}`);
     const movedPane = page.locator(".work-detail-pane");
     await movedPane.getByText(/Inherited change lineage \(/).click();
     const sourceScope = movedPane.getByRole("region", { name: `Decision change ${context.work_item.decision_review_change_id}`, exact: true });
     await expect(sourceScope.getByRole("link", { name: "Open the review work item" })).toHaveAttribute("href", `/work-items?project=${project.id}&work=${work.id}`);
-    const heldScope = movedPane.getByRole("region", { name: `Decision change ${answer.change.change_id}`, exact: true });
-    await expect(heldScope.getByText("These retained decision revisions have no review driver.", { exact: false })).toBeVisible();
-    await heldScope.getByRole("checkbox", { name: "Authorize a new review cycle for this change." }).check();
-    await heldScope.getByRole("button", { name: "Admit a new review cycle", exact: true }).click();
-    await expect(heldScope.getByText(/New cycle admitted:/)).toBeVisible();
+    const localScope = movedPane.getByRole("region", { name: `Decision change ${answer.change.change_id}`, exact: true });
+    await expect(localScope.getByRole("link", { name: "Open the review work item" })).toBeVisible();
+    await expect(movedPane.getByRole("button", { name: "Admit a new review cycle", exact: true })).toHaveCount(0);
     const destinationTasks = await json(await api.get(`/api/v1/projects/${destination.id}/tasks?status=pending&kind=work_item&limit=20`));
     expect(destinationTasks.items.filter((item: WorkItem) => item.decision_review_change_id)).toHaveLength(1);
-    await heldScope.screenshot({ path: testInfo.outputPath("decision-impact-review-moved-lineage.png"), animations: "disabled" });
+    await localScope.screenshot({ path: testInfo.outputPath("decision-impact-review-moved-lineage.png"), animations: "disabled" });
+
+    await configureDomain(api, project.id, "ADR", true);
+    const firstSuccessorDecision = (await json(await api.put(`${path}/decisions`, { data: {
+      ...fields, content: "A later substantive rule.", decision_id: original.decision_id,
+      expected_revision: 1, source_work_item_id: work.id, client_operation_id: crypto.randomUUID()
+    } }))).decision;
+    const firstSuccessor = await json(await api.get(`${path}/changes/${firstSuccessorDecision.change.change_id}`));
+    const firstReview = await json(await api.get(`/api/v1/projects/${project.id}/work-items/${firstSuccessor.review_work_item_id}`));
+    await json(await api.patch(`/api/v1/projects/${project.id}/work-items/${firstSuccessor.review_work_item_id}`, { data: {
+      expected_version: firstReview.work_item.version, status: "wont-do", subagent_transcripts: null,
+      actor: { actor_client: "playwright-api", actor_session_id: "automatic-cycle-browser-test" },
+      job_completion_report: await reportForFixture(api, project.id), client_operation_id: crypto.randomUUID()
+    } }));
+    const secondSuccessorDecision = (await json(await api.put(`${path}/decisions`, { data: {
+      ...fields, content: "A genuinely new rule after the next review closed.", decision_id: original.decision_id,
+      expected_revision: firstSuccessorDecision.revision, source_work_item_id: work.id,
+      client_operation_id: crypto.randomUUID()
+    } }))).decision;
+    const secondSuccessor = await json(await api.get(`${path}/changes/${secondSuccessorDecision.change.change_id}`));
+    expect(secondSuccessor.parent_change_id).toBe(firstSuccessor.id);
     await page.reload();
     await movedPane.getByText(/Inherited change lineage \(/).click();
-    await expect(heldScope.getByText(/New cycle admitted:/)).toBeVisible();
-    await expect(heldScope.getByRole("button", { name: "Admit a new review cycle", exact: true })).toHaveCount(0);
-    await page.goto(`/work-items?project=${project.id}&work=${work.id}`);
-    const closedPane = page.locator(".work-detail-pane");
-    await expect(closedPane.getByRole("button", { name: "Admit a new review cycle", exact: true })).toBeDisabled();
-    await closedPane.getByRole("checkbox", { name: "Authorize a new review cycle for this change." }).check();
-    await closedPane.getByRole("button", { name: "Admit a new review cycle", exact: true }).click();
-    await expect(closedPane.getByText(/New cycle admitted:/)).toBeVisible();
-    await closedPane.locator(".decision-change-panel").screenshot({ path: testInfo.outputPath("decision-impact-review-owner-admission.png"), animations: "disabled" });
-    await page.reload();
-    await expect(closedPane.getByText(/New cycle admitted:/)).toBeVisible();
-    await expect(closedPane.getByRole("button", { name: "Admit a new review cycle", exact: true })).toHaveCount(0);
+    await expect(sourceScope.getByRole("link", { name: "Open completed successor review" })).toHaveAttribute("href", `/work-items?project=${project.id}&work=${firstSuccessor.review_work_item_id}`);
+    await sourceScope.getByText("Later review cycles", { exact: true }).click();
+    await expect(sourceScope.getByRole("link", { name: "Open current successor review" })).toHaveAttribute("href", `/work-items?project=${project.id}&work=${secondSuccessor.review_work_item_id}`);
+    await expect(sourceScope.getByRole("button", { name: "Admit a new review cycle", exact: true })).toHaveCount(0);
+    const captureWidth = testInfo.project.name === "chromium-narrow" ? 390 : 1440;
+    await page.setViewportSize({ width: captureWidth, height: 1600 });
+    const scopeHeight = await sourceScope.evaluate(element => element.getBoundingClientRect().height);
+    await page.setViewportSize({ width: captureWidth, height: Math.ceil(scopeHeight) + 500 });
+    await sourceScope.evaluate(element => element.scrollIntoView({ block: "start" }));
+    await expect(sourceScope).toBeInViewport({ ratio: 0.999 });
+    await sourceScope.screenshot({ path: testInfo.outputPath("decision-impact-review-automatic-successors.png"), animations: "disabled" });
+    await sourceScope.getByRole("link", { name: "Open current successor review" }).click();
+    await expect(page).toHaveURL(new RegExp(`work=${secondSuccessor.review_work_item_id}`));
     const retained = await json(await api.get(`/api/v1/projects/${project.id}/work-items/${work.id}`));
     expect(retained.work_item.status).toBe("done");
   } finally { await api.dispose(); }

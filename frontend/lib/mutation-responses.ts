@@ -209,6 +209,7 @@ const DEFINITIVE_APPLICATION_ERRORS = new Map<number, ReadonlySet<string>>([
     "duplicate_relationship_frozen"
   ])],
   [422, new Set([
+    "decision_change_admission_retired",
     "decision_change_governance_invalid", "decision_change_source_required",
     "decision_supersession_reuse_invalid",
     "decision_provenance_duplicate_commits",

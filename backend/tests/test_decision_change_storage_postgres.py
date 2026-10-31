@@ -88,14 +88,17 @@ def test_scope_and_acknowledgment_are_monotone_and_episode_counted(api, project,
     assert _findings(postgres_engine) == {}
 
 
-def test_successor_requires_explicit_dashboard_admission(api, project, postgres_engine):
+def test_successor_requires_system_or_historical_dashboard_provenance(
+    api, project, postgres_engine,
+):
     parent = _change(postgres_engine, project)
     for identity in ({}, {"admission_actor_client": "codex",
                           "admission_actor_session_id": "native-agent-session"}):
         with pytest.raises(DBAPIError):
             _change(postgres_engine, project, parent_change_id=parent, **identity)
     child = _change(postgres_engine, project, parent_change_id=parent,
-                    admission_actor_client="dashboard", admission_actor_session_id="owner-session")
+                    admission_actor_client="mnemonic",
+                    admission_actor_session_id=f"decision-change:{parent}")
     with pytest.raises(DBAPIError), postgres_engine.begin() as connection:
         connection.execute(text("UPDATE decision_changes SET parent_change_id=NULL WHERE id=:id"),
                            {"id": child})

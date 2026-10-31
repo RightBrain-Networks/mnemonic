@@ -6,7 +6,9 @@ from sqlalchemy.dialects.postgresql import UUID
 from mnemonic_api.knowledge_db import _identity, _timestamp
 
 
-def change_elements() -> list:
+def change_elements(*, automatic_successors: bool = False) -> list:
+    # Migration 0058 imports the historical default; only current metadata opts in.
+    actors = "IN ('dashboard', 'mnemonic')" if automatic_successors else "= 'dashboard'"
     return [
         *_identity(),
         sa.Column("origin_revision_id", UUID,
@@ -30,14 +32,14 @@ def change_elements() -> list:
         sa.CheckConstraint(
             "(parent_change_id IS NULL AND admission_actor_client IS NULL "
             "AND admission_actor_session_id IS NULL AND admission_actor_model IS NULL) OR "
-            "(parent_change_id IS NOT NULL AND admission_actor_client = 'dashboard' "
+            f"(parent_change_id IS NOT NULL AND admission_actor_client {actors} "
             "AND admission_actor_session_id IS NOT NULL "
             "AND length(btrim(admission_actor_session_id)) > 0 "
             "AND (admission_actor_model IS NULL OR length(btrim(admission_actor_model)) > 0))",
             name="human_admission",
         ),
         sa.Index("ix_decision_changes_project", "project_id", "created_at", "id"),
-        sa.Index("ix_decision_changes_parent", "parent_change_id"),
+        sa.Index("ix_decision_changes_parent", "parent_change_id", unique=automatic_successors),
     ]
 
 

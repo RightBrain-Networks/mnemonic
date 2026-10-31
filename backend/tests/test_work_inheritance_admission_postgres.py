@@ -1,4 +1,4 @@
-"""Cross-project origin opt-outs leave closed-review admission boundaries intact."""
+"""Cross-project grouping and explicit opt-outs preserve closed review history."""
 
 from uuid import uuid4
 
@@ -52,22 +52,21 @@ def test_cross_project_opt_out_authors_independently_without_admitting_closed_or
     amendment = put_body(target, "A new local tooling rule", decision_id=earlier["decision_id"],
                          expected_revision=0, source_work_item_id=default_id,
                          change={"kind": "substantive"})
-    rejected = api.put(path(project) + "/decisions", json=amendment)
-    assert rejected.status_code == 409, rejected.text
-    assert rejected.json()["detail"]["code"] == "decision_change_lineage_conflict"
-    assert api.get(path(project) + f"/decisions/{earlier['decision_id']}").json()["revision"] == 0
-    assert reviews(api, project) == []
+    saved = put(api, project, amendment)
+    assert saved["decision"]["revision"] == 1
+    assert len(reviews(api, project)) == 1
 
-    # Managed owner answers remain durable but cannot admit the inherited closed cycle.
+    # An owner answer joins the existing local cycle while retaining foreign lineage.
     answer = answer_question(api, project, default)
     held = api.get(path(project) + f"/decisions/{answer['decision']['reference']}").json()
-    assert held["change"]["requires_admission"] is True
+    assert not held["change"].get("requires_admission", False)
     held_change = group(api, project, held["change"]["change_id"])
-    assert held_change["pending_revision_count"] == 1
-    assert held_change["review_work_item_id"] is None
-    assert reviews(api, project) == []
+    assert held_change["pending_revision_count"] == 0
+    assert held_change["review_work_item_id"] is not None
+    assert len(reviews(api, project)) == 1
 
     independent_intent = {**amendment, "source_work_item_id": independent_id,
+                          "expected_revision": 1, "content": "Another independent tooling rule",
                           "client_operation_id": str(uuid4())}
     written = put(api, project, independent_intent)
     authored = written["decision"]["change"]
@@ -80,8 +79,10 @@ def test_cross_project_opt_out_authors_independently_without_admitting_closed_or
     assert own_change["pending_revision_count"] == 0
     assert own_change["assessment_count"] == 1
     assert own_change["review_closed"] is False
-    review, = reviews(api, project)
-    assert review["work_item_id"] == own_change["review_work_item_id"]
+    assert len(reviews(api, project)) == 2
+    assert own_change["review_work_item_id"] in {
+        row["work_item_id"] for row in reviews(api, project)
+    }
     assert put(api, project, independent_intent) == written
     assert context(api, project, independent_id)["work_item"]["decision_change_ids"] == [
         own_change["id"],

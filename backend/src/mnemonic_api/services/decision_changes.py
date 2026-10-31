@@ -1,4 +1,4 @@
-"""One explicit change owns a bounded review; lineage cannot mint recursive roots."""
+"""One change owns each review cycle; successor cycles preserve completed scope."""
 
 from datetime import UTC, datetime
 from typing import Literal, cast
@@ -58,8 +58,7 @@ def require_open(database: Session, change: DecisionChange) -> None:
     if closed(database, change):
         raise conflict(
             "decision_change_closed",
-            "This review cycle is closed. Ask the owner to admit a successor change before "
-            "adding new review obligations; completed work is never reopened automatically.",
+            "This review cycle is closed; its retained scope cannot be modified.",
             context={"change_id": str(change.id)},
         )
 
@@ -123,16 +122,19 @@ def revision_change_read(database: Session, revision_id: UUID) -> DecisionRevisi
     )
 
 
-def pending_revisions(database: Session, change_id: UUID | None) -> list[DecisionRevisionChange]:
+def pending_revisions(
+    database: Session, change_id: UUID | None, *, limit: int | None = None,
+) -> list[DecisionRevisionChange]:
     materialized = select(DecisionImpactAssessment.id).join(
         DecisionChangeAssessment,
         DecisionChangeAssessment.assessment_id == DecisionImpactAssessment.id,
     ).where(DecisionImpactAssessment.replacement_revision_id == DecisionRevisionChange.revision_id)
-    return list(database.scalars(select(DecisionRevisionChange).where(
+    statement = select(DecisionRevisionChange).where(
         DecisionRevisionChange.change_id == change_id,
         DecisionRevisionChange.requires_admission.is_(True),
         ~materialized.exists(),
-    ).order_by(DecisionRevisionChange.created_at, DecisionRevisionChange.revision_id)))
+    ).order_by(DecisionRevisionChange.created_at, DecisionRevisionChange.revision_id)
+    return list(database.scalars(statement.limit(limit) if limit is not None else statement))
 
 
 def inherit_changes(database: Session, work_id: UUID, source_id: UUID | None) -> None:

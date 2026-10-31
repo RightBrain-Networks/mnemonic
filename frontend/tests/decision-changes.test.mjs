@@ -44,7 +44,7 @@ test("change summaries distinguish named findings from unknown unlabelled rows",
   }
 });
 
-test("adoption, acknowledgement and human admission bind distinct result identities", () => {
+test("adoption, acknowledgement and historical admission receipts bind distinct result identities", () => {
   assert.equal(matchDecisionChangeMutation(change, project, { action: "adopt", work_item_id: work,
     expected_work_version: 1, assessment_ids: [assessment] }).id, changeId);
   assert.throws(() => matchDecisionChangeMutation(change, project, { action: "adopt", work_item_id: project,
@@ -77,7 +77,7 @@ test("decision reads retain explicit supersession reuse evidence and reject malf
   }
 });
 
-test("moved drivers, driverless held answers and admitted successors retain their source identity", () => {
+test("moved drivers, historical held answers and automatic successors retain their source identity", () => {
   const moved = { ...change, review_work_project_id: work, review_closed: true, successor_change_id: assessment };
   assert.deepEqual(decodeDecisionChange(moved, project), moved);
   const held = { ...change, review_work_item_id: null, review_work_project_id: null,
@@ -100,7 +100,15 @@ test("wrong scope success stays unresolved and retry uses identical frozen bytes
   assert.equal(registry.blocks(intent.conflictKeys), false);
 });
 
-test("scope conflicts and closed review stops are definitive without admitting new work", async () => {
+test("retired admission is a definitive rejection without clearing historical receipt support", async () => {
+  const outcome = await classifyMutationResponse(request, Response.json({ detail: {
+    code: "decision_change_admission_retired",
+    message: "Review cycles are created automatically; admission is no longer supported.", context: {}
+  } }, { status: 422 }));
+  assert.equal(outcome.type, "rejected");
+});
+
+test("scope conflicts and closed review guards are definitive", async () => {
   for (const code of ["decision_change_closed", "decision_change_scope_conflict",
     "decision_change_scope_unacknowledged", "decision_change_lineage_conflict", "decision_change_adoption_conflict"]) {
     const outcome = await classifyMutationResponse(request, Response.json({ detail: { code,

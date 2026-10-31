@@ -70,6 +70,16 @@ def discover_scope(
         return None
     work_ids = _sources(kind, target, payload)
     change_ids, witnesses = _memberships(database, work_ids, payload, target)
+    # Stale ancestors can resolve through successors whose drivers moved projects.
+    pending = set(change_ids)
+    while pending:
+        descendants = list(database.execute(select(
+            DecisionChange.id, DecisionChange.parent_change_id,
+        ).where(DecisionChange.parent_change_id.in_(pending))))
+        pending = {identity for identity, _ in descendants} - change_ids
+        change_ids.update(pending)
+        witnesses.extend(("successor", str(parent), str(identity))
+                         for identity, parent in descendants)
     held_sources = database.scalars(select(DecisionRevisionChange.source_work_item_id).where(
         DecisionRevisionChange.change_id.in_(change_ids),
         DecisionRevisionChange.requires_admission.is_(True),

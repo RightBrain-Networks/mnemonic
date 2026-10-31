@@ -45,8 +45,8 @@ KNOWLEDGE_GUIDES: dict[str, tuple[str, str, str]] = {
         "Membership is a lead, not proof of relevance. Check relevant open work before "
         "conclusions and again before completion; source status does not change readiness. "
         "Page decision_assessments with "
-        "change_id to read all obligations. A closed driver requires explicit human admission "
-        "before a new review obligation; the agent tools cannot admit it."),
+        "change_id to read all obligations. Closed reviews remain closed; later obligations follow "
+        "automatic successor cycles and queue reviews when the decision domain enables them."),
     ),
     "decision_change_update": (
         "Knowledge", "Adopt assessments or acknowledge inspected review scope.",
@@ -74,9 +74,9 @@ KNOWLEDGE_GUIDES: dict[str, tuple[str, str, str]] = {
         "source_work_item_id (session origin or external null). Revise with decision_id and "
         "expected_revision and all desired links. change defaults substantive; record-existing "
         "needs change_id, exact governing_reference and reason; maintenance needs reason. "
-        "Closed lineage needs dashboard admission. "
-        "Explicit change.unchanged_supersessions can reuse conclusions only for unchanged "
-        "rulings and complete unchanged candidate evidence. "
+        "Closed cycles advance automatically under domain policy. "
+        "change.unchanged_supersessions requires unchanged rulings and complete unchanged "
+        "candidate evidence. "
         "Managed PDRs use request_human_input. extended_review identifies expanded scope/holder."),
     ),
     "decision_scope_append": (

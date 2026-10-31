@@ -1,5 +1,12 @@
 # Knowledge graph
 
+Release 0.121.0, plugin 0.72.0 and migration `0071_automatic_review_cycles`
+remove review-cycle admission. New obligations follow existing successors or
+create an open successor automatically; completed reviews retain their scope.
+Domain settings still govern new review creation. The worker processes historical
+held owner answers automatically while preserving their immutable revisions.
+Ordinary Needs Attention questions continue to require a human answer.
+
 Release 0.101.0 and plugin 0.64.0 canonicalize explicit GitHub repository identities
 on fresh scope appends and completion reports. Supported aliases match during
 commit lookup; historical evidence and attribution remain unchanged. See
@@ -572,7 +579,7 @@ reads them. Policy changes do not backfill earlier changes or cancel existing wo
 Substantive assessment episodes are captured even when review creation is disabled;
 an existing grouped review still accumulates its obligations. Unanswered PDR
 questions remain maintenance; accepted answers can open reviews according to the
-PDR domain policy and existing admission rules.
+PDR domain policy and automatic successor selection.
 
 When enabled, a substantive decision change has one native change identity and
 at most one ordinary Pending review driver. Related revisions recording that
@@ -641,16 +648,14 @@ text receives a fresh supersession episode. An unpinned target advancing to anot
 revision also creates a new obligation.
 Review work and discovered-from
 follow-ups retain change lineage, including later descendants. An open driver
-accumulates obligations. Closed changes stop for explicit owner admission before
-new obligations; a dashboard `admit` action creates a successor change without
-reopening or rewriting completed work. An accepted PDR alone does not perform
-admission. Managed answers remain durable with `change.requires_admission` when
-new obligations await admission; the change exposes `pending_revision_count`.
-The separate admit action materializes those retained transitions in the successor.
-When follow-up work moves to another project, its answers use a local held change
-while retaining the original project's lineage. That driverless held change also
-requires explicit admission. Agents cannot admit a successor or evade lineage
-through an unrelated root or false external origin.
+accumulates obligations. New obligations after a closed change automatically
+follow an existing successor chain or create an open successor. Completed work
+and its assessment scope remain closed. New review creation follows the changed
+domain policy; assessment capture remains independent of that setting.
+Managed owner answers use this same path. Historical held answers are recovered
+automatically while retaining their original immutable classifications.
+Cross-project work retains its original lineage while saving decisions and
+creating reviews in the decision’s project. Keep the true source work identity.
 
 Fresh creation can set `inherit_decision_change=false` with a nonblank
 `decision_change_inheritance_reason` (at most 4,000 Unicode characters) for an
@@ -713,7 +718,7 @@ for native drivers and `decision_change_ids` for lineage. Historical
 `decision_review_revision_id` markers remain readable and still display the chip.
 Work detail includes `decision_change_projects` to resolve inherited changes in
 their source projects. Change reads identify the driver's current project,
-whether its review is closed, and any already admitted successor.
+whether its review is closed, and any existing successor.
 
 `decision_change_get(project_id, change_id)` returns the driver, parent change,
 current `scope_version`, `acknowledged_scope_version`, and revision/assessment
@@ -757,10 +762,9 @@ still appears. There is no guessed ordering or historical backfill. Backup audit
 check uniqueness and the known suffix after any historical unknown bindings.
 
 The Work details scope panel shows current episodes, allows acknowledgement and
-explicit adoption, and offers the human-only successor admission action for closed
-drivers and driverless held changes, including inherited changes from another
-project. Admission remains visible after refresh. The two agent tools never
-expose `admit`. REST uses one receipt-protected
+explicit adoption, and links to existing successors, including inherited changes
+from another project. Successor links remain available after refresh. The admission
+control is removed; successor creation is automatic when new obligations arise. REST uses one receipt-protected
 `POST /projects/{project_id}/knowledge/changes` action surface, with
 `GET /projects/{project_id}/knowledge/changes/{change_id}` for reads.
 

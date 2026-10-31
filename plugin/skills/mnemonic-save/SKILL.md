@@ -14,7 +14,8 @@ decision, dependency, or assessment never grants implementation authority.
 Fresh `decision_put` calls declare the session-origin `source_work_item_id` (or
 explicit null for an external trigger) and classify substantive, record-existing,
 or maintenance changes as described in that reference. Preserve inherited review
-lineage; closed reviews need explicit human admission before new obligations.
+lineage; new obligations after closed reviews automatically use an open successor,
+with review creation governed by the changed domain policy.
 Register actual decision scope as pull requests merge; Done still declares complete citations
 and reuses exact decision/revision/repository/commit registrations.
 

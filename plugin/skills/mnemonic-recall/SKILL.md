@@ -9,9 +9,9 @@ For a work item with `decision_review_change_id`, read `decision_change_get` and
 page `decision_assessments(change_id=...)` for the current scope. Investigate only;
 reuse dispositions on unchanged episodes, preserve incoming-related requirements,
 and acknowledge the current scope with `decision_change_update` before Done.
-Follow-up work inherits change lineage. Closed reviews require explicit human
-dashboard admission before new obligations; never reopen or create a new root
-to bypass that stop. Read the shared knowledge reference for the full workflow.
+Follow-up work inherits change lineage. New obligations after a closed review
+automatically use an open successor, with review creation governed by the changed
+domain policy. Keep completed reviews closed and preserve the true work origin. Read the shared knowledge reference for the full workflow.
 
 When authorized work uses knowledge decisions or resumes an impact assessment,
 read [knowledge-graph.md](${CLAUDE_PLUGIN_ROOT}/reference/knowledge-graph.md).

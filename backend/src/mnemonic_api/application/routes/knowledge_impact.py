@@ -66,11 +66,11 @@ def update_decision_change(
     from mnemonic_api.application.browser_routes import require_browser_admission
     from mnemonic_api.services.decision_change_actions import update_change
 
-    # Admission is a human dashboard operation; an agent cannot spoof it through REST.
+    # Dashboard attribution remains protected, including historical admission receipts.
     if payload.action == "admit" or payload.actor_client == "dashboard":
         if not request.url.path.startswith("/api/mnemonic/"):
             raise ApplicationError(403, "decision_change_human_admission_required",
-                                   "Human admission is available only in the dashboard.")
+                                   "Dashboard operations must use the browser session.")
         require_browser_admission(request)
     return run_registered_mutation(
         "update_decision_change", request=request, database=database, project_id=project_id,

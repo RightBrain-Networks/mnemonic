@@ -1,4 +1,4 @@
-"""Version-checked explicit adoption, acknowledgement and human admission."""
+"""Version-checked explicit adoption and acknowledgement of review scope."""
 
 from datetime import UTC, datetime
 from uuid import UUID
@@ -11,15 +11,11 @@ from mnemonic_api.errors import ApplicationError, conflict
 from mnemonic_api.models import (
     DecisionChange,
     DecisionChangeAssessment,
-    DecisionDocument,
-    DecisionRevision,
 )
 from mnemonic_api.services.decision_changes import (
     attach_assessments,
     bind_work,
-    closed,
     lock_change,
-    pending_revisions,
     read_change,
     require_change,
     require_open,
@@ -87,66 +83,13 @@ def _adopt(
     return change
 
 
-def _admit(
-    database: Session, change: DecisionChange, payload: DecisionChangeUpdateRequest,
-) -> DecisionChange:
-    if not closed(database, change) and not (
-        change.review_work_item_id is None and pending_revisions(database, change.id)
-    ):
-        raise conflict("decision_change_adoption_conflict", "The existing review is still open.")
-    existing = database.scalar(select(DecisionChange.id).where(
-        DecisionChange.parent_change_id == change.id,
-    ))
-    if existing is not None:
-        raise conflict("decision_change_adoption_conflict",
-                       "This change already has an admitted successor.",
-                       context={"change_id": str(existing)})
-    successor = DecisionChange(
-        project_id=change.project_id, parent_change_id=change.id,
-        scope_version=0, acknowledged_scope_version=0,
-        admission_actor_client=payload.actor_client,
-        admission_actor_session_id=payload.actor_session_id,
-        admission_actor_model=payload.actor_model,
-    )
-    database.add(successor)
-    database.flush()
-    if change.review_work_item_id is not None:
-        bind_work(database, change.review_work_item_id, successor.id)
-    _materialize_held(database, change, successor)
-    return successor
-
-
-def _materialize_held(
-    database: Session, parent: DecisionChange, successor: DecisionChange,
-) -> None:
-    from mnemonic_api.knowledge_schemas import DecisionPutRequest
-    from mnemonic_api.services import knowledge
-    from mnemonic_api.services.decision_impact import create_assessments
-
-    for held in pending_revisions(database, parent.id):
-        revision = database.get(DecisionRevision, held.revision_id)
-        assert revision is not None
-        document = database.get(DecisionDocument, revision.document_id)
-        assert document is not None
-        current = knowledge.decision_read(database, document, revision)
-        values = {key: getattr(current, key) for key in (
-            "domain_id", "title", "media_type", "state", "related_decision_ids",
-            "related_work_item_ids", "related_artifact_ids", "supersedes", "depends_on",
-            "supersession_details", "author_kind", "agent_session_id", "model_id",
-        )}
-        payload = DecisionPutRequest(
-            **values, content=revision.content, source_work_item_id=held.source_work_item_id,
-        )
-        if successor.origin_revision_id is None:
-            successor.origin_revision_id = revision.id
-        if held.source_work_item_id is not None:
-            bind_work(database, held.source_work_item_id, successor.id)
-        create_assessments(database, document, revision, payload, admitted_change=successor)
-
-
 def update_change(
     database: Session, project_id: UUID, payload: DecisionChangeUpdateRequest,
 ) -> DecisionChangeRead:
+    if payload.action == "admit":
+        raise ApplicationError(422, "decision_change_admission_retired",
+                               "Review cycles are created automatically; admission is no longer "
+                               "supported.")
     if payload.action == "adopt":
         change = _adopt(database, project_id, payload)
     else:
@@ -155,17 +98,14 @@ def update_change(
         if payload.expected_scope_version != change.scope_version:
             raise conflict("decision_change_scope_conflict",
                            "Read the current scope before acting.")
-        if payload.action == "admit":
-            change = _admit(database, change, payload)
-        else:
-            require_open(database, change)
-            if change.review_work_item_id is None:
-                raise conflict("decision_change_adoption_conflict", "This change has no review.")
-            _authorize_driver(database, change.review_work_item_id, payload)
-            change.acknowledged_scope_version = change.scope_version
-            change.updated_at = datetime.now(UTC)
-            scope_checkpoint(database, change,
-                             f"Review scope {change.scope_version} acknowledged by "
-                             f"{payload.actor_client} session {payload.actor_session_id}.")
+        require_open(database, change)
+        if change.review_work_item_id is None:
+            raise conflict("decision_change_adoption_conflict", "This change has no review.")
+        _authorize_driver(database, change.review_work_item_id, payload)
+        change.acknowledged_scope_version = change.scope_version
+        change.updated_at = datetime.now(UTC)
+        scope_checkpoint(database, change,
+                         f"Review scope {change.scope_version} acknowledged by "
+                         f"{payload.actor_client} session {payload.actor_session_id}.")
     database.flush()
     return read_change(database, change)

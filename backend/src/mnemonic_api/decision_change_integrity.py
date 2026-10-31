@@ -18,14 +18,22 @@ DECISION_CHANGE_FINDINGS = {
           OR (known > 0 AND (first_known <> unknown + 1 OR last_known <> total))
     """,
     "unadmitted_held_decision_assessments": """
+        WITH RECURSIVE successors(revision_id, change_id) AS (
+            SELECT classification.revision_id, successor.id
+            FROM decision_revision_changes classification
+            JOIN decision_changes successor ON successor.parent_change_id=classification.change_id
+            WHERE classification.requires_admission
+            UNION
+            SELECT successors.revision_id, successor.id FROM successors
+            JOIN decision_changes successor ON successor.parent_change_id=successors.change_id
+        )
         SELECT count(*) FROM decision_impact_assessments assessment
         JOIN decision_revision_changes classification
             ON classification.revision_id=assessment.replacement_revision_id
         WHERE classification.requires_admission AND NOT EXISTS (
-            SELECT 1 FROM decision_changes successor
-            JOIN decision_change_assessments membership ON membership.change_id=successor.id
-            WHERE successor.parent_change_id=classification.change_id
-              AND successor.admission_actor_client='dashboard'
+            SELECT 1 FROM successors
+            JOIN decision_change_assessments membership ON membership.change_id=successors.change_id
+            WHERE successors.revision_id=classification.revision_id
               AND membership.assessment_id=assessment.id
         )
     """,

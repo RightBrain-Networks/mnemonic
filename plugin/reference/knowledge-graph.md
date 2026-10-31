@@ -117,9 +117,9 @@ recording the same ruling uses `kind="record-existing"` with its existing
 formatting/provenance maintenance uses `kind="maintenance"` with a reason.
 Never infer classification from headings, elapsed time, authorship or accepted
 state. Related revisions join one native change and review. Review-derived work
-and its discovered-from descendants retain that change identity. A closed change
-requires explicit human dashboard admission before new review obligations; do
-not evade this with null source, a different root, or reopened historical work.
+and its discovered-from descendants retain that change identity. New obligations
+after a closed change automatically use an open successor. Review creation follows
+the changed domain policy. Keep the true source and completed reviews intact.
 
 Use each relationship for its explicit meaning:
 
@@ -457,15 +457,12 @@ inferred history. Status notices contain no decision prose or author context, an
 code-review leases never receive them. An exact receipt replay retains its original
 notice; use a fresh status read for current state. A fresh decision write can return
 `extended_review` identifying the affected review and observed implementation holder.
-Closed changes need a human-admitted successor before new obligations. Agents
-cannot admit successors, and an accepted PDR alone is not that dashboard action.
-Managed answers remain durable: `change.requires_admission` identifies a retained
-substantive revision awaiting explicit admission; `pending_revision_count` on the
-change shows held obligations. Admission materializes their assessments in the
-successor, without relabeling answers as maintenance or parsing approval prose.
-If follow-up work moves projects, managed answers may use a local held change
-with no driver while preserving the original lineage. That held change still
-requires explicit owner admission. Work detail's `decision_change_projects` map
+New obligations after closed changes automatically follow existing successors
+or create an open successor, without reopening completed reviews. Managed answers
+use the same policy; historical held answers are recovered automatically without
+relabeling their immutable classifications. Assessment capture remains independent
+of the changed domain’s automatic review setting. Cross-project work retains its
+original lineage while recording decisions and reviews in the decision’s project. Work detail's `decision_change_projects` map
 locates inherited changes; use each change's own project for reads and actions.
 
 `decision_change_get` also returns `lineage_work`, a page of other work carrying
