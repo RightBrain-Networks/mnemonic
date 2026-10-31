@@ -582,7 +582,7 @@ on upload, replacement, or metadata update. Null clears artifact assignments;
 omitted update/replacement tags preserve them. Tag edits advance the artifact
 revision and retain history. New projects receive six editable starter tags.
 
-Application/API/MCP/dashboard 0.119.0, plugin 0.71.0 and Alembic
+Application/API/MCP/dashboard 0.120.0, plugin 0.71.0 and Alembic
 `0070_backup_settings` ship together: 79 MCP tools, 25
 receipt-protected MCP writes,
 38 REST receipt kinds, 32 protected browser mutations, 24 event types and three

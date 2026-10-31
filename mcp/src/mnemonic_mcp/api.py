@@ -38,6 +38,18 @@ class TransportEffect(StrEnum):
 
 
 _APPLICATION_ERRORS = {
+    "tags_required": (
+        "Call list_tags(project_id) and read its descriptions, then supply top-level tags "
+        "using existing catalog names, or explicit null when no tags apply."
+    ),
+    "checkpoint_tags_retired": (
+        "Leave checkpoint tags empty. Assign current work tags with create_work top-level tags "
+        "or update_work.changes.tags for existing work."
+    ),
+    "unknown_tags": (
+        "Unknown tags. Call list_tags(project_id), read its descriptions, and choose existing "
+        "catalog names, or explicit null when no tags apply."
+    ),
     "knowledge_domain_deleted": "knowledge_domain_deleted: This knowledge domain was deleted by a human. Its identity cannot be reused.",
     "decision_deleted": "decision_deleted: This decision document was deleted by a human. Its identity cannot be reused.",
     "knowledge_domain_not_found": "Decision domain not found in this project; list_knowledge_domains.",
