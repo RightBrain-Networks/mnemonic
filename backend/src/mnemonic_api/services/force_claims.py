@@ -33,11 +33,13 @@ def check_force_claim_retry(
 
 
 def retain_force_claim(database: Session, lease: WorkLease, payload: WorkClaimCreate) -> None:
+    """Flush explicit force intent before the lease's gate guard; both commit together."""
     if payload.force:
-        database.add(WorkForceClaim(
+        claim = WorkForceClaim(
             work_item_id=lease.work_item_id,
             claim_request_id=payload.claim_request_id,
             payload_sha256=_fingerprint(payload),
             lease_generation_id=lease.lease_generation_id,
-        ))
-        database.flush()
+        )
+        database.add(claim)
+        database.flush([claim])

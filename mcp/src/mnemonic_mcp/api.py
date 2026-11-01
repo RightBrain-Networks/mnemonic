@@ -218,7 +218,8 @@ _APPLICATION_ERRORS = {
     ),
     "work_gated": (
         "This work item has unresolved human input. Inspect its current context or the human "
-        "attention queue; do not bypass the gate with another claim or terminal mutation."
+        "attention queue. Force can recover a lease after checking other active sessions, "
+        "but cannot resolve the gate or permit gated completion."
     ),
     "invalid_cursor": "That page cursor is invalid for this project, work item, or filter.",
     "gate_secret_echo": (

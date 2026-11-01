@@ -294,13 +294,16 @@ class EligibilityClauses:
     def has_unresolved_gate(self) -> ColumnElement[bool]:
         return ~self.gate_eligible
 
-    def eligible(self, *, include_active_lease: bool = True) -> ColumnElement[bool]:
+    def eligible(
+        self, *, include_active_lease: bool = True, include_human_gates: bool = True,
+    ) -> ColumnElement[bool]:
         clauses = [
             self.is_pending,
             ~self.has_unresolved_blocker,
-            self.gate_eligible,
             self.is_canonical,
         ]
+        if include_human_gates:
+            clauses.append(self.gate_eligible)
         if include_active_lease:
             clauses.append(~self.has_active_lease)
         return and_(*clauses)
@@ -346,8 +349,10 @@ def eligibility_clauses(
     )
 
 
-def require_fresh_claim_eligible(database: Session, work_item: WorkItem) -> None:
-    """Re-evaluate canonical non-lease eligibility after replay decisions."""
+def require_fresh_claim_eligible(
+    database: Session, work_item: WorkItem, *, allow_gated: bool = False,
+) -> None:
+    """Recheck eligibility; forced claims may acquire without resolving human gates."""
     require_no_deadlock(database, work_item.id)
     work_table = WorkItem.__table__
     clauses = eligibility_clauses(
@@ -360,7 +365,9 @@ def require_fresh_claim_eligible(database: Session, work_item: WorkItem) -> None
     row = (
         database.execute(
             select(
-                clauses.eligible(include_active_lease=False).label("eligible"),
+                clauses.eligible(
+                    include_active_lease=False, include_human_gates=not allow_gated,
+                ).label("eligible"),
                 clauses.has_unresolved_blocker.label("has_unresolved_blocker"),
                 clauses.has_unresolved_gate.label("has_unresolved_gate"),
             ).where(work_table.c.id == work_item.id)
@@ -372,7 +379,7 @@ def require_fresh_claim_eligible(database: Session, work_item: WorkItem) -> None
         return
     if row["has_unresolved_blocker"]:
         raise conflict("work_blocked", "This work item has an unresolved blocker.")
-    if row["has_unresolved_gate"]:
+    if row["has_unresolved_gate"] and not allow_gated:
         raise work_gated()
     raise conflict("work_not_eligible", "This work item is not eligible for a fresh claim.")
 

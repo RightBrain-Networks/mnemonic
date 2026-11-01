@@ -218,7 +218,10 @@ share an atomic snapshot. Warm reviews may use `claim_and_recall`.
   and the canonical continuation is an explicit, separate projection.
 - Unresolved incoming `blocks` edges, including blockers in another project,
   enforced dependency deadlocks, unresolved human gates, and an authoritative
-  outgoing merge affect readiness and fresh/replacement claimability. Existing leases survive a later
+  outgoing merge affect readiness and ordinary fresh/replacement claimability.
+  Explicit force claims may acquire gated work using a matching request and lease
+  generation in the force-claim journal; the questions remain unresolved.
+  Existing leases survive a later
   blocker or gate; a merge consumes the source lease before making that source
   an alias.
 - A gate request freezes the work version, newest context-checkpoint ID, and

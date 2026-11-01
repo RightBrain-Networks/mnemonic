@@ -233,8 +233,9 @@ FIELD_NOTES: dict[str, str] = {
              "when available. Otherwise read get_work(status_only=true), check holder/expiry, and "
              "confirm no other active session is working on this item. Then use force=true with a "
              "new claim_request_id and verified session_transcript (or null if unavailable). "
-             "It invalidates the previous token, even another session's. It does not bypass "
-             "blockers, human gates, lifecycle or review rules. Retain force and all arguments "
+             "It invalidates the previous token, even another session's. It allows claiming work "
+             "with unresolved human gates, but does not resolve them or permit gated completion. "
+             "Blockers, lifecycle and review rules still apply. Retain force and all arguments "
              "on retries. Released/replaced force requests cannot take the lease back.",
     "client_operation_id": AUTOMATIC_ID_GUIDANCE,
     "lease_token": "Use the matching active lease's private capability; never put it in authored content.",

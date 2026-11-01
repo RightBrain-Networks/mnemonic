@@ -6,6 +6,23 @@ the current startup procedure. Begin with [Upgrade from any release](operations.
 then apply the prerequisites for each boundary your database crosses. No command here
 authorizes a production interruption or a downgrade.
 
+## Force claims with unresolved human gates (0.123.0)
+
+Upgrade API, worker, MCP and dashboard together with plugin 0.73.0 and migration
+`0072_force_claim_gates`. The migration updates the database acquisition guard to
+accept an explicit force-claim journal entry matching the request and new lease
+generation. It adds no tables or columns and rewrites no existing questions,
+leases, or receipts. No configuration change is required.
+
+`force=true` on either claim route can recover a lease while human questions
+remain unresolved. Ordinary claims still reject gated work. Force preserves
+Waiting and Needs Attention, and does not permit gated completion or other
+terminal actions. All other eligibility and exact-retry rules still apply.
+
+Downgrade restores the previous guard without deleting retained history or
+invalidating existing leases. Further gated force acquisitions then require an
+upgrade; existing leases can still be renewed or released.
+
 ## Automatic review cycles (0.121.0)
 
 Upgrade API, worker, MCP and dashboard together with migration

@@ -54,4 +54,6 @@ async def test_force_help_is_discoverable_and_preserves_compact_schema(settings)
         assert "force=true" in usage
         page = render_help(name + " force", catalog)
         assert "invalidates the previous token" in page
+        assert "allows claiming work with unresolved human gates" in page
+        assert "does not resolve them or permit gated completion" in page
         assert "Released/replaced force requests cannot take the lease back" in page
