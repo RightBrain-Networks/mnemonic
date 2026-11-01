@@ -9,7 +9,7 @@ import {
   type TestInfo
 } from "@playwright/test";
 import { statePath, type E2EState } from "./global.setup";
-import { closeDetail, openTab, selectWork, workCard, workPane } from "./surface";
+import { openWorkActions, closeDetail, openTab, selectWork, workCard, workPane } from "./surface";
 
 let state: E2EState;
 
@@ -572,7 +572,8 @@ test("merge as duplicate runs inside the Graph tab and lands on the source audit
     await openDashboard(page);
     await searchFor(page, token, 2);
     const pane = await selectWork(page, sourceTitle);
-    const mergeButton = pane.getByRole("button", { name: /Merge as duplicate/ });
+    await openWorkActions(pane);
+    const mergeButton = pane.getByRole("menuitem", { name: /Merge as duplicate/ });
     await expect(mergeButton).toBeEnabled();
     await mergeButton.click();
 
@@ -627,9 +628,9 @@ test("merge as duplicate runs inside the Graph tab and lands on the source audit
     await expect(pane.locator(".duplicate-direction-grid > div").nth(0)).toContainText(destination.id);
     await expect(pane.locator(".duplicate-direction-grid > div").nth(1)).toContainText(destination.id);
     await expect(pane.locator(".duplicate-merge-fact")).toContainText(rationale);
-    await expect(pane.getByRole("button", { name: /Merge as duplicate/ })).toHaveCount(0);
+    await expect(pane.getByRole("menuitem", { name: /Merge as duplicate/ })).toHaveCount(0);
     await expect(pane.getByRole("button", { name: "Edit work item" })).toHaveCount(0);
-    await expect(pane.getByRole("button", { name: "Delete work item" })).toHaveCount(0);
+    await expect(pane.getByRole("menuitem", { name: "Delete work item" })).toHaveCount(0);
     await expect(pane.getByRole("button", { name: "Open canonical work" })).toBeVisible();
     await expect(pane.getByRole("tab", { name: "Graph" })).toHaveAttribute("aria-selected", "true");
     await expect(pane.locator("#detail-panel-graph").getByRole("heading", { name: "Relationships" })).toBeVisible();
@@ -654,7 +655,8 @@ test("merge as duplicate runs inside the Graph tab and lands on the source audit
     await pane.getByRole("button", { name: "Open canonical work" }).click();
     await expect(pane.locator(".detail-title")).toHaveText(destinationTitle);
     await expect(pane.locator(".duplicate-audit-panel")).toHaveCount(0);
-    await expect(pane.getByRole("button", { name: /Merge as duplicate/ })).toBeVisible();
+    await openWorkActions(pane);
+    await expect(pane.getByRole("menuitem", { name: /Merge as duplicate/ })).toBeVisible();
   } finally {
     await client.dispose();
   }
@@ -867,10 +869,12 @@ test("the Defer menu moves linked deferred work without severing its relationshi
     await expect(page.locator(".toast")).toContainText("Deferred and held out of the work queue");
     await expect(pane.locator(".detail-identity > .status-badge")).toHaveText("Deferred");
 
-    const deleteAction = pane.getByRole("button", { name: "Delete work item", exact: true });
+    await openWorkActions(pane);
+    const deleteAction = pane.getByRole("menuitem", { name: "Delete work item", exact: true });
     await expect(pane.locator(".delete-move-split")).toHaveCount(0);
     await expect(deleteAction).not.toHaveClass(/status-split-primary/);
     await expect(deleteAction).toBeEnabled();
+    await page.keyboard.press("Escape");
 
     const statusChooser = pane.getByRole("button", { name: `Choose an action for ${title}` });
     const statusMenu = pane.getByRole("menu", { name: `Actions for ${title}` });
@@ -882,7 +886,9 @@ test("the Defer menu moves linked deferred work without severing its relationshi
       "Done",
       "Won’t Do",
       "Promote",
-      /^Move›$/
+      /^Move›$/,
+      "Merge as duplicate…",
+      "Delete"
     ]);
     const moveAction = statusMenu.getByRole("menuitem", {
       name: `Move ${title} to another project`,
@@ -890,7 +896,7 @@ test("the Defer menu moves linked deferred work without severing its relationshi
     });
     await expect(moveAction).toBeEnabled();
     await expect(moveAction).toHaveAttribute("aria-haspopup", "menu");
-    await expect(parentItems.last()).toHaveAttribute(
+    await expect(moveAction).toHaveAttribute(
       "aria-label",
       `Move ${title} to another project`
     );
@@ -933,6 +939,10 @@ test("the Defer menu moves linked deferred work without severing its relationshi
     await page.keyboard.press("ArrowDown");
     await expect(parentItems.first()).toBeFocused();
     await page.keyboard.press("End");
+    await expect(deleteAction).toBeFocused();
+    await page.keyboard.press("ArrowUp");
+    await expect(statusMenu.getByRole("menuitem", { name: /Merge as duplicate/ })).toBeFocused();
+    await page.keyboard.press("ArrowUp");
     await expect(moveAction).toBeFocused();
     await expect(menu).toBeVisible();
     await page.keyboard.press("ArrowRight");
@@ -967,9 +977,9 @@ test("the Defer menu moves linked deferred work without severing its relationshi
     await page.keyboard.press("Tab");
     await expect(statusMenu).toBeHidden();
     await expect(menu).toBeHidden();
-    await expect(deleteAction).toBeFocused();
+    await expect(pane.getByRole("tab", { name: /^Context/ })).toBeFocused();
 
-    const previousAction = pane.getByRole("button", { name: /Merge as duplicate/ });
+    const previousAction = pane.getByRole("button", { name: "Edit work item" });
     await statusChooser.click();
     await moveAction.focus();
     await expect(menu).toBeVisible();
@@ -986,7 +996,7 @@ test("the Defer menu moves linked deferred work without severing its relationshi
     await page.keyboard.press("Tab");
     await expect(statusMenu).toBeHidden();
     await expect(menu).toBeHidden();
-    await expect(deleteAction).toBeFocused();
+    await expect(pane.getByRole("tab", { name: /^Context/ })).toBeFocused();
 
     await statusChooser.click();
     await moveAction.focus();
@@ -1616,7 +1626,8 @@ test("the ?work= query restores the selection on reload and clears with it", asy
       await expect(pane).toBeHidden();
     } else {
       // Deleting the open item clears the selection and the address with it.
-      await pane.getByRole("button", { name: "Delete work item" }).click();
+      await openWorkActions(pane);
+      await pane.getByRole("menuitem", { name: "Delete work item" }).click();
       const dialog = page.getByRole("dialog", { name: "Delete this work item?" });
       await dialog.getByRole("button", { name: "Delete work item" }).click();
       await expect(page.locator(".toast")).toContainText("Work item removed from ordinary project views.");

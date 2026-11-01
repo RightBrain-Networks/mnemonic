@@ -18,6 +18,12 @@ export function workPane(page: Page): Locator {
   return page.getByRole("region", { name: "Work context" });
 }
 
+export async function openWorkActions(pane: Locator): Promise<Locator> {
+  const toggle = pane.getByRole("button", { name: /^Choose an action for / });
+  if (await toggle.getAttribute("aria-expanded") !== "true") await toggle.click();
+  return pane.getByRole("menu", { name: /^Actions for / });
+}
+
 export function workCard(page: Page, title: string): Locator {
   // The All queue can also contain a review child with its parent's title.
   return page.locator("article.work-item-card:not([data-review-id])").filter({ hasText: title });

@@ -137,9 +137,12 @@ test("humans upload, filter, edit with revision conflicts, replace and download 
     await page.goto(`/knowledge/decisions?project=${project.id}`);
     await page.getByRole("button", { name: "Upload", exact: true }).click();
     let dialog = page.getByRole("dialog", { name: "Upload decision document", exact: true });
+    await expect(dialog.getByRole("textbox", { name: "Document contents", exact: true })).toHaveCount(0);
+    await expect(dialog.getByRole("combobox", { name: "Format", exact: true })).toHaveCount(0);
     await dialog.getByRole("combobox", { name: "Knowledge domain" }).selectOption(architecture.id);
     await dialog.getByLabel("Document file").setInputFiles({ name: "Human policy.md", mimeType: "text/markdown", buffer: Buffer.from("# Human policy\n\nInitial ruling.\n") });
     await expect(dialog.getByRole("textbox", { name: "Document title", exact: true })).toHaveValue("Human policy");
+    await dialog.screenshot({ path: testInfo.outputPath("decision-upload.png") });
     await dialog.getByRole("button", { name: "Upload document", exact: true }).click();
     await expect(dialog).toBeHidden();
     const row = page.getByRole("row").filter({ has: page.getByRole("button", { name: "Human policy", exact: true }) });
@@ -148,6 +151,7 @@ test("humans upload, filter, edit with revision conflicts, replace and download 
     const list = await api.get(`${path}/decisions?q=Human%20policy`);
     expect(list.ok()).toBe(true);
     const created = (await list.json()).items[0] as Decision;
+    expect(created.media_type).toBe("text/markdown");
     await page.getByRole("group", { name: "Filter decisions by state" }).getByRole("button", { name: "Accepted", exact: true }).click();
     await expect(row).toHaveCount(0);
     await page.getByRole("group", { name: "Filter decisions by state" }).getByRole("button", { name: "Proposed", exact: true }).click();
@@ -176,7 +180,8 @@ test("humans upload, filter, edit with revision conflicts, replace and download 
     dialog = page.getByRole("dialog", { name: "Replace decision document", exact: true });
     await expect(dialog.getByLabel("Replacement file")).toBeEnabled();
     await dialog.getByLabel("Replacement file").setInputFiles({ name: "replacement.txt", mimeType: "text/plain", buffer: Buffer.from("Atomic replacement.\n") });
-    await expect(dialog.getByRole("textbox", { name: "Document contents", exact: true })).toHaveValue("Atomic replacement.\n");
+    await expect(dialog.getByRole("textbox", { name: "Document contents", exact: true })).toHaveCount(0);
+    await expect(dialog.getByRole("combobox", { name: "Format", exact: true })).toHaveCount(0);
     await dialog.getByRole("button", { name: "Replace document", exact: true }).click();
     await expect(dialog).toBeHidden();
     await expect(row).toContainText(`${created.decision_id}-3`);

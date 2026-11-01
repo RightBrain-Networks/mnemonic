@@ -12,7 +12,7 @@ import WorkReportProvenance from "@/components/work-report-provenance";
 import JobReportEditor from "@/components/job-report-editor";
 import type { JobReportDraft } from "@/lib/job-completion-reports";
 
-import TaskStatusActionButton from "@/components/task-status-action-button";
+import TaskStatusActionButton, { type TaskMenuAction } from "@/components/task-status-action-button";
 import {
   useEffect,
   useLayoutEffect,
@@ -342,6 +342,7 @@ export function StatusActionButton({
   moveExplanationId,
   onAction,
   onMove,
+  extraActions,
   compact = false
 }: {
   summary: WorkSummary;
@@ -355,6 +356,7 @@ export function StatusActionButton({
   moveExplanationId?: string;
   onAction: (action: ManualStatusAction, summary: WorkSummary) => void;
   onMove: (targetProjectId: string) => void;
+  extraActions?: readonly TaskMenuAction[];
   compact?: boolean;
 }) {
   const { work_item: work, readiness } = summary;
@@ -366,7 +368,7 @@ export function StatusActionButton({
     deferred={(readiness.review_status ?? work.status) === "deferred"}
     projects={projects} disabled={disabled} busy={busy} moveDisabled={moveDisabled}
     moving={moving} moveTitle={moveTitle} moveExplanationId={moveExplanationId}
-    onAction={(action) => onAction(action, summary)} onMove={onMove} compact={compact}
+    onAction={(action) => onAction(action, summary)} onMove={onMove} extraActions={extraActions} compact={compact}
   />;
 }
 
@@ -450,7 +452,6 @@ function OpenedPane({ opened, props }: { opened: WorkSummary; props: WorkDetailP
         {currentReview?.scope_sha256 && currentReview.manual_request?.mode !== "warm" && readiness.display_state === "to-review" ? <button type="button" className={`button button-primary detail-cold-review ${props.copiedKey === reviewKey ? "is-copied" : ""}`} aria-label="Copy cold review prompt" disabled={!context || props.contextLoading} onClick={props.onCopyColdReview}><Icon name="copy" size={16} />{props.copiedKey === reviewKey ? "Copied" : "Cold review"}</button> : <button type="button" className={`button copy-button detail-copy-context ${props.copiedKey === contextKey ? "is-copied" : ""}`} aria-label="Copy current context" disabled={!context} onClick={() => { if (context) props.onCopy(currentContext(context).prompt, contextKey, "Current context copied exactly as stored."); }}><Icon name="copy" size={16} />{props.copiedKey === contextKey ? "Copied" : "Copy context"}</button>}
         {reviewObligation && <button type="button" className="button button-secondary" disabled={actionsLocked} onClick={props.onReopenReview}>Reopen work…</button>}
         {!isDuplicate && <button type="button" className="button button-secondary" aria-label="Edit work item" disabled={actionsLocked} onClick={props.onEdit}>Edit</button>}
-        {!isDuplicate && <button type="button" className="button button-secondary" title={mergeLeaseExplanation || undefined} aria-describedby={mergeLeaseExplanation ? mergeLeaseExplanationId : undefined} disabled={actionsLocked || Boolean(mergeLeaseExplanation)} onClick={props.onOpenMerge}>Merge as duplicate…</button>}
         {!isDuplicate && <StatusActionButton
           summary={pointerSummary}
           projects={props.projects}
@@ -463,17 +464,19 @@ function OpenedPane({ opened, props }: { opened: WorkSummary; props: WorkDetailP
           moveExplanationId={moveExplanation ? moveExplanationId : undefined}
           onAction={props.onStatusAction}
           onMove={props.onMove}
+          extraActions={[
+            { id: "merge", label: "Merge as duplicate…", disabled: Boolean(mergeLeaseExplanation),
+              disabledReason: mergeLeaseExplanation || undefined,
+              descriptionId: mergeLeaseExplanation ? mergeLeaseExplanationId : undefined,
+              onSelect: props.onOpenMerge },
+            { id: "delete", label: "Delete", ariaLabel: "Delete work item", destructive: true,
+              disabled: reviewObligation || terminalActionDisabled(readiness, props.mutationBlocked),
+              disabledReason: deleteExplanation,
+              descriptionId: deleteExplanation ? deleteExplanationId : undefined,
+              onSelect: props.onDelete }
+          ]}
         />}
         {!isDuplicate && context && context.duplicate_member_total > 0 && <button type="button" className={`button button-secondary ${props.copiedKey === canonicalKey ? "is-copied" : ""}`} onClick={() => props.onCopy(work.id, canonicalKey, "Canonical work ID copied.")}><Icon name="copy" size={16} />Copy canonical ID</button>}
-        {!isDuplicate && <button
-          type="button"
-          className="button detail-delete"
-          aria-label="Delete work item"
-          title={deleteExplanation || "Delete work item"}
-          aria-describedby={deleteExplanation ? deleteExplanationId : undefined}
-          disabled={!context || reviewObligation || props.moving || terminalActionDisabled(readiness, props.mutationBlocked)}
-          onClick={props.onDelete}
-        >Delete</button>}
         {!isDuplicate && deleteExplanation && <p className="terminal-action-note" id={deleteExplanationId}>
           {deleteExplanation}
         </p>}

@@ -87,9 +87,8 @@ export default function TagSettings({ projectId, onNotice, onPendingChange }: { 
   const feedback = (error || query.error) && <div className="error-notice" role="alert"><p>{error || errorMessage(query.error)}</p>{pending ? <button type="button" className="button button-secondary" disabled={busy} onClick={() => void dispatch(pending)}>{busy ? "Saving…" : "Retry same action"}</button> : <button type="button" className="text-link" onClick={() => void query.refetch()}>Reload tags</button>}</div>;
   const cancelEdit = () => { setDraft(null); setError(""); };
 
-  return <section className="settings-card tag-settings" aria-labelledby="tag-settings-title">
-    <div className="settings-card-heading"><div><span className="section-label">PROJECT ORGANIZATION</span><h2 id="tag-settings-title">Tags</h2></div><button type="button" className="button button-primary" disabled={blocked || draft !== null} onClick={() => setDraft(emptyDraft())}>New tag</button></div>
-    <p className="settings-intro">Describe when each tag should be used. Drag tags to change their order in the dashboard filter. System tags are managed by Mnemonic.</p>
+  return <section className="settings-card tag-settings" aria-label="Project tags">
+    <div className="settings-card-heading"><button type="button" className="button button-primary" disabled={blocked || draft !== null} onClick={() => setDraft(emptyDraft())}>New tag</button></div>
     {query.isPending && <p role="status">Loading tags…</p>}
     {!draft?.id && feedback}
     {draft && !draft.id && <TagEditForm draft={draft} onChange={setDraft} blocked={blocked} busy={busy} onSave={save} onCancel={cancelEdit} />}

@@ -8,7 +8,7 @@ import {
   type Page
 } from "@playwright/test";
 import { statePath, type E2EState } from "./global.setup";
-import { closeDetail, openTab, workPane } from "./surface";
+import { openWorkActions, closeDetail, openTab, workPane } from "./surface";
 
 let state: E2EState;
 
@@ -268,7 +268,8 @@ async function openMergeReview(
   sourceDetail: Locator,
   destinationId: string
 ): Promise<{ panel: Locator; destinationButton: Locator }> {
-  await sourceDetail.getByRole("button", { name: /Merge as duplicate/ }).click();
+  await openWorkActions(sourceDetail);
+  await sourceDetail.getByRole("menuitem", { name: /Merge as duplicate/ }).click();
   await expect(sourceDetail.getByRole("tab", { name: "Graph" })).toHaveAttribute(
     "aria-selected",
     "true"
@@ -413,7 +414,8 @@ for (const picker of ["merge", "relationship"] as const) {
       let panel: Locator;
       let search: Locator;
       if (picker === "merge") {
-        await detail.getByRole("button", { name: /Merge as duplicate/ }).click();
+        await openWorkActions(detail);
+        await detail.getByRole("menuitem", { name: /Merge as duplicate/ }).click();
         panel = detail.getByRole("region", { name: "Merge as duplicate" });
         search = panel.getByLabel("Find a canonical destination");
       } else {
@@ -585,7 +587,7 @@ test("a hostile-title merge preserves direction and recovers one exact durable e
       destination.id
     );
     await expect(audit.locator(".duplicate-merge-fact")).toContainText(rationale);
-    await expect(audit.getByRole("button", { name: /Merge as duplicate/ })).toHaveCount(0);
+    await expect(audit.getByRole("menuitem", { name: /Merge as duplicate/ })).toHaveCount(0);
     await expect(page.locator("body")).not.toContainText(retainedOperationId);
 
     await closeDetail(page);
@@ -754,7 +756,7 @@ test("a root with an incoming alias can merge again and regroup every audit unde
     await expect(audit.getByRole("button", { name: "Copy audit ID" })).toBeVisible();
     await expect(audit.getByRole("button", { name: "Copy canonical ID" })).toHaveCount(0);
     await expect(audit.getByRole("button", { name: "Edit work item" })).toHaveCount(0);
-    await expect(audit.getByRole("button", { name: "Delete work item" })).toHaveCount(0);
+    await expect(audit.getByRole("menuitem", { name: "Delete work item" })).toHaveCount(0);
     await expect(audit.getByLabel("Checkpoint text")).toHaveCount(0);
 
     await closeDetail(page);
@@ -837,7 +839,8 @@ test("an active source lease disables merge and its capability cannot cross the 
     await page.getByRole("button", { name: "Active", exact: true }).click();
     const detail = await openSearchResult(page, source);
     await expect(detail.getByLabel("Active work lease")).toContainText(holderSession);
-    const mergeButton = detail.getByRole("button", { name: /Merge as duplicate/ });
+    await openWorkActions(detail);
+    const mergeButton = detail.getByRole("menuitem", { name: /Merge as duplicate/ });
     await expect(mergeButton).toBeDisabled();
     await expect(mergeButton).toHaveAccessibleDescription(
       "Release the source’s active lease, or wait for it to expire, before merging in the browser."

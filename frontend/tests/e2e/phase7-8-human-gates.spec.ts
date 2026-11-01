@@ -8,7 +8,7 @@ import {
   type Page
 } from "@playwright/test";
 import { statePath, type E2EState } from "./global.setup";
-import { closeDetail, openTab, selectWork, workCard, workPane } from "./surface";
+import { openWorkActions, closeDetail, openTab, selectWork, workCard, workPane } from "./surface";
 
 let state: E2EState;
 
@@ -318,6 +318,11 @@ test("human questions stay visible and recover one exact durable resolution", as
       .locator(".attention-nav-count");
     await expect(attentionBadge).toHaveText("1");
     await expect(attentionCard.getByText(question, { exact: true })).toBeVisible();
+    await expect(attentionCard.locator("footer code")).toHaveText(gate.id);
+    const copyQuestion = attentionCard.getByRole("button", { name: "Copy question ID", exact: true });
+    await copyQuestion.click();
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(gate.id);
+    await expect(copyQuestion).toHaveAttribute("title", "Copied");
     expect(await page.evaluate(() => (globalThis as typeof globalThis & {
       phase78Pwned?: boolean;
     }).phase78Pwned)).not.toBe(true);
@@ -643,6 +648,7 @@ test("a deep attention cursor and sibling drafts survive refresh and resolution"
     });
     const firstAnswer = firstCard.getByLabel("Your answer");
     const siblingAnswer = siblingCard.getByLabel("Your answer");
+    await page.keyboard.press("Escape");
     await firstAnswer.fill(firstDraft);
     await siblingAnswer.fill(siblingDraft);
 
@@ -746,12 +752,14 @@ test("detail reconciliation preserves sibling gate drafts and restores focus", a
     const siblingGate = panel.locator(".gate-with-resolution").filter({ hasText: questions[1] });
     const firstAnswer = firstGate.getByLabel("Your answer");
     const siblingAnswer = siblingGate.getByLabel("Your answer");
-    const deleteButton = detail.getByRole("button", { name: "Delete work item" });
+    await openWorkActions(detail);
+    const deleteButton = detail.getByRole("menuitem", { name: "Delete work item" });
     await expect(deleteButton).toBeDisabled();
     await expect(detail.getByText(
       "2 unresolved human questions block deletion.",
       { exact: true }
     )).toBeVisible();
+    await page.keyboard.press("Escape");
     await firstAnswer.fill(firstDraft);
     await siblingAnswer.fill(siblingDraft);
 

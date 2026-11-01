@@ -520,6 +520,8 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
   const pins = usePinnedWork(activeId);
   const { page: sidebarTasks } = useTaskPage(activeId, "pending", undefined, 0, undefined,
     Boolean(activeId) && activityReadyProjectId === activeId);
+  const { page: droppedTasks } = useTaskPage(activeId, "dropped", undefined, 0, undefined,
+    coreReadsEnabled && view === "library");
   const queue = useWorkQueuePages({
     enabled: view === "library" && Boolean(activeId) && activityReadyProjectId === activeId && preferencesReady && pins.ready,
     pinnedWorkItemIds: pins.ids,
@@ -2865,7 +2867,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
           {projects.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
         </select><span className="select-chevron" aria-hidden="true">⌄</span></div>
         <button className="new-project-button" type="button" disabled={projectsLoading || activeProjectMutationBlocked} onClick={() => { setNewProjectError(""); setProjectDialog(true); }}><Icon name="plus" size={15} />New project</button>
-        {project && <button className="copy-project-button" type="button" title={`Project ID: ${project.id}`} onClick={() => void copyProjectId()}><Icon name="copy" size={13} />Copy project ID for your agent</button>}
+        {project && <button className="copy-project-button" type="button" title={`Project ID: ${project.id}`} onClick={() => void copyProjectId()}><Icon name="copy" size={13} />Copy project ID</button>}
       </div>
       <nav aria-label="Workspace navigation">
         <Link href="/work-items" aria-label="Work items" className={`nav-item ${view === "library" ? "active" : ""}`} aria-current={view === "library" ? "page" : undefined} onClick={blockNavigationWhilePending}><Icon name="library" /><span>Work items</span>{Boolean(sidebarTasks && sidebarTasks.work_items.pending + sidebarTasks.code_reviews.pending) && <span className="attention-nav-count">{(sidebarTasks?.work_items.pending ?? 0) + (sidebarTasks?.code_reviews.pending ?? 0)}</span>}</Link>
@@ -3002,6 +3004,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
                 semantic={semantic}
                 canonicalWorkItemId={canonicalWorkItemId}
                 status={status}
+                droppedCount={droppedTasks?.total ?? 0}
                 sort={sort}
                 items={queue.items}
                 flatSearch={queue.flatSearch}

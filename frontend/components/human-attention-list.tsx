@@ -120,7 +120,6 @@ function AttentionScope({ project, copiedKey, onCopy, onOpen, onResolved, workIt
       <span>Filtered to work item <span className="mono">{workItemId}</span></span>
       <Link href={`/attention?project=${project.id}`} className="text-link">Show every question</Link>
     </div>}
-    <p className="attention-authority-note">Each question is a Product Decision Record. Read the current question and record your answer; both remain in its immutable history. Open the PDR to view related decisions, work, and code references.</p>
     {loadError && <div className="error-notice" role="alert"><p>{loadError}</p><button type="button" className="button button-secondary" onClick={() => reload()}>Try again</button></div>}
     {loading && !page && <div className="loading-state" role="status"><span className="spinner" />Loading explicit questions…</div>}
     {page && !page.items.length && !loadError && <section className="empty-state attention-empty"><h2>No explicit human questions are waiting.</h2><p>This does not mean that every work item is ready; lifecycle holds, blockers, and active leases are separate facts.</p></section>}
