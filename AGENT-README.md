@@ -30,8 +30,8 @@ after writing configuration: start the stack and perform the validation in this 
   private named volumes; Docker initializes their roots without host sudo commands. Release
   bundles place the same helper at `setup.py`.
 - [`docs/operations.md`](docs/operations.md) is authoritative for configuration, backup, upgrade,
-  recovery, and security behavior. [`README.md`](README.md) is authoritative for supported client
-  registration. [`examples/`](examples/) contains client configuration examples.
+  recovery, and security behavior. [`docs/INSTALLATION.md`](docs/INSTALLATION.md) is authoritative
+  for supported client registration. [`examples/`](examples/) contains client configuration examples.
 - The default dashboard, REST API documentation, and MCP endpoint are respectively
   `http://127.0.0.1:3000`, `http://127.0.0.1:8000/docs`, and
   `http://127.0.0.1:8001/mcp`. `localhost` is also allowed where documented.
@@ -433,7 +433,8 @@ claude plugin install mnemonic@mnemonic
 
 If the marketplace or plugin already exists, inspect the installed entry before changing it. The
 plugin is copied into Claude's cache, so a repository update does not update an installed plugin;
-follow the update commands in [`README.md`](README.md) after a new Mnemonic release.
+follow the update commands in [`docs/INSTALLATION.md`](docs/INSTALLATION.md#connect-claude-code)
+after a new Mnemonic release.
 
 For Codex, merge [`examples/codex.config.toml`](examples/codex.config.toml) into the chosen
 Codex configuration; its `bearer_token_env_var` names the environment variable containing the key.
@@ -499,6 +500,84 @@ and rely on a redirect.
 | Transcript access fails | Run `scripts/check_transcript_access.py`; verify original absolute source mounts, approved roots, and both services' identities. |
 | `worker` is unhealthy or a backup job fails | Inspect `rabbitmq` and `worker` health/logs, job results, and backup-directory ownership. A same-disk archive is not disaster recovery; copy verified archives to protected storage. |
 
+## Report installation problems
+
+The installer MUST tell the user about problems or bugs encountered while installing or
+configuring Mnemonic, including those resolved by a workaround, and prepare a report for the
+[Mnemonic GitHub issue tracker](https://github.com/RightBrain-Networks/mnemonic/issues).
+Use this process before submitting a report:
+
+1. Search open and closed issues for the observed symptoms and affected version. If an existing
+   issue covers the problem, share its URL with the user instead of opening a duplicate.
+2. Draft a specific title and body using the template below. Record observed facts, commands,
+   and results; mark unknown details and unverified explanations explicitly. Describe any
+   workaround and whether installation or acceptance checks remain blocked.
+3. Remove secrets and private content from the draft and any attachments, including API keys,
+   passwords, tokens, private paths, transcripts, artifacts, and database contents. Include only
+   relevant sanitized log excerpts or configuration, never a complete `.env` or expanded Compose
+   configuration. For suspected vulnerabilities, follow [`SECURITY.md`](SECURITY.md) instead of
+   publishing vulnerability details in an issue.
+4. Show the human the destination repository, exact proposed title, body, and any attachments.
+   The installer MUST obtain explicit human approval before opening each issue. Authorization to
+   install, troubleshoot, or prepare a report is not approval to publish it. Posting a comment
+   on an existing issue also requires approval of that comment.
+5. Only after approval, submit the reviewed report to `RightBrain-Networks/mnemonic` and give the
+   user the resulting issue URL. If approval is declined or pending, or submission is unavailable,
+   include the unsent draft in the handoff and state that it has not been submitted. Continue any
+   installation work that can safely proceed within the user's existing authorization.
+
+### Installation bug report template
+
+Use this Markdown title and body for an approved issue. When using the repository's bug-report
+form, copy the corresponding sections into its fields.
+
+````markdown
+Title: [Installation] <failing step and observed symptom>
+
+## Summary
+<What went wrong and how it affects installation; distinguish facts from suspected causes.>
+
+## Application and plugin versions
+
+- Application release or source commit:
+- Plugin version, if installed:
+
+## Deployment method
+
+- Published release bundle, Compose source build, or other (describe):
+- New installation or upgrade (include previous version):
+- Installation guide followed and Compose overlays used:
+
+## Operating system and architecture
+
+- OS and version; CPU architecture:
+- Docker and Docker Compose versions; Docker Desktop or WSL version if applicable:
+- MCP client and version, if relevant:
+
+## Steps to reproduce
+
+1. <Relevant prerequisites or starting state, with private details removed.>
+2. <Exact sanitized command or action.>
+3. <Failing step and whether it reproduces consistently.>
+
+## Expected and actual behavior
+
+- Expected:
+- Actual (include the error message and exit status when available):
+
+## Sanitized logs and configuration
+
+```text
+<Minimal relevant excerpts, with secrets and private content removed.>
+```
+
+## Troubleshooting and current status
+<Checks attempted and their results; any workaround; remaining blocked acceptance checks.>
+
+## Related issues
+<Links to related reports, or state that none were found.>
+````
+
 ## Acceptance criteria
 
 The task is complete only when all applicable statements are true:
@@ -542,7 +621,9 @@ never prunes). Nightly scheduling is opt-in in **Backup & export**; restarting t
 not enqueue another backup for the same scheduled local date. Provide the
 configured dashboard and MCP URLs, the backup volume or absolute bind directory, and the separate
 filesystem backup volumes/paths for artifacts, prompts, and native transcripts. Do not include any secret, expanded
-Compose output, or backup contents.
+Compose output, or backup contents. Include any installation problems encountered, links to
+approved reports that were submitted or matching existing issues, and any unsent report drafts
+with their approval or submission status.
 
 ## Unresolved items
 
