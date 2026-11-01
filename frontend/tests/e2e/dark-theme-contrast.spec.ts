@@ -204,7 +204,6 @@ const contrastFixture = `
               <button id="detail-copy-context" class="button copy-button detail-copy-context">Copy context</button>
               <button class="button copy-button detail-copy-context is-copied">Copied</button>
               <button class="button button-secondary">Edit</button>
-              <button class="button button-secondary">Merge as duplicate…</button>
               <div class="status-split-button">
                 <button class="button defer-button status-split-primary">Defer</button>
                 <button class="button defer-button status-split-toggle" aria-expanded="true"><span>⌄</span></button>
@@ -221,10 +220,12 @@ const contrastFixture = `
                       <button id="move-project-item" role="menuitem"><span class="move-project-identity"><bdi>Target project</bdi><small>target-project</small></span></button>
                     </div>
                   </div>
+                  <div role="separator" class="status-action-separator"></div>
+                  <button role="menuitem">Merge as duplicate…</button>
+                  <button id="detail-delete" class="status-action-destructive" role="menuitem">Delete</button>
                 </div>
               </div>
               <button class="button button-secondary is-copied">Copy canonical ID</button>
-              <button id="detail-delete" class="button detail-delete">Delete</button>
               <p class="terminal-action-note">Resolve the gate before completing.</p>
             </div>
           </div>

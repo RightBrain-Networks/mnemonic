@@ -10,6 +10,7 @@ import DocumentPreviewDrawer, { DocumentPreviewText } from "@/components/documen
 import { DecisionStateBadge, KnowledgePagination, KnowledgeReadError as ReadError, stateLabel } from "@/components/knowledge-shared";
 import DecisionEditor from "@/components/knowledge-decision-editor";
 import KnowledgeDeleteDialog from "@/components/knowledge-delete-dialog";
+import { useSearchShortcut } from "@/components/use-search-shortcut";
 import { downloadKnowledgeFile } from "@/lib/knowledge-management";
 import { errorMessage } from "@/lib/api";
 import { formatArtifactSize, artifactLibraryPath } from "@/lib/artifacts";
@@ -23,6 +24,7 @@ export default function KnowledgeLibrary({ projectId, repositoryUrl, query = "",
   projectId: string; repositoryUrl: string | null; query?: string; onPendingChange: (pending: boolean) => void;
 }) {
   const client = useQueryClient();
+  const searchInput = useSearchShortcut();
   const [domainId, setDomainId] = useState("");
   const [state, setState] = useState<DecisionState | "">("");
   const [draft, setDraft] = useState("");
@@ -55,7 +57,8 @@ export default function KnowledgeLibrary({ projectId, repositoryUrl, query = "",
       <form className="artifact-search" onSubmit={submitSearch}>
         <div className="search-field artifact-search-field">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.65" aria-hidden="true"><circle cx="10.5" cy="10.5" r="8.5" /><path d="m17 17 4 4" /></svg>
-          <input id="decision-search" type="search" aria-label="Search decision titles and contents" placeholder="Search decisions…" value={draft} maxLength={1000} onChange={(event) => setDraft(event.target.value)} />
+          <input ref={searchInput} id="decision-search" type="search" aria-label="Search decision titles and contents" aria-keyshortcuts="/" placeholder="Search decisions…" value={draft} maxLength={1000} onChange={(event) => setDraft(event.target.value)} />
+          {!draft && <kbd aria-hidden="true">/</kbd>}
         </div>
         <div className="artifact-search-actions"><button className="button button-primary" type="submit">Search</button>
           {(draft || search) && <button className="button button-secondary" type="button" onClick={() => { setDraft(""); setSearch(""); setOffset(0); }}>Clear</button>}

@@ -13,6 +13,7 @@ import {
   type PromptDetail, type PromptMetadata
 } from "@/lib/prompts";
 import type { Project } from "@/lib/types";
+import { useSearchShortcut } from "@/components/use-search-shortcut";
 
 export default function PromptLibrary({ project, onNotice, onPendingChange }: {
   project: Project;
@@ -20,6 +21,7 @@ export default function PromptLibrary({ project, onNotice, onPendingChange }: {
   onPendingChange: (pending: boolean) => void;
 }) {
   const client = useQueryClient();
+  const searchInput = useSearchShortcut();
   const library = useQuery(promptLibraryOptions(project.id));
   const page = library.data;
   const loading = library.isFetching;
@@ -35,7 +37,8 @@ export default function PromptLibrary({ project, onNotice, onPendingChange }: {
       <div className="artifact-search">
         <div className="search-field artifact-search-field">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.65" aria-hidden="true"><circle cx="10.5" cy="10.5" r="8.5" /><path d="m17 17 4 4" /></svg>
-          <input id="prompt-search" type="search" placeholder="Search prompts by name or purpose…" value={query} onChange={(event) => setQuery(event.target.value)} />
+          <input ref={searchInput} id="prompt-search" type="search" aria-keyshortcuts="/" placeholder="Search prompts by name or purpose…" value={query} onChange={(event) => setQuery(event.target.value)} />
+          {!query && <kbd aria-hidden="true">/</kbd>}
         </div>
         {query && <button type="button" className="button button-secondary" onClick={() => setQuery("")}>Clear</button>}
       </div>

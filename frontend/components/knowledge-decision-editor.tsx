@@ -47,8 +47,10 @@ export default function DecisionEditor({ projectId, domains, initialDomainId, de
   }, [latest, basis, pending]);
 
   async function chooseFile(file: File | undefined) {
-    if (!file || decision && !basis) return;
+    if (decision && !basis) return;
     const generation = ++fileGeneration.current;
+    setFileName("");
+    if (!file) { setReadingFile(false); return; }
     setReadingFile(true); setError("");
     try {
       const read = await readDecisionFile(file);
@@ -95,12 +97,11 @@ export default function DecisionEditor({ projectId, domains, initialDomainId, de
         {(uploading || replace) && <label className="field">{replace ? "Replacement file" : "Document file"}<input type="file" accept=".md,.markdown,.txt,text/markdown,text/plain" disabled={disabled} onChange={(event) => void chooseFile(event.target.files?.[0])} /><span className="field-hint">Markdown or plain text, UTF-8, up to 1 MiB. {fileName && `Selected: ${fileName}.`}</span></label>}
         {readingFile && <p role="status">Reading document…</p>}
         <label className="field">Document title<input required maxLength={500} value={draft.title} disabled={disabled} onChange={(event) => setDraft({ ...draft, title: event.target.value })} /></label>
-        <div className="knowledge-editor-metadata"><label className="field">State<select value={draft.state} disabled={disabled} onChange={(event) => setDraft({ ...draft, state: event.target.value as DecisionState })}>{decisionStates.map((state) => <option key={state} value={state}>{stateLabel(state)}</option>)}</select></label>
-          <label className="field">Format<select value={draft.mediaType} disabled={disabled} onChange={(event) => setDraft({ ...draft, mediaType: event.target.value as Decision["media_type"] })}><option value="text/markdown">Markdown</option><option value="text/plain">Plain text</option></select></label></div>
-        <label className="field">Document contents<textarea className="mono knowledge-editor-content" rows={14} value={draft.content} disabled={disabled} onChange={(event) => setDraft({ ...draft, content: event.target.value })} /></label>
+        <label className="field">State<select value={draft.state} disabled={disabled} onChange={(event) => setDraft({ ...draft, state: event.target.value as DecisionState })}>{decisionStates.map((state) => <option key={state} value={state}>{stateLabel(state)}</option>)}</select></label>
+        {!uploading && !replace && <label className="field">Document contents<textarea className="mono knowledge-editor-content" rows={14} value={draft.content} disabled={disabled} onChange={(event) => setDraft({ ...draft, content: event.target.value })} /></label>}
         {conflict && <section className="error-notice knowledge-edit-conflict" role="alert">
           <h3>The saved document changed while you were editing.</h3>
-          <p>Your draft is kept above. The current revision takes precedence; review it and incorporate its changes before saving again.</p>
+          <p>{replace ? "Your replacement file is retained. Review the current revision and incorporate its changes into your file before replacing the document." : "Your draft is kept above. The current revision takes precedence; review it and incorporate its changes before saving again."}</p>
           {latest && basis && latest.revision > basis.revision ? <>
             <p><strong>Current revision: {latest.reference}</strong> · {latest.title} · {stateLabel(latest.state)} · {latest.author_kind === "agent" ? "Updated by an agent" : "Updated by a person"}</p>
             <label className="field">Current saved contents<textarea className="mono" readOnly rows={8} value={latest.content} /></label>

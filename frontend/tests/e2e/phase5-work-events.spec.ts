@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { expect, request, test, type APIRequestContext } from "@playwright/test";
 import { statePath, type E2EState } from "./global.setup";
-import { closeDetail, openTab, selectWork, workCard } from "./surface";
+import { openWorkActions, closeDetail, openTab, selectWork, workCard } from "./surface";
 
 let state: E2EState;
 
@@ -258,7 +258,8 @@ test("activity is live, safe text, actor-attributed, and usable at both viewport
     await expect(activity.getByLabel("Progress text")).toBeFocused();
 
     // Delete moved from the card to the pane; its confirmation stays a modal dialog.
-    await pane.getByRole("button", { name: "Delete work item" }).click();
+    await openWorkActions(pane);
+    await pane.getByRole("menuitem", { name: "Delete work item" }).click();
     const deleteDialog = page.getByRole("dialog", { name: "Delete this work item?" });
     await deleteDialog.getByRole("button", { name: "Delete work item" }).click();
     await expect(card).toHaveCount(0);

@@ -2,7 +2,7 @@ import { fillFixtureReport } from "./job-report-fixture";
 import { readFile } from "node:fs/promises";
 import { expect, request as playwrightRequest, test, type Locator, type Page } from "@playwright/test";
 import { statePath, type E2EState } from "./global.setup";
-import { closeDetail, openTab, selectWork, workCard, workPane } from "./surface";
+import { openWorkActions, closeDetail, openTab, selectWork, workCard, workPane } from "./surface";
 
 let state: E2EState;
 
@@ -689,7 +689,8 @@ test("one work item groups immutable checkpoints through its full dashboard life
   await page.getByRole("button", { name: "Done", exact: true }).click();
   await expect(card).toHaveCount(1);
   pane = await selectWork(page, title);
-  await pane.getByRole("button", { name: "Delete work item" }).click();
+  await openWorkActions(pane);
+  await pane.getByRole("menuitem", { name: "Delete work item" }).click();
   const deleteDialog = page.getByRole("dialog", { name: "Delete this work item?" });
   await deleteDialog.getByRole("button", { name: "Delete work item" }).click();
   await expect(card).toHaveCount(0);

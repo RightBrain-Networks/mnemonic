@@ -6,11 +6,21 @@ import type { Project } from "@/lib/types";
 import type { ManualStatusAction } from "@/lib/work-status-actions";
 
 export type TaskStatusAction = { value: ManualStatusAction; label: string; disabledReason?: string | null };
+export type TaskMenuAction = {
+  id: string;
+  label: string;
+  ariaLabel?: string;
+  disabled?: boolean;
+  disabledReason?: string | null;
+  descriptionId?: string;
+  destructive?: boolean;
+  onSelect: () => void;
+};
 
 export default function TaskStatusActionButton({
   subject: work, subjectLabel = "work item", actions, deferred, projects = [],
   disabled, busy, moveDisabled = true, moving = false, moveTitle = "",
-  moveExplanationId, onAction, onMove, compact = false
+  moveExplanationId, onAction, onMove, extraActions = [], compact = false
 }: {
   subject: { id: string; project_id: string; title: string };
   subjectLabel?: string;
@@ -25,6 +35,7 @@ export default function TaskStatusActionButton({
   moveExplanationId?: string;
   onAction: (action: ManualStatusAction) => void;
   onMove?: (targetProjectId: string) => void;
+  extraActions?: readonly TaskMenuAction[];
   compact?: boolean;
 }) {
   const [open, setOpen] = useState(false);
@@ -64,6 +75,7 @@ export default function TaskStatusActionButton({
   const targetProjectKey = targetProjects.map((project) => project.id).join(":");
   const moveLayoutKey = JSON.stringify({
     actions: actions.map((action) => action.value),
+    extraActions: extraActions.map((action) => action.id),
     projects: targetProjects.map((project) => [project.id, project.name, project.slug])
   });
   const moveUnavailable = moveDisabled || moving || targetProjects.length === 0;
@@ -604,6 +616,16 @@ export default function TaskStatusActionButton({
       ><span className="move-project-identity"><bdi dir="auto">{project.name}</bdi>
           <small>{project.slug}</small></span></button>)}</div>, document.body)}
     </div></>}
+    {extraActions.length > 0 && <><div role="separator" className="status-action-separator" />
+      {extraActions.map((action) => <button
+        key={action.id} type="button" role="menuitem" tabIndex={-1} data-status-menu-item="true"
+        className={action.destructive ? "status-action-destructive" : undefined}
+        aria-label={action.ariaLabel} aria-describedby={action.descriptionId}
+        disabled={action.disabled} title={action.disabledReason ?? action.ariaLabel ?? action.label}
+        onFocus={closeMoveMenu}
+        onClick={() => { closeAndFocus(); action.onSelect(); }}
+      >{action.label}</button>)}
+    </>}
     </div>}
   </div>;
 }

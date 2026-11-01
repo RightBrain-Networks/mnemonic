@@ -549,7 +549,7 @@ wheels = [
 
 [[package]]
 name = "mnemonic-api"
-version = "0.121.0"
+version = "0.122.0"
 source = { editable = "." }
 dependencies = [
     { name = "aio-pika" },

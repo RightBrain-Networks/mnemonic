@@ -53,6 +53,7 @@ export type WorkItemListProps = {
   semantic: boolean;
   canonicalWorkItemId: string;
   status: StatusFilter;
+  droppedCount: number;
   sort: WorkSort;
   group: boolean;
   onGroup: (group: boolean) => void;
@@ -112,6 +113,7 @@ export default function WorkItemList({
   semantic,
   canonicalWorkItemId,
   status,
+  droppedCount,
   sort,
   group,
   onGroup,
@@ -194,7 +196,7 @@ export default function WorkItemList({
         </div>
       </section>
       <div className="tag-filter-row" role="group" aria-label="Filter by tags">
-        <div className="sort-group"><span className="sort-label" aria-hidden="true">Filter:</span>
+        <div className="sort-group"><span className="sort-label" aria-hidden="true">Tag filter:</span>
           <fieldset className="sort-control"><legend className="sr-only">Tag matching</legend><div className="sort-options">
             {(["all", "or", "and"] as TagMode[]).map((mode) => <label className={`sort-option ${tagMode === mode ? "selected" : ""}`} key={mode}>
               <input type="radio" name="tag-mode" value={mode} checked={tagMode === mode} onChange={() => { onTagMode(mode); if (mode === "all") onTags([]); }} /><span>{mode === "all" ? "All" : mode.toUpperCase()}</span>
@@ -211,7 +213,7 @@ export default function WorkItemList({
       <hr className="work-filter-divider" />
       <div className="filter-row">
         <div className="status-filters" role="group" aria-label="Filter work items" aria-keyshortcuts="ArrowLeft ArrowRight">
-          {workItemStatusFilterOrder.map((filter) => <button type="button" key={filter} className={`filter-button ${status === filter ? "selected" : ""}`} aria-pressed={status === filter} onClick={() => onStatus(filter)}>{filter === "pending" && <span className="filter-dot" />}{statusFilterLabels[filter]}</button>)}
+          {workItemStatusFilterOrder.map((filter) => <button type="button" key={filter} className={`filter-button ${status === filter ? "selected" : ""}`} aria-pressed={status === filter} aria-label={statusFilterLabels[filter]} aria-description={filter === "dropped" && droppedCount > 0 ? `${droppedCount} dropped item${droppedCount === 1 ? "" : "s"}` : undefined} onClick={() => onStatus(filter)}>{filter === "pending" && <span className="filter-dot" />}{statusFilterLabels[filter]}{filter === "dropped" && droppedCount > 0 && <span className="attention-nav-count" aria-hidden="true">{droppedCount}</span>}</button>)}
         </div>
         <div className="filter-controls">
           <div className="sort-group">
