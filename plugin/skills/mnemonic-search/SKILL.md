@@ -267,7 +267,7 @@ of low impact. Keep discovery read-only.
 Pending is ordinary unfinished work. Active has a live lease. Dropped has an
 expired retained lease and signals unexpected session termination. Waiting is
 derived for Pending work with one or more unresolved human gates: it is absent
-from ready discovery, cannot be freshly claimed, and cannot be completed,
+from ready discovery, cannot be freshly claimed without `force=true`, and cannot be completed,
 retired, promoted, or deleted until every gate resolves. Blocked has an
 unresolved incoming `blocks` edge. Deferred is a persisted hold a person set in
 the dashboard. Active, blocked, and gated flags can all be true at once; the
@@ -341,8 +341,9 @@ available. Otherwise, confirm no other active session is working on the same
 item before using `force=true` with a new `claim_request_id` on `claim_work`
 for implementation (warm reviews may use `claim_and_recall`). This invalidates the old token, including another session's.
 Follow the shared [lost-token recovery procedure](${CLAUDE_PLUGIN_ROOT}/reference/work-graph.md#recover-a-lost-lease-token)
-for status checks, transcript verification, and exact retries. Recovery does not
-grant execution authority or bypass blockers, human gates, or review rules.
+for status checks, transcript verification, and exact retries. Force permits lease
+recovery with unresolved human gates but does not resolve them or permit gated
+completion. Other eligibility rules still apply, and recovery grants no new execution authority.
 
 ## Transcript discovery and indexing
 

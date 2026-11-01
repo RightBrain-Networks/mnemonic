@@ -110,8 +110,8 @@ one-off ID needed before dispatch. Explicit IDs and REST receipts retain their
 contracts; prepared upload intents keep their helper-generated IDs. See
 `docs/automatic-uuids.md`. The tool idempotence hint is false for these calls.
 
-The current application/API/MCP/dashboard release is `0.122.0`, Claude plugin
-`0.72.0`, and Alembic head `0071_automatic_review_cycles`. The catalog is exactly
+The current application/API/MCP/dashboard release is `0.123.0`, Claude plugin
+`0.73.0`, and Alembic head `0072_force_claim_gates`. The catalog is exactly
 79 MCP tools, 25 receipt-protected MCP writes, 38 REST receipt kinds, 32 protected
 browser mutations, 24 work-event types, and three plugin skills. Project priority
 guidance is editable in Settings > Workspace; agents explicitly call
@@ -156,8 +156,9 @@ do not alter active expiry. `MNEMONIC_LEASE_TTL_SECONDS` is retired.
 For a token lost to compaction, replay the exact original claim when available.
 Otherwise inspect `get_work(status_only=true)` and confirm no other active session
 is working on the item before `claim_work`/`claim_and_recall(force=true)` with a
-new request ID. Force invalidates the prior token without bypassing eligibility
-or human gates. Keep force and every argument unchanged on uncertain retries;
+new request ID. Force invalidates the prior token and allows claiming work with
+unresolved human gates; it does not resolve them or permit gated completion.
+Other eligibility rules still apply. Keep force and every argument unchanged on uncertain retries;
 released or replaced force requests cannot take back a later lease.
 Every fresh agent `create_work` declares `discovered_from_work_item_id`: the exact
 work item that initiated the session, or explicit null for a human/external trigger.

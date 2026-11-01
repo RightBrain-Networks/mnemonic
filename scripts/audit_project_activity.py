@@ -39,10 +39,10 @@ from mnemonic_api.work_inheritance_db import INHERITANCE_FINDINGS
 from sqlalchemy import Connection, create_engine, text
 from sqlalchemy.exc import SQLAlchemyError
 
-HEAD = "0071_automatic_review_cycles"
+HEAD = "0072_force_claim_gates"
 PROMPT_LIBRARY_HEADS = (
     "0035_prompt_library", "0036_transcript_copies", "0037_background_jobs",
-    "0038_transcript_recovery", "0039_manual_review_requests", "0040_normalized_transcripts", "0041_artifact_passages", "0042_transcript_health", "0046_shared_transcript_copies", "0047_artifact_transfer", "0048_force_claims", "0049_duplicate_embeddings", "0051_priority_rubrics", "0052_dependency_cycles", "0056_product_decisions", "0057_automatic_decision_reviews", "0058_decision_changes", "0059_domain_decision_reviews", "0060_supersession_reuse", "0061_batch_dispositions", "0062_review_scope_notices", "0063_impact_findings", "0064_work_change_inheritance", "0065_knowledge_management", "0066_candidate_reuse", "0067_project_tags", "0068_artifact_tags", HEAD,
+    "0038_transcript_recovery", "0039_manual_review_requests", "0040_normalized_transcripts", "0041_artifact_passages", "0042_transcript_health", "0046_shared_transcript_copies", "0047_artifact_transfer", "0048_force_claims", "0049_duplicate_embeddings", "0051_priority_rubrics", "0052_dependency_cycles", "0056_product_decisions", "0057_automatic_decision_reviews", "0058_decision_changes", "0059_domain_decision_reviews", "0060_supersession_reuse", "0061_batch_dispositions", "0062_review_scope_notices", "0063_impact_findings", "0064_work_change_inheritance", "0065_knowledge_management", "0066_candidate_reuse", "0067_project_tags", "0068_artifact_tags", "0071_automatic_review_cycles", HEAD,
 )
 EXTRACTION_HEAD = "0027_artifact_fulltext"
 EXTRACTION_HEADS = (
@@ -50,7 +50,7 @@ EXTRACTION_HEADS = (
     "0030_question_versions", "0031_review_decisions", "0032_agent_transcripts",
     "0033_transcript_imports", "0034_variable_work_leases", "0035_prompt_library",
     "0036_transcript_copies", "0037_background_jobs", "0038_transcript_recovery",
-    "0039_manual_review_requests", "0040_normalized_transcripts", "0041_artifact_passages", "0042_transcript_health", "0046_shared_transcript_copies", "0047_artifact_transfer", "0048_force_claims", "0049_duplicate_embeddings", "0051_priority_rubrics", "0052_dependency_cycles", "0056_product_decisions", "0057_automatic_decision_reviews", "0058_decision_changes", "0059_domain_decision_reviews", "0060_supersession_reuse", "0061_batch_dispositions", "0062_review_scope_notices", "0063_impact_findings", "0064_work_change_inheritance", "0065_knowledge_management", "0066_candidate_reuse", "0067_project_tags", "0068_artifact_tags", HEAD,
+    "0039_manual_review_requests", "0040_normalized_transcripts", "0041_artifact_passages", "0042_transcript_health", "0046_shared_transcript_copies", "0047_artifact_transfer", "0048_force_claims", "0049_duplicate_embeddings", "0051_priority_rubrics", "0052_dependency_cycles", "0056_product_decisions", "0057_automatic_decision_reviews", "0058_decision_changes", "0059_domain_decision_reviews", "0060_supersession_reuse", "0061_batch_dispositions", "0062_review_scope_notices", "0063_impact_findings", "0064_work_change_inheritance", "0065_knowledge_management", "0066_candidate_reuse", "0067_project_tags", "0068_artifact_tags", "0071_automatic_review_cycles", HEAD,
 )
 ARTIFACT_HEAD = "0026_artifact_library"
 ARTIFACT_HEADS = (ARTIFACT_HEAD, *EXTRACTION_HEADS)

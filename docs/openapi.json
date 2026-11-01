@@ -20563,7 +20563,7 @@
           },
           "force": {
             "default": false,
-            "description": "Replace an active lease and invalidate its token. Confirm no other session is working on this item first; use a new claim_request_id and keep retries identical.",
+            "description": "Replace an active lease and invalidate its token. Confirm no other session is working on this item first; use a new claim_request_id and keep retries identical. Allows claiming work with unresolved human gates without resolving them or permitting gated completion; all other claim eligibility rules still apply.",
             "title": "Force",
             "type": "boolean"
           },
@@ -24166,7 +24166,7 @@
   "info": {
     "description": "Durable project-scoped work with immutable agent checkpoints.",
     "title": "Mnemonic API",
-    "version": "0.122.0"
+    "version": "0.123.0"
   },
   "openapi": "3.1.0",
   "paths": {

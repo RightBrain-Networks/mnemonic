@@ -159,6 +159,7 @@ def claim_lease_record(
             expires_at=database_now + timedelta(minutes=minutes),
         )
         database.add(lease)
+        retain_force_claim(database, lease, payload)
         database.flush()
         stage_work_claimed(
             database,
@@ -175,7 +176,6 @@ def claim_lease_record(
         from mnemonic_api.services.manual_reviews import seal_claim_scope
 
         seal_claim_scope(database, lease, payload)
-        retain_force_claim(database, lease, payload)
         return claim_receipt(lease, database)
 
     retained_identity = (
@@ -228,6 +228,7 @@ def claim_lease_record(
     lease.acquired_at = database_now
     lease.renewed_at = database_now
     lease.expires_at = database_now + timedelta(minutes=minutes)
+    retain_force_claim(database, lease, payload)
     database.flush()
     stage_work_claimed(
         database,
@@ -244,13 +245,12 @@ def claim_lease_record(
     from mnemonic_api.services.manual_reviews import seal_claim_scope
 
     seal_claim_scope(database, lease, payload)
-    retain_force_claim(database, lease, payload)
     return claim_receipt(lease, database)
 
 
 def _fresh_claim_eligible(database: Session, work: WorkItem, payload: WorkClaimCreate) -> None:
     if payload.purpose == "implementation":
-        require_fresh_claim_eligible(database, work)
+        require_fresh_claim_eligible(database, work, allow_gated=payload.force)
 
 
 def renew_lease_record(

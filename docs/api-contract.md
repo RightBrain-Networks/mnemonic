@@ -724,8 +724,12 @@ item, and use `force=true` with a new `claim_request_id`. This confirmation is
 agent guidance; the server permits replacing another session's active lease.
 Force atomically rotates the token and generation and starts a new duration.
 The old token can no longer renew, release, complete, or perform protected work
-mutations. Eligibility, blockers, human gates, review scope, transcript validation,
-and duration bounds still apply. No additional execution authority is granted.
+mutations. Force allows claiming otherwise eligible work with unresolved human
+gates, including when the prior lease expired, was released, or never existed.
+The questions remain unresolved, the item stays Waiting and outside ready
+discovery, and gated completion, terminal transitions, and deletion remain blocked.
+Blockers, lifecycle, canonical identity, review scope, transcript validation, and
+duration bounds still apply. No additional execution authority is granted.
 
 Preserve `force` and every argument on uncertain retries. An identical active
 force request returns its current receipt without another rotation or extension.
@@ -1439,10 +1443,12 @@ and returns the complete adjacent relationship review in the same WorkContext
 statement. Ordinary context accepts no gate focus query.
 
 An unresolved gate independently makes Pending work `waiting`, excludes it from
-ready discovery and fresh/replacement claims, and rejects completion, terminal
+ready discovery and ordinary fresh/replacement claims, and rejects completion, terminal
 transitions, and deletion with `work_gated`. It does not revoke an existing
 lease: exact active replay, renewal, release, checkpoints, progress, identity
 edits, deferral/Pending restoration, and relationship changes remain available.
+An explicit `force=true` claim may acquire or replace a lease without resolving
+the gate; the other claim eligibility checks still apply.
 Deferral is an independent human hold; resolving a gate does not automatically
 move Deferred work to Pending. Several gates may coexist and every one must be
 resolved before waiting ends. Agents cannot withdraw or resolve a gate; if one

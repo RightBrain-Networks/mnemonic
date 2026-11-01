@@ -64,7 +64,7 @@ An item is blocked only by an **incoming `blocks` edge whose source is not
 `discovered-from`, a `duplicate-of` mark by itself, and `related` are descriptive and never
 make work ready or blocked. A permanent authoritative merge separately makes its source a frozen
 duplicate that is never ready. An unresolved human gate is a separate explicit fact: it
-makes Pending work `waiting`, excludes it from ready discovery, prevents a fresh
+makes Pending work `waiting`, excludes it from ready discovery, prevents an ordinary fresh
 or replacement claim, and refuses completion, retirement, promotion, and
 deletion until every gate on the item is resolved. It is never inferred from an
 edge, status, checkpoint, or progress text, and no agent can withdraw one.
@@ -100,7 +100,8 @@ call `get_work(status_only=true)` to assess current status and lease settings, t
 receipt privately, then call `recall_work` for implementation context. Use
 `claim_and_recall` for warm reviews; cold reviews must not recall before findings
 freeze. Every fresh acquisition atomically rechecks lifecycle,
-blockers, lease time, and unresolved human gates. An identical still-active
+blockers, lease time, and unresolved human gates, with an explicit `force=true`
+exception allowing acquisition while human gates remain unresolved. An identical still-active
 claim request replays its retained receipt even if a blocker or gate was added
 after acquisition. This recovers the existing capability; it does not make
 blocked or waiting work safe to continue. Inspect the recalled readiness and questions, stop
@@ -178,7 +179,7 @@ findings freeze; the contextual remedies below do not waive that restriction.
 
 | Code | Meaning | Remedy |
 | --- | --- | --- |
-| `work_gated` | The item has unresolved human input. | Inspect every open question; direct the human to Needs Attention. Stop dependent work and do not retry around the gate or answer it yourself. |
+| `work_gated` | The item has unresolved human input. | Inspect every open question; direct the human to Needs Attention. Force can recover a lease after ownership checks, but never answers a question or permits gated completion. Stop dependent work. |
 | `work_blocked` | An incoming `blocks` edge points to unfinished work. | Inspect incoming blockers. Wait until each is Done or its edge is legitimately removed; release when dependent work cannot continue. |
 | `work_not_pending` | The lifecycle is ineligible for implementation. | Read current status. Return Deferred to Pending only on current explicit human direction for that item; never reopen terminal work implicitly. Review claims use their separate purpose and episode. |
 | `lease_held` | An active claim already exists. | Inspect the safe holder and expiry. Wait if another session is working; lost-token recovery requires the ownership checks below before any force claim. |
@@ -213,11 +214,13 @@ holds it, immediately invalidating its token. Keep the returned token private.
 Cold reviewers use only `claim_work` with the same pinned review scope and no
 contextual reads before findings freeze.
 
-Force defaults to false and changes only active-lease contention. It does not
-bypass blockers, human gates, lifecycle rules, review eligibility, or transcript
-validation, and grants no new execution authority. An expired or absent lease
-can still be claimed normally. Never automatically force again after a token
-mismatch: recheck who is working first.
+Force defaults to false. It allows acquiring a lease while human gates remain
+unresolved, including with an expired or absent lease. It does not resolve the
+questions, remove the Waiting state, make the item ready, or permit gated
+completion. Blockers, lifecycle rules, review eligibility, transcript validation,
+and duration bounds still apply. Recovery grants no new execution authority;
+stop work that depends on an unanswered question. Never automatically force
+again after a token mismatch: recheck who is working first.
 
 Preserve `force`, the request ID, and every argument across uncertain retries.
 An identical active retry returns the same token and expiry without extending

@@ -568,8 +568,11 @@ Exact retries of earlier combined claims keep the original tool and arguments. A
 claim prevents cooperative sessions from starting the same work; it does not
 grant authority beyond the user's request. A blocked item rejects new claims;
 inspect its incoming blockers rather than retrying around `work_blocked`. A
-waiting item returns `work_gated`; inspect every unresolved gate and direct its
-answer to the human dashboard rather than retrying or self-resolving.
+waiting item returns `work_gated` for an ordinary claim. Explicit `force=true`
+allows lease recovery while questions remain unresolved, using a new request ID
+after checking that no other active session is working on the item. Inspect every
+unresolved gate and direct its answer to the human dashboard. Recovery does not
+resolve questions or permit gated completion; stop work dependent on an answer.
 
 A duplicate alias is never a claim candidate. `work_duplicate` returns only its
 current canonical root ID in safe context; read that root explicitly and obtain

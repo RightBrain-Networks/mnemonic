@@ -1834,7 +1834,9 @@ class WorkClaimCreate(APIModel):
     force: StrictBool = Field(
         default=False,
         description="Replace an active lease and invalidate its token. Confirm no other session "
-        "is working on this item first; use a new claim_request_id and keep retries identical.",
+        "is working on this item first; use a new claim_request_id and keep retries identical. "
+        "Allows claiming work with unresolved human gates without resolving them or permitting "
+        "gated completion; all other claim eligibility rules still apply.",
     )
     code_review_handoff: CodeReviewHandoffInput | SkipJsonSchema[None] = Field(
         default=None, exclude_if=lambda value: value is None,

@@ -77,5 +77,7 @@ link is not permission to change an operation UUID or any frozen retry argument.
 lease when compaction loses its token. Confirm that no other active session is
 working on the item before using a new claim request ID. Both usage pages and
 the `force` field page explain that the previous token is invalidated and that
-force does not bypass eligibility or human gates. Ordinary token recovery still
-uses an exact replay when the original claim arguments are available.
+force allows claiming work with unresolved human gates. Questions remain open,
+gated completion is still rejected, and all other eligibility rules apply.
+Ordinary token recovery still uses an exact replay when the original claim
+arguments are available.

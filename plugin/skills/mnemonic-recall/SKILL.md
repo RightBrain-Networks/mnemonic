@@ -230,7 +230,9 @@ and a new `claim_request_id`. This invalidates the previously held token,
 including another session's. Read the shared
 [lost-token recovery procedure](${CLAUDE_PLUGIN_ROOT}/reference/work-graph.md#recover-a-lost-lease-token)
 for ownership checks, cold-review restrictions, transcript assertions, and
-retry rules. Force grants no new authority and does not bypass gates or blockers.
+retry rules. Force permits lease recovery with unresolved human gates but does
+not resolve them or permit gated completion. Other eligibility rules still apply,
+and recovery grants no new execution authority.
 
 ## Prepare protected writes once
 

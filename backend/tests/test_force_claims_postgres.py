@@ -121,26 +121,89 @@ def test_old_force_request_never_reacquires_after_its_generation_ends(
     assert api.get(path, params={"status_only": True}).json() == before
 
 
-@pytest.mark.parametrize("guard", ["gate", "blocker", "deferred"])
-def test_force_does_not_bypass_fresh_claim_eligibility(
-    api, project, work_payload, postgres_engine, guard,
+@pytest.mark.parametrize("operation", ["claim", "claim-and-recall"])
+@pytest.mark.parametrize("lease_state", ["active", "expired", "released", "absent"])
+def test_force_claim_acquires_gated_work_without_resolving_questions(
+    api, project, work_payload, postgres_engine, operation, lease_state,
 ):
     work = create_work(api, project, work_payload)["work_item"]
     path = item_path(project, work)
+    original = None
+    if lease_state != "absent":
+        original = api.post(path + "/claim", json=claim_payload("original")).json()
+    if lease_state == "expired":
+        expire_lease(postgres_engine, work["id"])
+    elif lease_state == "released":
+        assert api.post(path + "/release-claim", json={
+            "lease_token": original["lease_token"], "subagent_transcripts": None,
+        }).status_code == 200
+    for index in range(2):
+        requested = api.post(path + "/gates", json={
+            **gate_request(question=f"Recovery question {index + 1}?"),
+            "requested_by_client": "claude-code",
+            "requested_by_session_id": "lease-session",
+        })
+        assert requested.status_code == 201, requested.text
+    gates = api.get(path + "/gates").json()
+    assert_error(api.post(f"{path}/{operation}", json=claim_payload("ordinary")), "work_gated")
+
+    payload = force_payload()
+    response = api.post(f"{path}/{operation}", json=payload)
+    assert response.status_code == 200, response.text
+    receipt = response.json()["lease"] if operation == "claim-and-recall" else response.json()
+    context = (response.json()["context"] if operation == "claim-and-recall"
+               else api.get(path + "/context").json())
+    assert context["readiness"]["has_active_lease"] is True
+    assert context["readiness"]["is_gated"] is True
+    assert context["readiness"]["is_ready"] is False
+    assert context["readiness"]["display_state"] == "waiting"
+    assert context["unresolved_gate_total"] == 2
+    assert api.get(path + "/gates").json() == gates
+    ready = api.get(f"/api/v1/projects/{project['id']}/ready-work").json()
+    assert ready["items"] == []
+    after = retained(postgres_engine, work["id"])
+    assert api.post(path + "/claim", json=payload).json() == receipt
+    assert retained(postgres_engine, work["id"]) == after
+    events = api.get(path + "/events", params={"event_type": "work_claimed"}).json()
+    assert events["total"] == (1 if original is None else 2)
+    if original is not None:
+        assert receipt["lease_token"] != original["lease_token"]
+        assert_error(api.post(path + "/renew-claim", json={
+            "lease_token": original["lease_token"],
+        }), "lease_token_mismatch")
+    assert_error(api.post(path + "/complete", json=reported({
+        "expected_version": work["version"], "lease_token": receipt["lease_token"],
+        "checkpoint": {"prompt": "Cannot complete while human questions remain open.",
+                       "source_client": "claude-code", "source_session_id": "lease-session"},
+    })), "work_gated")
+    assert retained(postgres_engine, work["id"]) == after
+    assert api.get(path + "/gates").json() == gates
+    route, progress = progress_request("events")
+    saved = api.post(path + "/" + route, json={
+        **progress, "lease_token": receipt["lease_token"], "client_operation_id": str(uuid4()),
+    })
+    assert saved.status_code == 201, saved.text
+
+
+@pytest.mark.parametrize("guard", ["blocker", "deferred"])
+@pytest.mark.parametrize("gated", [False, True])
+def test_force_does_not_bypass_fresh_claim_eligibility(
+    api, project, work_payload, postgres_engine, guard, gated,
+):
+    work = create_work(api, project, work_payload)["work_item"]
+    path = item_path(project, work)
+    if gated:
+        assert api.post(path + "/gates", json=gate_request()).status_code == 201
     if guard == "deferred":
         deferred = api.post(path + "/defer", json={"expected_version": 1})
         assert deferred.status_code == 200, deferred.text
         code = "work_not_pending"
     else:
-        assert api.post(path + "/claim", json=claim_payload("original")).status_code == 200
+        assert api.post(path + "/claim", json=force_payload("original")).status_code == 200
         before = retained(postgres_engine, work["id"])
-        if guard == "gate":
-            assert api.post(path + "/gates", json=gate_request()).status_code == 201
-            code = "work_gated"
-        else:
-            blocker = create_work(api, project, work_payload, title="Blocker")["work_item"]
-            add_relationship(api, project, relationship_payload(blocker, work, "blocks"))
-            code = "work_blocked"
+        blocker = create_work(api, project, work_payload, title="Blocker")["work_item"]
+        add_relationship(api, project, relationship_payload(blocker, work, "blocks"))
+        code = "work_blocked"
     assert_error(api.post(path + "/claim", json=force_payload()), code)
     if guard != "deferred":
         assert retained(postgres_engine, work["id"]) == before
@@ -149,18 +212,23 @@ def test_force_does_not_bypass_fresh_claim_eligibility(
 @pytest.mark.parametrize("invalid", [{"lease_minutes": 121}, {
     "session_transcript": {"client": "codex", "path": "/missing/rollout.jsonl"},
 }])
+@pytest.mark.parametrize("gated", [False, True])
 def test_failed_force_claim_preserves_the_original_lease_and_events(
-    api, project, work_payload, postgres_engine, invalid,
+    api, project, work_payload, postgres_engine, invalid, gated,
 ):
     work = create_work(api, project, work_payload)["work_item"]
     path = item_path(project, work)
     assert api.post(path + "/claim", json=claim_payload("original")).status_code == 200
+    if gated:
+        assert api.post(path + "/gates", json=gate_request()).status_code == 201
     before = retained(postgres_engine, work["id"])
     events = api.get(path + "/events").json()
     response = api.post(path + "/claim", json=force_payload(**invalid))
     assert response.status_code in (409, 422), response.text
     assert retained(postgres_engine, work["id"]) == before
     assert api.get(path + "/events").json() == events
+    with postgres_engine.connect() as connection:
+        assert connection.scalar(text("SELECT count(*) FROM work_force_claims")) == 0
     # Failed attempts do not reserve the request ID.
     assert api.post(path + "/claim", json=force_payload()).status_code == 200
 
@@ -238,4 +306,4 @@ def test_force_journal_survives_backup_and_prevents_unsafe_downgrade(
         migrate(postgres_engine, "0047_artifact_transfer", downgrade=True)
     with postgres_engine.connect() as connection:
         head = connection.scalar(text("SELECT version_num FROM alembic_version"))
-        assert head == "0071_automatic_review_cycles"
+        assert head == "0072_force_claim_gates"
