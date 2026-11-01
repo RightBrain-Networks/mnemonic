@@ -7,6 +7,7 @@ import { useLocation } from "@tanstack/react-router";
 
 import { useWorkItemMotion } from "@/components/use-work-item-motion";
 import ExternalReferences from "@/components/external-references";
+import CopyableId from "@/components/copyable-id";
 import { useFailedReadRetry } from "@/components/use-failed-read-retry";
 import { useEffect, useRef, useState } from "react";
 import HumanGateQuestion from "@/components/human-gate-question";
@@ -37,6 +38,8 @@ function locationWorkFilter(search: string): string | undefined {
 
 type AttentionListProps = {
   project: Project | undefined;
+  copiedKey: string | null;
+  onCopy: (value: string, key: string, success: string) => void;
   onOpen: (summary: WorkSummary) => void;
   onResolved: () => void;
 };
@@ -49,7 +52,7 @@ export default function HumanAttentionList(props: AttentionListProps) {
   return <AttentionScope key={`${props.project?.id ?? "none"}:${workItemId ?? "all"}`} {...props} workItemId={workItemId} />;
 }
 
-function AttentionScope({ project, onOpen, onResolved, workItemId }: AttentionListProps & { workItemId?: string }) {
+function AttentionScope({ project, copiedKey, onCopy, onOpen, onResolved, workItemId }: AttentionListProps & { workItemId?: string }) {
   const [cursorStack, setCursorStack] = useState<Array<string | null>>([null]);
   const [pageIndex, setPageIndex] = useState(0);
   const client = useQueryClient();
@@ -135,7 +138,11 @@ function AttentionScope({ project, onOpen, onResolved, workItemId }: AttentionLi
         <div><dt>Current question by</dt><dd>{requestedThrough(item)}</dd></div>
         <div><dt>First requested</dt><dd><time dateTime={item.gate.created_at}>{formatDateTime(item.gate.created_at)}</time></dd></div>
       </dl>
-      <button type="button" className="button button-secondary" onClick={() => onOpen(item.summary)}>Open work context</button>
+      <footer className="attention-card-footer">
+        <button type="button" className="button button-secondary" onClick={() => onOpen(item.summary)}>Open work context</button>
+        <CopyableId value={item.gate.id} label="Copy question ID" copied={copiedKey === `question:${item.gate.id}`}
+          onCopy={() => onCopy(item.gate.id, `question:${item.gate.id}`, `Question ID copied: ${item.gate.id}`)} />
+      </footer>
     </article>)}</div>
     {page && page.total > 0 && <nav className="pagination attention-pagination" aria-label="Human attention pages">
       <span>Page {pageIndex + 1} · {page.items.length} shown · {page.total} currently unresolved</span>

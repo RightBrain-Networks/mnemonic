@@ -1380,6 +1380,7 @@ html[data-theme="dark"] :is(.evidence-outcome.is-inconclusive, .evidence-outcome
 .attention-provenance > div { display: grid; gap: 2px; }
 .attention-provenance dt { color: var(--muted); font-size: 9px; }
 .attention-provenance dd { margin: 0; overflow-wrap: anywhere; font-size: 10px; }
+.attention-card-footer { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
 .attention-pagination { margin-top: 0; }
 .attention-empty { margin-top: 0; }
 

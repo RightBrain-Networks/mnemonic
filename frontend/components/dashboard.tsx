@@ -2971,6 +2971,8 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
             projectsLoading && !projects.length ? <div className="loading-state" role="status"><span className="spinner" />Opening your workspace…</div> :
             <HumanAttentionList
               project={activityReadyProjectId === activeId ? project : undefined}
+              copiedKey={copied}
+              onCopy={copyText}
               onOpen={openAttentionWork}
               onResolved={() => {
                 refreshWork();

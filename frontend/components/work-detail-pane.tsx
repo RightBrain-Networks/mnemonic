@@ -4,6 +4,7 @@ import WorkTags from "@/components/work-tags";
 import DependencyCycleNotice from "@/components/dependency-cycle-notice";
 import DecisionChangePanel from "@/components/decision-change-panel";
 import ExternalReferences from "@/components/external-references";
+import CopyableId from "@/components/copyable-id";
 import WorkTranscriptLinks from "@/components/work-transcript-links";
 import { WorkArtifactLinks } from "@/components/artifact-library";
 import CodeReviewPanel from "@/components/code-review-panel";
@@ -422,7 +423,7 @@ function OpenedPane({ opened, props }: { opened: WorkSummary; props: WorkDetailP
         <StatusBadge workItem status={work.status} readiness={readiness} />
         <OperationalBadge readiness={readiness} />
         <span className="detail-version" title="Work item version">v{work.version}</span>
-        <span className="detail-id"><code>{work.id}</code><button type="button" className={`icon-button detail-copy-id ${idCopied ? "is-copied" : ""}`} aria-label="Copy work item ID" title={idCopied ? "Copied" : "Copy work item ID"} onClick={() => props.onCopy(work.id, idKey, `Work item ID copied: ${work.id}`)}><Icon name={idCopied ? "check" : "copy"} size={13} /></button></span>
+        <CopyableId value={work.id} label="Copy work item ID" copied={idCopied} onCopy={() => props.onCopy(work.id, idKey, `Work item ID copied: ${work.id}`)} />
         <span className="detail-activity">Last activity <time dateTime={work.updated_at}>{formatDateTime(work.updated_at)}</time></span>
       </div>
       <h3 className="detail-title">{work.title}</h3>
