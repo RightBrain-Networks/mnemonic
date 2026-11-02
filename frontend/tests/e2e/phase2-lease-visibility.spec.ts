@@ -107,8 +107,12 @@ test("an active lease is visible without exposing its capability and refreshes a
     "Done",
     "Won’t Do",
     "Promote",
-    /^Move›$/
+    /^Move›$/,
+    "Merge as duplicate…",
+    "Delete"
   ]);
+  await expect(statusMenu.getByRole("menuitem", { name: "Merge as duplicate…", exact: true })).toBeDisabled();
+  await expect(statusMenu.getByRole("menuitem", { name: "Delete work item", exact: true })).toBeEnabled();
   const move = statusMenu.getByRole("menuitem", {
     name: `Move ${title} to another project`,
     exact: true
@@ -248,7 +252,9 @@ test("a human can move work through every manual status", async ({ page }, testI
     "Done",
     "Won’t Do",
     "Promote",
-    /^Move›$/
+    /^Move›$/,
+    "Merge as duplicate…",
+    "Delete"
   ]);
   await expect(returned.getByRole("menuitem", { name: `Pending ${title}` })).toHaveCount(0);
   await expect(returned.getByRole("menuitem", { name: `Active ${title}` })).toHaveCount(0);

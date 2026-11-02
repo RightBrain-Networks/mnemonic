@@ -58,6 +58,7 @@ test("Dropped badge counts every dropped item and disappears when the last one r
       await expect(menu.getByRole("menuitem", { name: /Merge as duplicate/ })).toBeEnabled();
       if (!index) await page.screenshot({ path: testInfo.outputPath("work-actions.png") });
       await menu.getByRole("menuitem", { name: `Pending ${item.title}`, exact: true }).click();
+      await expect(pane.locator(".detail-identity > .status-badge")).toHaveText("Pending");
       await closeDetail(page);
       if (!index) await expect(badge).toHaveText("1");
       else await expect(badge).toHaveCount(0);

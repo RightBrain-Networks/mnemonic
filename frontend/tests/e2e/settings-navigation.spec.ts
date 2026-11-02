@@ -5,7 +5,7 @@ import { statePath, type E2EState } from "./global.setup";
 const preferenceKey = "mnemonic.settings-menu";
 const sections = [
   { label: "Workspace", path: "/settings/workspace", cards: ["Project details", "Priority rubric"] },
-  { label: "Tags", path: "/settings/tags", cards: ["Tags"] },
+  { label: "Tags", path: "/settings/tags", cards: [] },
   { label: "Prompts", path: "/settings/prompts", cards: ["Project prompts", "Macro glossary"] },
   { label: "Code reviews", path: "/settings/code-reviews", cards: ["Code reviews"] },
   { label: "Backup & export", path: "/settings/backups", cards: ["Project backups", "Export"] }
@@ -30,6 +30,11 @@ test("settings menu links show only their dedicated cards in the requested order
     await expect(page).toHaveURL(section.path);
     await expect(page.locator("h1")).toHaveText(`${section.label}.`);
     await expect(page.locator(section.label === "Prompts" ? ".prompt-library h2, .prompt-library h3" : ".settings-card h2")).toHaveText(section.cards.map((name) => name === "Project prompts" ? /^Project prompts\d+$/ : name));
+    if (section.label === "Tags") {
+      const tags = page.getByRole("region", { name: "Project tags", exact: true });
+      await expect(tags.getByRole("button", { name: "New tag", exact: true })).toBeEnabled();
+      await expect(tags.getByRole("list", { name: "Project tags", exact: true })).toBeVisible();
+    }
     await expect(navigation.locator('[aria-current="page"]')).toHaveText(section.label);
     await expect(toggle).toHaveAttribute("aria-expanded", "true");
     await expect(page.locator("#project-select")).toHaveValue(state.projectId);
