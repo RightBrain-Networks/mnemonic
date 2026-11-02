@@ -112,7 +112,7 @@ test("an active lease is visible without exposing its capability and refreshes a
     "Delete"
   ]);
   await expect(statusMenu.getByRole("menuitem", { name: "Merge as duplicate…", exact: true })).toBeDisabled();
-  await expect(statusMenu.getByRole("menuitem", { name: "Delete work item", exact: true })).toBeDisabled();
+  await expect(statusMenu.getByRole("menuitem", { name: "Delete work item", exact: true })).toBeEnabled();
   const move = statusMenu.getByRole("menuitem", {
     name: `Move ${title} to another project`,
     exact: true
