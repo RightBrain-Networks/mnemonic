@@ -1372,7 +1372,15 @@ test("Move retries keep every draft and follow an item that moves again", async 
     );
     expect(movedAgain.ok(), await movedAgain.text()).toBe(true);
 
+    // Recovery probes the accumulated project catalog. Wait for its verified
+    // destination before applying the shorter UI assertion timeout.
+    const recoveredContext = page.waitForResponse((response) =>
+      response.request().method() === "GET"
+      && new URL(response.url()).pathname
+        === `/api/mnemonic/projects/${final.id}/work-items/${work.id}/context`
+    );
     await pane.getByRole("button", { name: "Try again" }).click();
+    expect((await recoveredContext).ok()).toBe(true);
     await expect(page.locator(".toast")).toContainText(
       `already moved to “${finalProject}” before this move finished`
     );
