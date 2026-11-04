@@ -144,7 +144,9 @@ test("code review cards copy the exact pointer and defer only their own review e
     await expect(item).toBeVisible();
     await expect(item.getByRole("button", { name: "Defer Review card actions", exact: true })).toBeDisabled();
     await item.getByRole("button", { name: "Copy recall pointer for Review card actions" }).click();
+    await expect(page.locator('.toast[role="status"]')).toHaveText("Recall pointer copied for this code review.");
     await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toContain("does not authorize execution");
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toContain(review.id);
     await item.getByRole("button", { name: "Choose an action for Review card actions" }).click();
     await page.getByRole("menuitem", { name: "Pending Review card actions", exact: true }).click();
     await expect(item).toHaveCount(0);

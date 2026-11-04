@@ -293,11 +293,16 @@ test("human questions stay visible and recover one exact durable resolution", as
 
     await page.goto("/work-items");
     await page.locator("#project-select").selectOption(state.projectId);
-    await page.getByRole("searchbox", { name: "Search work items" }).fill(title);
 
     const card = workCard(page, title);
+    // Branch counts belong to the hierarchy. Finish checking that view before
+    // typing switches the queue to flat search results after the debounce.
+    await expect(page.getByRole("region", { name: "Durable work item hierarchy", exact: true })).toBeVisible();
     await expect(card).toHaveCount(1);
     await expect(card.locator(".queue-chip-attention")).toHaveText("1 needs attention");
+    await page.getByRole("searchbox", { name: "Search work items" }).fill(title);
+    await expect(page.getByRole("region", { name: "Matching durable work records", exact: true })).toBeVisible();
+    await expect(page.locator(".result-count")).toHaveText("1 work record");
     await expect(card.getByText("Needs attention", { exact: true })).toBeVisible();
 
     const pane = await selectWork(page, title);
@@ -321,8 +326,8 @@ test("human questions stay visible and recover one exact durable resolution", as
     await expect(attentionCard.locator("footer code")).toHaveText(gate.id);
     const copyQuestion = attentionCard.getByRole("button", { name: "Copy question ID", exact: true });
     await copyQuestion.click();
-    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(gate.id);
     await expect(copyQuestion).toHaveAttribute("title", "Copied");
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(gate.id);
     expect(await page.evaluate(() => (globalThis as typeof globalThis & {
       phase78Pwned?: boolean;
     }).phase78Pwned)).not.toBe(true);

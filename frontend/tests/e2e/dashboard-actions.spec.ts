@@ -106,9 +106,11 @@ test("summary review split button queues warm and cold reviews and updates sideb
     await expect(group.getByRole("link", { name: "Work items", exact: true }).locator(".attention-nav-count")).toHaveText("2");
     await group.getByRole("link", { name: "Work items", exact: true }).click();
     const reviewCard = page.getByRole("option", { name: "Summary cold review", exact: true });
-    await reviewCard.getByRole("button", { name: "Copy recall pointer for Summary cold review" }).click();
-    await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toContain("COLD");
+    const copyPointer = reviewCard.getByRole("button", { name: "Copy recall pointer for Summary cold review" });
+    await copyPointer.click();
+    await expect(copyPointer).toHaveText("Copied");
     const pointer = await page.evaluate(() => navigator.clipboard.readText());
+    expect(pointer).toContain(cold.id);
     expect(pointer).toContain("COLD");
     expect(pointer).not.toContain("This browser acceptance fixture");
     expect(pointer).toContain("a".repeat(40));

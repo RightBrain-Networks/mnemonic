@@ -2,6 +2,10 @@
 
 import json
 import runpy
+import socket
+import threading
+from http.client import HTTPConnection, RemoteDisconnected
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.error import URLError
 
@@ -11,6 +15,80 @@ SCRIPT = Path(__file__).resolve().parents[2] / "scripts/test_project_backups.py"
 ARCHIVE = b"BZh identical immutable archive fixture"
 BUSY = (409, b'{"error":{"code":"backup_database_busy"}}')
 SUCCESS = (200, b'{"restored":true}')
+
+
+@pytest.fixture
+def early_rejection_server(monkeypatch):
+    state = {"status": 413, "requests": [], "broken_pipes": 0}
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self):
+            state["requests"].append((self.path, int(self.headers["Content-Length"])))
+            self.close_connection = True
+            if state["status"] is None:
+                return
+            # Reject from the headers without consuming the upload, like the worker.
+            self.send_response(state["status"])
+            self.send_header("Content-Length", "8")
+            self.end_headers()
+            self.wfile.write(b"rejected")
+            self.wfile.flush()
+
+        def log_message(self, *_args):
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever)
+    thread.start()
+    connect = socket.create_connection
+    send = HTTPConnection.send
+
+    def local_connection(address, *args, **kwargs):
+        assert address == ("127.0.0.1", 8002)
+        connection = connect(server.server_address, *args, **kwargs)
+        # Force the large upload to overlap the server's early response.
+        connection.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 1024)
+        return connection
+
+    def tracked_send(connection, data):
+        try:
+            return send(connection, data)
+        except BrokenPipeError:
+            state["broken_pipes"] += 1
+            raise
+
+    monkeypatch.setattr(socket, "create_connection", local_connection)
+    monkeypatch.setattr(HTTPConnection, "send", tracked_send)
+    monkeypatch.setenv("MNEMONIC_BACKUP_TOKEN", "acceptance-client-test")
+    try:
+        yield state
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
+@pytest.mark.parametrize("status", [401, 413])
+def test_acceptance_client_reads_early_rejection_without_retry(early_rejection_server, status):
+    early_rejection_server["status"] = status
+    request = runpy.run_path(str(SCRIPT))["request"]
+    body = b"x" * (8 * 1024 * 1024)
+
+    assert request("/restore", method="POST", body=body) == (status, b"rejected")
+
+    assert early_rejection_server["requests"] == [("/restore", len(body))]
+    assert early_rejection_server["broken_pipes"] == 1
+
+
+def test_acceptance_client_requires_a_response_after_upload_disconnect(early_rejection_server):
+    early_rejection_server["status"] = None
+    request = runpy.run_path(str(SCRIPT))["request"]
+    body = b"x" * (8 * 1024 * 1024)
+
+    with pytest.raises((RemoteDisconnected, ConnectionResetError)):
+        request("/restore", method="POST", body=body)
+
+    assert early_rejection_server["requests"] == [("/restore", len(body))]
 
 
 class RestoreServer:
@@ -114,7 +192,9 @@ def test_restore_does_not_retry_malformed_busy_response(harness):
     assert sleeps == []
 
 
-@pytest.mark.parametrize("error", [TimeoutError("uncertain"), URLError("disconnected")])
+@pytest.mark.parametrize("error", [
+    TimeoutError("uncertain"), URLError("disconnected"), RemoteDisconnected("no response"),
+])
 def test_restore_does_not_retry_transport_uncertainty(harness, error):
     server, check, sleeps = harness([error, SUCCESS])
 

@@ -12,9 +12,8 @@ import re
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
+from http.client import HTTPConnection
 from pathlib import Path
-from urllib.error import HTTPError
-from urllib.request import Request, urlopen
 from uuid import uuid4
 
 from sqlalchemy import create_engine, text
@@ -29,7 +28,7 @@ def request(
     token: str | None = None,
     headers: dict[str, str] | None = None,
 ) -> tuple[int, bytes]:
-    base = "http://api:8000/api/v1" if api else "http://127.0.0.1:8002"
+    host, port, prefix = ("api", 8000, "/api/v1") if api else ("127.0.0.1", 8002, "")
     secret = os.environ["MNEMONIC_TEST_API_KEY" if api else "MNEMONIC_BACKUP_TOKEN"]
     outgoing = {"Authorization": f"Bearer {secret if token is None else token}"}
     outgoing.update(headers or {})
@@ -38,12 +37,20 @@ def request(
         body = json.dumps(body).encode()
     elif body is not None:
         outgoing.setdefault("Content-Type", "application/x-bzip2")
-    call = Request(base + path, data=body, method=method, headers=outgoing)
+    connection = HTTPConnection(host, port, timeout=60)
     try:
-        with urlopen(call, timeout=60) as response:
+        try:
+            connection.request(method, prefix + path, body=body, headers=outgoing)
+        except BrokenPipeError:
+            # The worker can reject Content-Length before receiving the body.
+            # Keep the socket long enough to read that response; urllib closes
+            # it on the write error and loses the authoritative HTTP rejection.
+            # No request is retried, and a missing/invalid response still fails.
+            pass
+        with connection.getresponse() as response:
             return response.status, response.read()
-    except HTTPError as error:
-        return error.code, error.read()
+    finally:
+        connection.close()
 
 
 def expect(status: int | tuple[int, ...], response: tuple[int, bytes]) -> bytes:
