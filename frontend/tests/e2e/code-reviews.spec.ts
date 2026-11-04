@@ -375,9 +375,10 @@ test("both Done paths collect mandatory scope and preserve cold isolation, warm 
       ),
     ).toBeVisible();
     await pane.getByRole("button", { name: "Copy cold review prompt" }).click();
+    await expect(pane.getByRole("button", { name: "Copy cold review prompt" })).toHaveText("Copied");
     await expect
       .poll(() => page.evaluate(() => navigator.clipboard.readText()))
-      .toContain("COLD, ADVERSARIAL");
+      .toContain(first.id);
     const cold = await page.evaluate(() => navigator.clipboard.readText());
     expect(cold).toContain("COLD, ADVERSARIAL");
     for (const secret of [
@@ -392,6 +393,7 @@ test("both Done paths collect mandatory scope and preserve cold isolation, warm 
       .poll(() => page.evaluate(() => navigator.clipboard.readText()))
       .toContain("WARM, ADVERSARIAL");
     const warm = await page.evaluate(() => navigator.clipboard.readText());
+    expect(warm).toContain(first.id);
     expect(warm).toContain("Custom recall");
     expect(warm).toContain("WARM, ADVERSARIAL");
     const ctx = await (

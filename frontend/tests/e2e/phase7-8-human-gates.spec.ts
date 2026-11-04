@@ -326,8 +326,8 @@ test("human questions stay visible and recover one exact durable resolution", as
     await expect(attentionCard.locator("footer code")).toHaveText(gate.id);
     const copyQuestion = attentionCard.getByRole("button", { name: "Copy question ID", exact: true });
     await copyQuestion.click();
-    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(gate.id);
     await expect(copyQuestion).toHaveAttribute("title", "Copied");
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(gate.id);
     expect(await page.evaluate(() => (globalThis as typeof globalThis & {
       phase78Pwned?: boolean;
     }).phase78Pwned)).not.toBe(true);

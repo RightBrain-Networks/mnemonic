@@ -1585,9 +1585,9 @@ test("the work item ID copies from the pane header", async ({ page }, testInfo) 
     await expect(copyId.locator("svg path")).toHaveAttribute("d", COPY_ICON_PATH);
 
     await copyId.click();
-    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(work.id);
     await expect(copyId).toHaveClass(/is-copied/);
     await expect(copyId).toHaveAttribute("title", "Copied");
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(work.id);
     await expect(copyId.locator("svg path")).toHaveAttribute("d", CHECK_ICON_PATH);
     await expect(page.locator(".toast")).toContainText(`Work item ID copied: ${work.id}`);
     // Other copy targets keep their own state.
