@@ -103,6 +103,12 @@ Nightly rehearsals run fresh-install and previous-release upgrade checks on both
 architectures plus browser acceptance tests. Every stack uses an isolated Compose
 project and disposable storage; no rehearsal targets production.
 
+Browser acceptance uses the same reusable workflow in pull-request CI and nightly
+rehearsals. Chromium desktop, Chromium narrow, and Firefox run on separate runners
+with independent disposable stacks and no test retries. All browser jobs must pass
+for `Required checks` on code changes. Each job retains its HTML report, traces,
+and screenshots for 14 days, including successful-run evidence.
+
 ## Release contents
 
 `scripts/release_bundle.py --output dist --previous-tag vPREVIOUS` generates:

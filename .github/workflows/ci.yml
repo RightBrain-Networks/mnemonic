@@ -302,6 +302,12 @@ jobs:
         working-directory: frontend
         run: npm run build
 
+  browser:
+    name: Browser acceptance
+    needs: changes
+    if: ${{ needs.changes.outputs.full_ci == 'true' }}
+    uses: ./.github/workflows/browser.yml
+
   image-checks:
     name: Build and smoke test images
     permissions:
@@ -327,7 +333,7 @@ jobs:
     name: Required checks
     if: ${{ always() }}
     needs:
-      [changes, gitleaks, ruff, ty, backend-tests, mcp-tests, repository-freshness-runtime, frontend, image-checks]
+      [changes, gitleaks, ruff, ty, backend-tests, mcp-tests, repository-freshness-runtime, frontend, browser, image-checks]
     runs-on: ubuntu-latest
     steps:
       - name: Verify required jobs succeeded
@@ -342,6 +348,7 @@ jobs:
           MCP_RESULT: ${{ needs.mcp-tests.result }}
           REPOSITORY_FRESHNESS_RUNTIME_RESULT: ${{ needs.repository-freshness-runtime.result }}
           FRONTEND_RESULT: ${{ needs.frontend.result }}
+          BROWSER_RESULT: ${{ needs.browser.result }}
         run: |
           test "$IMAGES_RESULT" = "success" || exit 1
           test "$CHANGES_RESULT" = "success" || exit 1
@@ -357,7 +364,8 @@ jobs:
             "$BACKEND_RESULT" \
             "$MCP_RESULT" \
             "$REPOSITORY_FRESHNESS_RUNTIME_RESULT" \
-            "$FRONTEND_RESULT"
+            "$FRONTEND_RESULT" \
+            "$BROWSER_RESULT"
           do
             test "$result" = "$expected" || exit 1
           done
