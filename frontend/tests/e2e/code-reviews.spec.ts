@@ -930,6 +930,11 @@ test("human Review queues Done immediately and earmarks unfinished work", async 
     const card = workCard(page, pending.title);
     await card.getByRole("button", { name: `Choose an action for ${pending.title}` }).click();
     await card.getByRole("menuitem", { name: `Review ${pending.title}`, exact: true }).click();
+    // Let the card action commit before opening a context that could still
+    // contain the pre-request work revision.
+    await expect(page.locator(".toast")).toContainText(
+      "Code review requested by a human operator. It will enter To review when this work is Done."
+    );
     pane = await selectWork(page, pending.title);
     await expect(pane.getByText(/Code review requested by a human operator\. It will enter/)).toBeVisible();
     await manualDone(pane, pending.title);
