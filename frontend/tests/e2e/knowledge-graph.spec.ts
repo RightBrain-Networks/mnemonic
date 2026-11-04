@@ -1,4 +1,4 @@
-import { expect, request, test, type APIRequestContext } from "@playwright/test";
+import { expect, request, test, type APIRequestContext, type Route } from "@playwright/test";
 import type { Decision, KnowledgeDomain } from "../../lib/knowledge";
 
 async function apiClient() {
@@ -33,6 +33,15 @@ async function seed(api: APIRequestContext) {
   const scope = await api.post(`${path}/decisions/${current.decision_id}/scope`, { data: { revision: 0, commit_hash: "abc01234".repeat(5), agent_session_id: "implementation-session", client_operation_id: crypto.randomUUID() } });
   expect(scope.ok(), await scope.text()).toBe(true);
   return { project, current, architecture, downstream };
+}
+
+async function reviseConcurrently(api: APIRequestContext, projectId: string, decision: Decision) {
+  const updated = await api.put(`/api/v1/projects/${projectId}/knowledge/decisions`, { data: {
+    domain_id: decision.domain_id, decision_id: decision.decision_id, expected_revision: decision.revision,
+    title: decision.title, content: "# Agent revision\n\nPreserve this concurrent clarification.\n", media_type: "text/markdown", state: decision.state,
+    author_kind: "agent", agent_session_id: "concurrent-edit", model_id: "codex", source_work_item_id: null, client_operation_id: crypto.randomUUID()
+  } });
+  expect(updated.ok(), await updated.text()).toBe(true);
 }
 
 test("knowledge graph browses domains, immutable revisions and revision-pinned code scope", async ({ page }, testInfo) => {
@@ -159,13 +168,21 @@ test("humans upload, filter, edit with revision conflicts, replace and download 
     dialog = page.getByRole("dialog", { name: "Edit decision document", exact: true });
     await expect(dialog.getByRole("textbox", { name: "Document contents", exact: true })).toHaveValue(/Initial ruling/);
     await dialog.getByRole("textbox", { name: "Document contents", exact: true }).fill("# Human draft\n\nMy updated ruling.\n");
-    const updated = await api.put(`${path}/decisions`, { data: {
-      domain_id: architecture.id, decision_id: created.decision_id, expected_revision: 0,
-      title: created.title, content: "# Agent revision\n\nPreserve this concurrent clarification.\n", media_type: "text/markdown", state: "proposed",
-      author_kind: "agent", agent_session_id: "concurrent-edit", model_id: "codex", source_work_item_id: null, client_operation_id: crypto.randomUUID()
-    } });
-    expect(updated.ok(), await updated.text()).toBe(true);
+    // Advance the server revision only after the browser submits its old basis.
+    // Otherwise live sync can detect the conflict and disable Save before the click.
+    const savePath = `/api/mnemonic/projects/${project.id}/knowledge/decisions`;
+    const concurrentSave = async (route: Route) => {
+      if (route.request().method() !== "PUT") return route.continue();
+      expect(route.request().postDataJSON().expected_revision).toBe(created.revision);
+      await reviseConcurrently(api, project.id, created);
+      await route.continue();
+    };
+    await page.route(`**${savePath}`, concurrentSave);
+    const rejectedSave = page.waitForResponse((response) => response.url().endsWith(savePath)
+      && response.request().method() === "PUT" && response.status() === 409);
     await dialog.getByRole("button", { name: "Save revision", exact: true }).click();
+    await rejectedSave;
+    await page.unroute(`**${savePath}`, concurrentSave);
     await expect(dialog.getByRole("textbox", { name: "Document contents", exact: true })).toHaveValue(/My updated ruling/);
     await expect(dialog.getByRole("textbox", { name: "Current saved contents", exact: true })).toHaveValue(/concurrent clarification/);
     await expect(dialog.getByRole("button", { name: "Save revision", exact: true })).toBeDisabled();
@@ -211,6 +228,30 @@ test("humans upload, filter, edit with revision conflicts, replace and download 
     await expect(dialog).toBeHidden();
     await expect(row).toContainText(`${created.decision_id}-4`);
     expect(replacementBodies).toHaveLength(2); expect(replacementBodies[1]).toBe(replacementBodies[0]);
+  } finally { await api.dispose(); }
+});
+
+test("live decision updates preserve drafts and require conflict reconciliation before saving", async ({ page }) => {
+  const api = await apiClient();
+  try {
+    const { project, current } = await seed(api);
+    await page.goto(`/knowledge/decisions?project=${project.id}`);
+    await page.getByRole("button", { name: `Edit ${current.reference}`, exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: "Edit decision document", exact: true });
+    const draft = dialog.getByRole("textbox", { name: "Document contents", exact: true });
+    await expect(draft).toHaveValue(/Durable decision history/);
+    await draft.fill("# Human draft\n\nMy updated ruling.\n");
+    await expect(page.locator(".sync-status")).toHaveText("Live Updates");
+    await reviseConcurrently(api, project.id, current);
+    await expect(dialog.getByRole("textbox", { name: "Current saved contents", exact: true })).toHaveValue(/concurrent clarification/);
+    await expect(draft).toHaveValue(/My updated ruling/);
+    await expect(dialog.getByRole("button", { name: "Save revision", exact: true })).toBeDisabled();
+    await draft.fill("# Merged ruling\n\nMy updated ruling with the concurrent clarification.\n");
+    await dialog.getByRole("button", { name: "I incorporated the current revision into my draft", exact: true }).click();
+    await dialog.getByRole("button", { name: "Save revision", exact: true }).click();
+    await expect(dialog).toBeHidden();
+    const row = page.getByRole("row").filter({ has: page.getByRole("button", { name: current.title, exact: true }) });
+    await expect(row).toContainText(`${current.decision_id}-3`);
   } finally { await api.dispose(); }
 });
 
