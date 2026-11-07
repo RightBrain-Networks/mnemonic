@@ -661,10 +661,18 @@ test("one work item groups immutable checkpoints through its full dashboard life
   await closeDetail(page);
   await expect(card).toHaveCount(1);
   await page.getByLabel("Search work items").fill(title);
+  await expect(page.getByRole("region", { name: "Matching durable work records", exact: true })).toBeVisible();
+  await expect(page.locator(".result-count")).toHaveText("1 work record");
   await expect(card).toHaveCount(1);
-  await card.getByRole("button", { name: /Copy recall pointer/ }).click();
-  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toContain("claim_work");
+  const workId = await card.getAttribute("data-queue-option");
+  expect(workId).not.toBeNull();
+  // A previous test's pointer can contain every generic keyword before this copy finishes.
+  await page.evaluate(() => navigator.clipboard.writeText("stale claim_work work_item_id recall_work"));
+  const copyPointer = card.getByRole("button", { name: /Copy recall pointer/ });
+  await copyPointer.click();
+  await expect(copyPointer).toHaveText("Copied");
   const pointer = await page.evaluate(() => navigator.clipboard.readText());
+  expect(pointer).toContain(workId);
   expect(pointer).toContain("work_item_id");
   expect(pointer).toContain("claim_work");
   expect(pointer).toContain("recall_work");

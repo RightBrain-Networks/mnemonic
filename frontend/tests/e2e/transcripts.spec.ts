@@ -8,6 +8,12 @@ import { reportForFixture } from "./job-report-fixture";
 const execFileAsync = promisify(execFile);
 const transcriptRoot = "/var/lib/mnemonic/artifacts/transcripts";
 
+test.afterEach(async ({ page }) => {
+  // Health polling can still be inside route.fetch() when the assertions finish.
+  // Drain those handlers before Playwright disposes their response bodies.
+  await page.unrouteAll({ behavior: "wait" });
+});
+
 async function fixture(api: APIRequestContext, client = "claude-code", limitation?: "image" | "unknown") {
   const runId = crypto.randomUUID();
   const projectResponse = await api.post("/api/v1/projects", { data: { name: `Transcript library ${runId.slice(0, 8)}` } });

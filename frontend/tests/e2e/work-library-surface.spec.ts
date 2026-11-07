@@ -17,6 +17,10 @@ test.beforeAll(async () => {
   state = JSON.parse(await readFile(statePath, "utf8")) as E2EState;
 });
 
+test.afterEach(async ({ page }) => {
+  await page.unrouteAll({ behavior: "wait" });
+});
+
 type WorkItem = {
   id: string;
   project_id: string;
@@ -98,7 +102,7 @@ function narrowProject(testInfo: TestInfo): boolean {
 }
 
 function testKey(testInfo: TestInfo): string {
-  return [testInfo.project.name, state.runId.slice(0, 8), `r${testInfo.retry}`].join("-");
+  return [testInfo.project.name, state.runId.slice(0, 8), `n${testInfo.repeatEachIndex}`, `r${testInfo.retry}`].join("-");
 }
 
 // A single lexical token that only this test's fixtures carry, so a flat search
@@ -1151,6 +1155,12 @@ test("an externally moved open item follows its verified project without losing 
       .getByLabel("Name")
       .fill(evidenceDraft);
 
+    // Recovery probes the project catalog, which grows throughout a full run.
+    // Wait for its verified destination read before checking the short-lived toast.
+    const recoveredContext = page.waitForResponse((response) =>
+      response.url().includes(`/projects/${targetProject.id}/work-items/${work.id}/context`)
+      && response.request().method() === "GET" && response.status() === 200
+    );
     const moved = await client.post(
       `/api/v1/projects/${sourceProject.id}/work-items/${work.id}/move`,
       {
@@ -1168,6 +1178,7 @@ test("an externally moved open item follows its verified project without losing 
     );
     expect(moved.ok(), await moved.text()).toBe(true);
     await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+    await recoveredContext;
 
     await expect(page.locator(".toast")).toContainText(
       `moved to “${targetProjectName}” in another session`
@@ -1435,17 +1446,26 @@ test("the queue appends pages on scroll while the result count shows the total"
     }
     // Model a concurrent arrival between page reads: the first page's count is
     // one lower, while later pages report the now-current total and cursor.
+    type QueuePage = {
+      items: unknown[]; offset: number; next_offset: number | null; total: number;
+    };
+    const pageResults = new Map<number, QueuePage>();
     let initialCountSent = false;
-    if (changedTotal) await page.route(`**/projects/${project.id}/search`, async (route) => {
+    await page.route(`**/projects/${project.id}/search`, async (route) => {
       const body = route.request().postDataJSON();
-      if (body.q !== token || body.offset !== 0 || initialCountSent) return route.continue();
-      initialCountSent = true;
+      if (body.q !== token) return route.continue();
       const response = await route.fetch();
       const result = await response.json();
-      result.total = total - 1;
-      result.facet_totals.work_items = total - 1;
-      result.project_coverage[0].facet_totals.work_items = total - 1;
+      if (changedTotal && body.offset === 0 && !initialCountSent) {
+        initialCountSent = true;
+        result.total = total - 1;
+        result.facet_totals.work_items = total - 1;
+        result.project_coverage[0].facet_totals.work_items = total - 1;
+      }
       await route.fulfill({ response, json: result });
+      // Retain the exact delivered payload here. Chromium may discard the body
+      // of an intercepted response before a later response.json() can read it.
+      pageResults.set(result.offset, result);
     });
     await page.addInitScript(() => {
       const target = window as typeof window & { __appendQueueAnimations: number };
@@ -1466,21 +1486,16 @@ test("the queue appends pages on scroll while the result count shows the total"
       }
     });
 
-    const responseForOffset = (offset: number) => page.waitForResponse((response) => {
-      const sent = response.request();
-      if (!sent.url().endsWith(`/projects/${project.id}/search`) || sent.method() !== "POST") return false;
-      const body = sent.postDataJSON();
-      return body.q === token && body.offset === offset;
-    });
+    const resultForOffset = async (offset: number): Promise<QueuePage> => {
+      await expect.poll(() => pageResults.has(offset)).toBe(true);
+      return pageResults.get(offset)!;
+    };
     await openDashboard(page, project.id);
-    const firstResponse = responseForOffset(0);
     await page.getByRole("searchbox", { name: "Search work items" }).fill(token);
     const count = page.locator(".result-count");
     const cards = page.locator("article.work-item-card");
     await expect(count).toHaveText(`${changedTotal ? total - 1 : total} work records`);
-    let result = await (await firstResponse).json() as {
-      items: unknown[]; offset: number; next_offset: number | null; total: number;
-    };
+    let result = await resultForOffset(0);
     let loaded = result.items.length;
     expect(loaded).toBeGreaterThan(0);
     expect(loaded).toBeLessThanOrEqual(WORK_PAGE_SIZE);
@@ -1496,9 +1511,8 @@ test("the queue appends pages on scroll while the result count shows the total"
       const offset = result.next_offset;
       expect(offset).toBe(loaded);
       expectedOffsets.push(offset);
-      const nextResponse = responseForOffset(offset);
       await scrollQueueToEnd(page);
-      result = await (await nextResponse).json();
+      result = await resultForOffset(offset);
       expect(result.offset).toBe(offset);
       expect(result.total).toBe(total);
       expect(result.items.length).toBeGreaterThan(0);
@@ -1571,9 +1585,9 @@ test("the work item ID copies from the pane header", async ({ page }, testInfo) 
     await expect(copyId.locator("svg path")).toHaveAttribute("d", COPY_ICON_PATH);
 
     await copyId.click();
-    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(work.id);
     await expect(copyId).toHaveClass(/is-copied/);
     await expect(copyId).toHaveAttribute("title", "Copied");
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(work.id);
     await expect(copyId.locator("svg path")).toHaveAttribute("d", CHECK_ICON_PATH);
     await expect(page.locator(".toast")).toContainText(`Work item ID copied: ${work.id}`);
     // Other copy targets keep their own state.
