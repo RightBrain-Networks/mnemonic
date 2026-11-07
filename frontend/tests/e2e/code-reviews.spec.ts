@@ -375,9 +375,10 @@ test("both Done paths collect mandatory scope and preserve cold isolation, warm 
       ),
     ).toBeVisible();
     await pane.getByRole("button", { name: "Copy cold review prompt" }).click();
+    await expect(pane.getByRole("button", { name: "Copy cold review prompt" })).toHaveText("Copied");
     await expect
       .poll(() => page.evaluate(() => navigator.clipboard.readText()))
-      .toContain("COLD, ADVERSARIAL");
+      .toContain(first.id);
     const cold = await page.evaluate(() => navigator.clipboard.readText());
     expect(cold).toContain("COLD, ADVERSARIAL");
     for (const secret of [
@@ -392,6 +393,7 @@ test("both Done paths collect mandatory scope and preserve cold isolation, warm 
       .poll(() => page.evaluate(() => navigator.clipboard.readText()))
       .toContain("WARM, ADVERSARIAL");
     const warm = await page.evaluate(() => navigator.clipboard.readText());
+    expect(warm).toContain(first.id);
     expect(warm).toContain("Custom recall");
     expect(warm).toContain("WARM, ADVERSARIAL");
     const ctx = await (
@@ -871,18 +873,29 @@ test("human review actions work on summary and detail cards without reopening im
     await page.screenshot({ path: testInfo.outputPath("review-summary-actions.png"), fullPage: true });
     await page.keyboard.press("Escape");
     await card.getByRole("button", { name: `Defer ${work.title}` }).click();
+    // Implementation remains Done throughout. Wait for the review mutation
+    // before opening context, which otherwise cancels its prerequisite read.
+    await expect(page.locator(".toast")).toContainText("Code review marked deferred.");
     await expect(card.locator(".status-badge")).toHaveText("Done");
     const pane = await selectWork(page, work.title);
-    for (const [action, label] of [
-      ["To review", "To review"], ["Won’t Do", "Won’t do"], ["To review", "To review"],
-      ["Done", "Done"], ["To review", "To review"], ["Promote", "Promoted"],
-      ["To review", "To review"]
+    const reviewTab = await openTab(pane, "Code review");
+    const decision = reviewTab.getByRole("region", { name: "Human review decision", exact: true });
+    let workVersion = completed.work_item.version + 1;
+    await expect(pane.getByTitle("Work item version", { exact: true })).toHaveText(`v${workVersion}`);
+    await expect(decision).toContainText("A person marked this review deferred");
+    for (const [action, status] of [
+      ["To review", "to-review"], ["Won’t Do", "wont-do"], ["To review", "to-review"],
+      ["Done", "done"], ["To review", "to-review"], ["Promote", "promoted"],
+      ["To review", "to-review"]
     ]) {
       await pane.getByRole("button", { name: `Choose an action for ${work.title}` }).click();
       menu = pane.getByRole("menu", { name: `Actions for ${work.title}`, exact: true });
       await expect(menu.getByRole("menuitem", { name: `Pending ${work.title}` })).toHaveCount(0);
       await expect(menu.getByRole("menuitem", { name: `Active ${work.title}` })).toHaveCount(0);
       await menu.getByRole("menuitem", { name: `${action} ${work.title}`, exact: true }).click();
+      workVersion += 1;
+      await expect(pane.getByTitle("Work item version", { exact: true })).toHaveText(`v${workVersion}`);
+      await expect(decision).toContainText(`A person marked this review ${status}`);
       await expect(pane.locator(".detail-identity > .status-badge")).toHaveText("Done");
       await expect(card.locator(".status-badge")).toHaveText("Done");
     }
@@ -891,11 +904,16 @@ test("human review actions work on summary and detail cards without reopening im
     await page.screenshot({ path: testInfo.outputPath("review-detail-actions.png"), fullPage: true });
     await page.keyboard.press("Escape");
     await pane.getByRole("button", { name: `Defer ${work.title}` }).click();
+    workVersion += 1;
+    await expect(pane.getByTitle("Work item version", { exact: true })).toHaveText(`v${workVersion}`);
+    await expect(decision).toContainText("A person marked this review deferred");
     await expect(pane.locator(".detail-identity > .status-badge")).toHaveText("Done");
     const context = await (await api.get(`/api/v1/projects/${p.id}/work-items/${work.id}/context`)).json();
     expect(context.work_item.status).toBe("done");
     expect(context.code_review_context.current_review.id).toBe(completed.code_review_request?.id);
     expect(context.code_review_context.current_review.result_id).toBeNull();
+    expect(context.code_review_context.current_review.human_decision).toMatchObject({ status: "deferred", version: 9 });
+    expect(context.work_item.version).toBe(workVersion);
     expect(context.readiness.has_active_lease).toBe(false);
   } finally {
     await api.dispose();
