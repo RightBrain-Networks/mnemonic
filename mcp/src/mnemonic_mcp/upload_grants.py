@@ -23,6 +23,7 @@ from pydantic import Field, StrictBool, StrictInt, field_serializer, model_valid
 from .api import MnemonicAPI
 from .artifact_models import (
     ArtifactClient,
+    ArtifactCreatorModel,
     ArtifactDescription,
     ArtifactFilename,
     ArtifactLinks,
@@ -45,6 +46,7 @@ class UploadMetadata(ArtifactModel):
     filename: ArtifactFilename
     agent_session_id: ArtifactSession
     actor_client: ArtifactClient
+    created_by_model: ArtifactCreatorModel | None = None
     description: ArtifactDescription = ""
     work_item_id: UUID | None = None
     related_work_item_ids: ArtifactLinks = Field(default_factory=list)
@@ -57,6 +59,10 @@ class UploadMetadata(ArtifactModel):
             value = getattr(self, field)
             if not value.strip() or any(ord(char) < 32 for char in value):
                 raise ValueError("Upload identifiers must be nonblank and control-free")
+        if self.created_by_model is not None and (
+            not self.created_by_model.strip() or any(ord(c) < 32 for c in self.created_by_model)
+        ):
+            raise ValueError("Model must be nonblank and control-free")
         if "/" in self.filename or "\\" in self.filename or "\x00" in self.description:
             raise ValueError("Invalid artifact filename or description")
         if "work_item_id" in self.model_fields_set and self.work_item_id is None:

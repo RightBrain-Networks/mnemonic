@@ -66,6 +66,7 @@ class UploadHandler(BaseHTTPRequestHandler):
             "sha256": hashlib.sha256(content).hexdigest(),
             "created_by_agent_session_id": metadata["agent_session_id"],
             "created_by_client": metadata["actor_client"],
+            "created_by_model": metadata.get("created_by_model"),
             "content_available": True,
             "deleted_at": None,
             "description": metadata.get("description", ""),
@@ -464,3 +465,9 @@ def test_invalid_preparation_never_creates_a_request(
     assert result.returncode == 1 and not result.stdout
     assert not request_dir.exists()
     assert not server.requests
+
+
+def test_prepare_retains_exact_creating_model(server, tmp_path):
+    directory = prepare(server, tmp_path, "--created-by-model", "provider/model-v1")
+    manifest = json.loads((directory / "request.json").read_text())
+    assert manifest["upload_intent"]["metadata"]["created_by_model"] == "provider/model-v1"

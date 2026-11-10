@@ -7,7 +7,7 @@ export const ARTIFACT_MUTATION_KINDS = ["upload_artifact", "replace_artifact", "
 
 const DEFINITIVE_ARTIFACT_ERRORS = new Map<number, ReadonlySet<string>>([
   [404, new Set(["project_not_found", "artifact_not_found", "artifact_work_item_not_found", "artifact_related_artifact_not_found"])],
-  [409, new Set(["artifact_revision_conflict", "artifact_filename_immutable", "artifact_origin_immutable"])],
+  [409, new Set(["artifact_revision_conflict", "artifact_filename_immutable", "artifact_origin_immutable", "artifact_creator_immutable"])],
   [410, new Set(["artifact_deleted"])],
   [413, new Set(["artifact_too_large"])],
   [415, new Set(["artifact_encoding_unsupported"])],

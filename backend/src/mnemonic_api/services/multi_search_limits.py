@@ -37,6 +37,7 @@ def check_artifact_metadata(database: Session, clauses) -> None:
         + func.coalesce(func.octet_length(Artifact.mime_type), 0)
         + func.coalesce(func.octet_length(Artifact.created_by_agent_session_id), 0)
         + func.coalesce(func.octet_length(Artifact.created_by_client), 0)
+        + func.coalesce(func.octet_length(Artifact.created_by_model), 0)
         + func.coalesce(
             func.octet_length(cast(ArtifactExtraction.extracted_metadata, Text)), 0,
         ) + 256

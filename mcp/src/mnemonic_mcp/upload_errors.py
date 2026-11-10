@@ -21,6 +21,7 @@ _KNOWN_ERRORS = {
         "artifact_revision_conflict",
         "artifact_filename_immutable",
         "artifact_origin_immutable",
+        "artifact_creator_immutable",
         "client_operation_conflict",
     },
     410: {"artifact_deleted"},

@@ -94,6 +94,8 @@ class ArtifactMutation:
 def _intent_metadata(metadata: ArtifactActor) -> dict[str, Any]:
     # Missing tags preserve prior assignments and the fingerprints of historical receipts.
     excluded = {"tags"} if "tags" not in metadata.model_fields_set else set()
+    if "created_by_model" not in metadata.model_fields_set:
+        excluded.add("created_by_model")
     return metadata.model_dump(mode="json", exclude=excluded)
 
 
@@ -252,6 +254,9 @@ def _validate_mutation(database: Session, artifact: Artifact, mutation: Artifact
             raise conflict(
                 "artifact_filename_immutable", "Replacement must keep the original name."
             )
+        if ("created_by_model" in mutation.metadata.model_fields_set
+                and mutation.metadata.created_by_model != artifact.created_by_model):
+            raise conflict("artifact_creator_immutable", "The creating model cannot change.")
         origin = mutation.metadata.work_item_id
         if origin is not None and origin != artifact.originating_work_item_id:
             raise conflict("artifact_origin_immutable", "The originating work item cannot change.")
@@ -275,6 +280,7 @@ def _create_identity(database: Session, mutation: ArtifactMutation) -> Artifact:
         relative_path=mutation.staged.relative_path,
         created_by_agent_session_id=metadata.agent_session_id,
         created_by_client=metadata.actor_client,
+        created_by_model=metadata.created_by_model,
         originating_work_item_id=metadata.work_item_id,
     )
     database.add(artifact)
@@ -572,7 +578,8 @@ def _metadata_match(model: Any, query: str):
     if model in (Artifact, ArtifactRevision):
         columns.extend([model.mime_type, model.sha256])
     if model is Artifact:
-        columns.extend([model.created_by_agent_session_id, model.created_by_client])
+        columns.extend([model.created_by_agent_session_id, model.created_by_client,
+                        model.created_by_model])
     else:
         columns.extend([model.agent_session_id, model.actor_client])
     if model is ArtifactAudit:

@@ -104,6 +104,7 @@ def _metadata(artifact: Artifact, extraction: ArtifactExtraction | None) -> dict
         "sha256": artifact.sha256,
         "agent_session_id": artifact.created_by_agent_session_id,
         "actor_client": artifact.created_by_client,
+        "created_by_model": artifact.created_by_model,
         "extracted": extraction.extracted_metadata if extraction and not artifact.sensitive else {},
     }
 

@@ -34,6 +34,13 @@ class ArtifactActor(ArtifactModel):
 
 
 class ArtifactUploadMetadata(ArtifactActor):
+    created_by_model: str | None = Field(default=None, min_length=1, max_length=200)
+
+    @field_validator("created_by_model")
+    @classmethod
+    def valid_model(cls, value: str | None) -> str | None:
+        return ArtifactActor.no_controls(value)
+
     filename: str = Field(min_length=1, max_length=255)
     sensitive: bool | None = None
     description: str | None = Field(default=None, max_length=4000)
@@ -112,6 +119,7 @@ class ArtifactRead(ArtifactModel):
     mime_type: str | None
     created_by_agent_session_id: str | None
     created_by_client: str | None
+    created_by_model: str | None = None
     originating_work_item_id: UUID | None
     related_work_item_ids: list[UUID] = Field(max_length=50)
     related_artifact_ids: list[UUID] = Field(default_factory=list, max_length=50)

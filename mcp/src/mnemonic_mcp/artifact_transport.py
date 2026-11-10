@@ -135,6 +135,7 @@ def _historical_replay_response(
             body.setdefault("related_artifact_ids", [])
         # Pre-tag permanent receipts retain their absent assignments.
         body.setdefault("tags", None)
+        body.setdefault("created_by_model", None)
     except (ValueError, TypeError, RecursionError):
         _raise_unexpected_response(method, path, effect=TransportEffect.RECEIPT_PROTECTED_WRITE)
     return httpx.Response(response.status_code, headers=response.headers,
@@ -180,6 +181,8 @@ def _metadata_matches(result: ArtifactRead, metadata: dict[str, object], *, crea
     if created and (result.created_by_agent_session_id != metadata["agent_session_id"] or (
         result.created_by_client != metadata["actor_client"]
     )):
+        return False
+    if "created_by_model" in metadata and result.created_by_model != metadata["created_by_model"]:
         return False
     if "description" in metadata and result.description != metadata["description"]:
         return False
