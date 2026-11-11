@@ -171,7 +171,7 @@ def test_omitted_tags_preserve_historical_receipt_fingerprints(api, project):
             ArtifactOperation.artifact_id == UUID(artifact["id"])))
         metadata = ArtifactUploadMetadata.model_validate(operation.intent["metadata"])
         old_metadata = metadata.model_dump(mode="json", exclude={"tags", "sensitive",
-                                                                  "related_artifact_ids"})
+                                                                  "related_artifact_ids", "created_by_model"})
         staged = operation.intent["staged"]
         body = {"kind": "upload", "artifact_id": artifact["id"], "metadata": old_metadata,
                 "expected_revision": None, "sha256": staged["sha256"],
