@@ -64,7 +64,8 @@ def receipt(request, uploaded):
             "sha256": uploaded.sha256,
             "mime_type": "application/octet-stream",
             "created_by_agent_session_id": "upload-session",
-            "created_by_client": "pytest",
+            "created_by_client": data["actor_client"],
+            "created_by_model": data.get("created_by_model"),
             "originating_work_item_id": None,
             "related_work_item_ids": [],
             "related_artifact_ids": [],
@@ -325,3 +326,13 @@ async def test_prepared_envelope_mistake_names_only_reviewed_fields(settings):
         })
     assert "private-key-sentinel" not in str(raised.value)
     assert "private-value-sentinel" not in str(raised.value)
+
+
+async def test_upload_grant_retains_creating_model(settings):
+    uploaded = intent(metadata={
+        "filename": "report.bin", "actor_client": "opencode",
+        "agent_session_id": "upload-session", "created_by_model": "provider/model-v1",
+    })
+    response, calls = await send(settings, uploaded)
+    assert response.status_code == 201, response.text
+    assert json.loads(calls[0].headers["x-artifact-metadata"])["created_by_model"] == "provider/model-v1"

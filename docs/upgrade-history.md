@@ -6,6 +6,14 @@ the current startup procedure. Begin with [Upgrade from any release](operations.
 then apply the prerequisites for each boundary your database crosses. No command here
 authorizes a production interruption or a downgrade.
 
+## 0.124.0: artifact creating model
+
+Migration `0073_artifact_creator_model` adds nullable `artifacts.created_by_model`
+and extends the immutable creator guard. Existing rows remain null; no model is
+inferred from client names. Uploaders can supply the exact LLM name/version via
+MCP or `--created-by-model` in the helper. The dashboard displays it alongside
+the client and session. Backup archives now declare the new schema head.
+
 ## Force claims with unresolved human gates (0.123.0)
 
 Upgrade API, worker, MCP and dashboard together with plugin 0.73.0 and migration

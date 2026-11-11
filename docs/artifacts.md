@@ -578,3 +578,11 @@ Broad content searches add a `sensitive_content_withheld` warning when applicabl
 zero result and per-term counts cover only accessible content. MCP upload limits
 are returned only where actionable (upload authorization/upload/replacement),
 not on ordinary reads or unrelated errors.
+
+Artifact upload metadata accepts optional `created_by_model` (1–200 characters,
+nonblank and control-free) for the exact creating LLM name/version, independently
+of `actor_client`. It is returned as `created_by_model` alongside
+`created_by_client`, searchable as metadata, and shown in artifact details.
+Existing artifacts and uploads without a known model retain null. Creator model
+is immutable across replacements and metadata edits; a supplied different model
+on replacement is rejected. The local upload helper accepts `--created-by-model`.

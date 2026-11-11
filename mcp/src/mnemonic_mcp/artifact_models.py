@@ -23,6 +23,7 @@ ArtifactRevision = Annotated[StrictInt, Field(ge=1)]
 ArtifactQuery = Annotated[str, Field(min_length=1, max_length=1000)]
 ArtifactSession = Annotated[str, Field(min_length=1, max_length=200)]
 ArtifactClient = Annotated[str, Field(min_length=1, max_length=80)]
+ArtifactCreatorModel = Annotated[str, Field(min_length=1, max_length=200)]
 ArtifactFilename = Annotated[str, Field(min_length=1, max_length=255)]
 ArtifactDescription = Annotated[str, Field(max_length=4000)]
 ArtifactLinks = Annotated[list[UUID], Field(max_length=50)]
@@ -81,6 +82,7 @@ class ArtifactRead(ArtifactModel):
     mime_type: Annotated[str, Field(max_length=100)] | None
     created_by_agent_session_id: ArtifactSession | None
     created_by_client: ArtifactClient | None
+    created_by_model: ArtifactCreatorModel | None = None
     originating_work_item_id: UUID | None
     related_work_item_ids: ArtifactStoredLinks
     related_artifact_ids: ArtifactLinks

@@ -616,3 +616,36 @@ def test_recall_omits_artifacts_with_unfinished_filesystem_intents(
     assert api.get(path).status_code == 200
     expected = 0 if kind == "delete" else 1
     assert api.get(item_path(project, work) + "/context").json()["artifact_total"] == expected
+
+
+def test_creating_model_is_searchable_and_immutable(api, project, postgres_engine):
+    artifact = upload(api, project, metadata={
+        "actor_client": "opencode", "created_by_model": "provider/model-v2026-11-10",
+    })
+    assert artifact["created_by_model"] == "provider/model-v2026-11-10"
+    path = collection(project) + "/" + artifact["id"]
+    matches = api.get(collection(project), params={"q": "model-v2026-11-10"}).json()
+    assert matches["items"][0]["id"] == artifact["id"]
+    searched = api.post(collection(project) + "/search-content", json={"q": "model-v2026-11-10"})
+    assert searched.status_code == 200, searched.text
+    assert searched.json()["items"][0]["artifact"]["id"] == artifact["id"]
+    replaced = api.put(path + "/content", content=b"replacement", headers=headers(
+        {"filename": artifact["filename"], "actor_client": "other-client"}, revision=1,
+    ))
+    assert replaced.status_code == 200, replaced.text
+    assert replaced.json()["created_by_model"] == artifact["created_by_model"]
+    rejected = api.put(path + "/content", content=b"changed", headers=headers(
+        {"filename": artifact["filename"], "created_by_model": "another-model"}, revision=2,
+    ))
+    assert rejected.status_code == 409, rejected.text
+    with pytest.raises(DBAPIError), postgres_engine.begin() as connection:
+        connection.execute(text("UPDATE artifacts SET created_by_model = 'forged' WHERE id = :id"),
+                         {"id": artifact["id"]})
+
+
+@pytest.mark.parametrize("model", ["", "   ", "bad\nmodel", "x" * 201])
+def test_invalid_creating_model_rejected(api, project, model):
+    response = api.post(collection(project), content=b"file", headers=headers(
+        {"filename": "file.txt", "created_by_model": model},
+    ))
+    assert response.status_code == 422, response.text

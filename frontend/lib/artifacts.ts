@@ -68,6 +68,8 @@ export interface Artifact {
   sensitive: boolean;
   related_artifact_ids: string[];
   created_by_agent_session_id: string | null;
+  created_by_client?: string | null;
+  created_by_model?: string | null;
   originating_work_item_id: string | null;
   related_work_item_ids: string[];
   extraction: ArtifactExtraction;
@@ -221,6 +223,8 @@ export function decodeArtifact(value: unknown, projectId: string, expectedArtifa
     || !row.related_artifact_ids.every(validUuid)
     || row.related_artifact_ids.some((id) => sameUuid(id, row.id))
     || !(row.created_by_agent_session_id === null || boundedText(row.created_by_agent_session_id, 200))
+    || !(row.created_by_model === undefined || row.created_by_model === null || boundedText(row.created_by_model, 200))
+    || !(row.created_by_client === undefined || row.created_by_client === null || boundedText(row.created_by_client, 80))
     || !(row.originating_work_item_id === null || validUuid(row.originating_work_item_id))
     || !Array.isArray(row.related_work_item_ids) || row.related_work_item_ids.length > 50
     || !row.related_work_item_ids.every(validUuid)) {

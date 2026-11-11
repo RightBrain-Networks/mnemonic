@@ -132,6 +132,11 @@ def metadata_of(args: argparse.Namespace) -> dict[str, Any]:
         raise UploadError(
             "Filename must be a basename; the API validates its storage policy."
         )
+    model = getattr(args, "created_by_model", None)
+    if model is not None:
+        if not model.strip() or len(model) > 200 or any(ord(c) < 32 for c in model):
+            raise UploadError("created_by_model must be nonblank, control-free, at most 200 chars.")
+        values["created_by_model"] = model
     if args.description is not None:
         if len(args.description) > 4000 or "\x00" in args.description:
             raise UploadError(
@@ -345,6 +350,7 @@ def verify_metadata(result: dict[str, Any], manifest: dict[str, Any]) -> None:
         "work_item_id": "originating_work_item_id",
         "sensitive": "sensitive",
         "tags": "tags",
+        "created_by_model": "created_by_model",
     }
     if manifest["artifact_id"] is None:
         fields.update(
@@ -410,8 +416,9 @@ def http_failure(error: HTTPError) -> UploadError:
         message = f"{location} needs operator repair. Stop retries until it is repaired. "
     elif error.code == 409 and code == "artifact_revision_conflict":
         message = "Artifact revision changed. Read current metadata before a new intent. "
-    elif code in {"artifact_origin_immutable", "artifact_filename_immutable"}:
+    elif code in {"artifact_origin_immutable", "artifact_filename_immutable", "artifact_creator_immutable"}:
         message = {
+            "artifact_creator_immutable": "The creating model cannot change. Omit it on replacement. ",
             "artifact_origin_immutable": "The originating work_item_id cannot change. ",
             "artifact_filename_immutable": "Replacement must keep the original filename. ",
         }[code]
@@ -644,6 +651,7 @@ def main() -> int:
     )
     staging.add_argument("--agent-session-id", required=True)
     staging.add_argument("--actor-client", required=True)
+    staging.add_argument("--created-by-model", help="Exact creating LLM name/version, when known")
     staging.add_argument(
         "--filename", help="Default: source basename; replacement needs original name"
     )

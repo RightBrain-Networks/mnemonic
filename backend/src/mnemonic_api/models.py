@@ -2029,6 +2029,7 @@ class Artifact(Base):
     mime_type: Mapped[str | None] = mapped_column(String(120))
     created_by_agent_session_id: Mapped[str | None] = mapped_column(String(200))
     created_by_client: Mapped[str | None] = mapped_column(String(80))
+    created_by_model: Mapped[str | None] = mapped_column(String(200))
     originating_work_item_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("work_items.id", ondelete="RESTRICT",
                    name="artifacts_originating_work_item_id_fkey")

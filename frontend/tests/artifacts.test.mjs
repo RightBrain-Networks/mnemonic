@@ -283,3 +283,13 @@ test("historical artifact receipts can omit tags only on explicit replay", async
   assert.equal(replayed.type, "success");
   assert.equal(replayed.artifact.tags, null);
 });
+
+
+test("artifact metadata retains creating model separately from client", () => {
+  const row = { ...metadata, created_by_client: "opencode", created_by_model: "provider/model-v1" };
+  assert.equal(decodeArtifact(row, project).created_by_model, "provider/model-v1");
+  assert.equal(decodeArtifact({ ...row, created_by_model: null }, project).created_by_model, null);
+  for (const value of ["", "x".repeat(201), 123]) {
+    assert.throws(() => decodeArtifact({ ...row, created_by_model: value }, project));
+  }
+});

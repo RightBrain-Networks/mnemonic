@@ -128,6 +128,7 @@ _APPLICATION_ERRORS = {
     "artifact_filename_unsafe": "Unsafe artifact filename. Use a safe original basename without paths or controls.",
     "artifact_filename_immutable": "Replacement must use the artifact's unchanged original filename.",
     "artifact_self_link": "An artifact cannot link to itself. Choose a different artifact in this project.",
+    "artifact_creator_immutable": "The artifact creating model cannot change; omit it on replacement or repeat the original value.",
     "artifact_origin_immutable": "An artifact's originating work item cannot change.",
     "artifact_link_limit": "An artifact supports at most 50 related work links and 50 related artifact links.",
     "artifact_too_large": "Artifact exceeds the configured upload size limit.",

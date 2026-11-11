@@ -22,6 +22,7 @@ def artifact(**overrides):
         "description": "Local report", "revision": 1, "size_bytes": len(CONTENT),
         "sha256": hashlib.sha256(CONTENT).hexdigest(), "mime_type": "application/pdf",
         "created_by_agent_session_id": "test-session", "created_by_client": "test-agent",
+        "created_by_model": None,
         "originating_work_item_id": WORK_ID, "related_work_item_ids": [],
         "related_artifact_ids": [], "sensitive": False, "tags": None,
         "created_at": NOW, "modified_at": NOW, "deleted_at": None, "content_available": True,
@@ -390,3 +391,35 @@ async def test_replacement_timeout_keeps_exact_receipt_and_limit_guidance(settin
     assert "Configured upload limit" not in str(raised.value)
     assert "private upstream diagnostic" not in str(raised.value)
     assert len(calls) == 1
+
+
+async def test_upload_retains_creating_model(settings):
+    args = {**upload_arguments(), "created_by_model": "provider/model-v1"}
+
+    def handler(request):
+        metadata = json.loads(request.headers["X-Artifact-Metadata"])
+        assert metadata["created_by_model"] == "provider/model-v1"
+        return httpx.Response(201, json=artifact(created_by_model="provider/model-v1"))
+
+    result = await call(settings, "upload_artifact", args, handler)
+    assert result["created_by_model"] == "provider/model-v1"
+
+
+def test_historical_artifact_receipt_can_omit_creating_model():
+    from uuid import UUID
+
+    from mnemonic_mcp.artifact_transport import parse_artifact_mutation_response
+
+    body = artifact()
+    body.pop("created_by_model")
+    response = httpx.Response(201, json=body, request=httpx.Request("POST", "http://api/artifacts"), headers={
+        "X-Client-Operation-ID": CLIENT_OPERATION_ID,
+        "X-Artifact-Operation-Replayed": "true",
+    })
+    parsed = parse_artifact_mutation_response(
+        response, "POST", "artifacts", UUID(CLIENT_OPERATION_ID),
+    )
+    assert parsed.created_by_model is None
+    response.headers["X-Artifact-Operation-Replayed"] = "false"
+    with pytest.raises(ToolError):
+        parse_artifact_mutation_response(response, "POST", "artifacts", UUID(CLIENT_OPERATION_ID))
