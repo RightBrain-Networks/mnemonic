@@ -62,6 +62,7 @@ CANONICAL_TOOLS = {
     "list_code_reviews", "get_code_review", "complete_code_review",
     "list_work_follow_ups", "get_work_follow_up", "respond_to_work_follow_up",
     "get_activity",
+    "query_activity",
     "get_project",
     "get_prompt",
     "list_job_completion_reports",
@@ -1435,8 +1436,8 @@ def validate_mcp_catalog(catalog: Any) -> None:
     """Require the exact tool set, annotations, and operation-ID boundaries."""
     tools_by_name = {entry.name: entry for entry in catalog.tools}
     require(
-        len(catalog.tools) == 79
-        and len(tools_by_name) == 79
+        len(catalog.tools) == 80
+        and len(tools_by_name) == 80
         and len(PROTECTED_MUTATION_TOOLS) == 25
         and set(tools_by_name) == CANONICAL_TOOLS,
         "Unexpected MCP tool catalog.",
@@ -1750,7 +1751,7 @@ async def check(args: argparse.Namespace, key: str) -> None:
                 await tool(session, "list_projects", {})
                 print(
                     f"PASS: REST {__version__} cross-project relationship contract shape, work-move, "
-                    "code-review contract, real MCP initialization, 79-tool catalog, "
+                    "code-review contract, real MCP initialization, 80-tool catalog, "
                     "exact twenty-three protected mutation "
                     "schemas/annotations, and REST-backed project listing"
                 )

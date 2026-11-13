@@ -663,8 +663,8 @@ on upload, replacement, or metadata update. Null clears artifact assignments;
 omitted update/replacement tags preserve them. Tag edits advance the artifact
 revision and retain history. New projects receive six editable starter tags.
 
-Application/API/MCP/dashboard 0.123.4, plugin 0.73.0 and Alembic
-`0072_force_claim_gates` ship together: 79 MCP tools, 25
+Application/API/MCP/dashboard 0.124.0, plugin 0.74.0 and Alembic
+`0073_project_changes` ship together: 80 MCP tools, 25
 receipt-protected MCP writes,
 38 REST receipt kinds, 32 protected browser mutations, 24 event types and three
 plugin skills. Existing projects default to Never/Never/off review settings;
@@ -676,6 +676,11 @@ backup, migrate, and deploy every coordinated surface together. Run both
 read-only `scripts/audit_project_activity.py` and
 `scripts/audit_code_reviews.py` at the current head; the activity audit also supports its
 explicit historical-head preflights.
+
+Use `help(topic="query_activity usage")` for bounded project-change summaries,
+timestamp windows, facets and checkpoint polling. Follow its complete-guidance
+link for filter semantics, pagination and historical coverage. See
+[project activity deltas](docs/project-activity-deltas.md) for the API contract.
 
 New installs initialize the private artifact named volume automatically. Existing bind installs
 retain the artifact directory and service identity through the bind overlay; see

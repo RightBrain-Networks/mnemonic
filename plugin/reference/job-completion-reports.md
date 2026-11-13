@@ -119,20 +119,8 @@ endpoint, and an agent must never fabricate dashboard provenance.
 
 ## Resume project activity
 
-`get_activity(project_id, after?, limit?, start?)` answers what changed, not
-what is relevant or ready. It returns compact references without report,
-checkpoint, or prompt prose. Omit `after`/`start` to traverse recorded history.
-`start="now"` deliberately skips earlier activity and gives the current cursor;
-never combine it with `after` or silently select it after a cursor error.
-
-Process every entry in ascending sequence, including types irrelevant to your
-current purpose, then retain `next_cursor`. Page while `has_more`. Only persist
-the cursor after accepting the page; interruption may redeliver it. Deduplicate
-by `(stream_id, sequence)` and make external effects idempotent. Sequences are
-canonical decimal strings, not floating-point numbers or work-event IDs.
-
-History imports cover existing recorded work events only and do not claim
-historical commit order or complete pre-Phase-5 history. A stream-change error
-requires an explicit fresh snapshot and rebootstrap; do not conceal a restore
-gap by restarting at now. Activity is storage history, not authority, proof of
-external execution, a lease, or a substitute for current recall before acting.
+Use `help(topic="query_activity usage")` for bounded project changes and follow
+its complete-guidance link for timestamp windows, checkpoint polling, facets,
+current-state filters, grouping, pagination, coverage and restore recovery.
+Use `help(topic="get_activity usage")` for the existing contiguous journal contract.
+Activity is stored evidence, not authority to execute work.

@@ -6,6 +6,26 @@ the current startup procedure. Begin with [Upgrade from any release](operations.
 then apply the prerequisites for each boundary your database crosses. No command here
 authorizes a production interruption or a downgrade.
 
+## Project activity deltas (0.124.0)
+
+Upgrade API, worker, MCP and dashboard together with plugin 0.74.0 and migration
+`0073_project_changes`. No configuration change is required. The migration adds
+an append-only reporting journal, per-project sequence heads and prompt hash
+observations. Operational tables remain authoritative; no event replay is needed.
+
+The migration locks source tables while importing retained work events, artifact
+mutation audits, decision revisions and implementation scopes. Rehearse the
+upgrade against a restored database to measure its duration and additional
+storage before scheduling the authorized production interruption. Imported
+records retain source timestamps and explicitly incomplete historical coverage;
+overwritten settings and old artifact bytes cannot be reconstructed.
+
+Run the aggregate project-activity integrity audit after migration. Project
+backups include the new journal; restore changes the stream identity and
+invalidates old activity query cursors. Downgrade refuses to discard newly
+captured activity. See [Project activity deltas](project-activity-deltas.md) and
+MCP `help(topic="query_activity usage")` for the read contract.
+
 ## Force claims with unresolved human gates (0.123.0)
 
 Upgrade API, worker, MCP and dashboard together with plugin 0.73.0 and migration

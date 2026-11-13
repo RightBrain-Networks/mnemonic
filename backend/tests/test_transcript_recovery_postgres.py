@@ -30,6 +30,7 @@ from mnemonic_api.transcript_job_queue import enqueue_transcript_jobs, handle_tr
 from mnemonic_api.transcript_snapshots import new_transcript_copy
 from mnemonic_jobs.ledger import PermanentJobError, RetryJob, claim_job, finish_job
 
+from .legacy_project_changes import invoke_legacy_downgrade
 from .test_artifact_extraction_migration_postgres import migrate
 from .test_leases_postgres import create_work, expire_lease, item_path
 from .test_transcript_imports_postgres import import_folder, source
@@ -372,8 +373,10 @@ def test_database_recovery_history_is_append_only_and_downgrade_is_guarded(
     with pytest.raises(IntegrityError, match="transcript recovery history is immutable"):
         with postgres_engine.begin() as connection:
             connection.execute(text(statement))
-    with pytest.raises(RuntimeError, match="recovery history cannot be safely downgraded"):
+    with pytest.raises(RuntimeError, match="Project change history exists"):
         migrate(postgres_engine, "0037_background_jobs", downgrade=True)
+    with pytest.raises(RuntimeError, match="recovery history cannot be safely downgraded"):
+        invoke_legacy_downgrade(postgres_engine, "0038_transcript_recovery")
 
 
 def test_database_pointer_rejects_another_transcripts_approval(

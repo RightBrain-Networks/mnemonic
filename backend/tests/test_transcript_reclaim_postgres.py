@@ -23,6 +23,7 @@ from mnemonic_api.transcript_objects import object_key
 from mnemonic_api.transcript_reclaim import apply_reclaim, plan_reclaim, snapshots
 
 from .conftest import BACKEND_DIR
+from .legacy_project_changes import discard_project_changes_for_legacy_fixture
 from .test_leases_postgres import expire_lease, item_path
 from .test_transcript_indexing_postgres import collection, register
 from .test_transcript_lifecycle_postgres import claim
@@ -63,6 +64,7 @@ def test_shared_migration_preserves_legacy_snapshots_and_refuses_unsafe_downgrad
     config = Config(str(BACKEND_DIR / 'alembic.ini'))
     before = snapshots(factory)
     with postgres_engine.begin() as connection:
+        discard_project_changes_for_legacy_fixture(connection)
         config.attributes['connection'] = connection
         command.downgrade(config, '0045_transcript_capacity')
         command.upgrade(config, 'head')
@@ -79,7 +81,7 @@ def test_shared_migration_preserves_legacy_snapshots_and_refuses_unsafe_downgrad
             command.downgrade(config, '0045_transcript_capacity')
     with postgres_engine.connect() as connection:
         assert connection.scalar(text('SELECT version_num FROM alembic_version')) == (
-            '0072_force_claim_gates')
+            '0073_project_changes')
     for row in snapshots(factory):
         with storage.open_copy(row.copy):
             pass

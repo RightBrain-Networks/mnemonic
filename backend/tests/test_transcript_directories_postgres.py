@@ -14,6 +14,7 @@ from mnemonic_api.transcript_copying import (
 )
 from mnemonic_api.transcript_indexing import claim_transcript_job, complete_transcript_job
 
+from .legacy_project_changes import discard_project_changes_for_legacy_fixture
 from .test_artifact_extraction_migration_postgres import migrate
 from .test_leases_postgres import create_work, expire_lease, item_path
 from .test_transcript_imports_postgres import import_folder, source
@@ -140,6 +141,8 @@ def test_migration_seeds_failed_sources_without_thousands_of_healthy_folders(
             lease_generation_id=record.lease_generation_id, client="codex", session_id="fixture",
             source_path="/sessions/broken/session.jsonl", kind="primary",
             copy_status="failed", copy_error_code="transcript_source_missing"))
+    with postgres_engine.begin() as connection:
+        discard_project_changes_for_legacy_fixture(connection)
     migrate(postgres_engine, "0068_artifact_tags", downgrade=True)
     migrate(postgres_engine, "head")
     with postgres_engine.connect() as connection:

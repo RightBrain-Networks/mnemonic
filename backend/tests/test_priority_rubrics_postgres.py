@@ -10,6 +10,10 @@ from sqlalchemy.exc import IntegrityError
 from mnemonic_api.priority_rubric import DEFAULT_PRIORITY_RUBRIC
 from mnemonic_backup.archive import restore_project
 
+from .legacy_project_changes import (
+    discard_project_changes_for_legacy_fixture,
+    invoke_legacy_downgrade,
+)
 from .test_artifact_extraction_migration_postgres import migrate
 from .test_leases_postgres import create_work, item_path
 from .test_project_backup_archive import _export
@@ -119,6 +123,8 @@ def test_database_rubric_edits_require_a_revision_increment(postgres_engine, pro
 def test_migration_seeds_existing_projects_and_keeps_customizations_on_upgrade(
     api, project, postgres_engine,
 ):
+    with postgres_engine.begin() as connection:
+        discard_project_changes_for_legacy_fixture(connection)
     migrate(postgres_engine, "0050_manual_review_modes", downgrade=True)
     migrate(postgres_engine, "head")
     assert api.get(path(project)).json()["content"] == DEFAULT_PRIORITY_RUBRIC
@@ -126,7 +132,7 @@ def test_migration_seeds_existing_projects_and_keeps_customizations_on_upgrade(
     migrate(postgres_engine, "head")
     assert api.get(path(project)).json() == saved
     with pytest.raises(RuntimeError, match="Customized priority rubrics"):
-        migrate(postgres_engine, "0050_manual_review_modes", downgrade=True)
+        invoke_legacy_downgrade(postgres_engine, "0051_priority_rubrics")
     assert api.get(path(project)).json() == saved
 
 

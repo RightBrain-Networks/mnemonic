@@ -8,6 +8,10 @@ from sqlalchemy import text
 
 from mnemonic_api.transcript_job_queue import enqueue_transcript_jobs
 
+from .legacy_project_changes import (
+    discard_project_changes_for_legacy_fixture,
+    invoke_legacy_downgrade,
+)
 from .test_artifact_extraction_migration_postgres import migrate
 from .test_leases_postgres import expire_lease
 from .test_transcript_indexing_postgres import collection, register, run
@@ -34,12 +38,14 @@ def test_populated_transcript_data_blocks_downgrade(
     with postgres_engine.connect() as connection:
         before = connection.scalar(text(f"SELECT count(*) FROM {populated}"))
     assert before == 1
-    with pytest.raises(RuntimeError, match="cannot be safely downgraded"):
+    with pytest.raises(RuntimeError, match="Project change history exists"):
         migrate(postgres_engine, "0031_review_decisions", downgrade=True)
+    with pytest.raises(RuntimeError, match="cannot be safely downgraded"):
+        invoke_legacy_downgrade(postgres_engine, "0032_agent_transcripts")
     with postgres_engine.connect() as connection:
         assert connection.scalar(text(f"SELECT count(*) FROM {populated}")) == before
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) \
-            == "0072_force_claim_gates"
+            == "0073_project_changes"
 
 
 def test_empty_transcript_schema_downgrades_and_upgrades(pristine_postgres_engine):
@@ -60,13 +66,15 @@ def test_import_receipts_and_sources_prevent_downgrade(api, project, tmp_path,
     if with_sources:
         source(tmp_path)
     receipt = import_folder(api, project, tmp_path).json()
-    with pytest.raises(RuntimeError, match="imports cannot be safely downgraded"):
+    with pytest.raises(RuntimeError, match="Project change history exists"):
         migrate(postgres_engine, "0032_agent_transcripts", downgrade=True)
+    with pytest.raises(RuntimeError, match="imports cannot be safely downgraded"):
+        invoke_legacy_downgrade(postgres_engine, "0033_transcript_imports")
     with postgres_engine.connect() as connection:
         assert connection.scalar(text("SELECT count(*) FROM transcript_imports")) == 1
         assert connection.scalar(text("SELECT count(*) FROM transcripts")) == int(with_sources)
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) \
-            == "0072_force_claim_gates"
+            == "0073_project_changes"
     assert import_folder(api, project, tmp_path, receipt["client_operation_id"]).json() == receipt
 
 
@@ -84,8 +92,11 @@ def test_copy_migration_blocks_rollback_without_changing_enrollment_or_receipts(
     assert run(api)
     before = read(api, project, record)
     message = "(transcript copies|normalized conversations) cannot be safely downgraded"
-    with pytest.raises(RuntimeError, match=message):
+    with pytest.raises(RuntimeError, match="Project change history exists"):
         migrate(postgres_engine, "0032_agent_transcripts", downgrade=True)
+    for revision in ("0036_transcript_copies", "0040_normalized_transcripts"):
+        with pytest.raises(RuntimeError, match=message):
+            invoke_legacy_downgrade(postgres_engine, revision)
     assert read(api, project, record) == before
     assert before["sha256"] == original["sha256"]
     assert api.post(collection(project) + "/rebuild", json=rebuild).json() == response
@@ -94,6 +105,8 @@ def test_copy_migration_blocks_rollback_without_changing_enrollment_or_receipts(
 def test_populated_0035_upgrade_queues_every_source_and_preserves_ready_evidence(
     api, project, postgres_engine, tmp_path,
 ):
+    with postgres_engine.begin() as connection:
+        discard_project_changes_for_legacy_fixture(connection)
     migrate(postgres_engine, "0035_prompt_library", downgrade=True)
     identities = {status: uuid4() for status in ("ready", "failed", "processing")}
     retained_text = "user: Legacy evidence must survive the storage migration."
@@ -134,7 +147,7 @@ def test_populated_0035_upgrade_queues_every_source_and_preserves_ready_evidence
         after = {row["id"]: dict(row) for row in connection.execute(
             text("SELECT * FROM transcripts")).mappings()}
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) \
-            == "0072_force_claim_gates"
+            == "0073_project_changes"
         assert connection.scalar(text("SELECT count(*) FROM background_jobs")) == 0
     for status, identity in identities.items():
         row = after[identity]

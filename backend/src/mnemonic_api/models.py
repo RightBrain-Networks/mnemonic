@@ -39,6 +39,7 @@ from mnemonic_api import knowledge_db as knowledge
 from mnemonic_api import manual_review_db as manual_reviews
 from mnemonic_api import phase12_db_tables as phase12
 from mnemonic_api import product_decision_db as product_decisions
+from mnemonic_api import project_changes_db as project_changes
 from mnemonic_api import provenance_db as provenance
 from mnemonic_api import transcript_db_tables as transcripts
 from mnemonic_api import work_inheritance_db as work_inheritance
@@ -102,6 +103,47 @@ class Project(Base):
     repository_url: Mapped[str | None] = mapped_column(String(2000))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class ProjectChangeHead(Base):
+    __table__ = Table("project_change_heads", Base.metadata, *project_changes.head_elements())
+
+    project_id: Mapped[UUID]
+    last_sequence: Mapped[int]
+    capture_started_at: Mapped[datetime]
+
+
+class ProjectChange(Base):
+    __table__ = Table("project_changes", Base.metadata, *project_changes.change_elements())
+
+    project_id: Mapped[UUID]
+    sequence: Mapped[int]
+    resource_type: Mapped[str]
+    resource_id: Mapped[UUID]
+    operation: Mapped[str]
+    occurred_at: Mapped[datetime]
+    recorded_at: Mapped[datetime]
+    title: Mapped[str]
+    revision: Mapped[str | None]
+    changed_fields: Mapped[list[str]]
+    before_state: Mapped[dict[str, Any]]
+    after_state: Mapped[dict[str, Any]]
+    domain_id: Mapped[UUID | None]
+    domain_prefix: Mapped[str | None]
+    tags: Mapped[list[str] | None]
+    work_status: Mapped[str | None]
+    origin: Mapped[str]
+
+
+class ProjectPromptObservation(Base):
+    __tablename__ = "project_prompt_observations"
+
+    project_id: Mapped[UUID] = mapped_column(
+        ForeignKey("projects.id", ondelete="RESTRICT"), primary_key=True)
+    prompt_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    sha256: Mapped[str] = mapped_column(String(64))
+    observed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.clock_timestamp())
 
 
 class ProjectBackupSettings(Base):

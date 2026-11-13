@@ -10,6 +10,7 @@ from mnemonic_api.decision_change_integrity import DECISION_CHANGE_FINDINGS
 from mnemonic_api.decision_review_integrity import DECISION_REVIEW_FINDINGS
 from mnemonic_api.knowledge_deletion_integrity import DELETION_FINDINGS, historical_graph_checks
 from mnemonic_api.knowledge_integrity import DOMAIN_REVIEW_FINDINGS, KNOWLEDGE_FINDINGS
+from mnemonic_api.project_change_integrity import PROJECT_CHANGE_FINDINGS
 from mnemonic_api.transcript_recovery_db import RECOVERY_FINDINGS
 from mnemonic_api.work_inheritance_db import INHERITANCE_FINDINGS
 from mnemonic_backup.archive_schema import HEAD, BackupError
@@ -43,6 +44,7 @@ def validate_integrity(connection: Connection) -> None:
     checks.update(DECISION_REVIEW_FINDINGS)
     checks.update(DECISION_CHANGE_FINDINGS)
     checks.update(INHERITANCE_FINDINGS)
+    checks.update(PROJECT_CHANGE_FINDINGS)
     for name in ("_ACTIVITY_FINDINGS", "_REPORT_FINDINGS", "_REFERENCE_FINDINGS",
                  "_MOVE_FINDINGS", "_CROSS_PROJECT_RELATIONSHIP_FINDINGS", "_ARTIFACT_FINDINGS",
                  "_PRECEDENCE_FINDINGS"):

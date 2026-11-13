@@ -256,11 +256,11 @@ def test_expanded_report_history_is_retained_and_prevents_lossy_downgrade(
     detail = api.get(base + f"/job-completion-reports/{report['id']}")
     assert detail.json()["report"]["authoring_prompt"] == settings["job_completion_report_prompt"]
     config = Config(str(Path(__file__).parents[1] / "alembic.ini"))
-    with pytest.raises(RuntimeError, match="Decision provenance exists"):
+    with pytest.raises(RuntimeError, match="Project change history exists"):
         with postgres_engine.begin() as connection:
             config.attributes["connection"] = connection
             command.downgrade(config, "0034_variable_work_leases")
-    # The newer provenance guard stops a full downgrade first. Exercise the
+    # The newer change-history guard stops a full downgrade first. Exercise the
     # original prompt guard independently without deleting retained provenance.
     revision = ScriptDirectory.from_config(config).get_revision("0035_prompt_library")
     with pytest.raises(RuntimeError, match="Expanded report history"):
@@ -270,7 +270,7 @@ def test_expanded_report_history_is_retained_and_prevents_lossy_downgrade(
     with postgres_engine.connect() as connection:
         assert (
             connection.scalar(text("SELECT version_num FROM alembic_version"))
-            == "0072_force_claim_gates"
+            == "0073_project_changes"
         )
 
 

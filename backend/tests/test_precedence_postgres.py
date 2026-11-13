@@ -6,6 +6,10 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
+from .legacy_project_changes import (
+    discard_project_changes_for_legacy_fixture,
+    invoke_legacy_downgrade,
+)
 from .report_fixtures import reported
 from .test_relationships_postgres import (
     add_relationship,
@@ -340,6 +344,7 @@ def test_upgrade_preserves_legacy_cycle_for_read_diagnosis(
     config = Config(str(BACKEND_DIR / "alembic.ini"))
     with postgres_engine.begin() as connection:
         config.attributes["connection"] = connection
+        discard_project_changes_for_legacy_fixture(connection)
         command.downgrade(config, "0051_priority_rubrics")
         _insert_reverse(connection, project, left, right)
     with postgres_engine.begin() as connection:
@@ -354,11 +359,6 @@ def test_downgrade_cannot_erase_a_required_child_contract(
     work_payload,
     postgres_engine,
 ):
-    from alembic import command
-    from alembic.config import Config
-
-    from .conftest import BACKEND_DIR
-
     parent = create(api, project, work_payload, "Protected parent")
     child = create(api, project, work_payload, "Protected child")
     add_relationship(
@@ -369,10 +369,7 @@ def test_downgrade_cannot_erase_a_required_child_contract(
             "requires_child_closeout": True,
         },
     )
-    config = Config(str(BACKEND_DIR / "alembic.ini"))
     with pytest.raises(RuntimeError, match="cannot erase their semantics"):
-        with postgres_engine.begin() as connection:
-            config.attributes["connection"] = connection
-            command.downgrade(config, "0051_priority_rubrics")
+        invoke_legacy_downgrade(postgres_engine, "0052_dependency_cycles")
     context = api.get(f"{work_path(project, parent)}/context").json()
     assert context["outgoing_relationships"][0]["relationship"]["requires_child_closeout"] is True

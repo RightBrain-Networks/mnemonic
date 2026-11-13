@@ -58,6 +58,7 @@ CANONICAL_TOOL_NAMES = {
     "list_code_reviews", "get_code_review", "complete_code_review",
     "list_work_follow_ups", "get_work_follow_up", "respond_to_work_follow_up",
     "get_activity",
+    "query_activity",
     "get_project",
     "get_prompt",
     "list_job_completion_reports",
@@ -206,7 +207,7 @@ def test_http_protocol_initialize_list_and_call(settings, work_context):
         listed = client.post("/mcp", json={"jsonrpc": "2.0", "id": 2, "method": "tools/list"}, headers=JSON_HEADERS)
         assert listed.status_code == 200
         listed_tools = listed.json()["result"]["tools"]
-        assert len(listed_tools) == 79
+        assert len(listed_tools) == 80
         assert_serialized_tool_contract(listed_tools)
         assert all(
             tool["inputSchema"].get("additionalProperties") is False
@@ -478,7 +479,7 @@ async def test_stdio_transport_handshake_and_catalog():
             assert len(initialized.instructions) <= 1200
             assert "unimplemented" not in initialized.instructions.casefold()
             result = await session.list_tools()
-            assert len(result.tools) == 79
+            assert len(result.tools) == 80
             assert all(tool.outputSchema is not None for tool in result.tools if tool.name != "help")
             assert next(tool for tool in result.tools if tool.name == "help").outputSchema is None
             assert all(

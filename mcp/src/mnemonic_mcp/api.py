@@ -173,6 +173,22 @@ _APPLICATION_ERRORS = {
     "invalid_prompt": "The project prompt is invalid; ask the operator to review it in Settings > Prompts.",
     "project_settings_changed": "Project settings changed. Read current settings before editing.",
     "invalid_activity_cursor": "That activity cursor is invalid for this project or head.",
+    "activity_query_invalid": (
+        "Invalid activity query. Read help(topic='query_activity usage') and the field schema."
+    ),
+    "invalid_activity_query_cursor": (
+        "Activity query cursor or checkpoint scope is invalid. Repeat the original scope with "
+        "its exact token; changing facets, filters or view requires a fresh query. "
+        "Do not substitute a legacy get_activity cursor."
+    ),
+    "activity_query_unavailable": (
+        "Project change history is unavailable; retry this safe read later and report the gap."
+    ),
+    "activity_query_too_large": (
+        "Activity query or one result exceeds the byte limit. Narrow the scope; "
+        "if one result still fails, report incomplete coverage."
+    ),
+    "activity_query_timeout": "Activity query timed out; retry this safe read with narrower bounds.",
     "invalid_report_cursor": "That report cursor is invalid for this project or filter.",
     "activity_stream_changed": (
         "The project activity stream changed. Establish an explicit fresh snapshot before "

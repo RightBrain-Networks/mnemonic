@@ -1,16 +1,23 @@
 """External reference persistence, ledger, discovery and replay against PostgreSQL."""
 
 import json
+import runpy
 from uuid import uuid4
 
 import pytest
 from alembic import command
 from alembic.config import Config
+from alembic.migration import MigrationContext
+from alembic.operations import Operations
+from alembic.script import ScriptDirectory
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 
 from .conftest import BACKEND_DIR
 from .test_external_references import FIXTURE, REFERENCE
+from .test_phase6_migration_postgres import (
+    empty_phase6_migration_engine as empty_phase6_migration_engine,
+)
 from .test_work_items_postgres import collection, create_work, item_path
 
 pytestmark = pytest.mark.postgres
@@ -225,12 +232,18 @@ def test_empty_feature_downgrade_restores_predecessor_and_refuses_cleared_histor
     project,
     work_payload,
     postgres_engine,
+    empty_phase6_migration_engine,
 ):
     work = create_work(api, project, work_payload)["work_item"]
     config = Config(str(BACKEND_DIR / "alembic.ini"))
-    with postgres_engine.begin() as connection:
+    # Run the predecessor roundtrip in a historical schema. The current project's
+    # newer immutable change history must not be erased to test this older feature.
+    seeder = runpy.run_path(str(BACKEND_DIR.parent / "scripts/seed_e2e_historical_completion.py"))
+    with empty_phase6_migration_engine.begin() as connection:
         config.attributes["connection"] = connection
-        command.downgrade(config, "0021_job_completion_reports")
+        command.upgrade(config, "0018_repository_freshness")
+        seeder["seed_historical_completion"](connection, uuid4())
+        command.upgrade(config, "0021_job_completion_reports")
         rows = connection.execute(text("SELECT to_jsonb(w) FROM work_items w")).scalars().all()
         functions = connection.execute(
             text(
@@ -257,7 +270,6 @@ def test_empty_feature_downgrade_restores_predecessor_and_refuses_cleared_histor
             ).all()
             == functions
         )
-        command.upgrade(config, "head")
     path = item_path(project, work)
     assert (
         api.patch(
@@ -268,12 +280,15 @@ def test_empty_feature_downgrade_restores_predecessor_and_refuses_cleared_histor
     assert (
         api.patch(path, json={"expected_version": 2, "external_references": []}).status_code == 200
     )
-    with (
-        pytest.raises(RuntimeError, match="Cannot downgrade"),
-        postgres_engine.begin() as connection,
-    ):
-        config.attributes["connection"] = connection
-        command.downgrade(config, "0021_job_completion_reports")
+    with pytest.raises(RuntimeError, match="Project change history exists"):
+        with postgres_engine.begin() as connection:
+            config.attributes["connection"] = connection
+            command.downgrade(config, "0021_job_completion_reports")
+    revision = ScriptDirectory.from_config(config).get_revision("0022_external_references")
+    with pytest.raises(RuntimeError, match="Cannot downgrade"):
+        with postgres_engine.begin() as connection:
+            with Operations.context(MigrationContext.configure(connection)):
+                revision.module.downgrade()
 
 
 def test_alias_ownership_filters_and_counterpart_hierarchy_projection(
@@ -512,9 +527,10 @@ def test_downgrade_waits_for_writer_before_checking_reference_history(
         with postgres_engine.begin() as connection:
             connection.execute(text("SET application_name='external-downgrade-race'"))
             config = Config(str(BACKEND_DIR / "alembic.ini"))
-            config.attributes["connection"] = connection
+            revision = ScriptDirectory.from_config(config).get_revision("0022_external_references")
             started.set()
-            command.downgrade(config, "0021_job_completion_reports")
+            with Operations.context(MigrationContext.configure(connection)):
+                revision.module.downgrade()
 
     with ThreadPoolExecutor(max_workers=1) as executor:
         with postgres_engine.begin() as writer:
@@ -539,11 +555,11 @@ def test_downgrade_waits_for_writer_before_checking_reference_history(
                 sleep(0.01)
             assert waiting, "Downgrade must wait for the existing writer"
         with pytest.raises(RuntimeError, match="Cannot downgrade"):
-            # Finish the full migration chain and rollback after the writer releases its lock.
+            # The original feature guard runs after the writer releases its lock.
             result.result(timeout=10)
     with postgres_engine.connect() as connection:
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
-            "0072_force_claim_gates"
+            "0073_project_changes"
         )
         assert connection.scalar(
             text("SELECT external_references FROM work_items WHERE id=:id"), {"id": work["id"]}

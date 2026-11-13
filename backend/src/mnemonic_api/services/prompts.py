@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session, object_session
 from mnemonic_api.errors import ApplicationError, conflict
 from mnemonic_api.models import CodeReview, CodeReviewScope, ProjectSettings
 from mnemonic_api.prompt_storage import PromptStorage, validate_prompt
+from mnemonic_api.services.prompt_observations import observe_prompt
 from mnemonic_api.services.work_items import require_project, require_work_item
 
 MACROS = {
@@ -74,6 +75,11 @@ def synchronize_settings(database: Session, settings: ProjectSettings) -> None:
             settings.project_id, "job-completion-report"
         ).revision,
     }
+    observe_prompt(database, settings.project_id, "recall-pointer", values["recall_pointer_sha256"])
+    observe_prompt(
+        database, settings.project_id, "job-completion-report",
+        values["job_completion_report_prompt_sha256"],
+    )
     if all(getattr(settings, key) == value for key, value in values.items()):
         return
     if settings.revision == 2**63 - 1:

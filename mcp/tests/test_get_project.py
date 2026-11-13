@@ -142,7 +142,7 @@ async def test_get_project_replaces_old_tool_and_exposes_safe_help(settings):
 
     catalog = {tool.name: tool for tool in await adapter(settings, forbidden).list_tools()}
     assert "get_project_settings" not in catalog
-    assert len(catalog) == 79
+    assert len(catalog) == 80
     tool = catalog["get_project"]
     assert tool.annotations.readOnlyHint is True
     assert tool.annotations.idempotentHint is True

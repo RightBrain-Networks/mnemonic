@@ -13,11 +13,14 @@ previous bundled rubric. Edits are retained in PostgreSQL and project backups.
 
 Use [unified search](search.md) to retrieve work, artifacts, transcripts, and decisions in one
 ranked, filtered, paginated read through REST or MCP.
+Use [project activity deltas](project-activity-deltas.md) for bounded change windows,
+resource summaries and polling checkpoints through MCP `query_activity` or the safe-read
+`POST /projects/{project_id}/activity/query`.
 
 See [AGENTS.md](../AGENTS.md#versioning) for the coordinated application, plugin,
 and migration versions. See [knowledge graph](knowledge-graph.md) for retained
 decision revisions and commit provenance, and [dependency cycles](dependency-cycles.md) for explicit
-parent closure requirements, cycle refusal, and honest deadlock display. The catalog has exactly 79 MCP tools, 25
+parent closure requirements, cycle refusal, and honest deadlock display. The catalog has exactly 80 MCP tools, 25
 protected MCP writes, 38 REST receipt kinds, 32 protected browser mutations and
 24 work-event types. The 38 REST receipt kinds comprise 18 work operations, ten knowledge operations, four artifact operations
 with filesystem recovery journals, four project-tag operations, and two transcript operations (rebuild and import). See

@@ -6,6 +6,7 @@ from sqlalchemy.exc import IntegrityError
 
 from mnemonic_api.prompt_storage import default_prompt
 
+from .legacy_project_changes import discard_project_changes_for_legacy_fixture
 from .test_artifact_extraction_migration_postgres import migrate
 from .test_project_reports_postgres import create
 from .test_prompt_library_postgres import save_prompt
@@ -42,6 +43,8 @@ def test_database_requires_valid_policy_and_exact_revision(postgres_engine, proj
 
 
 def test_migration_defaults_existing_domains_to_off(api, project, postgres_engine):
+    with postgres_engine.begin() as connection:
+        discard_project_changes_for_legacy_fixture(connection)
     migrate(postgres_engine, "0056_product_decisions", downgrade=True)
     migrate(postgres_engine, "head")
     domains = api.get(f"/api/v1/projects/{project['id']}/knowledge/domains").json()["items"]

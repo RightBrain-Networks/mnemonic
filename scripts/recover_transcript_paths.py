@@ -40,7 +40,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
-HEAD = "0072_force_claim_gates"
+HEAD = "0073_project_changes"
 MAX_MANIFEST_BYTES = 8 * 1024 * 1024
 
 

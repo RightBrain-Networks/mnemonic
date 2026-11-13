@@ -310,13 +310,14 @@ and partial pages.
 
 ## Read changes or human summaries
 
-Use `get_activity` to retrieve committed changes after an exact retained cursor,
-then read current work before acting. Use `list_job_completion_reports` and
+For bounded changes, polling, facet filters and compact summaries, read
+`help(topic="query_activity usage")` and follow its complete-guidance link.
+For the existing contiguous journal, read `help(topic="get_activity usage")`.
+Use `list_job_completion_reports` and
 `get_job_completion_report` when the user wants concise closeout outcomes and
 FYIs. These safe reads create no mutation UUID, mark nothing read or dismissed,
 and grant no permission to execute. Follow the shared report reference for
-ordered pagination, imported-history limits, stream changes, and exact-source
-report history after reopen, merge, or deletion.
+exact-source report history after reopen, merge, or deletion.
 
 ## External records
 

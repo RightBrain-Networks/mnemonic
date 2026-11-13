@@ -6,6 +6,7 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 
+from .legacy_project_changes import discard_project_changes_for_legacy_fixture
 from .test_human_gates_postgres import (
     collection,
     create_work,
@@ -121,6 +122,7 @@ def test_question_migration_preserves_original_prose_and_refuses_used_rollback(
     config = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
     with postgres_engine.begin() as connection:
         config.attributes["connection"] = connection
+        discard_project_changes_for_legacy_fixture(connection)
         command.downgrade(config, "0029_artifact_links_sensitive")
         connection.execute(text("""
             INSERT INTO work_gates(id,project_id,work_item_id,question,requested_by_client,

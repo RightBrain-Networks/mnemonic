@@ -11,6 +11,7 @@ from mnemonic_api.models import Transcript
 from mnemonic_api.services.transcripts import rebuild_transcripts
 from mnemonic_api.transcript_indexing import index_next_transcript
 
+from .legacy_project_changes import discard_project_changes_for_legacy_fixture
 from .test_leases_postgres import expire_lease
 from .test_transcript_indexing_postgres import read, register, run
 
@@ -172,6 +173,8 @@ def test_upgrade_backfills_session_times_without_touching_capture_or_jobs(
     from .transcript_legacy import restore_legacy_native_layout
 
     restore_legacy_native_layout(api)
+    with postgres_engine.begin() as connection:
+        discard_project_changes_for_legacy_fixture(connection)
     migrate(postgres_engine, "0043_transcript_source_identity", downgrade=True)
     with postgres_engine.begin() as connection:
         # Reproduce an old record with no derived timeline properties.

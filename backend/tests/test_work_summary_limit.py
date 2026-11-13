@@ -12,6 +12,10 @@ from mnemonic_api.config import Settings
 from mnemonic_api.main import create_app
 
 from .conftest import TEST_API_KEY
+from .legacy_project_changes import (
+    discard_project_changes_for_legacy_fixture,
+    invoke_legacy_downgrade,
+)
 from .test_artifact_extraction_migration_postgres import migrate
 
 
@@ -124,6 +128,8 @@ def test_migration_preserves_summary_receipt_and_search(
     created = api.post(path, json=body)
     assert created.status_code == 201, created.text
     # Keep current services on the current schema; migrate the retained rows offline.
+    with postgres_engine.begin() as connection:
+        discard_project_changes_for_legacy_fixture(connection)
     migrate(postgres_engine, "0027_artifact_fulltext", downgrade=True)
     migrate(postgres_engine, "head")
     assert api.post(path, json=body).json() == created.json()
@@ -151,7 +157,7 @@ def test_downgrade_refuses_long_history_even_after_shortening(
         "expected_version": 1, "summary": "Short now",
     }).status_code == 200
     with pytest.raises(RuntimeError, match="cannot be safely downgraded"):
-        migrate(postgres_engine, "0027_artifact_fulltext", downgrade=True)
+        invoke_legacy_downgrade(postgres_engine, "0028_work_summary_limit")
 
 
 

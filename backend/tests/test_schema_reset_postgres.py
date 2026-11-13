@@ -66,6 +66,7 @@ _AUDIT_VISIBLE_DAMAGE = (
 )
 
 _GUARDED_TABLES = (
+    "project_changes", "project_change_heads",
     "project_product_decision_domains", "product_decision_requests",
     "knowledge_domains", "knowledge_deleted_edges",
     "decision_documents", "decision_revisions", "decision_relationships",

@@ -9,6 +9,7 @@ from sqlalchemy.exc import DBAPIError
 
 from mnemonic_api.impact_integrity import IMPACT_FINDINGS
 from mnemonic_backup.archive import BackupError, restore_project
+from tests.legacy_project_changes import invoke_legacy_downgrade
 from tests.test_decision_reviews_postgres import settings
 from tests.test_impact_findings_postgres import append, review
 from tests.test_knowledge_postgres import path
@@ -41,7 +42,17 @@ def assert_snapshot_after_tag_reseed(actual, expected):
                 for row in rows}
 
     assert definitions(actual) == definitions(expected)
-    assert {**actual, 'project_tags': expected['project_tags']} == expected
+    # The fixture explicitly discards the new journal to construct pre-0073 history.
+    # Re-upgrade imports retained evidence and establishes a fresh capture baseline.
+    changes = actual['project_changes']
+    assert changes and all(row['origin'] == 'history_import' for row in changes)
+    head, = actual['project_change_heads']
+    assert head['last_sequence'] == len(changes)
+    assert sorted(row['sequence'] for row in changes) == list(range(1, len(changes) + 1))
+    excluded = {'project_tags', 'project_changes', 'project_change_heads'}
+    assert {key: value for key, value in actual.items() if key not in excluded} == {
+        key: value for key, value in expected.items() if key not in excluded
+    }
 
 
 def test_nullable_migration_preserves_legacy_receipts_and_allows_empty_metadata_downgrade(
@@ -77,7 +88,7 @@ def test_downgrade_refuses_to_discard_either_kind_of_authored_metadata(
     settings(api, project, automatic_decision_reviews=False, decision_review_priority=40)
     before = _snapshot(postgres_engine, project)
     with pytest.raises(RuntimeError, match="cannot be safely downgraded"):
-        migrate(postgres_engine, "0062_review_scope_notices", downgrade=True)
+        invoke_legacy_downgrade(postgres_engine, "0063_impact_findings")
     assert _snapshot(postgres_engine, project) == before
 
 

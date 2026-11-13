@@ -2322,6 +2322,7 @@ def _register_interface(server: FastMCP, api: MnemonicAPI) -> None:
 
 
 def build_server(settings: Settings, api: MnemonicAPI | None = None) -> FastMCP:
+    from .activity_query_tools import register_activity_query_tool
     from .artifact_tools import register_artifact_tools
     from .code_review_tools import register_code_review_tools
     from .command_help import register_help_tool
@@ -2355,6 +2356,7 @@ def build_server(settings: Settings, api: MnemonicAPI | None = None) -> FastMCP:
     register_tag_tools(server, api)
     register_uuid_tool(server)
     register_phase12_tools(server, api)
+    register_activity_query_tool(server, api)
     register_prompt_tool(server, api)
     register_code_review_tools(server, api)
     register_artifact_tools(server, api)

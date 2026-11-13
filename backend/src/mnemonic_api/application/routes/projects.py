@@ -31,6 +31,7 @@ from mnemonic_api.schemas import (
 )
 from mnemonic_api.services.project_mutations import project_mutation
 from mnemonic_api.services.project_overview import project_overview
+from mnemonic_api.services.prompt_observations import observe_prompt
 from mnemonic_api.services.prompts import render_prompt, storage_for, synchronize_settings
 from mnemonic_api.services.work_items import require_project
 
@@ -204,6 +205,7 @@ def update_project_settings(
                     default_prompt(prompt_id) if value is None else value,
                     getattr(settings, hash_field),
                 )
+                observe_prompt(database, project_id, prompt_id, saved.revision)
                 if getattr(settings, hash_field) != saved.revision:
                     changed = True
                     setattr(settings, hash_field, saved.revision)
