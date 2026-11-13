@@ -6,11 +6,16 @@ from threading import Barrier
 from uuid import UUID, uuid4
 
 import pytest
+from alembic.config import Config
+from alembic.migration import MigrationContext
+from alembic.operations import Operations
+from alembic.script import ScriptDirectory
 from sqlalchemy import text
 
 from mnemonic_backup.archive import restore_project
 
 from .code_review_fixtures import claim_review, mandatory, result_payload, result_url
+from .conftest import BACKEND_DIR
 from .report_fixtures import reported
 from .test_artifact_extraction_migration_postgres import migrate
 from .test_human_gates_postgres import gate_request
@@ -290,8 +295,13 @@ def test_force_review_preserves_scope_and_rejects_old_result(
 def test_force_journal_survives_backup_and_prevents_unsafe_downgrade(
     api, project, work_payload, postgres_engine,
 ):
-    migrate(postgres_engine, "0047_artifact_transfer", downgrade=True)
-    migrate(postgres_engine, "head")
+    # Exercise the unused historical feature without deleting newer project history.
+    config = Config(str(BACKEND_DIR / "alembic.ini"))
+    revision = ScriptDirectory.from_config(config).get_revision("0048_force_claims")
+    with postgres_engine.begin() as connection:
+        with Operations.context(MigrationContext.configure(connection)):
+            revision.module.downgrade()
+            revision.module.upgrade()
     work = create_work(api, project, work_payload)["work_item"]
     path = item_path(project, work)
     payload = force_payload()
@@ -302,8 +312,12 @@ def test_force_journal_survives_backup_and_prevents_unsafe_downgrade(
     assert_error(api.post(path + "/claim", json=payload), "claim_request_expired")
     assert api.post(path + "/claim", json=force_payload("replacement")).json() == replacement
     assert original["lease_token"] != replacement["lease_token"]
-    with pytest.raises(RuntimeError, match="Retained force claims"):
+    with pytest.raises(RuntimeError, match="Project change history exists"):
         migrate(postgres_engine, "0047_artifact_transfer", downgrade=True)
+    with pytest.raises(RuntimeError, match="Retained force claims"):
+        with postgres_engine.begin() as connection:
+            with Operations.context(MigrationContext.configure(connection)):
+                revision.module.downgrade()
     with postgres_engine.connect() as connection:
         head = connection.scalar(text("SELECT version_num FROM alembic_version"))
-        assert head == "0072_force_claim_gates"
+        assert head == "0073_project_changes"

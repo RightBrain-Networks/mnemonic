@@ -1,6 +1,360 @@
 {
   "components": {
     "schemas": {
+      "ActivityChangeRead": {
+        "additionalProperties": false,
+        "properties": {
+          "after_state": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "title": "After State",
+            "type": "object"
+          },
+          "before_state": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "title": "Before State",
+            "type": "object"
+          },
+          "change_count": {
+            "minimum": 1.0,
+            "title": "Change Count",
+            "type": "integer"
+          },
+          "changed_fields": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Changed Fields",
+            "type": "array"
+          },
+          "current": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ActivityCurrentState"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "first_occurred_at": {
+            "format": "date-time",
+            "title": "First Occurred At",
+            "type": "string"
+          },
+          "first_sequence": {
+            "pattern": "^(0|[1-9][0-9]{0,18})$",
+            "title": "First Sequence",
+            "type": "string"
+          },
+          "last_occurred_at": {
+            "format": "date-time",
+            "title": "Last Occurred At",
+            "type": "string"
+          },
+          "last_sequence": {
+            "pattern": "^(0|[1-9][0-9]{0,18})$",
+            "title": "Last Sequence",
+            "type": "string"
+          },
+          "operations": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Operations",
+            "type": "array"
+          },
+          "origins": {
+            "items": {
+              "enum": [
+                "live",
+                "history_import"
+              ],
+              "type": "string"
+            },
+            "title": "Origins",
+            "type": "array"
+          },
+          "recorded_at": {
+            "format": "date-time",
+            "title": "Recorded At",
+            "type": "string"
+          },
+          "resource_id": {
+            "format": "uuid",
+            "title": "Resource Id",
+            "type": "string"
+          },
+          "resource_type": {
+            "enum": [
+              "work_items",
+              "artifacts",
+              "decisions",
+              "project",
+              "settings",
+              "knowledge_domains",
+              "tags",
+              "transcripts"
+            ],
+            "title": "Resource Type",
+            "type": "string"
+          },
+          "revision": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revision"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "resource_type",
+          "resource_id",
+          "title",
+          "revision",
+          "first_sequence",
+          "last_sequence",
+          "first_occurred_at",
+          "last_occurred_at",
+          "recorded_at",
+          "change_count",
+          "operations",
+          "changed_fields",
+          "before_state",
+          "after_state",
+          "summary",
+          "origins",
+          "current"
+        ],
+        "title": "ActivityChangeRead",
+        "type": "object"
+      },
+      "ActivityCurrentState": {
+        "additionalProperties": false,
+        "description": "Current metadata; absent when the identity no longer exists in this project.",
+        "properties": {
+          "deleted": {
+            "default": false,
+            "title": "Deleted",
+            "type": "boolean"
+          },
+          "domain_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Domain Id"
+          },
+          "domain_prefix": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Domain Prefix"
+          },
+          "exists": {
+            "title": "Exists",
+            "type": "boolean"
+          },
+          "revision": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revision"
+          },
+          "state": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "State"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          },
+          "system_tags": {
+            "items": {
+              "type": "string"
+            },
+            "title": "System Tags",
+            "type": "array"
+          },
+          "tags": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tags"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          }
+        },
+        "required": [
+          "exists"
+        ],
+        "title": "ActivityCurrentState",
+        "type": "object"
+      },
+      "ActivityFacetCounts": {
+        "additionalProperties": false,
+        "properties": {
+          "changes": {
+            "minimum": 0.0,
+            "title": "Changes",
+            "type": "integer"
+          },
+          "resources": {
+            "minimum": 0.0,
+            "title": "Resources",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "changes",
+          "resources"
+        ],
+        "title": "ActivityFacetCounts",
+        "type": "object"
+      },
+      "ActivityQueryCounts": {
+        "additionalProperties": false,
+        "properties": {
+          "by_facet": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/ActivityFacetCounts"
+            },
+            "propertyNames": {
+              "enum": [
+                "work_items",
+                "artifacts",
+                "decisions",
+                "project",
+                "settings",
+                "knowledge_domains",
+                "tags",
+                "transcripts"
+              ]
+            },
+            "title": "By Facet",
+            "type": "object"
+          },
+          "changes": {
+            "minimum": 0.0,
+            "title": "Changes",
+            "type": "integer"
+          },
+          "resources": {
+            "minimum": 0.0,
+            "title": "Resources",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "changes",
+          "resources",
+          "by_facet"
+        ],
+        "title": "ActivityQueryCounts",
+        "type": "object"
+      },
+      "ActivityQueryCoverage": {
+        "additionalProperties": false,
+        "properties": {
+          "capture_started_at": {
+            "format": "date-time",
+            "title": "Capture Started At",
+            "type": "string"
+          },
+          "historical_coverage": {
+            "const": "partial",
+            "default": "partial",
+            "title": "Historical Coverage",
+            "type": "string"
+          },
+          "imported_changes": {
+            "minimum": 0.0,
+            "title": "Imported Changes",
+            "type": "integer"
+          },
+          "known_gaps": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Known Gaps",
+            "type": "array"
+          },
+          "timestamps": {
+            "const": "occurred_at_source_time_not_commit_time",
+            "default": "occurred_at_source_time_not_commit_time",
+            "title": "Timestamps",
+            "type": "string"
+          }
+        },
+        "required": [
+          "capture_started_at",
+          "imported_changes",
+          "known_gaps"
+        ],
+        "title": "ActivityQueryCoverage",
+        "type": "object"
+      },
       "AdjacentRelationshipRead": {
         "additionalProperties": false,
         "properties": {
@@ -15611,6 +15965,109 @@
         "title": "PromptUpdate",
         "type": "object"
       },
+      "QueryActivityPage": {
+        "additionalProperties": false,
+        "properties": {
+          "byte_limit": {
+            "const": 32768,
+            "default": 32768,
+            "title": "Byte Limit",
+            "type": "integer"
+          },
+          "checkpoint": {
+            "anyOf": [
+              {
+                "maxLength": 2048,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checkpoint"
+          },
+          "counts": {
+            "$ref": "#/components/schemas/ActivityQueryCounts"
+          },
+          "coverage": {
+            "$ref": "#/components/schemas/ActivityQueryCoverage"
+          },
+          "filter_semantics": {
+            "const": "current_state_rechecked_each_page",
+            "default": "current_state_rechecked_each_page",
+            "title": "Filter Semantics",
+            "type": "string"
+          },
+          "has_more": {
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ActivityChangeRead"
+            },
+            "maxItems": 100,
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "maxLength": 2048,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          },
+          "page_limited_by_bytes": {
+            "default": false,
+            "title": "Page Limited By Bytes",
+            "type": "boolean"
+          },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "stream_id": {
+            "format": "uuid",
+            "title": "Stream Id",
+            "type": "string"
+          },
+          "through_sequence": {
+            "pattern": "^(0|[1-9][0-9]{0,18})$",
+            "title": "Through Sequence",
+            "type": "string"
+          },
+          "view": {
+            "enum": [
+              "resources",
+              "events"
+            ],
+            "title": "View",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "stream_id",
+          "view",
+          "items",
+          "through_sequence",
+          "next_cursor",
+          "checkpoint",
+          "has_more",
+          "counts",
+          "coverage"
+        ],
+        "title": "QueryActivityPage",
+        "type": "object"
+      },
       "QueryInterpretation": {
         "additionalProperties": false,
         "properties": {
@@ -24166,7 +24623,7 @@
   "info": {
     "description": "Durable project-scoped work with immutable agent checkpoints.",
     "title": "Mnemonic API",
-    "version": "0.123.4"
+    "version": "0.124.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -24481,6 +24938,348 @@
           }
         ],
         "summary": "Get Activity"
+      }
+    },
+    "/api/v1/projects/{project_id}/activity/query": {
+      "post": {
+        "operationId": "query_project_activity_api_v1_projects__project_id__activity_query_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "after": {
+                    "anyOf": [
+                      {
+                        "maxLength": 2048,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "After"
+                  },
+                  "cursor": {
+                    "anyOf": [
+                      {
+                        "maxLength": 2048,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Cursor"
+                  },
+                  "facets": {
+                    "items": {
+                      "enum": [
+                        "work_items",
+                        "artifacts",
+                        "decisions",
+                        "project",
+                        "settings",
+                        "knowledge_domains",
+                        "tags",
+                        "transcripts"
+                      ],
+                      "type": "string"
+                    },
+                    "maxItems": 8,
+                    "minItems": 1,
+                    "title": "Facets",
+                    "type": "array"
+                  },
+                  "filters": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "artifacts": {
+                        "anyOf": [
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "tag_mode": {
+                                "default": "or",
+                                "enum": [
+                                  "or",
+                                  "and"
+                                ],
+                                "title": "Tag Mode",
+                                "type": "string"
+                              },
+                              "tags": {
+                                "anyOf": [
+                                  {
+                                    "items": {
+                                      "maxLength": 50,
+                                      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+                                      "type": "string"
+                                    },
+                                    "maxItems": 20,
+                                    "minItems": 1,
+                                    "type": "array"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              }
+                            },
+                            "title": "ActivityTagFilters",
+                            "type": "object"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "decisions": {
+                        "anyOf": [
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "domain_ids": {
+                                "anyOf": [
+                                  {
+                                    "items": {
+                                      "format": "uuid",
+                                      "type": "string"
+                                    },
+                                    "maxItems": 100,
+                                    "minItems": 1,
+                                    "type": "array"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ],
+                                "title": "Domain Ids"
+                              },
+                              "domain_prefixes": {
+                                "anyOf": [
+                                  {
+                                    "items": {
+                                      "maxLength": 40,
+                                      "minLength": 1,
+                                      "type": "string"
+                                    },
+                                    "maxItems": 100,
+                                    "minItems": 1,
+                                    "type": "array"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ],
+                                "title": "Domain Prefixes"
+                              },
+                              "states": {
+                                "anyOf": [
+                                  {
+                                    "items": {
+                                      "enum": [
+                                        "proposed",
+                                        "rejected",
+                                        "accepted",
+                                        "superseded",
+                                        "partially-superseded"
+                                      ],
+                                      "type": "string"
+                                    },
+                                    "maxItems": 5,
+                                    "minItems": 1,
+                                    "type": "array"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ],
+                                "title": "States"
+                              }
+                            },
+                            "title": "ActivityDecisionFilters",
+                            "type": "object"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "work_items": {
+                        "anyOf": [
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "statuses": {
+                                "anyOf": [
+                                  {
+                                    "items": {
+                                      "enum": [
+                                        "pending",
+                                        "active",
+                                        "to-review",
+                                        "dropped",
+                                        "deferred",
+                                        "done",
+                                        "wont-do",
+                                        "promoted"
+                                      ],
+                                      "type": "string"
+                                    },
+                                    "maxItems": 8,
+                                    "minItems": 1,
+                                    "type": "array"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ],
+                                "title": "Statuses"
+                              },
+                              "tag_mode": {
+                                "default": "or",
+                                "enum": [
+                                  "or",
+                                  "and"
+                                ],
+                                "title": "Tag Mode",
+                                "type": "string"
+                              },
+                              "tags": {
+                                "anyOf": [
+                                  {
+                                    "items": {
+                                      "maxLength": 50,
+                                      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+                                      "type": "string"
+                                    },
+                                    "maxItems": 20,
+                                    "minItems": 1,
+                                    "type": "array"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              }
+                            },
+                            "title": "ActivityWorkFilters",
+                            "type": "object"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
+                    },
+                    "title": "ActivityFilters",
+                    "type": "object"
+                  },
+                  "limit": {
+                    "default": 20,
+                    "maximum": 100,
+                    "minimum": 1,
+                    "title": "Limit",
+                    "type": "integer"
+                  },
+                  "since": {
+                    "anyOf": [
+                      {
+                        "format": "date-time",
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Since"
+                  },
+                  "start": {
+                    "anyOf": [
+                      {
+                        "const": "now",
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Start"
+                  },
+                  "until": {
+                    "anyOf": [
+                      {
+                        "format": "date-time",
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Until"
+                  },
+                  "view": {
+                    "default": "resources",
+                    "enum": [
+                      "resources",
+                      "events"
+                    ],
+                    "title": "View",
+                    "type": "string"
+                  }
+                },
+                "title": "QueryActivityRequest",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QueryActivityPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Query Project Activity",
+        "x-mnemonic-effect": "safe_read"
       }
     },
     "/api/v1/projects/{project_id}/artifacts": {

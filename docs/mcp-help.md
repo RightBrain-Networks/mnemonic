@@ -10,6 +10,8 @@ Pass an optional `topic` string. Each successive word selects a child page:
 | --- | --- |
 | `help({})` | All registered commands, grouped by task, plus navigation syntax |
 | `help({"topic":"get_project"})` | Project policy and aggregate work, Needs Attention, and knowledge-domain summaries |
+| `help({"topic":"query_activity usage"})` | Bounded project deltas, resource grouping, facets and polling checkpoints |
+| `help({"topic":"query_activity details"})` | Complete examples, pagination, current-state filter semantics and history coverage; follow Next links |
 | `help({"topic":"complete_work"})` | Purpose, required arguments, optional argument names, and important fresh-call requirements |
 | `help({"topic":"complete_work usage"})` | Workflow and retry guidance |
 | `help({"topic":"search details"})` | First bounded page of complete search guidance; follow its Next link |

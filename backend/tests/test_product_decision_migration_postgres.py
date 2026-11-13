@@ -23,6 +23,7 @@ from mnemonic_api.services import knowledge, product_decisions
 from mnemonic_backup.archive import BackupError, restore_project
 
 from .conftest import BACKEND_DIR
+from .legacy_project_changes import discard_project_changes_for_legacy_fixture
 from .test_human_gates_postgres import (
     create_work,
     gate_path,
@@ -40,6 +41,8 @@ def migrate(engine, target, *, downgrade=False):
     config = Config(str(BACKEND_DIR / "alembic.ini"))
     with engine.begin() as connection:
         config.attributes["connection"] = connection
+        if downgrade:
+            discard_project_changes_for_legacy_fixture(connection)
         (command.downgrade if downgrade else command.upgrade)(config, target)
 
 

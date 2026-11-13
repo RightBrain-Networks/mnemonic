@@ -128,7 +128,7 @@ async def test_advisory_tool_schema_is_exact_and_capability_free(settings):
     schema = tool.inputSchema
     properties = schema["properties"]
 
-    assert len(tools) == 79
+    assert len(tools) == 80
     assert set(properties) == {
         "project_id",
         "title",

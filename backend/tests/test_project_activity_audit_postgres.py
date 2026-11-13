@@ -16,6 +16,7 @@ from mnemonic_api.prompt_storage import default_prompt
 from .code_review_database_fixtures import close_work, create_work, finish_review, policy
 from .conftest import BACKEND_DIR, reset_disposable_schema
 from .historical_review_audit_fixtures import seal_historical_receipt
+from .legacy_project_changes import discard_project_changes_for_legacy_fixture
 from .test_completion_evidence_postgres import (
     _insert_direct_artifact,
     _insert_direct_completion_checkpoint,
@@ -114,6 +115,7 @@ def test_catalog_upgrade_preserves_restored_variants_and_rejects_superseded_guar
     try:
         with postgres_engine.begin() as connection:
             config.attributes["connection"] = connection
+            discard_project_changes_for_legacy_fixture(connection)
             command.downgrade(config, previous)
             definitions = _reparse_previous_catalog_variants(connection, audit, previous)
         before_upgrade = _audit(postgres_engine, previous)
@@ -150,7 +152,7 @@ def test_catalog_upgrade_preserves_restored_variants_and_rejects_superseded_guar
 @pytest.mark.parametrize("expected_head", [
     "0065_knowledge_management", "0066_candidate_reuse", "0067_project_tags", "0068_artifact_tags",
     "0069_transcript_directories", "0070_backup_settings", "0071_automatic_review_cycles",
-    "0072_force_claim_gates",
+    "0072_force_claim_gates", "0073_project_changes",
 ])
 def test_catalog_accepts_constraints_restored_after_0065_and_rejects_changed_values(
     postgres_engine: Engine, expected_head: str,
@@ -165,6 +167,7 @@ def test_catalog_accepts_constraints_restored_after_0065_and_rejects_changed_val
     try:
         with postgres_engine.begin() as connection:
             config.attributes["connection"] = connection
+            discard_project_changes_for_legacy_fixture(connection)
             command.downgrade(config, "0065_knowledge_management")
             audit["pin_session_settings"](connection)
             schema = connection.scalar(text("SELECT current_schema()"))
@@ -247,6 +250,7 @@ def _pre_review_completion(engine: Engine, project: dict, work: dict) -> dict:
     config = Config(str(BACKEND_DIR / "alembic.ini"))
     with engine.begin() as connection:
         config.attributes["connection"] = connection
+        discard_project_changes_for_legacy_fixture(connection)
         command.downgrade(config, "0023_work_item_moves")
     with engine.begin() as connection:
         checkpoint = _insert_direct_completion_checkpoint(connection, work["id"])
@@ -296,7 +300,7 @@ def test_project_activity_audit_accepts_review_events_and_checks_review_facts(
     close_work(api, project, question_work, checkpoint_fields, review=False)
     report = _audit(postgres_engine)
     assert report["result"] == "pass", report["blocking_findings"]
-    assert report["expected_head"] == "0072_force_claim_gates"
+    assert report["expected_head"] == "0073_project_changes"
 
 
 def test_project_and_review_audits_keep_supported_0024_boundary(postgres_engine: Engine):
@@ -305,6 +309,7 @@ def test_project_and_review_audits_keep_supported_0024_boundary(postgres_engine:
     try:
         with postgres_engine.begin() as connection:
             config.attributes["connection"] = connection
+            discard_project_changes_for_legacy_fixture(connection)
             command.downgrade(config, "0024_code_reviews")
 
         aggregate = _audit(postgres_engine, "0024_code_reviews")
@@ -330,6 +335,7 @@ def test_advancing_head_retains_prompt_library_and_review_audits(postgres_engine
     try:
         with postgres_engine.begin() as connection:
             config.attributes["connection"] = connection
+            discard_project_changes_for_legacy_fixture(connection)
             command.downgrade(config, head)
         aggregate = _audit(postgres_engine, head)
         review = _review_audit(postgres_engine)
@@ -560,6 +566,7 @@ def test_audit_preserves_explicit_report_head_support(postgres_engine):
     try:
         with postgres_engine.begin() as connection:
             config.attributes["connection"] = connection
+            discard_project_changes_for_legacy_fixture(connection)
             command.downgrade(config, "0021_job_completion_reports")
         with postgres_engine.connect() as connection:
             connection.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY"))

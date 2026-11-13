@@ -76,11 +76,11 @@ def test_summary_review_mode_scope_and_receipt(
     assert claimed.json()["mode"] == mode
     assert _audit(postgres_engine)["result"] == "pass"
     config = Config(str(BACKEND_DIR / "alembic.ini"))
-    with pytest.raises(RuntimeError, match="Decision provenance exists"):
+    with pytest.raises(RuntimeError, match="Project change history exists"):
         with postgres_engine.begin() as connection:
             config.attributes["connection"] = connection
             command.downgrade(config, "0049_duplicate_embeddings")
-    # Newer provenance now blocks the full downgrade first. The original mode
+    # Newer project change history blocks the full downgrade first. The original mode
     # guard must still reject removing immutable review mode history itself.
     revision = ScriptDirectory.from_config(config).get_revision("0050_manual_review_modes")
     with pytest.raises(RuntimeError, match="Review mode history exists"):

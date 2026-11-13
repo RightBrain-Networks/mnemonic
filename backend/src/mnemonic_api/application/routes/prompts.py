@@ -16,6 +16,7 @@ from mnemonic_api.phase12_schemas import PositiveRevision
 from mnemonic_api.prompt_storage import PROMPTS, PromptFile, validate_prompt
 from mnemonic_api.schemas import APIModel
 from mnemonic_api.services.project_mutations import project_mutation
+from mnemonic_api.services.prompt_observations import observe_prompt
 from mnemonic_api.services.prompts import MACROS, render_prompt, storage_for, synchronize_settings
 from mnemonic_api.services.work_items import require_project
 
@@ -95,6 +96,8 @@ def _sync(database: Database, project_id: UUID) -> None:
 def list_prompts(project_id: UUID, database: Database) -> PromptPage:
     with project_mutation(database, project_id):
         items = [_read(key, storage_for(database).read(project_id, key)) for key in PROMPTS]
+        for item in items:
+            observe_prompt(database, project_id, item.id, item.revision)
         _sync(database, project_id)
         database.commit()
     return PromptPage(
@@ -114,6 +117,7 @@ def list_prompts(project_id: UUID, database: Database) -> PromptPage:
 def get_prompt(project_id: UUID, prompt_id: str, database: Database) -> PromptRead:
     with project_mutation(database, project_id):
         result = _read(prompt_id, storage_for(database).read(project_id, prompt_id))
+        observe_prompt(database, project_id, prompt_id, result.revision)
         _sync(database, project_id)
         database.commit()
     return result
@@ -133,9 +137,12 @@ def update_prompt(
             422, "invalid_prompt", "Prompt text exceeds its limits or is invalid."
         ) from None
     with project_mutation(database, project_id):
+        previous = storage_for(database).read(project_id, prompt_id)
+        observe_prompt(database, project_id, prompt_id, previous.revision)
         result = storage_for(database).write(
             project_id, prompt_id, payload.content, payload.expected_revision
         )
+        observe_prompt(database, project_id, prompt_id, result.revision)
         _sync(database, project_id)
         database.commit()
     return _read(prompt_id, result)
@@ -152,7 +159,7 @@ def render_project_prompt(
     database: Database,
 ) -> PromptRenderRead:
     require_project(database, project_id)
-    if prompt_id == "job-completion-report":
+    if prompt_id != "priority-rubric":
         with project_mutation(database, project_id):
             result = _render_snapshot(database, project_id, prompt_id, payload)
             database.commit()
@@ -177,6 +184,7 @@ def _prompt_template(
         synchronize_settings(database, settings)
         prompt_revision = str(settings.revision)
     file = storage_for(database).read(project_id, prompt_id)
+    observe_prompt(database, project_id, prompt_id, file.revision)
     if prompt_id == "job-completion-report":
         if file.revision != settings.job_completion_report_prompt_sha256:
             raise conflict("prompt_changed", "Prompt changed during retrieval. Read it again.")

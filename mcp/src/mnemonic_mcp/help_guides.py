@@ -32,6 +32,12 @@ GUIDES: dict[str, tuple[str, str, str]] = {
                     "not execution authority. Never replace a frozen retry intent with a newer prompt.")),
     "get_activity": ("Projects", "Page committed project activity.",
                      "Use after to continue or start=now to begin now, never both. Keep each cursor."),
+    "query_activity": ("Projects", "Summarize bounded project changes with facets and filters.",
+                       ("Use since/until for a time interval, after for a saved checkpoint, or "
+                        "start=now to establish one. Resources are grouped by default; view=events "
+                        "shows individual changes. Read counts and coverage, follow next_cursor, "
+                        "and save checkpoint only after accepting every page. See complete guidance "
+                        "for current-state filters, retained history, and polling examples.")),
     "search": ("Search", "Search work, artifacts, decisions, and optionally transcripts.",
                ("Supply exactly one of project_id or project_ids. Multi-term queries default to work, "
                "artifacts and decisions; set facets to include transcripts. fulltext=true opts into content. "

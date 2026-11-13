@@ -110,9 +110,9 @@ one-off ID needed before dispatch. Explicit IDs and REST receipts retain their
 contracts; prepared upload intents keep their helper-generated IDs. See
 `docs/automatic-uuids.md`. The tool idempotence hint is false for these calls.
 
-The current application/API/MCP/dashboard release is `0.123.4`, Claude plugin
-`0.73.0`, and Alembic head `0072_force_claim_gates`. The catalog is exactly
-79 MCP tools, 25 receipt-protected MCP writes, 38 REST receipt kinds, 32 protected
+The current application/API/MCP/dashboard release is `0.124.0`, Claude plugin
+`0.74.0`, and Alembic head `0073_project_changes`. The catalog is exactly
+80 MCP tools, 25 receipt-protected MCP writes, 38 REST receipt kinds, 32 protected
 browser mutations, 24 work-event types, and three plugin skills. Project priority
 guidance is editable in Settings > Workspace; agents explicitly call
 `get_prompt(project_id, prompt_id="priority-rubric")` when needed. MCP
@@ -430,3 +430,8 @@ Incoming related-only citations are required code-impact candidates with capture
 `related_direction="incoming"`, while causality remains unknown. Outward references
 and prerequisites stay context. Historical snapshots without direction retain
 their optional related-only disposition policy; never infer direction retroactively.
+
+Use `query_activity` for bounded project status updates and historical change windows.
+Read `help(topic="query_activity usage")` and its linked details for polling,
+facet filters, pagination, coverage, and timestamp semantics. See
+`docs/project-activity-deltas.md` for the persisted journal and operational contract.
