@@ -8,6 +8,7 @@ from alembic.config import Config
 from sqlalchemy import text
 
 from .conftest import BACKEND_DIR
+from .legacy_project_changes import discard_project_changes_for_legacy_fixture
 
 pytestmark = pytest.mark.postgres
 
@@ -22,6 +23,8 @@ def migrate(engine, target, *, downgrade=False):
 def test_upgrade_backfills_live_historical_deleted_and_pending_revisions(
     api, project, postgres_engine,
 ):
+    with postgres_engine.begin() as connection:
+        discard_project_changes_for_legacy_fixture(connection)
     migrate(postgres_engine, "0026_artifact_library", downgrade=True)
     identities = [uuid4() for _ in range(4)]
     with postgres_engine.begin() as connection:

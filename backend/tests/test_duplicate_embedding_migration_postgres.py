@@ -3,6 +3,10 @@
 import pytest
 from sqlalchemy import text
 
+from .legacy_project_changes import (
+    discard_project_changes_for_legacy_fixture,
+    invoke_legacy_downgrade,
+)
 from .test_artifact_extraction_migration_postgres import migrate
 from .test_duplicate_embedding_jobs_postgres import next_job
 from .test_duplicate_suggestions_postgres import save, suggest
@@ -15,6 +19,8 @@ def test_upgrade_preserves_existing_consumers_and_allows_both_for_one_item(
 ):
     first = save(api, project, work_payload, title="Search cache")
     second = save(api, project, work_payload, title="Duplicate cache")
+    with postgres_engine.begin() as connection:
+        discard_project_changes_for_legacy_fixture(connection)
     migrate(postgres_engine, "0048_force_claims", downgrade=True)
     with postgres_engine.begin() as database:
         database.execute(text("""
@@ -42,5 +48,7 @@ def test_delivery_history_prevents_unsafe_downgrade(api, project, work_payload, 
     save(api, project, work_payload, title="cache candidate")
     suggest(api, project)
     assert next_job(api) is not None
-    with pytest.raises(RuntimeError, match="delivery history prevents a safe downgrade"):
+    with pytest.raises(RuntimeError, match="Project change history exists"):
         migrate(postgres_engine, "0048_force_claims", downgrade=True)
+    with pytest.raises(RuntimeError, match="delivery history prevents a safe downgrade"):
+        invoke_legacy_downgrade(postgres_engine, "0049_duplicate_embeddings")

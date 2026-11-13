@@ -3,16 +3,29 @@
 from uuid import UUID, uuid4
 
 import pytest
+from alembic.config import Config
+from alembic.migration import MigrationContext
+from alembic.operations import Operations
+from alembic.script import ScriptDirectory
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 
-from .test_artifact_extraction_migration_postgres import migrate
+from .conftest import BACKEND_DIR
 from .test_force_claims_postgres import force_payload
 from .test_human_gates_postgres import gate_request
 from .test_leases_postgres import create_work, item_path
 from .test_progress_lease_postgres import retained
 
 pytestmark = pytest.mark.postgres
+
+
+def _patch_gate_guard(engine, *, reverse=False):
+    # Exercise the historical function patch without discarding newer change history.
+    config = Config(str(BACKEND_DIR / "alembic.ini"))
+    revision = ScriptDirectory.from_config(config).get_revision("0072_force_claim_gates")
+    with engine.begin() as connection:
+        with Operations.context(MigrationContext.configure(connection)):
+            (revision.module.downgrade if reverse else revision.module.upgrade)()
 
 
 def guard_definition(engine):
@@ -60,14 +73,14 @@ def test_gate_guard_upgrade_and_downgrade_preserve_retained_history(
     with postgres_engine.connect() as connection:
         journal = connection.execute(text("SELECT * FROM work_force_claims")).all()
     upgraded = guard_definition(postgres_engine)
-    migrate(postgres_engine, "0071_automatic_review_cycles", downgrade=True)
+    _patch_gate_guard(postgres_engine, reverse=True)
     original = guard_definition(postgres_engine)
     assert "work_force_claims" not in original
-    migrate(postgres_engine, "head")
+    _patch_gate_guard(postgres_engine)
     assert guard_definition(postgres_engine) == upgraded
-    migrate(postgres_engine, "0071_automatic_review_cycles", downgrade=True)
+    _patch_gate_guard(postgres_engine, reverse=True)
     assert guard_definition(postgres_engine) == original
-    migrate(postgres_engine, "head")
+    _patch_gate_guard(postgres_engine)
     assert retained(postgres_engine, work["id"]) == before
     assert api.get(path + "/gates").json() == gates
     with postgres_engine.connect() as connection:
