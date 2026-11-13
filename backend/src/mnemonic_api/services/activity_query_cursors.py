@@ -49,6 +49,8 @@ def decode_position(
         if value["project_id"] != str(project_id) or value["scope"] != scope:
             raise ValueError
         _validate_numbers(value, keys, kind)
+        if not isinstance(value["stream_id"], str):
+            raise ValueError
         UUID(value["stream_id"])
     except (ValueError, TypeError, KeyError, UnicodeError):
         raise invalid_activity_query_cursor() from None

@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from .code_review_database_fixtures import close_work, create_work, finish_review, policy
 from .code_review_fixtures import handoff
 from .conftest import BACKEND_DIR
+from .legacy_project_changes import invoke_legacy_downgrade
 from .test_duplicate_merge_invariants_postgres import _create_project_with_work
 from .test_phase6_migration_postgres import (
     empty_phase6_migration_engine as empty_phase6_migration_engine,
@@ -253,8 +254,10 @@ def test_changed_then_reset_policy_prevents_downgrade(empty_phase6_migration_eng
                 ),
                 {"n": threshold, "id": project_id},
             )
-    with pytest.raises(RuntimeError, match="downgrade refused"):
+    with pytest.raises(RuntimeError, match="Project change history exists"):
         _migrate(engine, "0023_work_item_moves", down=True)
+    with pytest.raises(RuntimeError, match="downgrade refused"):
+        invoke_legacy_downgrade(engine, "0024_code_reviews")
 
 
 def test_review_upgrade_and_unused_downgrade_preserve_existing_move_history(

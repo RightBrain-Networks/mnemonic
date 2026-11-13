@@ -50,7 +50,8 @@ class ActivityTagFilters(Phase12Wire):
 class ActivityWorkFilters(ActivityTagFilters):
     statuses: list[WorkActivityStatus] | None = Field(
         default=None, min_length=1, max_length=8,
-        description="Current effective queue states, rechecked on each page; not historical states.",
+        description=("Current search_work statuses with lease/review overlay, rechecked per page; "
+                     "not historical states or ready-to-claim guarantees."),
     )
 
 

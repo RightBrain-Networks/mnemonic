@@ -7,7 +7,12 @@ from pydantic import ValidationError
 
 from mnemonic_api.activity_query_schemas import QueryActivityRequest
 from mnemonic_api.errors import ApplicationError
-from mnemonic_api.services.activity_query_cursors import ActivityWindow, activity_window
+from mnemonic_api.services.activity_query_cursors import (
+    ActivityWindow,
+    activity_window,
+    encode_position,
+    query_scope,
+)
 
 
 def test_poll_scope_survives_since_window_but_rejects_filter_change():
@@ -29,6 +34,21 @@ def test_restored_stream_is_reported_even_when_head_is_lower():
     with pytest.raises(ApplicationError) as restored:
         activity_window(QueryActivityRequest(after=checkpoint), project, uuid4(), 2)
     assert restored.value.detail["code"] == "activity_stream_changed"
+
+
+@pytest.mark.parametrize("malformed_stream", [{}, [], 1, None])
+def test_cursor_rejects_nonstring_stream_ids(malformed_stream):
+    project, stream = uuid4(), uuid4()
+    request = QueryActivityRequest()
+    checkpoint = encode_position({
+        "v": 1, "kind": "checkpoint", "project_id": str(project),
+        "stream_id": malformed_stream, "scope": query_scope(request, polling=True),
+        "after": "0",
+    })
+    with pytest.raises(ApplicationError) as invalid:
+        activity_window(QueryActivityRequest(after=checkpoint), project, stream, 0)
+    assert invalid.value.status_code == 422
+    assert invalid.value.detail["code"] == "invalid_activity_query_cursor"
 
 
 def test_page_cursor_requires_same_original_window_but_accepts_new_limit():

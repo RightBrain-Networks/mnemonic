@@ -3,6 +3,8 @@ from uuid import uuid4
 
 import pytest
 
+from .legacy_project_changes import discard_project_changes_for_legacy_fixture
+
 pytestmark = pytest.mark.postgres
 HEADERS = {"Host": "localhost:3000", "Origin": "http://localhost:3000"}
 ACTOR = {"actor_client": "dashboard", "actor_session_id": "tag-tests"}
@@ -205,6 +207,7 @@ def test_migration_clears_all_legacy_checkpoint_tags_and_seeds_every_project(
     config = Config(str(BACKEND_DIR / 'alembic.ini'))
     with postgres_engine.begin() as connection:
         config.attributes['connection'] = connection
+        discard_project_changes_for_legacy_fixture(connection)
         command.downgrade(config, '0066_candidate_reuse')
         connection.execute(text('ALTER TABLE checkpoints DISABLE TRIGGER checkpoints_immutable'))
         connection.execute(text("UPDATE checkpoints SET tags=ARRAY['Decorative','legacy-tag']"))

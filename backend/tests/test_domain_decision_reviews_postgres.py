@@ -6,6 +6,10 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
+from .legacy_project_changes import (
+    discard_project_changes_for_legacy_fixture,
+    invoke_legacy_downgrade,
+)
 from .test_artifact_extraction_migration_postgres import migrate
 from .test_decision_impact_postgres import assessments, changed, decision, dependency
 from .test_decision_reviews_postgres import context, reviews
@@ -161,6 +165,8 @@ def test_domain_database_guard_requires_valid_policy_and_exact_version(
 @pytest.mark.parametrize("enabled", [False, True])
 def test_migration_preserves_existing_effective_behavior(api, project, postgres_engine, enabled):
     target = domain(api, project)
+    with postgres_engine.begin() as connection:
+        discard_project_changes_for_legacy_fixture(connection)
     migrate(postgres_engine, "0064_work_change_inheritance", downgrade=True)
     with postgres_engine.begin() as connection:
         connection.execute(text("UPDATE project_settings SET automatic_decision_reviews=:enabled, "
@@ -177,8 +183,10 @@ def test_migration_preserves_existing_effective_behavior(api, project, postgres_
     assert len(reviews(api, project)) == int(enabled)
     audit = _audit(postgres_engine)
     assert audit["result"] == "pass", audit["blocking_findings"]
-    with pytest.raises(RuntimeError, match="cannot be safely downgraded"):
+    with pytest.raises(RuntimeError, match="Project change history exists"):
         migrate(postgres_engine, "0064_work_change_inheritance", downgrade=True)
+    with pytest.raises(RuntimeError, match="cannot be safely downgraded"):
+        invoke_legacy_downgrade(postgres_engine, "0065_knowledge_management")
 
 
 def test_new_domains_do_not_inherit_another_domain_policy(api, project):

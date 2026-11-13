@@ -10,6 +10,7 @@ from sqlalchemy.exc import DBAPIError
 from mnemonic_api.knowledge_integrity import KNOWLEDGE_FINDINGS
 from mnemonic_backup.archive import BackupError, restore_project
 
+from .legacy_project_changes import discard_project_changes_for_legacy_fixture
 from .test_knowledge_postgres import domain, path, put, put_body
 from .test_project_backup_archive import _export, _rewrite, _snapshot
 from .test_project_reports_postgres import close, create
@@ -133,7 +134,7 @@ def test_merge_reconciliation_reverse_lookup_and_immutability(api, project, data
 
 
 def test_old_receipt_remains_replayable_after_domain_creation(
-    api, project, work_payload, checkpoint_fields, postgres_engine,
+    api, project, work_payload, checkpoint_fields, postgres_engine, monkeypatch,
 ):
     from alembic import command
     from alembic.config import Config
@@ -145,8 +146,11 @@ def test_old_receipt_remains_replayable_after_domain_creation(
     work = create(api, project, work_payload)
     with postgres_engine.begin() as connection:
         config.attributes["connection"] = connection
+        discard_project_changes_for_legacy_fixture(connection)
         command.downgrade(config, "0055_decision_provenance")
-    with _historical_automatic_review_columns():
+    with _historical_automatic_review_columns(), monkeypatch.context() as historical:
+        # This authentic 0055 completion predates the prompt observation journal.
+        historical.setattr("mnemonic_api.services.prompts.observe_prompt", lambda *_: None)
         result, intent = close(api, project, work, checkpoint_fields, job_completion_report={
             "summary": "Historical domainless completion.", "fyi_items": [], "prompt_revision": "1",
         })

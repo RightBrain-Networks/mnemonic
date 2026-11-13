@@ -279,5 +279,6 @@ async def test_query_help_contains_examples_and_complete_contract_without_api(se
     ):
         assert required in combined
     assert all(len(page) < 1900 for page in pages)
-    assert "Current effective queue" in render_help("query_activity filters work_items statuses",
-                                                    catalog)
+    assert "Current search_work statuses" in render_help(
+        "query_activity filters work_items statuses", catalog,
+    )

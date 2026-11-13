@@ -1,6 +1,6 @@
 """Prepare deliberately pre-feature fixtures without weakening production downgrade guards."""
 
-from sqlalchemy import Connection, text
+from sqlalchemy import Connection, Engine, text
 
 
 def discard_project_changes_for_legacy_fixture(connection: Connection) -> None:
@@ -22,3 +22,24 @@ def discard_project_changes_for_legacy_fixture(connection: Connection) -> None:
     connection.execute(text("ALTER TABLE project_change_heads DISABLE TRIGGER USER"))
     connection.execute(text("UPDATE project_change_heads SET last_sequence=0"))
     connection.execute(text("ALTER TABLE project_change_heads ENABLE TRIGGER USER"))
+
+
+def invoke_legacy_downgrade(engine: Engine, revision_id: str) -> None:
+    """Exercise an older refusal guard independently of newer retained history."""
+    from alembic.config import Config
+    from alembic.migration import MigrationContext
+    from alembic.operations import Operations
+    from alembic.script import ScriptDirectory
+
+    from .conftest import BACKEND_DIR
+
+    config = Config(str(BACKEND_DIR / "alembic.ini"))
+    revision = ScriptDirectory.from_config(config).get_revision(revision_id)
+    with engine.begin() as connection:
+        schema = connection.scalar(text("SELECT current_schema()"))
+        if not isinstance(schema, str) or not schema.startswith(
+            ("mnemonic_test_", "mnemonic_phase6_downgrade_")
+        ):
+            raise RuntimeError("Refusing a legacy migration outside a disposable test schema")
+        with Operations.context(MigrationContext.configure(connection)):
+            revision.module.downgrade()

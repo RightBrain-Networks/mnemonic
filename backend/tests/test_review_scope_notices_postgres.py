@@ -11,6 +11,10 @@ from sqlalchemy.orm import Session
 from mnemonic_api.decision_change_integrity import DECISION_CHANGE_FINDINGS
 from mnemonic_api.models import DecisionChangeAssessment
 
+from .legacy_project_changes import (
+    discard_project_changes_for_legacy_fixture,
+    invoke_legacy_downgrade,
+)
 from .test_decision_changes_postgres import group, root_review, update
 from .test_decision_reviews_postgres import settings
 from .test_knowledge_postgres import path, put, put_body
@@ -249,6 +253,7 @@ def test_attachment_migration_keeps_legacy_unknowns_and_refuses_loss_of_known_ve
     config = Config(str(BACKEND_DIR / "alembic.ini"))
     with postgres_engine.begin() as connection:
         config.attributes["connection"] = connection
+        discard_project_changes_for_legacy_fixture(connection)
         command.downgrade(config, "0061_batch_dispositions")
         command.upgrade(config, "head")
         assert connection.scalar(text(
@@ -257,9 +262,7 @@ def test_attachment_migration_keeps_legacy_unknowns_and_refuses_loss_of_known_ve
         )) == 0
     extend(api, project, target, current, work)
     with pytest.raises(RuntimeError, match="cannot be safely downgraded"):
-        with postgres_engine.begin() as connection:
-            config.attributes["connection"] = connection
-            command.downgrade(config, "0061_batch_dispositions")
+        invoke_legacy_downgrade(postgres_engine, "0062_review_scope_notices")
 
 
 def test_attachment_guard_rejects_fabricated_order(api, project, postgres_engine):

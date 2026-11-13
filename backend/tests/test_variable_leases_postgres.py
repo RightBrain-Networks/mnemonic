@@ -10,6 +10,10 @@ from sqlalchemy.exc import IntegrityError
 
 from mnemonic_backup.archive import restore_project
 
+from .legacy_project_changes import (
+    discard_project_changes_for_legacy_fixture,
+    invoke_legacy_downgrade,
+)
 from .test_artifact_extraction_migration_postgres import migrate
 from .test_leases_postgres import claim_payload, create_work, expire_lease, item_path
 from .test_project_backup_archive import _export
@@ -202,6 +206,8 @@ def test_migration_backfills_projects_and_preserves_active_lease_replay(
     endpoint = item_path(project, work)
     payload = claim_payload("historical-omitted")
     before = api.post(f"{endpoint}/claim", json=payload).json()
+    with postgres_engine.begin() as connection:
+        discard_project_changes_for_legacy_fixture(connection)
     migrate(postgres_engine, "0033_transcript_imports", downgrade=True)
     migrate(postgres_engine, "head")
     assert api.post(f"{endpoint}/claim", json=payload).json() == before
@@ -244,8 +250,10 @@ def test_downgrade_cannot_discard_custom_policy_or_claim_identity(
             **claim_payload("explicit-duration"), "lease_minutes": 15,
         })
         assert result.status_code == 200, result.text
-    with pytest.raises(RuntimeError, match="cannot be safely downgraded"):
+    with pytest.raises(RuntimeError, match="Project change history exists"):
         migrate(postgres_engine, "0033_transcript_imports", downgrade=True)
+    with pytest.raises(RuntimeError, match="cannot be safely downgraded"):
+        invoke_legacy_downgrade(postgres_engine, "0034_variable_work_leases")
     with postgres_engine.connect() as connection:
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == \
             "0073_project_changes"

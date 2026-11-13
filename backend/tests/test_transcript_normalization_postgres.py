@@ -11,6 +11,7 @@ from mnemonic_api.artifact_tika import ExtractionError
 from mnemonic_api.models import Transcript
 from mnemonic_api.transcript_normalized_storage import NORMALIZATIONS, SEGMENTS
 
+from .legacy_project_changes import discard_project_changes_for_legacy_fixture
 from .test_leases_postgres import expire_lease
 from .test_project_backup_archive import _export, _snapshot
 from .test_transcript_indexing_postgres import collection, read, register, run
@@ -366,6 +367,8 @@ def test_migration_recomputes_old_truncation_flags_from_retained_segments(
     from .transcript_legacy import restore_legacy_native_layout
 
     restore_legacy_native_layout(api)
+    with postgres_engine.begin() as connection:
+        discard_project_changes_for_legacy_fixture(connection)
     migrate(postgres_engine, "0042_transcript_health", downgrade=True)
     with postgres_engine.begin() as connection:
         connection.execute(text("UPDATE transcripts SET truncated=true"))
@@ -396,6 +399,8 @@ def test_coverage_refresh_does_not_alter_an_active_work_lease(
     from .transcript_legacy import restore_legacy_native_layout
 
     restore_legacy_native_layout(api)
+    with postgres_engine.begin() as connection:
+        discard_project_changes_for_legacy_fixture(connection)
     migrate(postgres_engine, "0042_transcript_health", downgrade=True)
     with postgres_engine.begin() as connection:
         connection.execute(text("UPDATE transcripts SET truncated=true"))
