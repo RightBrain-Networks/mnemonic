@@ -112,6 +112,7 @@ def test_open_rows_upgrade_to_pending_and_clean_history_downgrades():
                     FROM pg_index AS indexprs
                     JOIN pg_class AS index_class ON index_class.oid = indexprs.indexrelid
                     WHERE index_class.relname = 'ix_work_items_ready_order'
+                      AND index_class.relnamespace = current_schema()::regnamespace
                     """
                 )
             )

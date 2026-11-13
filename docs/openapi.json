@@ -148,6 +148,17 @@
         "additionalProperties": false,
         "description": "Current metadata; absent when the identity no longer exists in this project.",
         "properties": {
+          "decision_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decision Id"
+          },
           "deleted": {
             "default": false,
             "title": "Deleted",

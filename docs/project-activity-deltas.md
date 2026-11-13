@@ -89,6 +89,13 @@ ordering follows `last_sequence`. Full bodies, prompt text, checkpoint prose, ar
 extracted content, and transcript content are excluded. Sensitive artifact
 discovery does not grant content access.
 
+Decision results include a canonical lookup identifier such as `ADR-00001` in
+`current.decision_id`. Pass it to `decision_get`, with the delta item's revision
+as an integer when pinning evidence; `current.revision` may have advanced since
+the selected change. The delta's UUID `resource_id` is its durable
+identity and is not accepted by `decision_get` as a decision identifier.
+Locators retained on deletion do not override ordinary deleted-document lookup rules.
+
 Settings use separate change-stream identities for settings families and
 individual prompts; some IDs are synthetic. The title identifies the family or
 prompt. Retrieve settings and prompt text by project and prompt key, rather than

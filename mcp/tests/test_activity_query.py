@@ -57,7 +57,7 @@ def activity_page(request=None):
             "origins": ["live"], "current": {
                 "exists": True, "deleted": False, "title": "A work item", "revision": "3",
                 "status": "pending", "tags": ["bug"], "system_tags": [], "domain_id": None,
-                "domain_prefix": None, "state": None,
+                "domain_prefix": None, "decision_id": None, "state": None,
             },
         }],
         "through_sequence": "10", "next_cursor": None,
@@ -206,6 +206,28 @@ async def test_work_all_tags_filter_combines_assigned_and_intrinsic_membership(s
     page["items"][0]["current"]["system_tags"] = []
     with pytest.raises(ToolError):
         await invoke(settings, page, arguments)
+
+
+async def test_decision_delta_preserves_canonical_lookup_identifier(settings):
+    arguments = {"facets": ["decisions"]}
+    page = activity_page(arguments)
+    page["items"][0]["resource_type"] = "decisions"
+    page["items"][0]["current"].update(
+        tags=None, status=None, domain_id=OTHER_WORK_ID, domain_prefix="ADR",
+        decision_id="ADR-00001", state="accepted",
+    )
+    page["counts"]["by_facet"] = {"decisions": {"changes": 2, "resources": 1}}
+    result, _ = await invoke(settings, page, arguments)
+    assert result["items"][0]["resource_id"] == WORK_ID
+    assert result["items"][0]["current"]["decision_id"] == "ADR-00001"
+
+
+@pytest.mark.parametrize("identifier", [WORK_ID, "ADR-00001-3", "adr-00001", "ADR-1"])
+def test_activity_rejects_noncanonical_decision_lookup_identifier(identifier):
+    page = activity_page()
+    page["items"][0]["current"]["decision_id"] = identifier
+    with pytest.raises(ValidationError):
+        QueryActivityPage.model_validate_json(json.dumps(page), strict=True)
 
 
 async def test_empty_final_page_advances_checkpoint(settings):

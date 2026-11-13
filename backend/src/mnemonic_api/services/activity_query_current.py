@@ -19,6 +19,7 @@ from mnemonic_api.models import (
     WorkItem,
     WorkLease,
 )
+from mnemonic_api.services.knowledge import decision_identifier
 from mnemonic_api.services.readiness import review_status_clause
 from mnemonic_api.services.tags import tag_conditions
 from mnemonic_api.services.work_search import status_conditions
@@ -113,18 +114,17 @@ def _artifact_current(database: Session, project_id: UUID, ids: set[UUID]):
 
 def _decision_current(database: Session, project_id: UUID, ids: set[UUID]):
     rows = database.execute(select(
-        DecisionDocument.id, DecisionDocument.deleted_at, DecisionDocument.domain_id,
-        DecisionDocument.current_revision, KnowledgeDomain.prefix,
+        DecisionDocument, KnowledgeDomain,
         DecisionRevision.title, DecisionRevision.state,
     ).join(KnowledgeDomain).join(DecisionRevision, and_(
         DecisionRevision.document_id == DecisionDocument.id,
         DecisionRevision.revision == DecisionDocument.current_revision,
     )).where(DecisionDocument.project_id == project_id, DecisionDocument.id.in_(ids)))
-    return {row.id: ActivityCurrentState(
-        exists=True, deleted=row.deleted_at is not None, title=row.title,
-        revision=str(row.current_revision), domain_id=row.domain_id, domain_prefix=row.prefix,
-        state=row.state,
-    ) for row in rows}
+    return {document.id: ActivityCurrentState(
+        exists=True, deleted=document.deleted_at is not None, title=title,
+        revision=str(document.current_revision), decision_id=decision_identifier(domain, document),
+        domain_id=document.domain_id, domain_prefix=domain.prefix, state=state,
+    ) for document, domain, title, state in rows}
 
 
 def current_states(

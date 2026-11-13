@@ -6,7 +6,7 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import text
 
-from .test_knowledge_postgres import domain, put, put_body
+from .test_knowledge_postgres import domain, path, put, put_body
 from .test_project_reports_postgres import actor, create
 
 pytestmark = pytest.mark.postgres
@@ -103,6 +103,38 @@ def test_current_decision_filters_are_project_scoped(api, project):
     assert result["counts"]["resources"] == 1
     assert "content" not in result["items"][0]["after_state"]
     assert selected is not None
+
+
+def test_decision_changes_supply_canonical_lookup_locator_and_exact_revision(api, project):
+    from .test_knowledge_management_postgres import (
+        HEADERS,
+        browser_path,
+        deletion_body,
+        preview,
+    )
+
+    architecture = domain(api, project)
+    first = put(api, project, put_body(architecture, "Original decision"))["decision"]
+    put(api, project, put_body(architecture, "Revised decision",
+                              decision_id=first["decision_id"], expected_revision=0))
+    changes = query(api, project, facets=["decisions"], view="events")["items"]
+    assert len(changes) == 2
+    for change in changes:
+        current = change["current"]
+        assert current["decision_id"] == first["decision_id"] == "ADR-00001"
+        assert current["revision"] == "1"
+        exact = api.get(path(project) + "/decisions/" + current["decision_id"],
+                        params={"revision": change["revision"]})
+        assert exact.status_code == 200, exact.text
+        assert exact.json()["revision"] == int(change["revision"])
+    suffix = "/decisions/" + first["decision_id"]
+    removed = api.post(browser_path(project) + suffix + "/delete", headers=HEADERS,
+                       json=deletion_body(preview(api, project, suffix)))
+    assert removed.status_code == 200, removed.text
+    deleted = query(api, project, facets=["decisions"])["items"][0]
+    assert deleted["current"]["deleted"]
+    assert deleted["current"]["decision_id"] == first["decision_id"]
+    assert deleted["current"]["revision"] == deleted["revision"] == "1"
 
 
 def test_query_is_strict_safe_read(api, project, postgres_engine):

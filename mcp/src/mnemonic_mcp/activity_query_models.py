@@ -15,6 +15,7 @@ from pydantic import (
     model_validator,
 )
 
+from .knowledge_models import DecisionIdentifier
 from .phase12_models import DecimalString, Phase12Wire, PositiveDecimalString
 from .search_exploration import SearchDate
 from .tag_models import TagMode, TagNames, tags_match
@@ -120,6 +121,7 @@ class ActivityCurrentState(Phase12Wire):
     system_tags: list[Literal["remediation", "dir"]] = Field(default_factory=list)
     domain_id: UUID | None = None
     domain_prefix: StrictStr | None = None
+    decision_id: DecisionIdentifier | None = None
     state: StrictStr | None = None
 
 

@@ -107,6 +107,7 @@ class ActivityCurrentState(APIModel):
     status: str | None = None
     tags: list[str] | None = None
     system_tags: list[str] = Field(default_factory=list)
+    decision_id: str | None = None
     domain_id: UUID | None = None
     domain_prefix: str | None = None
     state: str | None = None
