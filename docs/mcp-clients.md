@@ -93,6 +93,8 @@ connecting or reading orientation does not enroll a conversation. Read claim and
 closeout help for declarations, retry rules, and coverage checks. Never import a
 mixed-project sessions directory into a single project.
 
+<a id="survey-and-design-decision"></a>
+
 ## Identity and coordination
 
 Use the [per-agent identity guidance](agents.md#create-or-continue-work). Each

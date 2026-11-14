@@ -58,4 +58,4 @@ environment, plus project/artifact IDs and truthful session/client arguments.
 The helper reports both missing settings together. Ask the operator to provision
 them when required; never read client credential files or guess ports. The direct
 mode's sensitive approval policy is unchanged. See the installed
-[transfer procedure](../plugin/reference/artifact-transfers.md).
+[download procedure](../plugin/reference/artifacts.md).

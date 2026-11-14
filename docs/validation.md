@@ -820,9 +820,10 @@ records the full MCP suite and aggregate Required checks results.
 
 Application/API/MCP/dashboard 0.70.0 and plugin 0.43.0 add the download grant
 route and require migration `0047_artifact_transfer`. The catalog has 56 tools,
-17 receipt-protected writes, and the same three skills. A short shared
-[transfer procedure](../plugin/reference/artifact-transfers.md) covers the common
-case. Root README.md remains unchanged.
+17 receipt-protected writes, and the same three skills. The shared
+[upload procedure](../plugin/reference/artifact-transfers.md) and
+[download procedure](../plugin/reference/artifacts.md) cover the common cases.
+Root README.md remains unchanged.
 
 The real HTTP MCP/API/PostgreSQL helper regression removes both
 `MNEMONIC_API_URL` and `MNEMONIC_API_KEY` from the helper environment. It exercises
