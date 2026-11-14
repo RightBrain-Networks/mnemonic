@@ -41,6 +41,7 @@ from mnemonic_api.services.gates import (
     resolve_human_gate,
 )
 from mnemonic_api.services.leases import claim_lease_record
+from mnemonic_api.services.project_mutations import project_mutation
 from mnemonic_api.services.relationships import add_relationship_record
 from mnemonic_api.services.work_events import append_progress_event
 from mnemonic_api.services.work_items import (
@@ -863,7 +864,23 @@ def test_same_project_progress_waits_for_commit_with_focal_gate_work(
     gate = create_gate(api, project_id, focal_id, "contended-gate")
     gate_id = UUID(gate["id"])
 
-    with held_database(postgres_engine) as (holder, connection, holder_pid):
+    # Shared journal heads require the project-first boundary used by real routes.
+    def request_focal(database: Session) -> object:
+        with project_mutation(database, project_id):
+            result = request_gate(database, project_id, focal_id, "queued-focal-request")
+            database.commit()
+            return result
+
+    def progress_unrelated(database: Session) -> object:
+        with project_mutation(database, project_id):
+            result = progress_work(database, project_id, unrelated_id, "during-contention")
+            database.commit()
+            return result
+
+    with (
+        held_database(postgres_engine) as (holder, connection, holder_pid),
+        project_mutation(holder, project_id),
+    ):
         transaction = connection.get_transaction()
         assert transaction is not None
         resolve_gate(holder, project_id, focal_id, gate_id, "held-resolution")
@@ -871,9 +888,7 @@ def test_same_project_progress_waits_for_commit_with_focal_gate_work(
             focal_future, focal_pid = launch_operation(
                 executor,
                 postgres_engine,
-                lambda database: request_gate(
-                    database, project_id, focal_id, "queued-focal-request"
-                ),
+                request_focal,
             )
             wait_until_blocked(
                 postgres_engine,
@@ -884,12 +899,11 @@ def test_same_project_progress_waits_for_commit_with_focal_gate_work(
             unrelated_future, unrelated_pid = launch_operation(
                 executor,
                 postgres_engine,
-                lambda database: progress_work(
-                    database, project_id, unrelated_id, "during-contention"
-                ),
+                progress_unrelated,
             )
+            # Progress queues behind the focal wait, which is blocked by the holder.
             wait_until_blocked(
-                postgres_engine, holder_pid=holder_pid, waiter_pid=unrelated_pid,
+                postgres_engine, holder_pid=focal_pid, waiter_pid=unrelated_pid,
                 future=unrelated_future,
             )
             transaction.commit()
