@@ -47,6 +47,7 @@ CANONICAL_TOOL_NAMES = {
         "decision_change_get", "decision_change_candidates", "decision_change_update",
     "generate_uuid",
     "help",
+    "session_init",
     "authorize_artifact_download",
     "authorize_artifact_upload",
     "search",
