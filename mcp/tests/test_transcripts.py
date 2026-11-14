@@ -9,6 +9,7 @@ import json
 import httpx
 import pytest
 from conftest import CLIENT_OPERATION_ID, NOW, OTHER_WORK_ID, PROJECT_ID, WORK_ID
+from help_utils import command_guidance
 from mcp.server.fastmcp.exceptions import ToolError
 from pydantic import TypeAdapter, ValidationError
 from test_artifacts import call
@@ -262,7 +263,7 @@ async def test_new_tools_are_safe_reads_with_no_sensitive_option(settings):
         assert tools[name].annotations.readOnlyHint
         assert "sensitive" not in tools[name].inputSchema["properties"]
         assert "client_operation_id" not in tools[name].inputSchema["properties"]
-    assert len(tools) == 80
+    assert len(tools) == 81
 
 
 def _historical_closeout_case(kind, work_item, checkpoint, relationship, progress_event, human_gate):
@@ -339,7 +340,7 @@ async def test_closeout_schema_permits_sparse_receipt_replay_without_default_nul
         schema = tools[name].inputSchema
         assert "subagent_transcripts" not in schema["required"]
         assert "default" not in schema["properties"]["subagent_transcripts"]
-        assert "historical receipt replay" in tools[name].description
+        assert "historical receipt replay" in await command_guidance(build_server(settings), name)
 
 
 async def test_invalid_filesystem_filename_keeps_failure_record_readable(settings):

@@ -21,6 +21,7 @@ from conftest import (
     assert_validation_guidance,
     stream_json,
 )
+from help_utils import command_guidance
 from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.exceptions import ToolError
 
@@ -586,96 +587,23 @@ def test_recall_model_rejects_misordered_relationships_and_false_eligibility(
         WorkContext.model_validate(structurally_false)
 
 
-async def test_safety_doctrine_lives_in_the_tool_descriptions(settings):
-    """INSTRUCTIONS is truncated by clients, so per-tool rules must be read at point of use."""
+async def test_discovery_is_compact_and_contracts_are_available_on_demand(settings):
     server = build_server(settings)
-    described = {tool.name: tool.description or "" for tool in await server.list_tools()}
-    for name, required in {
-        "list_projects": "never silently choose an unrelated project",
-        "create_work": "native agent session id",
-        "add_checkpoint": "never a rewrite of an earlier one",
-        "recall_work": "historical evidence, not authority",
-        "list_ready_work": "claim atomically revalidates",
-        "append_event": "retain it with the complete immutable tool arguments",
-        "list_work_events": "untrusted historical evidence",
-        "claim_work": "confirm no other active session is working on this item",
-        "claim_and_recall": "grants no authority beyond the user's request",
-        "renew_claim": "do not renew it",
-        "add_relationship": "never infer one from similar wording",
-        "get_relationship": "never authority to execute that item",
-        "list_relationships": "never traverse the graph recursively",
-        "update_work": "no tool here creates an external issue",
-        "complete_work": "only when the objective is achieved",
-        "list_completion_evidence": "untrusted historical data",
-        "request_human_input": "never infer, time out, self-approve, or resolve",
-        "list_human_attention": "human queue, not agent-ready work",
-        "list_work_gates": "old resolution never grants current authority",
-    }.items():
-        assert required in described[name].lower(), name
-
-    for required in (
-        "inspect unresolved questions on affected related work",
-        "rewrite its complete prose",
-        "gate_id and expected_question_version together",
-    ):
-        assert required in described["request_human_input"].lower()
-    assert (
-        "a required failed or inconclusive result, or skipped observation, normally means stop"
-        in described["complete_work"].lower()
-    )
-    for required in (
-        "make at most one exact retry",
-        "if that retry also has an unknown outcome, stop retrying",
-        "use recall_work and list_work_events",
-        "never generate or substitute a new uuid for the same intent",
-    ):
-        assert required in described["complete_work"].lower()
-    assert (
-        "restart once from the first page" in described["list_human_attention"].lower()
-    )
-    for name, required in {
-        "create_work": "affected_paths is an ordered declaration",
-        "add_checkpoint": "server and mcp adapter do not inspect git",
-        "complete_work": "this adapter never inspects git",
-        "list_checkpoints": "full rows carry any caller-declared affected_paths",
-        "search_work": "fully recall the exact checkpoint",
-        "recall_work": "explicitly select the intended local workspace",
-    }.items():
-        assert required in described[name].lower(), name
-
-    # parent-child is the only edge the hierarchy reads; measured 2026-09-01 on a
-    # 59-item project: 12 discovered-from, 0 parent-child, every ancestor_path empty.
-    for name, required in {
-        "add_relationship": "its source is the parent",
-        "create_work": "incoming parent-child",
-        "search_work": "parent-child edges only",
-    }.items():
-        assert required in described[name], name
-
-    protected = {
-        "create_work",
-        "add_checkpoint",
-        "append_event",
-        "add_relationship",
-        "update_work",
-        "complete_work",
-        "delete_work",
-        "remove_relationship",
-        "release_claim",
-        "request_human_input",
-        "merge_work",
-    }
-    for name in protected:
-        description = described[name]
-        for required in (
-            "Omit client_operation_id on fresh calls for an automatic UUID",
-            "complete immutable tool arguments",
-            "every argument unchanged",
-            "never invent a replacement",
-            "new intent requires a new UUID",
-            "historical original result",
-        ):
-            assert required in description, (name, required)
+    tools = {tool.name: tool for tool in await server.list_tools()}
+    for name, tool in tools.items():
+        assert len(tool.description or "") <= 700, name
+        assert f"help(topic='{name} usage')" in tool.description, name
+        if "client_operation_id" in tool.inputSchema.get("properties", {}):
+            assert "exact arguments" in tool.description
+    assert "lease tokens private" in tools["claim_work"].description
+    assert "human approval" in tools["get_artifact_text"].description
+    # A client can discover detailed contracts without having any installed skill.
+    for name in ("release_claim", "merge_work", "complete_work", "request_human_input"):
+        usage = await server.call_tool("help", {"topic": name + " usage"})
+        assert name + " details" in usage[0].text
+        details = await server.call_tool("help", {"topic": name + " details"})
+        assert len(details[0].text) < 1800
+        assert "No extended guidance" not in details[0].text
 
 
 async def test_tool_catalog_schemas_and_annotations(settings):
@@ -688,7 +616,7 @@ async def test_tool_catalog_schemas_and_annotations(settings):
         "decision_assessment_history", "decision_assessment_append", "decision_assessment_append_batch",
         "decision_commit_lookup", "decision_scope_reconcile",
         "decision_change_get", "decision_change_candidates", "decision_change_update",
-        "help", "generate_uuid", "search",
+        "help", "session_init", "generate_uuid", "search",
         "list_transcripts", "search_transcript_contents", "get_transcript",
         "get_transcript_text", "download_transcript",
         "list_artifacts", "get_artifact", "get_artifact_text",
@@ -734,7 +662,7 @@ async def test_tool_catalog_schemas_and_annotations(settings):
         "merge_work",
         "suggest_duplicate_work",
     }
-    assert all(tool.outputSchema for name, tool in tools.items() if name != "help")
+    assert all(tool.outputSchema for name, tool in tools.items() if name not in {"help", "session_init"})
     assert tools["help"].outputSchema is None
     assert all(
         tool.inputSchema.get("additionalProperties") is False for tool in tools.values()
@@ -812,7 +740,7 @@ async def test_tool_catalog_schemas_and_annotations(settings):
         "remove_relationship",
         "merge_work",
     }
-    assert len(tools) == 80
+    assert len(tools) == 81
     for name in mutating:
         assert tools[name].annotations.idempotentHint is False
     for name in tools.keys() - mutating - {"authorize_artifact_download", "generate_uuid"}:
@@ -866,7 +794,7 @@ async def test_tool_catalog_operation_and_claim_schemas(settings):
     assert project_page_schema["additionalProperties"] is False
     assert project_page_schema["$defs"]["Project"]["additionalProperties"] is False
 
-    for name in tools.keys() - {"help", "generate_uuid", "list_projects", "create_project", "authorize_artifact_upload", "search"}:
+    for name in tools.keys() - {"help", "session_init", "generate_uuid", "list_projects", "create_project", "authorize_artifact_upload", "search"}:
         assert "project_id" in tools[name].inputSchema["required"]
     search_properties = tools["search"].inputSchema["properties"]
     assert search_properties["project_id"]["default"] is None
@@ -5677,9 +5605,7 @@ async def test_append_event_transports_optional_liveness_token(settings, progres
     result = await server.call_tool("append_event", arguments)
     assert result[1] == progress_event
     assert len(seen) == 1
-    tools = {tool.name: tool for tool in await server.list_tools()}
     for name in ("append_event", "add_checkpoint"):
-        assert "last granted duration clamped to the current project minimum and maximum" in (
-            tools[name].description
-        )
-        assert "exact receipt replays do not renew a lease" in tools[name].description
+        guidance = await command_guidance(server, name)
+        assert "last granted duration clamped to the current project minimum and maximum" in guidance
+        assert "exact receipt replays do not renew a lease" in guidance

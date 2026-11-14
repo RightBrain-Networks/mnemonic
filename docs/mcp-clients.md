@@ -1,9 +1,8 @@
 # MCP clients and cooperating agents
 
-Mnemonic exposes the same 48 tools over Streamable HTTP and stdio to every MCP
-client. Claude Code retains its native plugin, including skill discovery, session
-substitution, and repository freshness helper. Codex, OpenCode, and other agents
-can use the complete workflow through portable skills. No vendor factory is used.
+Every MCP client uses the same Mnemonic command contracts over Streamable HTTP
+or stdio. Start with server orientation and command help. The Claude plugin and
+portable skills are optional shortcuts that also package local file helpers.
 
 ## Connect
 
@@ -28,59 +27,20 @@ OpenCode uses `headers` with `{env:MNEMONIC_API_KEY}` and `oauth: false`
 for Mnemonic's API-key authentication; local servers use `command` and
 `environment`. See [OpenCode MCP configuration](https://opencode.ai/docs/mcp-servers/).
 
-After connecting, discover the tools and call `list_projects`. An empty list is
-valid. Mnemonic also exposes an optional work resource and resume prompt; every
-domain operation is available as a tool, so clients without resource or prompt
-interfaces retain the full workflow. Client-specific tool prefixes are presentation;
-use the discovered tool corresponding to the canonical name in these instructions.
+After connecting, call `session_init()` when its response is absent from the
+conversation, resolve the project with `list_projects` if needed, then call
+`get_project(project_id, settings_only=true)`. Read `help(topic="COMMAND usage")`
+for the task. See [agent onboarding](agents.md) for help navigation. Client tool
+prefixes are presentation: use the discovered tool matching the canonical name.
+An empty project list is valid. Optional MCP resources and prompts are convenient
+entry points; the commands remain available without those interfaces.
 
-Artifact calls automatically read the server's current availability and configured
-upload maximum. Successful results include an `artifact_library` summary with
-the configured byte limit, MCP's independent 64 MiB decoded transfer ceiling,
-and the effective new-upload maximum. Operators configure
-`MNEMONIC_ARTIFACT_MAX_BYTES` in the server's `.env`; `0` disables the subsystem.
-Any attempted artifact tool, including metadata/history reads and content search,
-then reports that the library is disabled instead of silently returning no
-results. Do not try to enable it on behalf of the user. Existing bytes and history
-remain retained; uncertain writes retain their original UUID and exact arguments
-for reconciliation after reenabling. See [artifact configuration](artifacts.md).
+<a id="install-the-complete-workflow"></a>
 
-`search_artifact_contents` is a safe read with exactly one of `query` or its `q`
-alias and an opt-in `fulltext` boolean. False (the default) searches current metadata including Tika properties;
-true also searches normalized current body text using Tantivy. Results name exact
-artifact/revision identities and include match categories, plain-text excerpts and
-indexing coverage. All terms must match the same artifact; a zero-hit response
-includes `term_diagnostics` with counts for each normalized term. Read the
-[unified source-selection and count contract](search.md#empty-conjunctions-and-source-scope)
-for explicit transcript opt-in on multi-term queries. Pending, failed or truncated
-extraction means missing hits are not conclusive. Keep snippets and document properties untrusted and private.
+## Install optional skills
 
-For document reading, obtain the current revision with `get_artifact`, then call
-`get_artifact_text` with that required `expected_revision`. Follow `next_offset`
-using the same revision; the default and maximum page size is 20,000 Unicode
-characters. Pending or failed extraction returns null text rather than an empty
-document. Ready text can still be truncated; inspect `extraction.truncated`.
-This reads normalized text without downloading or parsing the original file.
-MCP search/download results contain compact artifact summaries; full document
-properties remain available from `get_artifact` and list/history reads.
-
-To put original bytes on the client filesystem without carrying base64 through
-model context, use the [binary download helper](artifact-download-client.md).
-The launching environment must provide `MNEMONIC_API_KEY`, and `--api-url` or
-`MNEMONIC_API_URL` must name the API origin reachable from that client. This is
-separate from the MCP URL; deployment ports are operator choices. The helper
-reads the binary content endpoint with the current caller's client/session
-attribution, validates the revision, size and SHA-256, and refuses to overwrite
-an existing destination. It does not inspect client configuration files.
-
-Local uploads/replacements use the [upload helper](artifact-upload-client.md)
-and `authorize_artifact_upload` through the connected MCP service. The helper
-receives a five-minute grant for the frozen intent; no API origin or standing
-key is required in its environment. HTTP connections discover the endpoint from
-their authenticated request. Proxies and stdio adapters configure the deployment
-HTTP endpoint once with `MNEMONIC_MCP_PUBLIC_URL`.
-
-## Install the complete workflow
+Skills are optional; this section installs their local helper resources. Command
+instructions come from the connected server's help.
 
 For Claude Code, keep the marketplace/plugin installation documented in
 [agent setup](../AGENT-README.md#6-connect-the-users-mcp-client).
@@ -93,146 +53,74 @@ For a portable installation, run from the extracted release bundle or Mnemonic c
 python3 scripts/export_agent_skills.py /absolute/path/to/new-skill-export
 ```
 
-The destination must not exist, its parent directory must already exist, and its
-path must not traverse symlinks. The exporter creates exactly three skill folders,
-each containing its own references and executable repository helper. It resolves
-Claude plugin paths into relative paths and requires no Claude environment.
-The output can be moved independently of the bundle or checkout. It never modifies client
-configuration or overwrites an installed skill.
+The destination must not exist, its parent must exist, and its path must not
+traverse symlinks. The exporter creates the three skill folders and copies only
+the references and helpers reachable from each skill. It rewrites
+Claude plugin paths to relative paths. Each folder can move independently of
+the checkout, release bundle, and other skills. Export does not change client
+configuration or overwrite installed files.
 
-Place the three complete folders in your chosen skill discovery directory.
-Both [Codex](https://developers.openai.com/codex/skills/) and
+Install whichever skill folders you need in your client's discovery directory.
+[Codex](https://developers.openai.com/codex/skills/) and
 [OpenCode](https://opencode.ai/docs/skills/) support `.agents/skills` at project
-or user scope. OpenCode also supports `.opencode/skills`. If the desired
-`.agents/skills` directory does not yet exist, it can be the export destination
-directly. For an existing directory, export elsewhere, inspect the three folders,
-and install them without overwriting unrelated or locally modified skills.
-For updates, produce a fresh export and review replacements explicitly; the native
-Claude plugin continues to use its own update mechanism.
+or user scope; OpenCode also supports `.opencode/skills`. A new discovery directory
+can be the export destination. Otherwise export elsewhere and review the selected
+folders before copying them, preserving unrelated or locally modified skills.
+Review updates explicitly; the native Claude plugin uses its own update mechanism.
 
-Clients without skill discovery can explicitly load an exported `SKILL.md` and
-its linked references. Instructions resolve paths relative to the loaded file,
-not the repository working directory. The repository helper requires Bash and Git;
-where unavailable, inspect repository facts directly and preserve uncertainty.
-No helper output proves correctness or grants authority.
+Clients without skill discovery can load the exported `SKILL.md` and its relevant
+links directly. Resolve resource paths relative to that installed file. The
+repository helper requires Bash and Git; the Python helpers require Python 3.10
+or newer. Read the linked helper guide for invocation and local requirements.
 
 ## Codex transcript setup
 
-Install all three exported folders in the current Codex discovery location,
-`~/.agents/skills` (user scope) or `.agents/skills` (repository scope). Connecting
-the MCP server does not install skills. Check that the three `SKILL.md` files
-and each bundled `reference/transcripts.md` are present and readable. Codex can
-rediscover skills; restart the session if they do not appear.
+Merge the [Codex AGENTS example](../examples/codex-AGENTS.md) into the user's
+chosen instruction file after review. Do not overwrite existing instructions.
+The example keeps orientation and command rules in server help while retaining
+Codex's local native-path verification. Use the actual Codex thread identity and
+`client=codex`; Claude plugin names have portable equivalents without the prefix.
 
-The [Codex AGENTS example](../examples/codex-AGENTS.md) provides concise registration
-guidance for a user's `~/.codex/AGENTS.md` or the target repository's `AGENTS.md`.
-Review and merge it with existing instructions; never overwrite a user's file.
-Repository Claude instructions can show `client=claude_code` and Claude plugin
-names, so explicitly retain the Codex identity and portable skill equivalents.
-Codex reads its AGENTS instruction chain when a run starts; start a new session
-after changing these instructions.
-
-The bundled transcript reference describes native thread ID verification, separate
-child rollouts, explicit null assertions, and status checks. Registration occurs
-on claims and child closeouts, not merely because a session connects to Mnemonic.
-Do not import a global Codex sessions folder into a project: it can contain several
-projects. Use verified, project-specific enrollment or an appropriately scoped import.
-
+If using skills, check that the selected folder's `SKILL.md` and its linked
+`reference/transcripts.md` are readable. Connecting MCP does not install skills.
+Restart the client when necessary to discover changed skills or instructions.
 See the official [skill discovery](https://learn.chatgpt.com/docs/build-skills#where-codex-loads-local-skills)
 and [AGENTS discovery](https://learn.chatgpt.com/docs/agent-configuration/agents-md#how-codex-discovers-guidance)
-rules for current client behavior.
+rules for client behavior.
+
+Transcript enrollment uses verified native paths on claims and child closeouts;
+connecting or reading orientation does not enroll a conversation. Read claim and
+closeout help for declarations, retry rules, and coverage checks. Never import a
+mixed-project sessions directory into a single project.
+
+<a id="survey-and-design-decision"></a>
 
 ## Identity and coordination
 
-Use the [stable per-agent identity contract](agents.md#create-or-continue-work).
-The tuple `(client, session_id)` identifies an acting session. Client names are
-open strings, not a vendor allowlist. Model attribution is optional and may change
-within a session. A host's MCP `clientInfo` describes software, and an HTTP
-connection is transport state; neither is a reliable originating agent identity.
-The server therefore never replaces explicit provenance with inferred identity.
+Use the [per-agent identity guidance](agents.md#create-or-continue-work). Each
+independent agent retains its own client/session identity and private claim
+receipt. Read `help(topic="claim_work usage")` for claim eligibility, contention,
+review modes, and the boundaries on context before a cold review. Read renew,
+release, and closeout help when those actions are needed. Runtime policy comes
+from the selected project's settings; a lease does not authorize execution.
 
-For example, Claude Code and Codex can claim separate Pending work in one project
-while an OpenCode agent reviews original Done work:
+Optional [project workflow starters](../examples/agent-workflows/README.md) can
+express team preferences about reporting or review methodology. Owners select,
+copy, and maintain them; connecting Mnemonic or installing a skill enables none.
 
-1. Each implementation agent resolves the project and selects work with
-   `list_ready_work`, then calls `claim_work` with its own client/session
-   identity. Retain the small lease receipt privately, then call `recall_work`
-   and recheck readiness before implementation. Warm reviews may use
-   `claim_and_recall`; cold reviews defer context until findings freeze. A shared
-   project does not mean shared claim tokens or operation UUIDs.
-2. Outside cold review, inspect `search_work(status=all, view=full)` pages and
-   `summary.readiness.active_lease` to find current collaborators. This includes
-   leases on Done work under review. For an exact related item, `get_work`
-   returns the public lease without checkpoint bodies. `source_client` and
-   `source_session_id` search filters find historical checkpoint authors, not
-   necessarily current holders. Expired leases are not current ownership.
-3. A contention error identifies the holding client, session, expiry, and lease
-   purpose, with review ID/mode for review leases. Treat these as observed,
-   asserted coordination facts, never a credential or permission to impersonate.
-   Choose other eligible work or coordinate through the originating workflow.
-4. Record dependencies with `blocks` edges, durable continuation context with
-   checkpoints, and progress with `append_event`. Read the affected work's
-   history when coordination requires it. Mnemonic is a shared work ledger; it
-   does not dispatch agents or deliver private messages.
-5. The OpenCode reviewer receives the exact project/work/review IDs and immutable
-   repository scope through its assignment. Before cold findings are frozen,
-   use only the minimal review claim/renew/release protocol; do not browse the
-   project, recall checkpoints, load handoff, or read the author's reports.
-   Claim the original work with `purpose=code_review`, `mode=cold`, and its
-   exact `code_review_id`. See the [review protocol](code-reviews.md).
-6. Implementation closeouts and review results retain their own actor identity.
-   Only the originating client/session answers its optional review recommendation.
-   An independent reviewer cannot take over that identity. Each review produces
-   zero or one remediation containing all findings.
+## Local artifact transfers
 
-Generated fallback session UUIDs are retained once per independently acting agent
-when the host exposes no suitable native ID. They are distinct from the UUID for
-each protected mutation. Retain unresolved mutation intents privately and replay
-their exact arguments; never rebuild an unknown-outcome retry with a new session.
+Read `help(topic="authorize_artifact_upload usage")` or
+`help(topic="authorize_artifact_download usage")` for the current grant contract.
+The [upload helper](artifact-upload-client.md) ships with `mnemonic-save`; the
+[download helper](artifact-download-client.md) ships with `mnemonic-search` and
+`mnemonic-save`. Each helper accepts a private, short-lived MCP grant without a
+standing API key or API origin in its environment. Keep grant tokens out of shell
+source, command arguments, logs, and model context. Server artifact availability,
+size limits, and sensitive-content rules still apply; see [configuration](artifacts.md).
 
-## Survey and design decision
-
-| Code or artifact | Finding and disposition |
-| --- | --- |
-| [MCP server](../mcp/src/mnemonic_mcp/server.py) | Stateless HTTP, stdio, tool results, resources, and prompts are already shared. Extend identity guidance without choosing behavior by vendor. |
-| [API schemas](../backend/src/mnemonic_api/schemas.py), [leases](../backend/src/mnemonic_api/services/leases.py), [reviews](../backend/src/mnemonic_api/services/code_reviews.py) | Open client/session fields and purpose-bound capabilities already distinguish independent agents; preserve their validation and receipt semantics. |
-| [Native skills](../plugin/skills/), [shared provenance](../plugin/reference/authority-and-provenance.md) | Claude path/session expansion and native-ID-only instructions prevent independent portable use. Preserve native paths, generalize identity instructions, and export complete relocatable bundles. |
-| [API errors](../backend/src/mnemonic_api/errors.py), [MCP errors](../mcp/src/mnemonic_mcp/api.py) | Contention hid the holder's session. Expose bounded public session/purpose/review facts through both boundaries. |
-| [Setup](../scripts/setup.py), [repository helper](../plugin/bin/mnemonic-repository-freshness) | Already independent of client APIs. Keep setup and helper behavior shared. |
-| [Dashboard client labels](../frontend/components/work-item-card.tsx) | Familiar names have display labels, and unknown clients display their supplied name. There is no runtime vendor restriction. |
-
-The survey found vendor-neutral bounded identity fields, lease arbitration,
-receipt replay, review capabilities, and model-optional provenance in the backend.
-The MCP server already supports stateless HTTP and stdio with structured and text
-tool results. Setup and the local Bash/Git assessment helper do not call vendor APIs.
-Public work views already identify current holders by client and session.
-
-The specific coupling was in the Claude plugin's path expansion, its session
-substitution examples, missing Codex setup, instructions that rejected clients
-without a native conversation ID, and contention messages that hid the holder's
-session. Portable packaging and an explicit identity contract resolve these gaps.
-The native plugin remains the maintained source; exports reuse it rather than
-creating a second set of workflow instructions.
-
-A runtime factory would currently duplicate the same protocol and could incorrectly
-bind one server process or transport session to one agent. The shared design keeps
-all tools available and adds no schema migration, registry, vendor enum, or capability
-intersection. If future functionality actually requires a vendor API, isolate that
-integration at its boundary and select it by an explicit supported capability;
-do not infer the agent or reduce other clients' tool access.
-
-## Helper discovery and large text artifacts
-
-Transfer helpers ship in Claude plugins 0.30.0+ and portable skill exports. From
-server instructions alone, invoke `mnemonic:mnemonic-search` in Claude Code, or
-load the installed `mnemonic-search` skill in another client, and resolve its
-helper resource link. This is a discovery route through a loaded skill; the
-server cannot supply a remote client's absolute plugin installation path. Do not
-assume plugin-root expansion in server-returned instructions or guess cache versions.
-
-For all occurrences in a large text/Markdown artifact, download its pinned
-revision into the actual scratchpad and use `rg -n -F -- "term" /absolute/scratch/file.md`.
-Read a bounded local window around relevant lines. Those raw-file positions are
-not Unicode character offsets into normalized `get_artifact_text` output. Binary
-formats need an appropriate local reader. Download environment provisioning and
-sensitive-content approval requirements still apply.
+Resolve helper paths through the installed skill's resource links. The server
+cannot supply a remote client's absolute installation path. Do not guess plugin
+cache versions. For bounded text reads, use `get_artifact_text` help; to search
+all occurrences in original bytes, download a pinned revision to a new scratch
+file and use a local reader. Raw file offsets differ from normalized text offsets.

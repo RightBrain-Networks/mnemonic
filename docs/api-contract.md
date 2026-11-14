@@ -1,5 +1,14 @@
 # Mnemonic API contract
 
+MCP `session_init()` returns local product orientation, terminology, intent routes,
+and the registered command catalog without API requests or persisted session state.
+For startup policy, MCP `get_project(project_id, settings_only=true)` uses
+`GET /projects/{project_id}/overview?settings_only=true` and returns only
+`{project_id, settings}`. It excludes authored prompts and aggregate queries;
+omitting the flag preserves the full overview response. Command requirements and
+examples are available through MCP `help`; see [agent onboarding](agents.md).
+These additions require no migration or new configuration.
+
 Project priority guidance has a dedicated `GET /projects/{project_id}/priority-rubric`
 read, returning `{project_id, content, revision}`. Dashboard humans edit the exact
 Markdown with `PATCH` on the same path and `{content, expected_revision}`. Content
@@ -20,7 +29,7 @@ resource summaries and polling checkpoints through MCP `query_activity` or the s
 See [AGENTS.md](../AGENTS.md#versioning) for the coordinated application, plugin,
 and migration versions. See [knowledge graph](knowledge-graph.md) for retained
 decision revisions and commit provenance, and [dependency cycles](dependency-cycles.md) for explicit
-parent closure requirements, cycle refusal, and honest deadlock display. The catalog has exactly 80 MCP tools, 25
+parent closure requirements, cycle refusal, and honest deadlock display. The catalog has exactly 81 MCP tools, 25
 protected MCP writes, 38 REST receipt kinds, 32 protected browser mutations and
 24 work-event types. The 38 REST receipt kinds comprise 18 work operations, ten knowledge operations, four artifact operations
 with filesystem recovery journals, four project-tag operations, and two transcript operations (rebuild and import). See

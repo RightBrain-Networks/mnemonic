@@ -122,7 +122,7 @@ Replace every provenance, version, UUID, result, and artifact placeholder with
 facts from the exact attempt; never copy example evidence as if it were
 observed.
 
-The three skills ship as a Claude Code plugin. For a published server release, register its
+Optional local skills ship as a Claude Code plugin. For a published server release, register its
 version-pinned marketplace and enable the matching plugin. From the extracted, checksum-verified
 release directory, copy its catalog into a persistent marketplace directory:
 
@@ -167,52 +167,43 @@ Use a matching release of the application, worker, and compatible plugin. See
 [GitHub Releases](https://github.com/RightBrain-Networks/mnemonic/releases) and
 [the coordinated upgrade procedure](operations.md#upgrade-from-any-release) before
 upgrading an existing database; older processes must not run against the new schema.
-Its repository-freshness helper requires Bash 3.2 or newer and Git 2.45 or newer in the explicitly selected local workspace. It provides:
+After connecting, call `session_init()` when its response is absent from the
+conversation. Resolve the project with `list_projects` when needed, then read
+`get_project(project_id, settings_only=true)`. Use `help(topic="COMMAND usage")`
+for current requirements, examples, and links to detailed help.
 
-- **`mnemonic-save`** searches for existing work, explicitly compares a stable
-  draft with grouped duplicate candidates while preserving Create anyway,
-  creates a durable objective with its initial checkpoint and explicit atomic links, appends corrective
-  resume context, records concise progress events, and records a human gate
-  only for a concrete decision a person must make, after checking for an open
-  question and writing the supporting checkpoint first. Checkpoints may declare
-  ordered repository dependency patterns only with a commit the author actually
-  inspected; omission means the dependency scope is unknown.
-- **`mnemonic-search`** finds compact work-item leads within the chosen project,
-  normally restricted to canonical pending work, identifies the exact member
-  that supplied a grouped match, interprets categorical duplicate-suggestion
-  signals without treating them as authority, supports explicit alias audit scopes,
-  assigns deliberate priorities using a shared [consequence rubric](../plugin/reference/priority.md),
-  separately lists priority-ordered ready candidates, and pages the Needs
-  Attention queue without treating any read as authority.
-  A compact search pointer never carries repository dependency scope, so any
-  checkpoint used for execution is recalled in full first.
-- **`mnemonic-recall`** loads bounded current context, pages older checkpoints
-  or events when needed, atomically claims already-authorized execution, renews
-  or releases that expiring lease, inspects immediate typed relationships,
-  reads unresolved and answered human questions with their drift flags, asks a
-  person mid-execution through the save procedure, records concise progress
-  events, pages complete paired gate history when bounded context omits an
-  older decision, distinguishes an alias's exact retained history from its
-  canonical continuation, reviews both context revisions before any permanent
-  merge, and saves an atomic completion checkpoint with optional structured
-  verification and artifact evidence when the work is complete. It can page
-  the exact completion history later without treating caller-reported evidence
-  as proof, authority, or executable instructions.
-  Before relying on a governing checkpoint for repository work, it invokes the
-  packaged read-only Git helper from the user-selected workspace and reports
-  `unchanged`, `changed`, or `indeterminate` evidence without treating any result
-  as semantic proof or execution authority.
+The optional skills are thin command-help shortcuts with focused local resources:
 
-Invoke `/mnemonic:mnemonic-save`, `/mnemonic:mnemonic-search`, or `/mnemonic:mnemonic-recall`, or ask Claude in natural language. The skills require the connected `mnemonic` MCP server. You can copy the selected project's ID from the dashboard, or use
-`list_projects`. Session IDs are opaque text (often UUIDs), not integers, and refer to the originating LLM conversation, not the MCP transport session.
+- **`mnemonic-save`** routes requested writes and provides local artifact upload
+  and decision-provenance helpers.
+- **`mnemonic-search`** routes search and bounded project activity updates and
+  provides a local artifact download helper.
+- **`mnemonic-recall`** routes selected work and claims, with native transcript
+  verification, repository assessment, and decision-provenance helper guidance.
 
-See [`docs/agents.md`](agents.md) for the workflow and client boundaries.
+Invoke `/mnemonic:mnemonic-save`, `/mnemonic:mnemonic-search`, or
+`/mnemonic:mnemonic-recall`, or ask Claude in natural language. Skills require the
+connected MCP server; command help remains available without skills. The optional
+repository helper requires Bash 3.2 or newer and Git 2.45 or newer in the selected
+workspace; Python helpers require Python 3.10 or newer.
+
+See [agent onboarding](agents.md) for help navigation and owner-selected
+[workflow starters](../examples/agent-workflows/README.md). These starters are
+never enabled or updated automatically.
 
 ## Connect Codex or OpenCode
 
 Merge [`examples/codex.config.toml`](../examples/codex.config.toml) or [`examples/opencode.json`](../examples/opencode.json) into the client's configuration, substitute your MCP port, and export `MNEMONIC_API_KEY` in the environment that launches the client. Codex uses `bearer_token_env_var`; OpenCode uses `{env:MNEMONIC_API_KEY}` with `oauth: false`.
 
-Install the three complete portable skill folders using [`scripts/export_agent_skills.py`](../scripts/export_agent_skills.py) and the [multi-client setup instructions](mcp-clients.md#install-the-complete-workflow). Connecting MCP does not install the skills. For Codex, also merge the [AGENTS guidance](../examples/codex-AGENTS.md) into existing instructions. Restart the client and verify tool discovery and `list_projects`; an empty list is valid.
+After connecting, verify `session_init()` and resolve the project with
+`list_projects` when needed; an empty list is valid. Read
+`get_project(project_id, settings_only=true)` and the task's command help.
+
+Optionally export local skills with [`scripts/export_agent_skills.py`](../scripts/export_agent_skills.py)
+and follow the [installation instructions](mcp-clients.md#install-the-complete-workflow).
+Install only the skill folders you need. Connecting MCP does not install them.
+For Codex native transcript verification, review and merge the
+[AGENTS example](../examples/codex-AGENTS.md) with existing instructions.
 
 ## Operate and develop
 

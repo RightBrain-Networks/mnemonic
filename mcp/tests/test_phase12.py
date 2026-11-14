@@ -9,6 +9,7 @@ from pathlib import Path
 import httpx
 import pytest
 from conftest import CHECKPOINT_ID, CLIENT_OPERATION_ID, NOW, OTHER_WORK_ID, PROJECT_ID, WORK_ID
+from help_utils import command_guidance
 from mcp.server.fastmcp.exceptions import ToolError
 from pydantic import TypeAdapter, ValidationError
 from test_get_project import project_overview
@@ -709,9 +710,9 @@ async def test_report_input_errors_hide_prose_and_arbitrary_keys(settings, work_
     assert "private-" not in message
 
 
-async def test_catalog_is_80_tools_25_protected_and_report_omission_is_replay_only(settings):
+async def test_catalog_is_81_tools_25_protected_and_report_omission_is_replay_only(settings):
     tools = {tool.name: tool for tool in await build_server(settings).list_tools()}
-    assert len(tools) == 80
+    assert len(tools) == 81
     protected = [tool for tool in tools.values() if "client_operation_id" in tool.inputSchema["properties"]]
     assert len(protected) == 25
     assert "dismiss_job_completion_report" not in tools
@@ -723,24 +724,22 @@ async def test_catalog_is_80_tools_25_protected_and_report_omission_is_replay_on
         assert set(schema["$defs"]["JobCompletionReportInput"]["required"]) == {
             "summary", "fyi_items", "prompt_revision",
         }
-        assert "historical" in tools[name].description
-        assert "get_prompt" in tools[name].description
+        assert "historical" in await command_guidance(build_server(settings), name)
+        assert "get_prompt" in await command_guidance(build_server(settings), name)
     for name in ("get_activity", "get_project", "get_prompt", "list_job_completion_reports", "get_job_completion_report"):
         assert tools[name].annotations.readOnlyHint
         assert tools[name].annotations.idempotentHint is True
 
 
-def test_plugin_retrieves_authoring_guidance_and_preserves_human_action_contract():
+def test_plugin_routes_report_authoring_and_history_to_command_help():
     root = Path(__file__).resolve().parents[2] / "plugin"
     reference = (root / "reference/job-completion-reports.md").read_text()
-    for expected in (
-        "get_prompt", "job-completion-report", "prompt_revision",
-        "Needs Attention", "Won’t do", "Promoted", "same UUID",
-        "immutable", "no separate", "does not dismiss", "not authority",
-    ):
-        assert expected in reference, expected
+    for topic in ("get_prompt usage", "complete_work job_completion_report",
+                  "list_job_completion_reports usage", "get_job_completion_report usage"):
+        assert f'help(topic="{topic}")' in reference
+    assert len(reference.split()) <= 80
     for skill in ("mnemonic-save", "mnemonic-recall", "mnemonic-search"):
         guidance = (root / "skills" / skill / "SKILL.md").read_text()
-        assert "reference/job-completion-reports.md" in guidance
-        assert "get_prompt" in guidance
-        assert "reference/prompts.md" in guidance
+        assert "session_init()" in guidance
+        assert "settings_only=true" in guidance
+        assert "help(topic=" in guidance

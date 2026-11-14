@@ -203,12 +203,11 @@ async def test_upload_supports_sensitive_related_artifacts(settings):
 async def test_tool_instructions_explicitly_forbid_automated_consent_and_classification_bypass(settings):
     tools = {tool.name: tool for tool in await build_server(settings).list_tools()}
     for name in ("download_artifact", "get_artifact_text", "search_artifact_contents"):
-        assert "HUMAN APPROVAL" in tools[name].description
-        assert "actual human" in tools[name].description
+        assert "human approval" in tools[name].description
         assert "approval_token" in tools[name].inputSchema["properties"]
         assert "human_approved" in tools[name].inputSchema["properties"]
         assert "human-dashboard" not in tools[name].description
-    assert "NEVER clear sensitivity" in tools["update_artifact"].description
+    assert "Do not clear sensitivity" in tools["update_artifact"].description
 
 
 async def test_uncertain_sensitive_read_requires_new_human_approval_not_token_retry(settings):

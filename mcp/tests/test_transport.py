@@ -47,6 +47,7 @@ CANONICAL_TOOL_NAMES = {
         "decision_change_get", "decision_change_candidates", "decision_change_update",
     "generate_uuid",
     "help",
+    "session_init",
     "authorize_artifact_download",
     "authorize_artifact_upload",
     "search",
@@ -180,34 +181,27 @@ def test_http_protocol_initialize_list_and_call(settings, work_context):
         assert initialized.json()["result"]["serverInfo"]["name"] == "Mnemonic"
         assert initialized.json()["result"]["serverInfo"]["version"] == __version__
         instructions = initialized.json()["result"]["instructions"]
-        # Clients truncate this block, so it must stay short and lead with the
-        # trigger condition. Per-tool doctrine lives in the tool descriptions.
-        assert len(instructions) <= 1200
-        assert "unimplemented" not in instructions.casefold()
-        first_sentence = instructions.split(". ")[0]
-        assert "outlives one session" in first_sentence
+        # Initialization points to one local orientation; no lifecycle procedure is eager-loaded.
+        assert len(instructions) <= 900
+        assert "session_init()" in instructions
+        assert "get_project(project_id, settings_only=true)" in instructions
         assert "list_projects" in instructions
-        assert "search" in instructions
-        assert "recall_work" in instructions
-        assert "list_ready_work" in instructions
-        assert "append_event" in instructions
-        # The claim trigger fires in a later turn than the recall_work description
-        # that states it, so the always-present block must name it too.
-        assert "claim_and_recall" in instructions
-        assert "add_checkpoint" in instructions
-        assert "get_artifact_text" in instructions
-        assert "Upload/download paths" in instructions
-        assert "mnemonic:mnemonic-search" in instructions
-        assert "0.30.0+" in instructions
+        assert 'help(topic="<command> usage")' in instructions
         assert "${CLAUDE_PLUGIN_ROOT}" not in instructions
-        assert "merge_work" in instructions
-        assert "Duplicate suggestions are advisory evidence" in instructions
-        assert "historical evidence" in instructions
-        assert "grants no authority" in instructions
+        orientation = client.post("/mcp", json={"jsonrpc": "2.0", "id": 20,
+            "method": "tools/call", "params": {"name": "session_init", "arguments": {}}},
+            headers=JSON_HEADERS)
+        assert orientation.status_code == 200
+        result = orientation.json()["result"]
+        assert not result.get("isError")
+        assert len(result["content"]) == 1
+        assert "query_activity" in result["content"][0]["text"]
+        assert "structuredContent" not in result
+        assert seen == []
         listed = client.post("/mcp", json={"jsonrpc": "2.0", "id": 2, "method": "tools/list"}, headers=JSON_HEADERS)
         assert listed.status_code == 200
         listed_tools = listed.json()["result"]["tools"]
-        assert len(listed_tools) == 80
+        assert len(listed_tools) == 81
         assert_serialized_tool_contract(listed_tools)
         assert all(
             tool["inputSchema"].get("additionalProperties") is False
@@ -479,8 +473,8 @@ async def test_stdio_transport_handshake_and_catalog():
             assert len(initialized.instructions) <= 1200
             assert "unimplemented" not in initialized.instructions.casefold()
             result = await session.list_tools()
-            assert len(result.tools) == 80
-            assert all(tool.outputSchema is not None for tool in result.tools if tool.name != "help")
+            assert len(result.tools) == 81
+            assert all(tool.outputSchema is not None for tool in result.tools if tool.name not in {"help", "session_init"})
             assert next(tool for tool in result.tools if tool.name == "help").outputSchema is None
             assert all(
                 tool.inputSchema.get("additionalProperties") is False

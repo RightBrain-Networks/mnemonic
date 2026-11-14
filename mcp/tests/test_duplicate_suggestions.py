@@ -7,6 +7,7 @@ from runpy import run_path
 import httpx
 import pytest
 from conftest import API_KEY, OTHER_WORK_ID, PROJECT_ID, WORK_ID
+from help_utils import command_guidance
 from mcp.server.fastmcp.exceptions import ToolError
 from pydantic import ValidationError
 from search_ranking_fixtures import semantic_disposition
@@ -128,7 +129,7 @@ async def test_advisory_tool_schema_is_exact_and_capability_free(settings):
     schema = tool.inputSchema
     properties = schema["properties"]
 
-    assert len(tools) == 80
+    assert len(tools) == 81
     assert set(properties) == {
         "project_id",
         "title",
@@ -203,9 +204,8 @@ async def test_advisory_tool_schema_is_exact_and_capability_free(settings):
     ):
         assert forbidden not in serialized_output
 
-    description = (tool.description or "").lower()
+    description = (await command_guidance(build_server(settings), "suggest_duplicate_work")).lower()
     for required in (
-        "explicit user or client action",
         "categorical signals",
         "never confidence",
         "never blocks create_work",

@@ -461,7 +461,7 @@ presence in REST must never implicitly expose it on another surface.
 998, 1094, 1200, 1387, 1424, 1513, 1618, 1671, 1715, and 1757. Repository-scope
 instructions also recur in create/checkpoint/completion descriptions. The plugin
 already has useful shared policy in
-[authority-and-provenance.md](../plugin/reference/authority-and-provenance.md#L139),
+[authority-and-provenance.md](https://github.com/RightBrain-Networks/mnemonic/blob/7766955a7a49321a750e98990a49a41acea875b4/plugin/reference/authority-and-provenance.md#L139),
 [repository-freshness.md](../plugin/reference/repository-freshness.md), and
 [completion-evidence.md](../plugin/reference/completion-evidence.md).
 

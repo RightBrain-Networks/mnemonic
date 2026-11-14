@@ -1,4 +1,4 @@
-"""Implementation keeps its capability separate from potentially oversized context."""
+"""Both claim surfaces preserve coordination and private capability recovery."""
 
 import copy
 import json
@@ -15,23 +15,16 @@ from mnemonic_mcp.command_help import render_help
 from mnemonic_mcp.server import INSTRUCTIONS, build_server
 
 
-async def test_discovery_and_help_direct_implementation_to_separate_claim_and_recall(settings):
+async def test_help_explains_both_claim_options_without_imposing_a_universal_sequence(settings):
     server = build_server(settings)
     catalog = {tool.name: tool for tool in await server.list_tools()}
-    assert "Authorized implementation: claim_work then recall_work" in INSTRUCTIONS
-    assert "Warm: claim_and_recall,get_code_review" in INSTRUCTIONS
-    for name in ("search_work", "list_ready_work", "claim_work", "claim_and_recall"):
-        description = catalog[name].description
-        assert description is not None
-        assert "claim_work" in description and "recall_work" in description
-        assert "implementation" in description.casefold()
-    for name in ("claim_work", "claim_and_recall"):
-        for suffix in (" usage", " details"):
-            page = render_help(name + suffix, catalog)
-            assert "implementation" in page.casefold()
-            assert "recall_work" in page
-    prompt = next(prompt for prompt in await server.list_prompts() if prompt.name == "resume_work")
-    assert "claim_work then recall_work" in prompt.description
+    assert "session_init()" in INSTRUCTIONS
+    assert "claim_work then recall_work" not in INSTRUCTIONS
+    separate = render_help("claim_work usage", catalog)
+    combined = render_help("claim_and_recall usage", catalog)
+    assert "recall_work" in separate
+    assert "implementation and warm review" in combined
+    assert "Cold review uses claim_work" in combined
 
 
 async def test_large_context_recall_does_not_carry_the_separately_acquired_token(

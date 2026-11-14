@@ -5,6 +5,7 @@ import json
 import httpx
 import pytest
 from conftest import CLIENT_OPERATION_ID, PROJECT_ID, WORK_ID
+from help_utils import command_guidance
 from mcp.server.fastmcp.exceptions import ToolError
 from test_artifacts import ARTIFACT_ID, call, search_page
 from test_transcripts import page as transcript_page
@@ -80,9 +81,9 @@ async def test_both_query_spellings_are_discoverable_and_equally_bounded(setting
             assert schema["properties"][field]["type"] == "string"
             assert schema["properties"][field]["minLength"] == 1
             assert schema["properties"][field]["maxLength"] == 1000
-        assert "exactly one of query" in tools[name].description
+        assert "exactly one of query" in await command_guidance(build_server(settings), name)
     for name in (*CONTENT_TOOLS, "search"):
-        description = tools[name].description
+        description = await command_guidance(build_server(settings), name)
         assert "all query terms" in description.lower()
         assert "zero-hit multi-term query does not prove the subject is absent" in description
         assert "individual distinctive terms" in description

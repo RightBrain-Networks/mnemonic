@@ -3,12 +3,23 @@
 from typing import Annotated, Self
 from uuid import UUID
 
-from pydantic import ConfigDict, Field, StrictInt, StrictStr, model_validator
+from pydantic import ConfigDict, Field, RootModel, StrictInt, StrictStr, model_validator
 
 from .phase12_models import Phase12Wire, ProjectSettingsValues, UTCDateTime
 from .tag_models import TagName
 
 Count = Annotated[StrictInt, Field(ge=0)]
+
+
+class ProjectSettingsOnlyRead(Phase12Wire):
+    project_id: UUID
+    settings: ProjectSettingsValues
+
+    @model_validator(mode="after")
+    def coherent_project(self) -> Self:
+        if self.settings.project_id != self.project_id:
+            raise ValueError("Settings must belong to the requested project.")
+        return self
 
 
 class ProjectStateCounts(Phase12Wire):
@@ -97,3 +108,9 @@ class ProjectOverviewRead(Phase12Wire):
             if len(set(values)) != len(values):
                 raise ValueError("Knowledge domain identities and prefixes must be distinct.")
         return self
+
+
+class ProjectRead(RootModel[ProjectOverviewRead | ProjectSettingsOnlyRead]):
+    """Keep both project read modes as direct MCP objects without a result wrapper."""
+
+    model_config = ConfigDict(json_schema_extra={"type": "object"})

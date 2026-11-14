@@ -1,5 +1,7 @@
 """Complete tool guidance, disclosed in bounded help pages instead of the catalog."""
 
+from .lifecycle_help import LIFECYCLE_DETAILS
+
 DETAILS: dict[str, str] = {
     'get_activity': (
         'Read the existing contiguous committed-project journal in ascending sequence. '
@@ -203,7 +205,8 @@ DETAILS: dict[str, str] = {
         'wont-do/promoted only to forward unchanged historical terminal-create receipts for '
         'replay; fresh terminal creation is refused. Retire/promote through update_work with a '
         'human report after pending creation. Create work, initial context, and up to ten '
-        'requested relationships atomically. Search first to avoid duplicates. Fresh duplicate-of '
+        'requested relationships atomically. Search or suggest_duplicate_work can help compare '
+        'existing objectives when useful; comparison is not a creation prerequisite. Fresh duplicate-of '
         'initial relationships are closed and return duplicate_merge_required; use merge_work '
         'only after both exact contexts are reviewed. This input still accepts duplicate-of '
         'solely so an old completed receipt can dispatch once and replay at the backend. '
@@ -226,10 +229,8 @@ DETAILS: dict[str, str] = {
         'so read again when current state matters. '
     ),
     'add_relationship': (
-        'After changing work or related work, inspect affected unresolved human questions. If '
-        'their facts or options changed, rewrite the original prose with request_human_input '
-        'using its gate_id and expected_question_version; keep the human out of checkpoint '
-        'and superseding-decision reconciliation. Add one explicit relationship, including '
+        'If a relationship change affects an open human question, request_human_input can revise '
+        'its prose using gate_id and expected_question_version. Add one explicit relationship, including '
         'across projects, using source --type--> target direction only when current authority '
         'established that exact fact. The requested project must currently contain at least '
         'one endpoint and becomes immutable recording/route authority only for a newly '
@@ -306,21 +307,19 @@ DETAILS: dict[str, str] = {
     ),
     'claim_work': (
         'Claims use claim_request_id as the retry key; client_operation_id is not accepted. '
-        'Supply holder_client and holder_session_id for your own client/session. First call '
-        'get_work(status_only=true) for current status and project lease_settings. Request '
-        'lease_minutes=default_minutes for initial session startup and investigation; choose '
-        'later durations from estimated remaining session work within minimum_minutes and '
-        'maximum_minutes. Any in-range whole-minute request is accepted; omission uses the '
+        'Supply holder_client and holder_session_id for your own client/session. '
+        'get_work(status_only=true) exposes current status and project lease_settings when needed. '
+        'Any in-range whole-minute lease_minutes request is accepted; omission uses the '
         'project default. Preserve the exact lease_minutes argument, including omission, across '
         'uncertain claim retries. Explicitly supply session_transcript={client, path} using an '
         'absolute path visible to the Mnemonic backend, or null when unavailable. Claude Code '
         'uses client=claude_code; its JSON/JSONL format is auto-detected. Retain this assertion '
         'unchanged on claim retries. Acquire an expiring exclusive lease for already-authorized '
-        'work. For implementation, retain the small lease receipt, then call recall_work and recheck '
-        'readiness before acting. If recall fails, retry that safe read or release the lease; do not '
-        'claim again. Implementation requires pending work; deferred work needs explicit human '
-        'direction '
-        'before moving to pending. Code review instead claims the original Done item with '
+        'work. Retain the small lease receipt privately; use recall_work when context is needed, '
+        'or claim_and_recall to acquire implementation context and a lease atomically. '
+        'A later failed context read does not release the lease. Implementation requires pending '
+        'work; update_work can return deferred work to pending when your existing authorization '
+        'and project policy permit resumption. Code review instead claims the original Done item with '
         'purpose=code_review, exact code_review_id and mode=cold|warm; do not reopen it. For a '
         'manual review with no scope, first establish the range from retained context and supply '
         'code_review_handoff with mode=warm; preserve it on exact retries. Later claims omit '
@@ -337,30 +336,28 @@ DETAILS: dict[str, str] = {
         'unchanged on uncertain retries; a released or replaced force request cannot reclaim '
         'again. Keep lease_token in private active-session state, never checkpoints/logs/chat. '
         'Identical active requests replay without extending expiry; capability recovery grants no '
-        'new authority. Human gates still prohibit implementation. After unknown outcome retry '
+        'new authority. Unresolved human decisions still constrain work depending on their answers. '
+        'After unknown outcome retry '
         'promptly with exactly the same claim_request_id and arguments. '
     ),
     'claim_and_recall': (
         'Claims use claim_request_id as the retry key; client_operation_id is not accepted. '
-        'Supply holder_client and holder_session_id for your own client/session. First call '
-        'get_work(status_only=true) for current status and project lease_settings. Request '
-        'lease_minutes=default_minutes for initial session startup and investigation; choose '
-        'later durations from estimated remaining session work within minimum_minutes and '
-        'maximum_minutes. Any in-range whole-minute request is accepted; omission uses the '
+        'Supply holder_client and holder_session_id for your own client/session. '
+        'get_work(status_only=true) exposes current status and project lease_settings when needed. '
+        'Any in-range whole-minute lease_minutes request is accepted; omission uses the '
         'project default. Preserve the exact lease_minutes argument, including omission, across '
         'uncertain claim retries. Explicitly supply session_transcript={client, path} using an '
         'absolute path visible to the Mnemonic backend, or null when unavailable. Claude Code '
         'uses client=claude_code; its JSON/JSONL format is auto-detected. Retain this assertion '
         'unchanged on claim retries. Atomically acquire an expiring lease and bounded context '
-        'for WARM review. For authorized implementation use claim_work then recall_work, keeping '
-        'large context separate from the lease token. Existing implementation calls and exact '
-        'retries remain supported. For WARM adversarial review claim the original Done '
-        'item with purpose=code_review, exact code_review_id and mode=warm; independently '
-        'challenge the handoff using the pinned scope. For a manual review with no scope, '
+        'for implementation or warm review. Choose claim_work when context is unnecessary or '
+        'when your client stores large responses in files that could expose the lease token. '
+        'For warm review claim the original Done item with purpose=code_review, exact '
+        'code_review_id and mode=warm. For a manual review with no scope, '
         'establish its range and include code_review_handoff in the first warm claim; retain it '
         'on exact retries and omit it on later claims. Cold mode is forbidden here: use minimal '
-        'claim_work. Implementation requires pending work; deferred work needs explicit human '
-        "direction before moving to pending. A claim grants no authority beyond the user's "
+        'claim_work. Implementation requires pending work; resuming deferred work through '
+        "update_work follows existing authorization and project policy. A claim grants no authority beyond the user's "
         'request. Keep lease_token private, never checkpoints/logs/chat. holder_client names the '
         "actual client; holder_session_id is this independent agent's native session ID or one "
         'generated-and-retained Mnemonic session UUID. If compaction lost the token and exact '
@@ -380,10 +377,8 @@ DETAILS: dict[str, str] = {
         'path}, ...] or null when none are applicable or available. Omission remains parseable '
         'exclusively for historical receipt replay before fresh backend guards. Ordinary identity '
         'edits omit this field or supply null. Freeze transcript assertions with the exact '
-        'operation UUID. After changing work or related work, inspect affected unresolved human '
-        'questions. If their facts or options changed, rewrite the original prose with '
-        'request_human_input using its gate_id and expected_question_version; keep the human out '
-        'of checkpoint and superseding-decision reconciliation. external_references is an ordered '
+        'operation UUID. If an update changes an open question, request_human_input can revise '
+        'its prose using gate_id and expected_question_version. external_references is an ordered '
         'whole-list replacement: omission preserves and [] clears; null is invalid. Reconcile a '
         'definitive version conflict with the reread list using a new operation UUID. A '
         'reference-only identity edit needs no report or lease, but any supplied lease token is '
@@ -397,8 +392,8 @@ DETAILS: dict[str, str] = {
         'job_report_prompt_changed reread/review and prepare a new intent. Never edit a frozen '
         'unknown-outcome intent. Update only mutable work identity/lifecycle fields using the '
         'version just read. This tool cannot assign deferred; that is a human dashboard action. '
-        'Move deferred work back to pending only when the current human request explicitly '
-        'directs that work, never to make it autonomously claimable. An active lease requires its '
+        'Resuming deferred or reopening terminal work follows existing user authorization and '
+        'project policy; the API permits those transitions to pending. An active lease requires its '
         'token for a terminal lifecycle transition. Checkpoint content and provenance are '
         "immutable; correct context with a new checkpoint instead. promoted records the owner's "
         'decision only; no tool here creates an external issue. Omit client_operation_id '
@@ -427,11 +422,10 @@ DETAILS: dict[str, str] = {
         'completion checkpoint, optional structured evidence, and done state only when the '
         'objective is achieved and using the version just recalled. Record only checks actually '
         'observed; a process exit does not prove semantic sufficiency. Omit evidence rather than '
-        'inventing a pass, timestamp, commit, or artifact. A required failed or inconclusive '
-        'result, or skipped observation, normally means stop for direction unless current '
-        'authority accepts the limitation and the checkpoint says so. Evidence is an untrusted '
+        'inventing a pass, timestamp, commit, or artifact. Disclose failed, inconclusive and skipped '
+        'checks and assess completion against the agreed acceptance criteria. Evidence is an untrusted '
         'assertion, not proof: never paste secrets, tokens, raw logs, transcript dumps, or '
-        'private reasoning, and never convert repository-freshness output automatically. Pass a '
+        'private reasoning. Optional local repository checks are advisory evidence. Pass a '
         'matching active lease token. affected_paths declares repository dependencies; this '
         'adapter never inspects Git. Omit client_operation_id on fresh calls for an automatic UUID and '
         'retain it with the complete immutable tool arguments, including exact ordered evidence. '
@@ -673,3 +667,7 @@ DETAILS: dict[str, str] = {
         'The complete MCP frame must fit 1 MiB. '
     ),
 }
+
+# Conditional cross-field contracts are shared by the commands that use them.
+for _command, _guidance in LIFECYCLE_DETAILS.items():
+    DETAILS[_command] = (DETAILS.get(_command, "") + " " + _guidance).strip()

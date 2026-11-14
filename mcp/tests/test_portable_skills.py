@@ -1,4 +1,4 @@
-"""Portable skill exports retain native workflows without client substitutions."""
+"""Portable skills export only reachable resources and relocate independently."""
 
 import ast
 import importlib.util
@@ -26,16 +26,32 @@ def exporter():
     return module
 
 
+EXPECTED_RESOURCES = {
+    "mnemonic-recall": {
+        "reference/transcripts.md", "reference/repository-freshness.md",
+        "reference/knowledge-graph.md", "bin/mnemonic-repository-freshness",
+        "scripts/decision_provenance.py",
+    },
+    "mnemonic-save": {
+        "reference/transcripts.md", "reference/knowledge-graph.md",
+        "reference/artifact-transfers.md", "reference/artifacts.md",
+        "scripts/upload_artifact.py", "scripts/download_artifact.py",
+        "scripts/decision_provenance.py",
+    },
+    "mnemonic-search": {
+        "reference/transcripts.md", "reference/artifacts.md", "scripts/download_artifact.py",
+    },
+}
+
+
 def _assert_standalone_skill(skill: Path) -> None:
-    assert (skill / "SKILL.md").read_text().startswith(f"---\nname: {skill.name}\n")
-    references = {path.name for path in (PLUGIN_ROOT / "reference").glob("*.md")}
-    assert {path.name for path in (skill / "reference").iterdir()} == references
+    entry = (skill / "SKILL.md").read_text()
+    assert entry.startswith(f"---\nname: {skill.name}\n")
+    assert len(entry.split("\n---\n", 1)[1].split()) <= 130
     assert {path.relative_to(skill).as_posix() for path in skill.rglob("*") if path.is_file()} == {
-        "SKILL.md", "bin/mnemonic-repository-freshness", "scripts/upload_artifact.py",
-        "scripts/download_artifact.py", "scripts/decision_provenance.py",
-        *(f"reference/{name}" for name in references),
+        "SKILL.md", *EXPECTED_RESOURCES[skill.name],
     }
-    for document in (skill / "SKILL.md", *(skill / "reference").glob("*.md")):
+    for document in skill.rglob("*.md"):
         content = document.read_text()
         assert "${CLAUDE_PLUGIN_ROOT}" not in content
         assert str(PLUGIN_ROOT) not in content
@@ -45,19 +61,16 @@ def _assert_standalone_skill(skill: Path) -> None:
             target = (document.parent / link.split("#", 1)[0]).resolve()
             assert target.is_relative_to(skill.resolve()), (document, link)
             assert target.is_file(), (document, link)
-    helper = skill / "bin" / "mnemonic-repository-freshness"
-    source_helper = PLUGIN_ROOT / "bin" / helper.name
-    assert helper.read_bytes() == source_helper.read_bytes()
-    assert stat.S_IMODE(helper.stat().st_mode) == stat.S_IMODE(source_helper.stat().st_mode)
-    assert helper.stat().st_mode & stat.S_IXUSR
-    for name in ("upload_artifact.py", "download_artifact.py"):
-        transfer = skill / "scripts" / name
-        assert transfer.read_bytes() == (PLUGIN_ROOT / "scripts" / name).read_bytes()
-        assert transfer.stat().st_mode & stat.S_IXUSR
-        ast.parse(transfer.read_text(), feature_version=(3, 10))
-    provenance = skill / "scripts" / "decision_provenance.py"
-    assert provenance.read_bytes() == (PLUGIN_ROOT / "scripts" / provenance.name).read_bytes()
-    ast.parse(provenance.read_text(), feature_version=(3, 10))
+    for relative in EXPECTED_RESOURCES[skill.name]:
+        if relative.endswith(".md"):
+            continue
+        helper, source = skill / relative, PLUGIN_ROOT / relative
+        assert helper.read_bytes() == source.read_bytes()
+        assert stat.S_IMODE(helper.stat().st_mode) == stat.S_IMODE(source.stat().st_mode)
+        if relative.startswith("bin/"):
+            assert helper.stat().st_mode & stat.S_IXUSR
+        if helper.suffix == ".py":
+            ast.parse(helper.read_text(), feature_version=(3, 10))
 
 
 def test_cli_exports_three_complete_skills_without_mutating_source(tmp_path):
@@ -86,31 +99,22 @@ def test_each_skill_can_relocate_alone_and_run_helper_outside_bundle(exporter, t
     relocated.mkdir()
     repository = tmp_path / "repository working directory"
     repository.mkdir()
-    baseline = subprocess.run(
-        [str(PLUGIN_ROOT / "bin" / "mnemonic-repository-freshness")],
-        cwd=repository,
-        capture_output=True,
-        check=False,
-        timeout=5,
-    )
     for name in SKILL_NAMES:
         skill = Path(shutil.move(str(original / name), str(relocated / name)))
         _assert_standalone_skill(skill)
-        result = subprocess.run(
-            [str(skill / "bin" / "mnemonic-repository-freshness")],
-            cwd=repository,
-            capture_output=True,
-            check=False,
-            timeout=5,
-        )
-        assert (result.returncode, result.stdout, result.stderr) == (
-            baseline.returncode, baseline.stdout, baseline.stderr,
-        )
-        provenance = subprocess.run(
-            [sys.executable, str(skill / "scripts" / "decision_provenance.py"), "--help"],
-            cwd=repository, capture_output=True, text=True, check=False, timeout=5,
-        )
-        assert provenance.returncode == 0 and "--decision" in provenance.stdout
+        for relative in EXPECTED_RESOURCES[name]:
+            if relative.endswith(".md"):
+                continue
+            arguments = [sys.executable, "--help"] if relative.endswith(".py") else []
+            def invoke(root, arguments=arguments, relative=relative):
+                command = ([arguments[0], str(root / relative), arguments[1]]
+                           if arguments else [str(root / relative)])
+                return subprocess.run(command, cwd=repository, capture_output=True,
+                                      check=False, timeout=5)
+            baseline, result = invoke(PLUGIN_ROOT), invoke(skill)
+            assert (result.returncode, result.stdout, result.stderr) == (
+                baseline.returncode, baseline.stdout, baseline.stderr,
+            )
     assert not list(original.iterdir())
     assert not list(repository.iterdir())
 
@@ -170,14 +174,52 @@ def test_cli_requires_destination_and_reports_refusal(tmp_path):
     assert not list(tmp_path.iterdir())
 
 
-def test_exported_transcript_guidance_keeps_verified_paths_and_frozen_retries(exporter, tmp_path):
+def test_exported_local_references_are_reachable_and_relocatable(exporter, tmp_path):
     exported = exporter.export_skills(tmp_path / "verified-transcript-skills")
-    reference = (PLUGIN_ROOT / "reference/transcripts.md").read_text()
+    source = (PLUGIN_ROOT / "reference/transcripts.md").read_bytes()
     for name in SKILL_NAMES:
-        assert (exported / name / "reference/transcripts.md").read_text() == reference
-    for guard in ("Do not construct Claude paths from the main checkout", "regular transcript file",
-                  "task stdout `.output` path", "operator-approved source root", "explicit `null`",
-                  "client=codex", "never change frozen retry arguments", "CODEX_THREAD_ID",
-                  "session_meta.payload.id", "A null assertion creates no transcript entry",
-                  "its own native ID and rollout", "without the artifact extractor"):
-        assert guard in reference
+        assert (exported / name / "reference/transcripts.md").read_bytes() == source
+    assert not (exported / "mnemonic-search/scripts/upload_artifact.py").exists()
+    assert not (exported / "mnemonic-search/scripts/decision_provenance.py").exists()
+    assert not (exported / "mnemonic-recall/scripts/download_artifact.py").exists()
+
+
+def test_export_follows_local_links_once_and_omits_unreachable_files(exporter, tmp_path):
+    plugin = tmp_path / "plugin"
+    entry = plugin / "skills/example/SKILL.md"
+    entry.parent.mkdir(parents=True)
+    entry.write_text("---\nname: example\ndescription: Example.\n---\n"
+                     "[guide](../../reference/guide.md)\n")
+    guide = plugin / "reference/guide.md"
+    guide.parent.mkdir()
+    guide.write_text("[self](guide.md#part) [helper](../scripts/helper.py)\n")
+    helper = plugin / "scripts/helper.py"
+    helper.parent.mkdir()
+    helper.write_text("print('helper')\n")
+    helper.chmod(0o755)
+    (plugin / "reference/unused.md").write_text("not reachable\n")
+    destination = exporter.export_skills(tmp_path / "export", plugin_root=plugin)
+    skill = destination / "example"
+    assert {path.relative_to(skill).as_posix() for path in skill.rglob("*") if path.is_file()} == {
+        "SKILL.md", "reference/guide.md", "scripts/helper.py",
+    }
+    assert "[guide](reference/guide.md)" in (skill / "SKILL.md").read_text()
+    assert "[self](guide.md#part)" in (skill / "reference/guide.md").read_text()
+    assert (skill / "scripts/helper.py").stat().st_mode & stat.S_IXUSR
+
+
+@pytest.mark.parametrize("resource", ["missing.md", "../../outside.md", "linked.md"])
+def test_invalid_resource_fails_before_creating_export(exporter, tmp_path, resource):
+    plugin = tmp_path / "plugin"
+    entry = plugin / "skills/example/SKILL.md"
+    entry.parent.mkdir(parents=True)
+    entry.write_text("---\nname: example\ndescription: Example.\n---\n"
+                     f"[resource](${{CLAUDE_PLUGIN_ROOT}}/{resource})\n")
+    outside = tmp_path / "outside.md"
+    outside.write_text("private source\n")
+    (plugin / "linked.md").symlink_to(outside)
+    destination = tmp_path / "export"
+    with pytest.raises(ValueError):
+        exporter.export_skills(destination, plugin_root=plugin)
+    assert not destination.exists()
+    assert outside.read_text() == "private source\n"

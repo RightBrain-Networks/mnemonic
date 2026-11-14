@@ -57,6 +57,58 @@ def test_empty_project_has_all_zero_states_and_empty_domains(api, project):
     assert api.get(f"/api/v1/projects/{uuid4()}/overview").status_code == 404
 
 
+def test_settings_only_reads_policy_without_context_aggregates_or_prompt_sync(
+    api, project, work_payload, postgres_engine, monkeypatch,
+):
+    work = create(api, project, {**work_payload, "title": "Private active work title"})
+    claim(api, project, work)
+    full = overview(api, project)
+    endpoint = f"/api/v1/projects/{project['id']}/overview"
+    assert api.get(endpoint, params={"settings_only": False}).json() == full
+
+    def forbidden(*_args, **_kwargs):
+        pytest.fail("A settings-only read must not load aggregates or synchronize prompts")
+
+    for target in (
+        "mnemonic_api.application.routes.projects.project_overview",
+        "mnemonic_api.services.project_overview._work_summary",
+        "mnemonic_api.services.project_overview._domains",
+        "mnemonic_api.services.prompts.synchronize_settings",
+        "mnemonic_api.application.routes.projects.synchronize_settings",
+    ):
+        monkeypatch.setattr(target, forbidden)
+    statements = []
+
+    def observe(_connection, _cursor, statement, _parameters, _context, _many):
+        statements.append(statement)
+
+    event.listen(postgres_engine, "before_cursor_execute", observe)
+    try:
+        response = api.get(endpoint, params={"settings_only": True})
+    finally:
+        event.remove(postgres_engine, "before_cursor_execute", observe)
+    assert response.status_code == 200, response.text
+    assert response.json() == {"project_id": project["id"], "settings": full["settings"]}
+    assert len(response.content) < 16384
+    assert statements and all(statement.startswith(("SELECT", "SET TRANSACTION"))
+                              for statement in statements)
+    assert not any(word in statement for statement in statements for word in (
+        "work_items", "work_gates", "work_leases", "knowledge_domains", "project_tags",
+        "priority_rubric", "prompt", "FOR UPDATE", "pg_advisory",
+    ))
+
+
+def test_settings_only_rejects_malformed_requests_and_missing_projects(api, project):
+    endpoint = f"/api/v1/projects/{project['id']}/overview"
+    for suffix in ("?settings_only=invalid", "?unexpected=true",
+                   "?settings_only=true&settings_only=false"):
+        assert api.get(endpoint + suffix).status_code == 422
+    assert api.request("GET", endpoint, params={"settings_only": True}, json={}).status_code == 422
+    missing = api.get(f"/api/v1/projects/{uuid4()}/overview", params={"settings_only": True})
+    assert missing.status_code == 404
+    assert missing.json()["detail"]["code"] == "project_not_found"
+
+
 def test_work_counts_tags_active_metadata_and_attention(api, project, work_payload,
                                                        checkpoint_fields, postgres_engine):
     configure(api, project, code_review_required_min_priority=100,
