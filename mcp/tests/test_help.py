@@ -43,7 +43,7 @@ async def test_help_is_local_read_only_and_returns_one_plain_text_page(settings)
 
 def test_index_lists_every_command_and_gives_exact_navigation(catalog):
     page = render_help("", catalog)
-    assert len(catalog) == 80
+    assert len(catalog) == 81
     assert catalog.keys() == GUIDES.keys()
     for name in catalog:
         assert name in page
@@ -191,19 +191,16 @@ def test_scoped_schema_preserves_recursive_refs_literals_and_long_patterns():
     assert not validator.is_valid({"title": "a" * 121})
 
 
-def test_registered_descriptions_fit_clients_and_keep_search_preconditions(catalog):
+def test_registered_descriptions_are_compact_with_essential_boundaries_and_help(catalog):
     for name, tool in catalog.items():
-        assert len(tool.description or "") <= 2048, name
-    assert "semantic=true" in catalog["search_work"].description[:700]
-    artifact_intro = catalog["search_artifact_contents"].description[:1500]
-    assert "fulltext=true" in artifact_intro
-    assert "HUMAN APPROVAL REQUIRED" in artifact_intro
-    assert "five minutes" in artifact_intro and "single-use" in artifact_intro
-    assert "content_kinds also requires fulltext=true" in (
-        catalog["search_transcript_contents"].description[:700]
-    )
-    assert "search_transcript_contents(work_item_id=...)" in catalog["get_work"].description
-    assert "search_transcripts_content" not in catalog["get_work"].description
+        assert len(tool.description or "") < 600, name
+        assert tool.description.startswith(GUIDES[name][1])
+        assert f"help(topic='{name} usage')" in tool.description
+    assert "fresh human approval" in catalog["search_artifact_contents"].description
+    assert "request-bound token" in catalog["get_artifact_text"].description
+    assert "keyless call" in catalog["create_work"].description
+    assert "lease tokens private" in catalog["claim_work"].description
+    assert "Sensitive" not in catalog["get_work"].description
 
 
 def test_full_guidance_is_bounded_navigable_and_lossless(catalog):

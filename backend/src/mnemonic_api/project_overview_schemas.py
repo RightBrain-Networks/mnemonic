@@ -27,6 +27,11 @@ class ProjectSettingsValues(APIModel):
     allow_remediation_code_reviews: StrictBool
 
 
+class ProjectSettingsOnlyRead(APIModel):
+    project_id: UUID
+    settings: ProjectSettingsValues
+
+
 class ProjectStateCounts(APIModel):
     pending: Count
     active: Count

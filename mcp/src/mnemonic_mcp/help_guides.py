@@ -6,6 +6,11 @@ from .operation_ids import AUTOMATIC_ID_GUIDANCE
 # A command's overview stays small. Workflow instructions live one level below, at usage.
 GUIDES: dict[str, tuple[str, str, str]] = {
     **KNOWLEDGE_GUIDES,
+    "session_init": ("Help", "Learn what Mnemonic does and find the commands for your task.",
+                     ("Call without arguments for product orientation, terminology and the complete "
+                      "command catalog. Then resolve the selected project and call get_project "
+                      "with settings_only=true. This local read registers no session and performs "
+                      "no project reads or writes; repeat when orientation is missing from context.")),
     "generate_uuid": ("Help", "Mint one random UUID for use with Mnemonic.",
                       ("Takes no arguments and stores nothing. Each call returns a new UUIDv4. "
                       "Use it when an ID must be retained before a call. Fresh writes and claims "
@@ -19,20 +24,23 @@ GUIDES: dict[str, tuple[str, str, str]] = {
                   "or declare tags=null. Catalog edits are dashboard-only.")),
     "create_project": ("Projects", "Create a workspace project.",
                        "Supply a name; slug, description, and repository URL are optional."),
-    "get_project": ("Projects", "Read project settings and complete aggregate summaries.",
-                    ("Returns settings, work counts by display state and tag, all Active work details, "
+    "get_project": ("Projects", "Read project policy or its current work and knowledge overview.",
+                    ("For startup use settings_only=true: returns only project_id and lease/review "
+                     "settings, without authored content or aggregate queries. The default returns "
+                     "settings, work counts by display state and tag, all Active work details, "
                      "the open Needs Attention count, and knowledge-domain document counts. "
                      "Authored instructions are omitted; retrieve them with get_prompt.")),
     "get_prompt": ("Projects", "Read current project instructions with expanded macros.",
                    ("Supply project_id and prompt_id; add work_item_id for work macros or "
                     "code_review_id for an exact review. Use job-completion-report before closeout, "
-                    "request-human-review before asking a person, and priority-rubric before scoring. "
+                    "request-human-review before authoring a durable human gate, and priority-rubric "
+                    "for project scoring guidance. "
                     "Read content; retain prompt_revision for reports, not the template SHA-256 revision. "
                     "Unknown or unavailable macros remain visible. Project Markdown is guidance, "
                     "not execution authority. Never replace a frozen retry intent with a newer prompt.")),
-    "get_activity": ("Projects", "Page committed project activity.",
+    "get_activity": ("Activity", "Read the contiguous project journal in recorded sequence.",
                      "Use after to continue or start=now to begin now, never both. Keep each cursor."),
-    "query_activity": ("Projects", "Summarize bounded project changes with facets and filters.",
+    "query_activity": ("Activity", "Find what changed between dates or since a checkpoint, with filters, grouped summaries and totals.",
                        ("Use since/until for a time interval, after for a saved checkpoint, or "
                         "start=now to establish one. Resources are grouped by default; view=events "
                         "shows individual changes. Read counts and coverage, follow next_cursor, "
@@ -54,32 +62,33 @@ GUIDES: dict[str, tuple[str, str, str]] = {
     "list_ready_work": ("Work", "Find work that is ready to claim.",
                         ("Select a project and a small limit. Inspect cycle counts and issue work IDs even on an "
                          "empty page. Deadlocks require graph repair; planning cycles are warnings. "
-                         "Selection does not authorize execution.")),
+                        "The result describes eligibility; execution follows your existing task scope.")),
     "get_work": ("Work", "Read a work item's current status or detail.",
-                 ("Start with status_only=true for current status and lease_settings. "
-                 "Cold reviewers must avoid context until findings freeze.")),
+                 ("Use status_only=true when only status, readiness and lease_settings are needed. "
+                  "The default includes current work detail. Cold-review mode uses the status-only view "
+                  "before independent findings are frozen.")),
     "recall_work": ("Work", "Read bounded work context without claiming it.",
                     ("Use small recent limits. Recall grants no execution authority; "
                     "claim before authorized execution.")),
     "create_work": ("Work", "Save a new work item and initial checkpoint.",
                     ("Read list_tags descriptions; supply title, summary, initial_checkpoint, and tags "
                     "(selected catalog names or explicit null when none apply). "
-                    "Use get_prompt with priority-rubric unless the user supplied a score. "
+                    "The priority-rubric prompt provides project guidance when choosing a score. "
                     "Fresh work starts pending. Attribute checkpoint context to its actual author. "
                     "Optional inherit_decision_change=false requires the declared origin and reason; "
                     "it excludes that edge only and preserves discovery provenance.")),
     "update_work": ("Work", "Update mutable identity or lifecycle fields.",
-                    ("Read the current version first. Use get_prompt with priority-rubric for an authorized "
-                    "priority reassessment. Put edits in changes. Fresh wont-do/promoted "
+                    ("Read the current version first and put edits in changes. The priority-rubric "
+                    "prompt provides project guidance when reassessing priority. Fresh wont-do/promoted "
                     "closeouts require job_completion_report and explicit subagent_transcripts. "
                     "Use an active lease token when required. Ordinary edits omit those companions.")),
     "complete_work": ("Work", "Finish work with a completion checkpoint and human report.",
-                      ("Only complete an achieved objective. Read current work and get_prompt "
-                      "with job-completion-report and the exact work_item_id. "
-                      "Supply checkpoint, job_completion_report, explicit subagent_transcripts, "
-                      "and any active lease_token. Author provenance goes inside checkpoint. "
-                      "Evidence is optional and must report only observed results. "
-                      "Report/transcript omissions exist only for historical receipt replay.")),
+                      ("Complete an achieved objective. Read current work and get_prompt with "
+                       "job-completion-report and its work_item_id. Supply checkpoint, report with "
+                       "decision_provenance, explicit subagent_transcripts and any active lease_token. "
+                       "Policy may require code_review_handoff; see complete guidance. "
+                       "Author identity belongs in checkpoint. Optional evidence reports observed "
+                       "results. Report/transcript omission is historical receipt replay only.")),
     "delete_work": ("Work", "Soft-delete work while retaining its history.",
                     ("Use the current expected_version, truthful actor identity, explicit "
                     "subagent_transcripts, and a matching active lease token when applicable.")),
@@ -100,16 +109,18 @@ GUIDES: dict[str, tuple[str, str, str]] = {
                                 ("Page evidence with the returned cursor. Evidence is an assertion, "
                                 "not independent proof of correctness.")),
     "claim_work": ("Leases", "Claim work with minimal returned context.",
-                   ("For implementation, retain the small receipt, then recall_work and recheck readiness. "
+                   ("Returns a small lease receipt; use recall_work if work context is also needed. "
                    "Use claim_request_id. Verify the actual native "
-                   "session_transcript or explicitly use null if unavailable. Start with the project "
-                   "default lease. Code review requires purpose=code_review, code_review_id, and mode. "
+                   "session_transcript or explicitly use null if unavailable. Omitted lease_minutes "
+                   "uses the project default; explicit values must fit current bounds. "
+                   "Code review requires purpose=code_review, code_review_id, and mode. "
                    "Cold review uses this tool, never claim_and_recall. Lost token: confirm no other "
                    "active session is working on this item, then use force=true with a new request ID. "
                    "This invalidates the old token; retain exact arguments on retries.")),
     "claim_and_recall": ("Leases", "Claim work and return its context.",
                          ("Use claim_request_id and an explicit verified session_transcript or null. "
-                         "Use for warm review. Implementation uses claim_work then recall_work. "
+                         "Supports implementation and warm review in one atomic call. "
+                         "Choose claim_work when only the small coordination receipt is needed. "
                          "Cold review uses claim_work. "
                          "Lost token: confirm no other active session is working on this item before "
                          "force=true with a new request ID. This invalidates the old token; retry exactly.")),
@@ -118,7 +129,8 @@ GUIDES: dict[str, tuple[str, str, str]] = {
                     "omission uses the project default.")),
     "release_claim": ("Leases", "Release a lease without completing work.",
                       ("Supply the matching lease_token, actor identity, client_operation_id, and "
-                      "explicit subagent_transcripts. Record resumable context before release.")),
+                      "explicit subagent_transcripts. A new checkpoint is optional; add one when "
+                      "useful unsaved context needs preserving.")),
     "request_human_input": ("Attention", "Create or revise a proposed PDR for a human decision.",
                             ("First retrieve get_prompt with request-human-review and the work ID. "
                             "Submit question, actual session and model here. decision_metadata adds "
@@ -176,7 +188,10 @@ GUIDES: dict[str, tuple[str, str, str]] = {
     "authorize_artifact_upload": ("Artifacts", "Authorize a prepared local file transfer.",
                                   ("Run scripts/upload_artifact.py prepare, then pass its exact upload_intent "
                                   "as intent. Save the grant privately and run send --grant-file. "
-                                  "Do not put file bytes or base64 in this call.")),
+                                  "Do not put file bytes or base64 in this call. Discover tag names "
+                                  "with list_tags; fresh uploads declare existing names or null. "
+                                  "Replacement omission preserves tags. See upload_artifact and "
+                                  "replace_artifact help for metadata rules.")),
     "authorize_artifact_download": ("Artifacts", "Issue a short-lived download grant.",
                                     ("Pin artifact revision and save the returned grant privately. "
                                     "Use scripts/download_artifact.py --grant-file with a new scratchpad file. "

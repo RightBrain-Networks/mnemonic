@@ -66,6 +66,79 @@ async def test_get_project_returns_complete_overview_in_one_safe_read(settings):
     assert len(calls) == 1
 
 
+@pytest.mark.parametrize("arguments", [{}, {"settings_only": False}])
+async def test_default_and_explicit_full_project_preserve_wire_shape(settings, arguments):
+    document = project_overview()
+    result = structured(await adapter(settings, lambda _: stream_json(document)).call_tool(
+        "get_project", {"project_id": PROJECT_ID, **arguments},
+    ))
+    assert result == document
+
+
+async def test_settings_only_returns_exact_policy_in_one_bounded_safe_read(settings):
+    full = project_overview()
+    document = {"project_id": PROJECT_ID, "settings": full["settings"]}
+    calls = []
+
+    def handler(request):
+        calls.append(request)
+        assert request.method == "GET"
+        assert request.url.path == f"/api/v1/projects/{PROJECT_ID}/overview"
+        assert dict(request.url.params) == {"settings_only": "true"}
+        assert not request.content and request.headers["accept-encoding"] == "identity"
+        return stream_json(document)
+
+    result = structured(await adapter(settings, handler).call_tool(
+        "get_project", {"project_id": PROJECT_ID, "settings_only": True},
+    ))
+    assert result == document and len(calls) == 1
+
+
+@pytest.mark.parametrize("path,value", [
+    (("project_id",), OTHER_WORK_ID),
+    (("settings", "project_id"), OTHER_WORK_ID),
+    (("settings", "revision"), 1),
+    (("settings", "lease_default_minutes"), True),
+    (("settings", "lease_default_minutes"), 121),
+    (("settings", "code_review_required_min_priority"), 11),
+    (("settings", "job_completion_report_prompt"), "Private prompt"),
+    (("work_items_summary",), project_overview()["work_items_summary"]),
+    (("title",), "Unrequested authored project context"),
+])
+async def test_settings_only_rejects_wrong_identity_malformed_policy_or_context(
+    settings, path, value,
+):
+    document = {"project_id": PROJECT_ID, "settings": project_overview()["settings"]}
+    target = document
+    for key in path[:-1]:
+        target = target[key]
+    target[path[-1]] = value
+    with pytest.raises(ToolError, match="unexpected response"):
+        await adapter(settings, lambda _: stream_json(document)).call_tool(
+            "get_project", {"project_id": PROJECT_ID, "settings_only": True},
+        )
+
+
+@pytest.mark.parametrize("value", [1, "true", None, [], {}])
+async def test_settings_only_requires_boolean_before_dispatch(settings, value):
+    def forbidden(_):
+        pytest.fail("Invalid settings_only must not dispatch an upstream read")
+
+    with pytest.raises(ToolError):
+        await adapter(settings, forbidden).call_tool(
+            "get_project", {"project_id": PROJECT_ID, "settings_only": value},
+        )
+
+
+async def test_settings_only_rejects_oversized_response(settings):
+    document = {"project_id": PROJECT_ID, "settings": project_overview()["settings"],
+                "padding": "x" * 16384}
+    with pytest.raises(ToolError, match="could not complete this safe read"):
+        await adapter(settings, lambda _: stream_json(document)).call_tool(
+            "get_project", {"project_id": PROJECT_ID, "settings_only": True},
+        )
+
+
 async def test_empty_project_returns_explicit_zero_counts(settings):
     document = project_overview()
     document["work_items_summary"] = {
@@ -142,14 +215,22 @@ async def test_get_project_replaces_old_tool_and_exposes_safe_help(settings):
 
     catalog = {tool.name: tool for tool in await adapter(settings, forbidden).list_tools()}
     assert "get_project_settings" not in catalog
-    assert len(catalog) == 80
+    assert len(catalog) == 81
     tool = catalog["get_project"]
     assert tool.annotations.readOnlyHint is True
     assert tool.annotations.idempotentHint is True
     assert tool.inputSchema["required"] == ["project_id"]
-    assert set(tool.inputSchema["properties"]) == {"project_id"}
-    assert set(tool.outputSchema["properties"]) == {
+    assert set(tool.inputSchema["properties"]) == {"project_id", "settings_only"}
+    assert tool.inputSchema["properties"]["settings_only"]["default"] is False
+    assert tool.outputSchema["type"] == "object"
+    assert {branch["$ref"] for branch in tool.outputSchema["anyOf"]} == {
+        "#/$defs/ProjectOverviewRead", "#/$defs/ProjectSettingsOnlyRead",
+    }
+    assert set(tool.outputSchema["$defs"]["ProjectOverviewRead"]["properties"]) == {
         "project_id", "settings", "work_items_summary", "needs_attention", "knowledge_domains",
+    }
+    assert set(tool.outputSchema["$defs"]["ProjectSettingsOnlyRead"]["properties"]) == {
+        "project_id", "settings",
     }
     assert "Active" in render_help("get_project usage", catalog)
 
@@ -161,7 +242,7 @@ def test_project_overview_matches_published_api_schema():
     for name in (
         "ProjectOverviewRead", "ProjectStateCounts", "ProjectActiveWorkItem",
         "ProjectWorkItemsSummary", "ProjectNeedsAttentionSummary", "ProjectKnowledgeDomainSummary",
-        "ProjectSettingsValues",
+        "ProjectSettingsValues", "ProjectSettingsOnlyRead",
     ):
         actual = getattr(project_models, name).model_json_schema()
         expected = components[name]

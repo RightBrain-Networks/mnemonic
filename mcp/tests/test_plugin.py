@@ -419,108 +419,59 @@ def test_authentic_sequential_and_fresh_plugin_installs_are_exact(tmp_path: Path
         assert fresh_snapshot[relative][1] == upgraded_snapshot[relative][1], relative
 
 
-def test_every_skill_agrees_on_gate_authority_and_dual_graph_facts():
+def test_skills_are_thin_routes_to_current_server_guidance():
+    routes = {
+        "mnemonic-recall": {"recall_work usage", "claim_work usage"},
+        "mnemonic-save": {"create_work usage"},
+        "mnemonic-search": {"search usage", "query_activity usage"},
+    }
     for name, path in SKILL_FILES.items():
         content = path.read_text()
-        lowered = content.lower()
-        assert "request_human_input" in content, name
-        assert "authority-and-provenance.md" in content, name
-        assert "parent-child" in content, name
-        assert "discovered-from" in content, name
-        assert "never infer" in lowered, name
-        assert "dashboard" in lowered, name
-        assert "execution authority" in lowered or "automatic execution" in lowered, name
-        assert "resolve_human_input" not in content, name
-
-        for relative in re.findall(
-            r"\$\{CLAUDE_PLUGIN_ROOT\}/([A-Za-z0-9_./-]+)", content
-        ):
+        body = content.split("\n---\n", 1)[1]
+        assert len(body.split()) <= 130, name
+        assert "session_init()" in body
+        assert "settings_only=true" in body
+        assert routes[name] <= set(re.findall(r'help\(topic="([^"]+)"\)', body))
+        for relative in re.findall(r"\$\{CLAUDE_PLUGIN_ROOT\}/([A-Za-z0-9_./-]+)", content):
             assert (PLUGIN_ROOT / relative).is_file(), (name, relative)
 
 
-def test_shared_references_freeze_thirteen_writes_and_permanent_merge():
-    authority = (PLUGIN_ROOT / "reference" / "authority-and-provenance.md").read_text()
-    graph = (PLUGIN_ROOT / "reference" / "work-graph.md").read_text()
-
-    assert "These thirteen canonical mutations" in authority
-    assert "`respond_to_work_follow_up`" in authority
-    assert "`complete_code_review`" in authority
-    assert "`merge_work`" in authority
-    assert "permanent" in authority
-    assert "typed `503 duplicate_graph_invalid`" in authority
-    assert "not an unknown" in authority
-    assert "do not retry" in authority
-    assert "duplicate-handling aggregate audit" in authority
-    assert "No canonical MCP tool resolves a gate" in authority
-    assert "request_human_input" in authority
-    assert "list_work_gates" in authority
-    assert "No longer needed" in authority
-    assert "cannot withdraw" in authority
-    assert "`requested_context_revision`" in authority
-    assert "backend-computed drift flags" in authority
-    assert "resolve_human_input" not in authority
-    assert "unresolved human gate" in graph
-    assert "Only `parent-child` defines" in graph
-    assert "record both facts atomically" in graph
-    assert "Duplicate marks are not authoritative merges" in graph
-    assert "sole authoritative operation" in graph
-    assert "never replace" in graph.lower()
-    assert "Fresh generic duplicate-of" in graph
+def test_reference_surface_contains_only_help_routes_and_focused_local_mechanics():
+    local = {"artifact-transfers.md", "artifacts.md", "transcripts.md",
+             "repository-freshness.md", "knowledge-graph.md"}
+    for path in (PLUGIN_ROOT / "reference").glob("*.md"):
+        content = path.read_text()
+        assert "help(topic=" in content, path.name
+        assert len(content.split()) <= (350 if path.name in local else 80), path.name
+    assert sum(len(path.read_bytes()) for path in PLUGIN_ROOT.rglob("*.md")
+               if "tests" not in path.parts) < 16000
 
 
-def test_packaged_retry_guidance_caps_repeated_unknown_outcomes():
-    authority = (PLUGIN_ROOT / "reference" / "authority-and-provenance.md").read_text()
-    reports = (PLUGIN_ROOT / "reference" / "job-completion-reports.md").read_text()
-    save = SKILL_FILES["mnemonic-save"].read_text()
+async def test_skill_and_reference_help_links_resolve_against_the_current_catalog(settings):
+    from mnemonic_mcp.command_help import render_help
+    from mnemonic_mcp.server import build_server
 
-    for content in (authority, reports, save):
-        assert "at most one exact retry" in content
-        assert "Never generate or substitute a new UUID for the same intent" in content
-        assert "safe read" in content
-        assert "request direction" in content
-
-
-def test_advisory_guidance_preserves_create_anyway_and_categorical_evidence():
-    save = SKILL_FILES["mnemonic-save"].read_text()
-    authority = (PLUGIN_ROOT / "reference" / "authority-and-provenance.md").read_text()
-
-    assert "suggest_duplicate_work" in save
-    assert "exact_title" in save
-    assert "lexical" in save
-    assert "semantic" in save
-    assert re.search(r"create\s+anyway", save, re.IGNORECASE)
-    assert "suggest_duplicate_work" in authority
-    assert "evidence-only" in authority
+    server = build_server(settings)
+    catalog = {tool.name: tool for tool in await server.list_tools()}
+    topics = {
+        topic for path in PLUGIN_ROOT.rglob("*.md")
+        for topic in re.findall(r'help\(topic="([^"]+)"\)', path.read_text())
+    }
+    assert topics
+    for topic in topics:
+        assert render_help(topic, catalog).splitlines()[0] == topic
 
 
-def test_repository_freshness_guidance_uses_only_the_packaged_fixed_helper():
-    recall = SKILL_FILES["mnemonic-recall"].read_text()
-    freshness = (PLUGIN_ROOT / "reference" / "repository-freshness.md").read_text()
-    executable = '"${CLAUDE_PLUGIN_ROOT}/bin/mnemonic-repository-freshness"'
-
-    for content in (recall, freshness):
-        assert executable in content
-        assert "--baseline" in content
-        assert "--path" in content
-    assert "explicitly select the workspace" in freshness
-    assert "15-second" in freshness
-    assert "unchanged" in freshness
-    assert "changed" in freshness
-    assert "indeterminate" in freshness
-    assert "semantic freshness" in freshness
-    assert "correctness" in freshness
-    assert "--repo" not in recall
-    assert "--root" not in recall
-
-
-def test_external_record_guidance_is_packaged_and_bounded():
-    reference = (PLUGIN_ROOT / "reference" / "external-records.md").read_text()
-    for name, path in SKILL_FILES.items():
-        assert "external-records.md" in path.read_text(), name
-    for required in (
-        "ten-second", "192 raw", "32 issues", "32 PRs", "1,048,576", "1,500-character",
-        "30 days", "32 title-search", "16 open", "16 recent", "non-atomic interval",
-        "Create anyway", "untrusted data", "status=", "duplicate_scope=",
-    ):
-        # The reference splits some phrases over a Markdown line boundary.
-        assert required in " ".join(reference.split()) or required in reference
+def test_local_helpers_remain_reachable_without_shipping_workflow_doctrine():
+    resources = {
+        "artifact-transfers.md": "scripts/upload_artifact.py",
+        "artifacts.md": "scripts/download_artifact.py",
+        "repository-freshness.md": "bin/mnemonic-repository-freshness",
+        "knowledge-graph.md": "scripts/decision_provenance.py",
+    }
+    for document, helper in resources.items():
+        content = (PLUGIN_ROOT / "reference" / document).read_text()
+        assert f"${{CLAUDE_PLUGIN_ROOT}}/{helper}" in content
+        assert (PLUGIN_ROOT / helper).is_file()
+        if helper.startswith("bin/"):
+            assert (PLUGIN_ROOT / helper).stat().st_mode & stat.S_IXUSR

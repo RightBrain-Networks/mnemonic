@@ -1,21 +1,21 @@
 # Mnemonic in Codex
 
-When using Mnemonic, load the installed `mnemonic-recall`, `mnemonic-save`, or
-`mnemonic-search` skill and its linked transcript reference. The portable names
-are the Codex equivalents of Claude examples such as `mnemonic:mnemonic-recall`.
-Use `client=codex` and the actual native thread identity.
+When Mnemonic orientation is absent from the conversation, call `session_init()`.
+Resolve the project if needed and read `get_project(project_id, settings_only=true)`.
+Read `help(topic="COMMAND usage")` for the task and follow its detail links. The
+optional `mnemonic-recall`, `mnemonic-save`, and `mnemonic-search` skills provide
+shortcuts and local helpers. Use `client=codex` and the actual native thread ID.
 
-Before a fresh claim, verify this thread's exact native `rollout-*.jsonl` within
-an operator-approved source root. Use the client-provided thread ID (including
-`CODEX_THREAD_ID` when supplied), and confirm the initial `session_meta.payload.id`
-matches. Verify a readable regular file without symlink components; do not infer
-a path from the repository, pick the newest file, or use `history.jsonl`.
-Supply `session_transcript={"client":"codex","path":"/verified/absolute/rollout.jsonl"}`;
-use explicit null only when the actual file cannot be established, and report it.
+For a fresh transcript declaration, verify this thread's exact native
+`rollout-*.jsonl` beneath an operator-approved source root. Use the client-provided
+thread ID (including `CODEX_THREAD_ID` when available) and confirm the initial
+`session_meta.payload.id` matches. Verify a readable regular file without symlink
+components. Never infer a repository-based path, choose the newest file, or use
+`history.jsonl`. Verify each child's own rollout independently. Read the selected
+skill's transcript reference when local verification is needed.
 
-Verify each spawned thread's own rollout independently and supply those locations
-in `subagent_transcripts` on release or closeout, or explicit null if unavailable.
-Keep assertions, operation IDs, and all arguments unchanged on uncertain retries.
-Copying and indexing occur after the work lease ends. The MCP connection alone
-does not register sessions; do not import a mixed-project directory into one project.
-Check `list_transcripts` and `get_transcript` for copy/index status and coverage.
+Use claim and closeout help for transcript arguments and explicit null when a
+fresh path cannot be established; report that limitation. Preserve original
+assertions and every argument on uncertain retries. Connection and orientation
+do not enroll transcripts. Never import a mixed-project sessions directory into
+one project. Use transcript command help to check copy/index coverage.

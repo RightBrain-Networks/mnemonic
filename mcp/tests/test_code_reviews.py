@@ -312,17 +312,18 @@ def test_policy_snapshot_must_match_settings_and_hard_depth():
     assert ReviewPolicyRead.model_validate(value).work_item_id == UUID(WORK_ID)
 
 
-def test_plugin_cold_branch_precedes_all_ordinary_context_in_installed_payload():
+def test_review_skill_routes_to_current_mode_contract_before_work_context():
     from test_plugin import PLUGIN_PAYLOAD_FILES, PLUGIN_ROOT
 
     assert "reference/code-reviews.md" in PLUGIN_PAYLOAD_FILES
     recall = (PLUGIN_ROOT / "skills/mnemonic-recall/SKILL.md").read_text()
-    assert recall.index("Choose review or implementation") < recall.index("# View, or claim")
+    assert 'help(topic="claim_work usage")' in recall
+    assert "before loading work context" in recall
     protocol = (PLUGIN_ROOT / "reference/code-reviews.md").read_text()
-    for expected in ("ONLY other Mnemonic calls", 'purpose="code_review"', 'mode="cold"',
-                     "Do not call `claim_and_recall`", "ADVERSARIAL", "ONE linked remediation",
-                     "Second-generation remediation can never", "originating client/session"):
-        assert expected in protocol
+    for command in ("claim_work", "get_code_review", "complete_code_review",
+                    "respond_to_work_follow_up"):
+        assert f'help(topic="{command} usage")' in protocol
+    assert len(protocol.split()) <= 80
 
 
 def policy():

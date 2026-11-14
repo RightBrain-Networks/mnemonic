@@ -9,48 +9,77 @@ from pathlib import Path
 
 PLUGIN_ROOT = Path(__file__).resolve().parents[1] / "plugin"
 PLUGIN_RESOURCE = re.compile(r"\$\{CLAUDE_PLUGIN_ROOT\}/([A-Za-z0-9_./-]+)")
-PORTABLE_PATH_GUIDANCE = """\
-Resolve resource paths relative to the file containing the link, never the
-repository working directory. Before running the bundled helper, resolve
-`bin/mnemonic-repository-freshness` against the directory containing this loaded
-`SKILL.md` and pass its absolute path as one quoted command argument. Keep the
-working directory at the user-selected repository. Relative helper paths shown
-in examples are resource locators to resolve first. This bundle requires no
-client-specific path or session-variable expansion. Artifact transfer helpers are
-bundled at `scripts/upload_artifact.py` and `scripts/download_artifact.py`;
-resolve them the same way when needed.
-The decision provenance helper is `scripts/decision_provenance.py`; resolve its
-absolute resource path before inspecting the user-selected local repository.
-
-"""
+MARKDOWN_LINK = re.compile(r"(\[[^\]]+\]\()([^\s)]+)(\))")
 
 
-def _render_markdown(source: Path, relative: Path) -> bytes:
+def _local_resource(source: Path, link: str, plugin_root: Path) -> Path | None:
+    target = link.split("#", 1)[0]
+    if not target or re.match(r"[A-Za-z][A-Za-z0-9+.-]*:", target):
+        return None
+    prefix = "${CLAUDE_PLUGIN_ROOT}/"
+    candidate = (plugin_root / target[len(prefix):] if target.startswith(prefix)
+                 else source.parent / target)
+    if any(path.is_symlink() for path in (candidate, *candidate.parents)):
+        raise ValueError(f"Plugin resource must not contain symlinks: {link}")
+    resolved = candidate.resolve()
+    if not resolved.is_relative_to(plugin_root) or not resolved.is_file():
+        raise ValueError(f"Plugin resource must be a file inside the plugin: {link}")
+    return resolved
+
+
+def _linked_resources(source: Path, plugin_root: Path) -> set[Path]:
+    if source.suffix != ".md":
+        return set()
     content = source.read_text(encoding="utf-8")
+    links = [match[0] for match in PLUGIN_RESOURCE.finditer(content)]
+    links.extend(match[2] for match in MARKDOWN_LINK.finditer(content))
+    return {
+        resource for link in links
+        if (resource := _local_resource(source, link, plugin_root)) is not None
+    }
+
+
+def _render_markdown(source: Path, relative: Path, plugin_root: Path) -> bytes:
+    content = source.read_text(encoding="utf-8")
+
+    def render_link(match: re.Match[str]) -> str:
+        resource = _local_resource(source, match[2], plugin_root)
+        if resource is None:
+            return match[0]
+        path = posixpath.relpath(resource.relative_to(plugin_root), relative.parent.as_posix())
+        _, marker, anchor = match[2].partition("#")
+        return match[1] + path + marker + anchor + match[3]
+
+    content = MARKDOWN_LINK.sub(render_link, content)
     content = PLUGIN_RESOURCE.sub(
         lambda match: posixpath.relpath(match[1], relative.parent.as_posix()), content
     )
     if "${CLAUDE_PLUGIN_ROOT}" in content:
         raise ValueError(f"Unsupported plugin resource in {source.name}")
-    if relative.name == "SKILL.md":
-        frontmatter, separator, body = content.partition("\n---\n")
-        if not content.startswith("---\n") or not separator:
-            raise ValueError(f"Missing skill frontmatter in {source}")
-        content = frontmatter + separator + "\n" + PORTABLE_PATH_GUIDANCE + body.lstrip("\n")
+    if relative.name == "SKILL.md" and (
+        not content.startswith("---\n") or "\n---\n" not in content
+    ):
+        raise ValueError(f"Missing skill frontmatter in {source}")
     return content.encode("utf-8")
 
 
 def _payload(plugin_root: Path) -> dict[Path, tuple[bytes, int]]:
     payload: dict[Path, tuple[bytes, int]] = {}
-    resources = sorted((plugin_root / "reference").glob("*.md"))
-    helper = plugin_root / "bin" / "mnemonic-repository-freshness"
-    helpers = [plugin_root / "scripts" / f"{verb}_artifact.py" for verb in ("upload", "download")]
-    helpers.append(plugin_root / "scripts" / "decision_provenance.py")
     for skill in sorted((plugin_root / "skills").glob("*/SKILL.md")):
-        for source in (skill, *resources, helper, *helpers):
+        pending, visited = [skill], set()
+        while pending:
+            source = pending.pop()
+            if source in visited:
+                continue
+            _local_resource(
+                source, "${CLAUDE_PLUGIN_ROOT}/" + source.relative_to(plugin_root).as_posix(),
+                plugin_root,
+            )
+            visited.add(source)
+            pending.extend(sorted(_linked_resources(source, plugin_root) - visited))
             relative = Path("SKILL.md") if source == skill else source.relative_to(plugin_root)
             content = (
-                _render_markdown(source, relative)
+                _render_markdown(source, relative, plugin_root)
                 if source.suffix == ".md"
                 else source.read_bytes()
             )
@@ -71,7 +100,7 @@ def export_skills(destination: Path, *, plugin_root: Path = PLUGIN_ROOT) -> Path
     if not destination.parent.is_dir():
         raise ValueError(f"Export parent directory must already exist: {destination.parent}")
     destination = destination.resolve()
-    payload = _payload(plugin_root)
+    payload = _payload(plugin_root.resolve())
     destination.mkdir()
     for relative, (content, mode) in payload.items():
         target = destination / relative

@@ -103,13 +103,26 @@ class ReleaseBundleTest(unittest.TestCase):
                         str(destination)], check=True, capture_output=True, text=True)
         self.assertEqual({path.name for path in destination.iterdir()},
                          {"mnemonic-recall", "mnemonic-save", "mnemonic-search"})
+        helpers = {
+            "mnemonic-recall": {"bin/mnemonic-repository-freshness",
+                                "scripts/decision_provenance.py"},
+            "mnemonic-save": {"scripts/upload_artifact.py", "scripts/download_artifact.py",
+                              "scripts/decision_provenance.py"},
+            "mnemonic-search": {"scripts/download_artifact.py"},
+        }
         for skill in destination.iterdir():
-            self.assertNotIn("${CLAUDE_PLUGIN_ROOT}", (skill / "SKILL.md").read_text())
-            self.assertTrue((skill / "reference/authority-and-provenance.md").is_file())
-            for name in ("upload_artifact.py", "download_artifact.py", "decision_provenance.py"):
-                self.assertTrue((skill / "scripts" / name).is_file())
-            helper = skill / "bin/mnemonic-repository-freshness"
-            self.assertEqual(helper.stat().st_mode & 0o777, 0o755)
+            entry = (skill / "SKILL.md").read_text()
+            self.assertNotIn("${CLAUDE_PLUGIN_ROOT}", entry)
+            self.assertIn("session_init()", entry)
+            self.assertTrue((skill / "reference/transcripts.md").is_file())
+            self.assertFalse((skill / "reference/authority-and-provenance.md").exists())
+            actual_helpers = {path.relative_to(skill).as_posix()
+                              for path in skill.rglob("*")
+                              if path.is_file() and path.suffix != ".md"}
+            self.assertEqual(actual_helpers, helpers[skill.name])
+            for relative in actual_helpers:
+                mode = 0o644 if relative == "scripts/decision_provenance.py" else 0o755
+                self.assertEqual((skill / relative).stat().st_mode & 0o777, mode)
         helper = destination / "mnemonic-recall/bin/mnemonic-repository-freshness"
         result = subprocess.run([str(helper), "--baseline", self.git("rev-parse", "HEAD"),
                                  "--path", "LICENSE"], cwd=self.root, check=True,

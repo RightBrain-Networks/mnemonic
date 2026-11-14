@@ -467,7 +467,7 @@ def test_download_to_scratchpad_omits_large_body_from_session(
             [sys.executable, str(SCRIPT.parent / "export_agent_skills.py"), str(destination)],
             check=True, capture_output=True,
         )
-        script = destination / "mnemonic-recall/scripts/download_artifact.py"
+        script = destination / "mnemonic-search/scripts/download_artifact.py"
     scratchpad = tmp_path / "agent scratchpad"
     scratchpad.mkdir(mode=0o700)
     dest = scratchpad / "artifact.bin"

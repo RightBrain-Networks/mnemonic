@@ -423,8 +423,16 @@ loaded at session startup:
 claude mcp add --transport http --scope user mnemonic "http://127.0.0.1:$MNEMONIC_MCP_PORT/mcp" --header "Authorization: Bearer $MNEMONIC_API_KEY"
 ```
 
-For the complete supported Claude Code workflow, register the local checkout as a plugin
-marketplace and install the three Mnemonic skills:
+Once connected, call `session_init()` for product orientation and command discovery, then
+`get_project(project_id, settings_only=true)` for the selected project's policy. Use
+`list_projects` if its identity is unknown. Command instructions live in
+`help(topic="<command> usage")`; load detailed help only for the current task.
+An owner can add this startup instruction to their client or repository guidance:
+
+> At session startup, call Mnemonic's `session_init` and follow its project-selection and help instructions.
+
+The optional Claude Code plugin provides three thin command-help entry points and local
+file/transcript helpers. To install it, register the local checkout as a plugin marketplace:
 
 ```sh
 claude plugin marketplace add "$PWD"
@@ -441,8 +449,8 @@ Codex configuration; its `bearer_token_env_var` names the environment variable c
 Ensure that variable is available to the process launching Codex, including after restart. See
 the [official MCP configuration](https://learn.chatgpt.com/docs/extend/mcp?surface=cli).
 For OpenCode, adapt [`examples/opencode.json`](examples/opencode.json) in the user's untracked or
-user-level configuration. Both also have stdio examples. Install the complete portable skills
-using the export procedure in [multi-client setup](docs/mcp-clients.md). For another MCP client,
+user-level configuration. Both also have stdio examples. Export optional portable skills
+and their required local helpers using [multi-client setup](docs/mcp-clients.md). For another MCP client,
 use that client's documented Streamable HTTP or stdio schema.
 Codex discovers the complete exported folders in `~/.agents/skills` or the consuming repository's
 `.agents/skills`; see [official skill discovery](https://learn.chatgpt.com/docs/build-skills#where-codex-loads-local-skills).
@@ -646,12 +654,13 @@ item separately:
 
 Work leases are configured per project in Workspace → Project details, with
 initial Default 15, Minimum 10, and Maximum 120 minutes. The former
-`MNEMONIC_LEASE_TTL_SECONDS` environment setting is retired. Agents immediately
-read assigned work through `get_work(status_only=true)`, which includes current
-status and `lease_settings` without authored context. Request Default during
-startup/investigation and estimate remaining session time for later lease requests
-within the current project bounds. Preserve exact `lease_minutes` arguments on
-uncertain claim retries.
+`MNEMONIC_LEASE_TTL_SECONDS` environment setting is retired. Startup
+`get_project(settings_only=true)` returns current policy without work context.
+`get_work(status_only=true)` also supplies status and lease settings for assigned work.
+Omitting `lease_minutes` uses the project default; explicit durations must fit current
+bounds. Preserve exact arguments on uncertain retries. Checkpoint frequency,
+backlog autonomy and communication conventions belong to the project; optional
+[workflow starters](examples/agent-workflows/) are copied and maintained by its owner.
 
 Before every fresh `create_work`, call `list_tags`, read descriptions, and choose
 existing catalog names in top-level `tags`, or explicit null when none apply.
@@ -663,8 +672,8 @@ on upload, replacement, or metadata update. Null clears artifact assignments;
 omitted update/replacement tags preserve them. Tag edits advance the artifact
 revision and retain history. New projects receive six editable starter tags.
 
-Application/API/MCP/dashboard 0.124.0, plugin 0.74.0 and Alembic
-`0073_project_changes` ship together: 80 MCP tools, 25
+Application/API/MCP/dashboard 0.125.0, plugin 0.75.0 and Alembic
+`0073_project_changes` ship together: 81 MCP tools, 25
 receipt-protected MCP writes,
 38 REST receipt kinds, 32 protected browser mutations, 24 event types and three
 plugin skills. Existing projects default to Never/Never/off review settings;

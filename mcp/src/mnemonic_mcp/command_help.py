@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from textwrap import wrap
 from typing import Annotated
 
@@ -10,6 +11,7 @@ from mcp.server.fastmcp import FastMCP
 from mcp.types import Tool, ToolAnnotations
 from pydantic import Field
 
+from .command_catalog import command_groups, command_summary
 from .help_details import DETAILS
 from .help_guides import FIELD_NOTES, GUIDES
 from .help_schema import (
@@ -34,20 +36,15 @@ def help_call(name: str = "", path: tuple[str, ...] = ()) -> str:
 
 
 def _index(tools: dict[str, Tool]) -> str:
-    groups: dict[str, list[str]] = {}
-    for name in sorted(tools):
-        group = GUIDES.get(name, ("Other", "", ""))[0]
-        groups.setdefault(group, []).append(name)
     lines = [
         "Mnemonic commands",
+        "Call session_init() for orientation, a glossary and one-sentence command descriptions.",
         'Call help({"topic":"<command>"}) for arguments; append usage for workflow,',
         'field names to drill down, or schema for full JSON Schema. Example:',
         'help({"topic":"complete_work completion_evidence artifact_references"})',
-        ("When decisions inform code, retain the exact revision and record resulting commits "
-         "with decision_scope_append or Done decision_provenance; inspect changes with "
-         "decision_impact."),
     ]
-    lines += [group + ": " + ", ".join(names) for group, names in groups.items()]
+    lines += [group + ": " + ", ".join(name for name, _ in entries)
+              for group, entries in command_groups(tools)]
     return "\n".join(lines)
 
 
@@ -97,7 +94,7 @@ def _page(tool: Tool, path: tuple[str, ...], schema: Schema) -> str:
     root = tool.inputSchema
     lines = [" ".join((tool.name, *path))]
     if not path:
-        lines.append(GUIDES.get(tool.name, ("", "Registered MCP command.", ""))[1])
+        lines.append(command_summary(tool.name))
     else:
         lines.append("Type: " + type_label(schema, root))
         if nonnull(schema, root).get("type") == "array":
@@ -119,7 +116,7 @@ def _page(tool: Tool, path: tuple[str, ...], schema: Schema) -> str:
     return "\n".join(lines)
 
 
-def _usage(tool: Tool) -> str:
+def _usage(tool: Tool, contracts: Mapping[str, str]) -> str:
     guide = GUIDES.get(tool.name)
     lines = [tool.name + " usage", guide[2] if guide else "See the command's registered description."]
     properties = tool.inputSchema.get("properties", {})
@@ -128,16 +125,18 @@ def _usage(tool: Tool) -> str:
     if tool.name == "complete_work":
         lines.append("After an unknown outcome: at most one identical retry, then reconcile with safe "
                      "reads and request direction if still ambiguous.")
-    if tool.name in DETAILS:
+    if tool.name in DETAILS or contracts.get(tool.name):
         lines.append("Complete guidance: " + help_call(tool.name, ("details",)))
     lines.append("Arguments: " + help_call(tool.name))
     return "\n".join(lines)
 
 
 
-def _details(tool: Tool, path: tuple[str, ...]) -> str:
-    reference = DETAILS.get(tool.name)
-    if reference is None:
+def _details(tool: Tool, path: tuple[str, ...], contracts: Mapping[str, str]) -> str:
+    contract = contracts.get(tool.name, "")
+    extended = DETAILS.get(tool.name, "")
+    reference = extended if contract in extended else f"{contract} {extended}".strip()
+    if not reference:
         return "No extended guidance. Workflow: " + help_call(tool.name, ("usage",))
     pages = wrap(" ".join(reference.split()), width=1600,
                  break_long_words=False, break_on_hyphens=False)
@@ -154,7 +153,10 @@ def _details(tool: Tool, path: tuple[str, ...]) -> str:
     return "\n".join(lines)
 
 
-def render_help(topic: str, tools: dict[str, Tool]) -> str:
+def render_help(
+    topic: str, tools: dict[str, Tool], *, contracts: Mapping[str, str] | None = None,
+) -> str:
+    contracts = contracts if contracts is not None else {}
     parts = topic.split()
     if not parts:
         return _index(tools)
@@ -163,9 +165,9 @@ def render_help(topic: str, tools: dict[str, Tool]) -> str:
         return "Unknown command. Call " + help_call() + " to list commands."
     path = tuple(part.removesuffix("[]") for token in parts[1:] for part in token.split("."))
     if path == ("usage",):
-        return _usage(tool)
+        return _usage(tool, contracts)
     if path and path[0] == "details":
-        return _details(tool, path)
+        return _details(tool, path, contracts)
     full_schema = bool(path and path[-1] == "schema")
     if full_schema:
         path = path[:-1]
@@ -181,7 +183,7 @@ def render_help(topic: str, tools: dict[str, Tool]) -> str:
     return _page(tool, location.path, location.schema)
 
 
-def register_help_tool(server: FastMCP) -> None:
+def register_help_tool(server: FastMCP, *, contracts: Mapping[str, str] | None = None) -> None:
     @server.tool(
         annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False,
                                     idempotentHint=True, openWorldHint=False),
@@ -190,4 +192,4 @@ def register_help_tool(server: FastMCP) -> None:
     async def help(topic: Annotated[str, Field(max_length=400)] = "") -> str:
         """Compact command help, no project or API call. Empty topic lists commands. topic='<command>' shows arguments; append usage for workflow, details for complete guidance, or field/variant names to drill down. topic='<command> schema' returns its full input JSON Schema; '<command> <field> schema' returns only that subtree. Example: topic='complete_work completion_evidence verification_results command'. Plain text, one page per call; schemas appear only on explicit request."""
         tools = {tool.name: tool for tool in await server.list_tools()}
-        return render_help(topic, tools)
+        return render_help(topic, tools, contracts=contracts)

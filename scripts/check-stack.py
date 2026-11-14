@@ -52,6 +52,7 @@ CANONICAL_TOOLS = {
     "decision_commit_lookup", "decision_scope_reconcile",
     "generate_uuid",
     "help",
+    "session_init",
     "list_transcripts", "search_transcript_contents", "get_transcript",
     "get_transcript_text", "download_transcript",
     "list_artifacts", "get_artifact", "get_artifact_text",
@@ -981,7 +982,7 @@ def validate_phase12_mcp_catalog(tools: dict[str, Any]) -> None:
         )
     for name, expected in {
         "get_activity": "ProjectActivityPage",
-        "get_project": "ProjectOverviewRead",
+        "get_project": "ProjectRead",
         "get_prompt": "RenderedPrompt",
         "list_job_completion_reports": "JobCompletionReportPage",
         "get_job_completion_report": "JobCompletionReportDetailEnvelope",
@@ -990,6 +991,14 @@ def validate_phase12_mcp_catalog(tools: dict[str, Any]) -> None:
             tools[name].outputSchema.get("title") == expected,
             f"MCP {name} has an unexpected Phase 12 safe-read projection.",
         )
+    project = tools["get_project"]
+    require(
+        project.inputSchema["properties"]["settings_only"]["default"] is False
+        and {entry.get("$ref") for entry in project.outputSchema["anyOf"]} == {
+            "#/$defs/ProjectOverviewRead", "#/$defs/ProjectSettingsOnlyRead",
+        },
+        "MCP get_project must preserve full overview and expose the compact policy read.",
+    )
 
 
 async def synthetic_job_report(
@@ -1436,8 +1445,8 @@ def validate_mcp_catalog(catalog: Any) -> None:
     """Require the exact tool set, annotations, and operation-ID boundaries."""
     tools_by_name = {entry.name: entry for entry in catalog.tools}
     require(
-        len(catalog.tools) == 80
-        and len(tools_by_name) == 80
+        len(catalog.tools) == 81
+        and len(tools_by_name) == 81
         and len(PROTECTED_MUTATION_TOOLS) == 25
         and set(tools_by_name) == CANONICAL_TOOLS,
         "Unexpected MCP tool catalog.",
@@ -1748,11 +1757,19 @@ async def check(args: argparse.Namespace, key: str) -> None:
                 )
                 catalog = await session.list_tools()
                 validate_mcp_catalog(catalog)
+                orientation = await session.call_tool("session_init", {})
+                require(
+                    not orientation.isError and orientation.structuredContent is None
+                    and len(orientation.content) == 1
+                    and "query_activity" in getattr(orientation.content[0], "text", "")
+                    and "settings_only=true" in getattr(orientation.content[0], "text", ""),
+                    "MCP session_init must return a single read-only orientation document.",
+                )
                 await tool(session, "list_projects", {})
                 print(
                     f"PASS: REST {__version__} cross-project relationship contract shape, work-move, "
-                    "code-review contract, real MCP initialization, 80-tool catalog, "
-                    "exact twenty-three protected mutation "
+                    "code-review contract, real MCP initialization and orientation, 81-tool catalog, "
+                    "exact twenty-five protected mutation "
                     "schemas/annotations, and REST-backed project listing"
                 )
                 if not args.project_id:

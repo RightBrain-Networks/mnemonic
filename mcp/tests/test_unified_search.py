@@ -5,6 +5,7 @@ import json
 import httpx
 import pytest
 from conftest import NOW, OTHER_WORK_ID, PROJECT_ID, WORK_ID
+from help_utils import command_guidance
 from mcp.server.fastmcp.exceptions import ToolError
 from test_artifacts import ARTIFACT_ID, artifact, call
 from test_transcripts import TRANSCRIPT_ID, transcript
@@ -264,9 +265,10 @@ async def test_search_tool_schema_and_cold_review_guidance(settings):
     assert properties["detail"]["default"] == "compact"
     assert properties["offset"]["default"] == 0 and properties["limit"]["default"] == 20
     assert tool.annotations.readOnlyHint is True and tool.annotations.idempotentHint is True
-    assert "cold review before findings freeze" in tool.description
-    assert "sensitive artifact bodies and properties" in tool.description
-    assert "fully recall the exact checkpoint" in tool.description.lower()
+    guidance = await command_guidance(build_server(settings), "search")
+    assert "cold review before findings freeze" in guidance
+    assert "sensitive artifact bodies and properties" in guidance
+    assert "fully recall the exact checkpoint" in guidance.lower()
     assert '"prompt"' not in json.dumps(tool.outputSchema)
 
 

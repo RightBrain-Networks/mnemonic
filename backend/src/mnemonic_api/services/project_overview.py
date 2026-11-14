@@ -8,10 +8,11 @@ from sqlalchemy.orm import Session
 from sqlalchemy.sql.selectable import CTE
 
 from mnemonic_api.database import begin_coherent_read
-from mnemonic_api.errors import ApplicationError
+from mnemonic_api.errors import ApplicationError, not_found
 from mnemonic_api.models import (
     DecisionDocument,
     KnowledgeDomain,
+    Project,
     ProjectSettings,
     ProjectTag,
     WorkGate,
@@ -23,6 +24,7 @@ from mnemonic_api.project_overview_schemas import (
     ProjectKnowledgeDomainSummary,
     ProjectNeedsAttentionSummary,
     ProjectOverviewRead,
+    ProjectSettingsOnlyRead,
     ProjectSettingsValues,
     ProjectStateCounts,
     ProjectWorkItemsSummary,
@@ -30,6 +32,24 @@ from mnemonic_api.project_overview_schemas import (
 from mnemonic_api.services.precedence import dependency_issues
 from mnemonic_api.services.readiness import eligibility_clauses, review_status_clause
 from mnemonic_api.services.work_items import require_project
+
+
+def project_settings_only(database: Session, project_id: UUID) -> ProjectSettingsOnlyRead:
+    """Read only operational policy, without authored context or project aggregates."""
+    begin_coherent_read(database)
+    if database.scalar(select(Project.id).where(Project.id == project_id)) is None:
+        raise not_found("project_not_found", "Project not found.")
+    columns = [getattr(ProjectSettings, name) for name in ProjectSettingsValues.model_fields]
+    settings = database.execute(select(*columns).where(
+        ProjectSettings.project_id == project_id,
+    )).mappings().one_or_none()
+    if settings is None:
+        raise ApplicationError(503, "project_settings_unavailable", "Settings are unavailable.")
+    values = dict(settings)
+    values["revision"] = str(values["revision"])
+    return ProjectSettingsOnlyRead(
+        project_id=project_id, settings=ProjectSettingsValues.model_validate(values),
+    )
 
 
 def _state_counts(counts: dict[str, int]) -> ProjectStateCounts:
