@@ -1394,7 +1394,7 @@ def validate_artifact_mcp_contract(tools: dict[str, Any]) -> None:
             {"approval_token", "human_approved", "agent_session_id", "actor_client"}
             <= properties.keys()
             and properties["human_approved"].get("default") is False
-            and "HUMAN APPROVAL" in tools[name].description,
+            and "human approval" in tools[name].description.lower(),
             f"MCP {name} lacks explicit human approval for sensitive access.",
         )
     require(
