@@ -9,7 +9,7 @@ COPY --from=dependencies /app/node_modules ./node_modules
 COPY frontend/ .
 RUN npm run build
 
-FROM nginx:1.30-alpine@sha256:47928bf67eb62a1863cb08d9ecb52d3e704304ba614eaee17884204677702951 AS runner
+FROM nginx:1.31-alpine@sha256:fed7e14be83cbd2661a75cdc5b872d936cf155d46c327084d30b8df19ae88d72 AS runner
 # The pinned nginx base predates Alpine's CVE-2026-111497 fix.
 RUN apk add --no-cache --upgrade 'brotli-libs>=1.2.1-r0'
 ARG VERSION=dev
