@@ -1,7 +1,7 @@
 # Disposable browser and backup acceptance stack. Invoke through scripts/test-e2e.sh.
 services:
   rabbitmq:
-    image: rabbitmq:4.2-alpine@sha256:aab85daef4295ab28df229600109434ed6ed7b966dd915baeb0fc396279f0e8e
+    image: rabbitmq:4.4-alpine@sha256:3dbd31cb9e4d45dac44de7b73cc45b848028494e98bcab71477386cbd4dc7f56
     hostname: rabbitmq
     environment:
       RABBITMQ_DEFAULT_USER: mnemonic_e2e
