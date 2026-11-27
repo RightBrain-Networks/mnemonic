@@ -1197,9 +1197,9 @@ async def test_tool_catalog_ready_event_and_gate_schemas(settings):
     assert work_changes_schema["additionalProperties"] is False
     assert "prompt" not in work_changes_schema["properties"]
     assert "source_session_id" not in work_changes_schema["properties"]
+    token_receipts = {"claim_work", "claim_and_recall", "renew_claim", "claim_external_lease"}
     for name, tool in tools.items():
-        if name not in {"claim_work", "claim_and_recall", "renew_claim"}:
-            assert '"lease_token"' not in json.dumps(tool.outputSchema)
+        assert ('"lease_token"' in json.dumps(tool.outputSchema)) == (name in token_receipts)
 
 
 async def test_all_protected_mutations_forward_one_canonical_top_level_uuid(settings):
