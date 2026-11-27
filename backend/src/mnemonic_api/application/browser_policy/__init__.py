@@ -25,8 +25,9 @@ from mnemonic_api.application.browser_policy.transport import (
     forbidden_control_transport,
     trusted_request,
 )
-from mnemonic_api.application.browser_policy.values import JsonObject, checkpoint, uuid
+from mnemonic_api.application.browser_policy.values import JsonObject, checkpoint, uuid, valid_model
 from mnemonic_api.decision_change_schemas import DecisionChangeUpdate
+from mnemonic_api.external_resource_schemas import ExternalLeaseRevoke, ExternalResourceWrite
 from mnemonic_api.impact_schemas import ImpactDispositionCreate
 from mnemonic_api.knowledge_management_schemas import DecisionDeletion, DomainDeletion
 from mnemonic_api.knowledge_schemas import DecisionPut, DomainCreate, DomainRename
@@ -44,6 +45,12 @@ __all__ = [
     "trusted_request",
     "valid_query_values",
 ]
+
+_RESOURCE_MODELS = {
+    "external_resources": ExternalResourceWrite,
+    "external_resource": ExternalResourceWrite,
+    "external_lease_revoke": ExternalLeaseRevoke,
+}
 
 _VALIDATORS: dict[tuple[str, str], tuple[Callable[[JsonObject], bool], str]] = {
     ("project", "PATCH"): (projects.project_patch, "invalidProjectPatch"),
@@ -166,6 +173,9 @@ def invalid_mutation_body(path: str, method: str, body: Any) -> str | None:
     name = route_name(path, method)
     if error := _control_error(name, method, body):
         return error
+    resource_model = _RESOURCE_MODELS.get(name or "")
+    if resource_model and not valid_model(resource_model, body):
+        return "Provide a valid external resource definition or lease release."
     if name == "knowledge_changes" and (error := _change_error(body)):
         return error
     if error := (_knowledge_management_error(name, method, body)

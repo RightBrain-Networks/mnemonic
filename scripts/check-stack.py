@@ -64,6 +64,7 @@ CANONICAL_TOOLS = {
     "list_work_follow_ups", "get_work_follow_up", "respond_to_work_follow_up",
     "get_activity",
     "query_activity",
+    "list_external_resources", "claim_external_lease", "renew_external_lease", "release_external_lease",
     "get_project",
     "get_prompt",
     "list_job_completion_reports",
@@ -100,6 +101,7 @@ CANONICAL_TOOLS = {
     "suggest_duplicate_work",
 }
 PROTECTED_MUTATION_TOOLS = {
+    "renew_external_lease", "release_external_lease",
     "create_knowledge_domain", "rename_knowledge_domain", "decision_put", "decision_scope_append",
     "decision_change_update", "decision_assessment_append", "decision_assessment_append_batch",
     "decision_scope_reconcile",
@@ -118,6 +120,7 @@ PROTECTED_MUTATION_TOOLS = {
     "merge_work",
 }
 EXCLUDED_MUTATION_TOOLS = {
+    "claim_external_lease",
     "create_project",
     "claim_work",
     "claim_and_recall",
@@ -1445,9 +1448,9 @@ def validate_mcp_catalog(catalog: Any) -> None:
     """Require the exact tool set, annotations, and operation-ID boundaries."""
     tools_by_name = {entry.name: entry for entry in catalog.tools}
     require(
-        len(catalog.tools) == 81
-        and len(tools_by_name) == 81
-        and len(PROTECTED_MUTATION_TOOLS) == 25
+        len(catalog.tools) == 85
+        and len(tools_by_name) == 85
+        and len(PROTECTED_MUTATION_TOOLS) == 27
         and set(tools_by_name) == CANONICAL_TOOLS,
         "Unexpected MCP tool catalog.",
     )

@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { api, ApiError, errorMessage } from "@/lib/api";
 import { activityInvalidations, decodeActivityPage, type ActivityInvalidations } from "@/lib/project-activity";
 
-const ALL_VIEWS: ActivityInvalidations = { work: true, reports: true, settings: true, projects: true };
+const ALL_VIEWS: ActivityInvalidations = { externalResources: true, work: true, reports: true, settings: true, projects: true };
 export function useProjectActivity({ projectId, onBootstrap, onInvalidation, onRetryDirty }: {
   projectId: string;
   onBootstrap: (projectId: string) => void;

@@ -29,10 +29,10 @@ resource summaries and polling checkpoints through MCP `query_activity` or the s
 See [AGENTS.md](../AGENTS.md#versioning) for the coordinated application, plugin,
 and migration versions. See [knowledge graph](knowledge-graph.md) for retained
 decision revisions and commit provenance, and [dependency cycles](dependency-cycles.md) for explicit
-parent closure requirements, cycle refusal, and honest deadlock display. The catalog has exactly 81 MCP tools, 25
-protected MCP writes, 38 REST receipt kinds, 32 protected browser mutations and
-24 work-event types. The 38 REST receipt kinds comprise 18 work operations, ten knowledge operations, four artifact operations
-with filesystem recovery journals, four project-tag operations, and two transcript operations (rebuild and import). See
+parent closure requirements, cycle refusal, and honest deadlock display. The catalog has exactly 85 MCP tools, 27
+protected MCP writes, 43 REST receipt kinds, 35 protected browser mutations and
+24 work-event types. The 43 REST receipt kinds comprise 18 work operations, ten knowledge operations, four artifact operations
+with filesystem recovery journals, four project-tag operations, five external resource operations, and two transcript operations (rebuild and import). See
 [artifact contracts](artifacts.md) for binary routes, retention and work discovery.
 Relationship identity and graph invariants are global;
 `relationship.project_id` remains immutable edge and read/removal route

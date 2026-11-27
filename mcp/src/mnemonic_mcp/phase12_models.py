@@ -23,6 +23,7 @@ from pydantic import (
     field_validator,
     model_validator,
 )
+from pydantic.experimental.missing_sentinel import MISSING
 from pydantic.json_schema import SkipJsonSchema
 
 from .lease_models import LeaseMinutes
@@ -249,6 +250,9 @@ ActivityKind = Literal[
     "work_event", "project_created", "project_updated", "project_settings_updated", "lease_renewed",
     "job_completion_report_created", "job_completion_report_dismissed",
     "job_completion_report_follow_up_created",
+    "external_resource_created", "external_resource_updated", "external_lease_claimed",
+    "external_lease_renewed", "external_lease_released", "external_lease_revoked",
+    "external_lease_expired",
 ]
 
 
@@ -425,6 +429,13 @@ class JobCompletionReportPage(Phase12Wire):
 
 _ACTIVITY_REFERENCES = {
     "work_event": {"work_event_id", "event_type", "work_item_id"},
+    "external_resource_created": {"external_resource_id"},
+    "external_resource_updated": {"external_resource_id"},
+    **dict.fromkeys(
+        ("external_lease_claimed", "external_lease_renewed", "external_lease_released",
+         "external_lease_revoked", "external_lease_expired"),
+        frozenset({"external_resource_id", "external_lease_id"}),
+    ),
     "project_created": set(),
     "project_updated": set(),
     "project_settings_updated": {"settings_revision"},
@@ -451,12 +462,14 @@ class ProjectActivityRead(Phase12Wire):
     follow_up_id: UUID | None
     settings_revision: PositiveDecimalString | None
     lease_generation_id: UUID | None
+    external_resource_id: UUID | None | MISSING = MISSING
+    external_lease_id: UUID | None | MISSING = MISSING
     recorded_at: UTCDateTime
     origin: Literal["live", "history_import"]
 
     @model_validator(mode="after")
     def enforce_reference_matrix(self) -> Self:
-        present = {key for key in _ACTIVITY_REFERENCE_FIELDS if getattr(self, key) is not None}
+        present = {key for key in _ACTIVITY_REFERENCE_FIELDS if getattr(self, key) not in (None, MISSING)}
         if present != _ACTIVITY_REFERENCES[self.kind]:
             raise ValueError("Activity references disagree with its kind.")
         if self.origin == "history_import" and self.kind != "work_event":

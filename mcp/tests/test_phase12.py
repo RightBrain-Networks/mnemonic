@@ -205,6 +205,16 @@ async def test_four_safe_reads_and_strict_projection_boundaries(settings):
     assert await call(settings, "get_project", document) == document
 
 
+async def test_activity_accepts_external_resource_and_lease_references(settings):
+    page = activity_page()
+    page.update(items=[
+        activity("1", kind="external_resource_created", external_resource_id=WORK_ID),
+        activity("2", kind="external_lease_claimed", external_resource_id=WORK_ID,
+                 external_lease_id=OTHER_WORK_ID),
+    ], through_sequence="2", next_cursor=cursor(after="2"))
+    assert await call(settings, "get_activity", page) == page
+
+
 async def test_activity_accepts_work_move_witnesses(settings):
     page = activity_page()
     page["items"] = [
@@ -223,6 +233,8 @@ async def test_activity_accepts_work_move_witnesses(settings):
     {"work_item_id": WORK_ID}, {"event_type": "work_created"}, {"origin": "history_import"},
     {"recorded_at": "2026-08-30T08:00:00-04:00"},
     {"kind": "job_completion_report_created", "work_item_id": WORK_ID},
+    {"kind": "external_lease_released", "external_resource_id": WORK_ID},
+    {"kind": "project_created", "external_lease_id": WORK_ID},
 ])
 def test_activity_exact_reference_matrix(changes):
     with pytest.raises(ValidationError):
@@ -710,11 +722,11 @@ async def test_report_input_errors_hide_prose_and_arbitrary_keys(settings, work_
     assert "private-" not in message
 
 
-async def test_catalog_is_81_tools_25_protected_and_report_omission_is_replay_only(settings):
+async def test_catalog_is_85_tools_27_protected_and_report_omission_is_replay_only(settings):
     tools = {tool.name: tool for tool in await build_server(settings).list_tools()}
-    assert len(tools) == 81
+    assert len(tools) == 85
     protected = [tool for tool in tools.values() if "client_operation_id" in tool.inputSchema["properties"]]
-    assert len(protected) == 25
+    assert len(protected) == 27
     assert "dismiss_job_completion_report" not in tools
     assert "create_job_completion_report_follow_up" not in tools
     for name in ("complete_work", "update_work"):

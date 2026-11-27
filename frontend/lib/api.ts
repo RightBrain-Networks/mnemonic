@@ -80,6 +80,7 @@ export const SAFE_VALIDATION_LOCATION_PARTS: ReadonlySet<string> = new Set([
   "decision_review_priority",
   "decision_review_revision_id", "decision_review_change_id", "decision_change_ids", "decision_review_project_id",
   "change_id", "governing_reference", "assessment_ids", "expected_scope_version", "expected_work_version",
+  "resource_id", "lease_id", "quantity",
   "lease_default_minutes",
   "lease_minimum_minutes",
   "lease_maximum_minutes",

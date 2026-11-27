@@ -34,6 +34,7 @@ from sqlalchemy.schema import conv
 
 from mnemonic_api import code_review_db_tables as reviews
 from mnemonic_api import decision_change_db as decision_changes
+from mnemonic_api import external_resource_db as external_resources
 from mnemonic_api import impact_db as impact
 from mnemonic_api import knowledge_db as knowledge
 from mnemonic_api import manual_review_db as manual_reviews
@@ -105,6 +106,39 @@ class Project(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class ExternalResource(Base):
+    __table__ = Table("external_resources", Base.metadata, *external_resources.resource_elements())
+
+    id: Mapped[UUID]
+    project_id: Mapped[UUID]
+    name: Mapped[str]
+    capacity: Mapped[int]
+    minimum_minutes: Mapped[int]
+    default_minutes: Mapped[int]
+    maximum_minutes: Mapped[int]
+
+
+class ExternalResourceLease(Base):
+    __table__ = Table(
+        "external_resource_leases", Base.metadata, *external_resources.lease_elements(),
+    )
+
+    id: Mapped[UUID]
+    resource_id: Mapped[UUID]
+    holder_client: Mapped[str]
+    holder_session_id: Mapped[str]
+    quantity: Mapped[int]
+    claim_request_id: Mapped[UUID]
+    claim_quantity: Mapped[int]
+    claim_lease_minutes: Mapped[int | None]
+    lease_token: Mapped[str | None]
+    acquired_at: Mapped[datetime]
+    renewed_at: Mapped[datetime]
+    expires_at: Mapped[datetime]
+    ended_at: Mapped[datetime | None]
+    ended_reason: Mapped[str | None]
+
+
 class ProjectChangeHead(Base):
     __table__ = Table("project_change_heads", Base.metadata, *project_changes.head_elements())
 
@@ -114,7 +148,9 @@ class ProjectChangeHead(Base):
 
 
 class ProjectChange(Base):
-    __table__ = Table("project_changes", Base.metadata, *project_changes.change_elements())
+    __table__ = Table(
+        "project_changes", Base.metadata, *project_changes.change_elements(external=True),
+    )
 
     project_id: Mapped[UUID]
     sequence: Mapped[int]
@@ -260,7 +296,9 @@ class ClientOperation(Base):
             "'rename_knowledge_domain', 'put_decision', 'append_decision_scope', "
             "'assess_decision_impact', 'reconcile_decision_scope', 'update_decision_change', "
             "'assess_decision_impact_batch', 'delete_knowledge_domain', 'delete_decision', "
-            "'create_tag', 'update_tag', 'delete_tag', 'reorder_tags')",
+            "'create_tag', 'update_tag', 'delete_tag', 'reorder_tags', "
+            "'create_external_resource', 'update_external_resource', 'renew_external_lease', "
+            "'release_external_lease', 'revoke_external_lease')",
             name="operation_kind_valid",
         ),
         CheckConstraint(
@@ -1767,12 +1805,14 @@ class ProjectActivity(Base):
     __table__ = Table(
         "project_activity",
         Base.metadata,
-        *phase12.activity_elements(movable_work=True),
+        *phase12.activity_elements(movable_work=True, external=True),
     )
 
     project_id: Mapped[UUID]
     sequence: Mapped[int]
     kind: Mapped[str]
+    external_resource_id: Mapped[UUID | None]
+    external_lease_id: Mapped[UUID | None]
     work_event_id: Mapped[int | None]
     work_item_id: Mapped[UUID | None]
     job_completion_report_id: Mapped[UUID | None]

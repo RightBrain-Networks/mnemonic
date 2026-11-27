@@ -610,6 +610,7 @@ async def test_tool_catalog_schemas_and_annotations(settings):
     server = build_server(settings)
     tools = {tool.name: tool for tool in await server.list_tools()}
     assert set(tools) == {
+        "list_external_resources", "claim_external_lease", "renew_external_lease", "release_external_lease",
         "list_knowledge_domains", "create_knowledge_domain", "rename_knowledge_domain",
         "decision_get", "decision_put", "decision_scope_append", "decision_history", "decision_scope",
         "decision_impact", "decision_assessments", "decision_assessment_get",
@@ -708,6 +709,7 @@ async def test_tool_catalog_schemas_and_annotations(settings):
     ):
         assert tools[name].annotations.destructiveHint is True
     protected = {
+        "renew_external_lease", "release_external_lease",
         "create_work",
         "add_checkpoint",
         "append_event",
@@ -727,6 +729,7 @@ async def test_tool_catalog_schemas_and_annotations(settings):
         "decision_assessment_append", "decision_assessment_append_batch", "decision_scope_reconcile", "decision_change_update",
     }
     mutating = protected | {
+        "claim_external_lease",
         "create_project",
         "claim_work",
         "claim_and_recall",
@@ -740,7 +743,7 @@ async def test_tool_catalog_schemas_and_annotations(settings):
         "remove_relationship",
         "merge_work",
     }
-    assert len(tools) == 81
+    assert len(tools) == 85
     for name in mutating:
         assert tools[name].annotations.idempotentHint is False
     for name in tools.keys() - mutating - {"authorize_artifact_download", "generate_uuid"}:
@@ -765,6 +768,7 @@ async def test_tool_catalog_operation_and_claim_schemas(settings):
     server = build_server(settings)
     tools = {tool.name: tool for tool in await server.list_tools()}
     protected = {
+        "renew_external_lease", "release_external_lease",
         "create_knowledge_domain", "rename_knowledge_domain", "decision_put", "decision_scope_append",
         "decision_assessment_append", "decision_assessment_append_batch", "decision_scope_reconcile", "decision_change_update",
         "upload_artifact", "replace_artifact", "delete_artifact", "update_artifact",

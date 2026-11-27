@@ -18,6 +18,7 @@ import WorkSummaryInput from "@/components/work-summary-input";
 import ExternalReferencesEditor from "@/components/external-references-editor";
 import TranscriptLibrary from "@/components/transcript-library";
 import { transcriptLibraryPath } from "@/lib/transcripts";
+import ExternalLeases from "@/components/external-leases";
 import ArtifactLibrary from "@/components/artifact-library";
 import KnowledgeLibrary from "@/components/knowledge-library";
 import KnowledgeDomains from "@/components/knowledge-domains";
@@ -333,13 +334,14 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
   useMutationUnloadWarning(mutationRegistry);
   const [retryingMutation, setRetryingMutation] = useState("");
   const [transcriptPending, setTranscriptPending] = useState(false);
+  const [externalLeasePending, setExternalLeasePending] = useState(false);
   const [artifactPending, setArtifactPending] = useState(false);
   const [knowledgePending, setKnowledgePending] = useState(false);
   const [backupPending, setBackupPending] = useState(false);
   const [tagPending, setTagPending] = useState(false);
   const [promptPending, setPromptPending] = useState(false);
   const backupPendingRef = useRef(false);
-  const blockedNavigation = tagPending ? "Resolve the pending tag action before leaving this page." : knowledgePending ? "Resolve the pending knowledge graph action before leaving this page." : promptPending ? "Save or discard your prompt changes before leaving this page." : transcriptPending ? "Resolve the pending transcript action before leaving this page." : artifactPending ? "Resolve the pending artifact action before leaving this page."
+  const blockedNavigation = externalLeasePending ? "Resolve the pending external lease action before leaving this page." : tagPending ? "Resolve the pending tag action before leaving this page." : knowledgePending ? "Resolve the pending knowledge graph action before leaving this page." : promptPending ? "Save or discard your prompt changes before leaving this page." : transcriptPending ? "Resolve the pending transcript action before leaving this page." : artifactPending ? "Resolve the pending artifact action before leaving this page."
     : backupPending ? "Wait for the restore to finish before leaving this page."
       : mutationRegistry.hasDispatched() ? "Resolve pending mutations before leaving this dashboard document." : null;
   const route = useDashboardRoute(blockedNavigation);
@@ -350,12 +352,13 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
     : pathname === "/summaries" ? "summaries"
       : pathname === "/attention" ? "attention"
         : (pathname === "/knowledge" || pathname.startsWith("/knowledge/")) ? "knowledge"
+        : pathname === "/external-leases" ? "external-leases"
         : pathname === "/artifacts" ? "artifacts"
           : pathname === "/transcripts" ? "transcripts"
             : pathname === "/code-reviews" || pathname === "/work-items" ? "library" : "dashboard";
   const selectedReviewId = validUuid(searchParams.get("review")) ? searchParams.get("review") : null;
   const artifactRoute = artifactLocation(searchParams.toString());
-  const artifactProjectId = (view === "attention" || view === "knowledge" || view === "artifacts" || view === "transcripts" || view === "library") ? artifactRoute.projectId : null;
+  const artifactProjectId = (view === "attention" || view === "knowledge" || view === "artifacts" || view === "transcripts" || view === "external-leases" || view === "library") ? artifactRoute.projectId : null;
 
   const queryClient = useQueryClient();
   const catalogQuery = useQuery(projectCatalogOptions(() => backupPendingRef.current));
@@ -543,6 +546,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
     projectId: activeId,
     onBootstrap: setActivityReadyProjectId,
     onInvalidation: (changes) => {
+      if (changes.externalResources) void queryClient.invalidateQueries({ queryKey: ["external-resources", activeId] });
       if (changes.work) { refreshWork(); refreshAttention(); setContextRefresh((value) => value + 1); refreshCheckpoints(); setEventRefresh((value) => value + 1); }
       if (changes.reports) refreshReports();
       if (changes.settings) refreshSettings();
@@ -599,7 +603,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
     if (!catalogQuery.data || backupPending) return;
     let saved = "";
     try { saved = localStorage.getItem(dashboardStorageKeys.project) ?? ""; } catch { /* optional */ }
-    const requested = (view === "attention" || view === "knowledge" || view === "artifacts" || view === "transcripts" || view === "library")
+    const requested = (view === "attention" || view === "knowledge" || view === "artifacts" || view === "transcripts" || view === "external-leases" || view === "library")
       ? artifactLocation(router.history.location.search).projectId : null;
     if (requested && !projects.some((item) => sameUuid(item.id, requested))) {
       return;
@@ -866,6 +870,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
   }
 
   function chooseProject(id: string) {
+    if (externalLeasePending) { setNotice({ message: "Resolve the pending external lease action before switching projects.", error: true }); return; }
     if (knowledgePending) { setNotice({ message: "Resolve the pending knowledge graph action before switching projects.", error: true }); return; }
     if (tagPending) { setNotice({ message: "Resolve the pending tag action before switching projects.", error: true }); return; }
     if (promptPending) { setNotice({ message: "Save or discard your prompt changes before switching projects.", error: true }); return; }
@@ -891,7 +896,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
     if ((view === "knowledge" || view === "artifacts" || view === "transcripts") && id !== activeId) {
       router.history.replace(view === "knowledge" ? (pathname === "/knowledge/domains" ? `/knowledge/domains?project=${id}` : knowledgeLibraryPath(id)) : view === "transcripts" ? transcriptLibraryPath(id) : artifactLibraryPath(id), undefined, { ignoreBlocker: true });
     }
-    if ((view === "library") && id !== activeId) {
+    if ((view === "library" || view === "external-leases") && id !== activeId) {
       router.history.replace(`${pathname}?project=${id}`, undefined, { ignoreBlocker: true });
     }
     if (view === "attention" && id !== activeId) {
@@ -2779,7 +2784,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
   }
 
   const activeProjectMutationBlocked = Boolean(
-    transcriptPending || artifactPending || knowledgePending || backupPending || activeId && selectMutationScope(mutationIntents, { projectId: activeId }).blocked
+    transcriptPending || artifactPending || externalLeasePending || knowledgePending || backupPending || activeId && selectMutationScope(mutationIntents, { projectId: activeId }).blocked
   );
   const openedWorkKey = opened
     ? mutationWorkKey(opened.work_item.project_id, opened.work_item.id)
@@ -2858,11 +2863,11 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
   />;
 
   return <MutationIntentProvider registry={mutationRegistry}><div className="app-shell">
-    <a className="skip-link" href="#main-content">{view === "dashboard" ? "Skip to dashboard" : view === "transcripts" ? "Skip to transcripts" : view === "knowledge" ? "Skip to knowledge graph" : view === "artifacts" ? "Skip to artifacts" : view === "settings" ? "Skip to project settings" : view === "attention" ? "Skip to human questions" : view === "summaries" ? "Skip to summaries" : "Skip to work items"}</a>
+    <a className="skip-link" href="#main-content">{view === "dashboard" ? "Skip to dashboard" : view === "external-leases" ? "Skip to external leases" : view === "transcripts" ? "Skip to transcripts" : view === "knowledge" ? "Skip to knowledge graph" : view === "artifacts" ? "Skip to artifacts" : view === "settings" ? "Skip to project settings" : view === "attention" ? "Skip to human questions" : view === "summaries" ? "Skip to summaries" : "Skip to work items"}</a>
     <aside className="sidebar">
       <Link href="/" className="brand" aria-label="Mnemonic home" aria-disabled={activeProjectMutationBlocked || undefined} onClick={blockNavigationWhilePending}><Logo /><span>mnemonic<span className="brand-period">.</span></span></Link>
       <div className="workspace-picker">
-        <div className="select-wrap"><select id="project-select" aria-label="Select project" aria-keyshortcuts="1 2 3 4 5 6 7 8 9 0" value={activeId} disabled={tagPending || promptPending || transcriptPending || artifactPending || knowledgePending || backupPending || projectsLoading || !projects.length || selectMutationScope(mutationIntents, { projectId: activeId }).intents.some((intent) => !["dismiss_job_completion_report", "create_job_completion_report_follow_up", "respond_to_work_follow_up"].includes(intent.kind))} onChange={(event) => chooseProject(event.target.value)}>
+        <div className="select-wrap"><select id="project-select" aria-label="Select project" aria-keyshortcuts="1 2 3 4 5 6 7 8 9 0" value={activeId} disabled={tagPending || promptPending || transcriptPending || artifactPending || externalLeasePending || knowledgePending || backupPending || projectsLoading || !projects.length || selectMutationScope(mutationIntents, { projectId: activeId }).intents.some((intent) => !["dismiss_job_completion_report", "create_job_completion_report_follow_up", "respond_to_work_follow_up"].includes(intent.kind))} onChange={(event) => chooseProject(event.target.value)}>
           {!projects.length && <option value="">{projectsLoading ? "Loading projects…" : "Select a project"}</option>}
           {projects.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
         </select><span className="select-chevron" aria-hidden="true">⌄</span></div>
@@ -2883,10 +2888,11 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
         <Link className={`nav-item ${view === "summaries" ? "active" : ""}`} href="/summaries" aria-current={view === "summaries" ? "page" : undefined} onClick={blockNavigationWhilePending}><Icon name="box" /><span>Summaries</span>{reportCount !== null && reportCount !== "0" && <span className="summary-nav-count" aria-label={`${reportCount} undismissed summaries`}>{reportCount}</span>}<Icon name="arrow" size={15} /></Link>
         <SidebarNavGroup className="resources-nav" label="Resources"
           storageKey={dashboardStorageKeys.resourcesMenu}
-          activeId={view === "artifacts" || view === "transcripts" ? view : undefined}
+          activeId={view === "artifacts" || view === "transcripts" || view === "external-leases" ? view : undefined}
           items={[
             { id: "artifacts", label: "Artifacts", href: activeId ? artifactLibraryPath(activeId) : "/artifacts" },
-            { id: "transcripts", label: "Transcripts", href: activeId ? transcriptLibraryPath(activeId) : "/transcripts" }
+            { id: "transcripts", label: "Transcripts", href: activeId ? transcriptLibraryPath(activeId) : "/transcripts" },
+            { id: "external-leases", label: "External Leases", href: activeId ? `/external-leases?project=${activeId}` : "/external-leases" }
           ]}
           icon={<Icon name="artifacts" />} onNavigate={blockNavigationWhilePending} />
         <ProjectSettingsNav section={view === "settings" ? settingsSection : undefined} icon={<Icon name="settings" />} onNavigate={blockNavigationWhilePending} />
@@ -2898,7 +2904,7 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
     {applicationSettingsOpen && <ApplicationSettings onClose={() => setApplicationSettingsOpen(false)} />}
     <main id="main-content" className="main-content">
       <header className="topbar">
-        <div className="breadcrumb"><span>Workspace</span><span className="breadcrumb-slash">/</span><span>{project?.name || "Getting started"}</span><span className="breadcrumb-slash">/</span><span>{view === "dashboard" ? "Dashboard" : view === "library" ? "Work items" : view === "transcripts" ? "Transcripts" : view === "knowledge" ? (pathname === "/knowledge/domains" ? "Manage domains" : "Decision documents") : view === "artifacts" ? "Artifacts" : view === "settings" ? settingsPage.label : view === "summaries" ? "Summaries" : "Needs Attention"}</span></div>
+        <div className="breadcrumb"><span>Workspace</span><span className="breadcrumb-slash">/</span><span>{project?.name || "Getting started"}</span><span className="breadcrumb-slash">/</span><span>{view === "dashboard" ? "Dashboard" : view === "library" ? "Work items" : view === "external-leases" ? "External Leases" : view === "transcripts" ? "Transcripts" : view === "knowledge" ? (pathname === "/knowledge/domains" ? "Manage domains" : "Decision documents") : view === "artifacts" ? "Artifacts" : view === "settings" ? settingsPage.label : view === "summaries" ? "Summaries" : "Needs Attention"}</span></div>
         <div className="topbar-actions">
           {project && <button className="button button-primary" type="button" disabled={createWorkMutationBlocked} onClick={openWorkDialog}><Icon name="plus" size={16} />New work</button>}
           <div className={`sync-status sync-status-${liveSyncStatus}`} role="status" aria-live="polite"><span className="sync-status-dot" />{liveSyncLabels[liveSyncStatus]}</div>
@@ -2915,6 +2921,12 @@ export default function Dashboard({ timeZone, artifactMaxBytes = ARTIFACT_DEFAUL
               : !project ? <section className="empty-state onboarding"><h2>Create your first project.</h2><p>Keep your work items and code reviews together in a project.</p><button className="button button-primary" onClick={() => setProjectDialog(true)}>Create your first project</button></section>
                 : activityReadyProjectId !== project.id ? <div className="loading-state" role="status">Loading tasks…</div>
                   : <TaskDashboard key={project.id} projectId={project.id} enabled={coreReadsEnabled} onNavigate={blockNavigationWhilePending} />}
+        </> : view === "external-leases" ? <>
+          <DashboardViewChrome title="External Leases" description="Set shared resource capacity and manage agent reservations." />
+          {projectsError && <ErrorNotice message={projectsError}><button className="button button-secondary" onClick={refreshProjects}>Try again</button></ErrorNotice>}
+          {project && (!artifactProjectId || sameUuid(project.id, artifactProjectId))
+            ? <ExternalLeases key={project.id} projectId={project.id} onPendingChange={setExternalLeasePending} />
+            : !projectsError && <div className="loading-state" role="status">{projectsLoading || project ? "Opening your workspace…" : "Select or create a project to manage external leases."}</div>}
         </> : view === "transcripts" ? <>
           <DashboardViewChrome eyebrow="AGENT SESSIONS THAT STAY WITH YOUR WORK" title="Transcripts" description={project ? `Find session history and subagent work in the “${project.name}” project.` : "Choose a project to open its transcripts."} />
           {projectsError && <ErrorNotice message={projectsError}><button className="button button-secondary" onClick={() => refreshProjects()}>Try again</button></ErrorNotice>}

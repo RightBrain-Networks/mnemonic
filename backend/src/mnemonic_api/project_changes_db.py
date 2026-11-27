@@ -16,7 +16,15 @@ def head_elements() -> list[SchemaItem]:
     ]
 
 
-def change_elements() -> list[SchemaItem]:
+def resource_type_check(*, external: bool) -> str:
+    kinds = ("'work_items','artifacts','decisions','project','settings',"
+             "'knowledge_domains','tags','transcripts'")
+    if external:
+        kinds += ",'external_leases'"
+    return f"resource_type IN ({kinds})"
+
+
+def change_elements(*, external: bool = False) -> list[SchemaItem]:
     return [
         sa.Column("project_id", sa.UUID,
                   sa.ForeignKey("project_change_heads.project_id", ondelete="RESTRICT"),
@@ -40,8 +48,7 @@ def change_elements() -> list[SchemaItem]:
         sa.Column("work_status", sa.String(20)),
         sa.Column("origin", sa.String(16), nullable=False, server_default="live"),
         sa.CheckConstraint("sequence > 0", name="sequence_positive"),
-        sa.CheckConstraint("resource_type IN ('work_items','artifacts','decisions','project',"
-                           "'settings','knowledge_domains','tags','transcripts')",
+        sa.CheckConstraint(resource_type_check(external=external),
                            name="resource_type_valid"),
         sa.CheckConstraint("origin IN ('live','history_import')", name="origin_valid"),
         sa.CheckConstraint("jsonb_typeof(before_state)='object' AND "

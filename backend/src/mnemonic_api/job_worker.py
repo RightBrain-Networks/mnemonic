@@ -25,6 +25,7 @@ from mnemonic_api.duplicate_embedding_jobs import (
 )
 from mnemonic_api.semantic import FastembedEmbedder
 from mnemonic_api.services.decision_change_recovery import RecoveryCursor, recover_held_answers
+from mnemonic_api.services.external_resources import expire_due_leases
 from mnemonic_api.transcript_copies import TranscriptStorage
 from mnemonic_api.transcript_health import TranscriptHealthReporter
 from mnemonic_api.transcript_job_queue import (
@@ -69,6 +70,7 @@ def schedule_jobs(database: Session, settings: Settings, backups: BackupSettings
         except Exception:
             pass  # Other job kinds remain available if local model loading fails.
     database.info["prompt_root"] = settings.prompt_root
+    expire_due_leases(database)
     recover_held_answers(database, decision_recovery)
     refresh_outdated_normalizations(database, settings)
     if health is not None:

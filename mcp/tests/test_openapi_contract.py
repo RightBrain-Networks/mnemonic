@@ -178,3 +178,23 @@ def test_transcript_response_contracts_match_the_current_api():
         # MCP deliberately requires diagnostics even where REST supplies a default.
         strict = {"term_diagnostics"} if component == "TranscriptPage" else set()
         assert set(actual.get("required", [])) == set(expected.get("required", [])) | strict
+
+
+def test_external_resource_models_match_machine_responses():
+    from mnemonic_mcp.external_lease_tools import (
+        ExternalLease,
+        ExternalLeaseClaim,
+        ExternalLeaseRelease,
+        ExternalResource,
+        ExternalResourceList,
+    )
+
+    components = json.loads((REPOSITORY_ROOT / "docs/openapi.json").read_text())["components"]["schemas"]
+    for model, component in [
+        (ExternalResourceList, "ExternalResourceList"), (ExternalResource, "ExternalResourceRead"),
+        (ExternalLease, "ExternalLeaseRead"), (ExternalLeaseClaim, "ExternalLeaseClaimReceipt"),
+        (ExternalLeaseRelease, "ExternalLeaseReleased"),
+    ]:
+        actual = model.model_json_schema()
+        assert set(actual["properties"]) == set(components[component]["properties"])
+        assert set(actual["required"]) == set(components[component]["required"])

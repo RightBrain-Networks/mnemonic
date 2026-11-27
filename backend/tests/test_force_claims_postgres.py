@@ -320,4 +320,4 @@ def test_force_journal_survives_backup_and_prevents_unsafe_downgrade(
                 revision.module.downgrade()
     with postgres_engine.connect() as connection:
         head = connection.scalar(text("SELECT version_num FROM alembic_version"))
-        assert head == "0073_project_changes"
+        assert head == "0074_external_resources"

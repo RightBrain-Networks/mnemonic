@@ -3,6 +3,13 @@ import { decimalString, decodePhase12Cursor, type ActivityCursor } from "./activ
 import { exactKeys, objectValue, sameUuid, validUtcDateTime, validUuid } from "./wire-guards.ts";
 
 const REF_MATRIX: Record<ProjectActivityItem["kind"], readonly string[]> = {
+  external_resource_created: ["external_resource_id"],
+  external_resource_updated: ["external_resource_id"],
+  external_lease_claimed: ["external_resource_id", "external_lease_id"],
+  external_lease_renewed: ["external_resource_id", "external_lease_id"],
+  external_lease_released: ["external_resource_id", "external_lease_id"],
+  external_lease_revoked: ["external_resource_id", "external_lease_id"],
+  external_lease_expired: ["external_resource_id", "external_lease_id"],
   work_event: ["work_event_id", "event_type", "work_item_id"],
   project_created: [], project_updated: [], project_settings_updated: ["settings_revision"],
   lease_renewed: ["work_item_id", "lease_generation_id"],
@@ -19,7 +26,8 @@ const EVENT_TYPES = new Set([
   "code_review_requested", "code_review_completed", "code_review_superseded"
 ]);
 const REF_FIELDS = ["work_event_id", "event_type", "work_item_id", "job_completion_report_id",
-  "human_dismissal_id", "follow_up_id", "settings_revision", "lease_generation_id"];
+  "human_dismissal_id", "follow_up_id", "settings_revision", "lease_generation_id",
+  "external_resource_id", "external_lease_id"];
 const ACTIVITY_FIELDS = ["sequence", "kind", ...REF_FIELDS, "recorded_at", "origin"] as const;
 const ACTIVITY_PAGE_FIELDS = ["project_id", "stream_id", "items", "next_cursor", "has_more", "through_sequence", "historical_through_sequence", "historical_coverage"] as const;
 export const PROJECT_ACTIVITY_DECODER_FIELDS = { decodeActivityItem: ACTIVITY_FIELDS, decodeActivityPage: ACTIVITY_PAGE_FIELDS } as const;
@@ -65,10 +73,11 @@ export function decodeActivityPage(value: unknown, projectId: string, request: {
   if (next.after !== sequence.toString() || page.has_more !== (sequence < BigInt(page.through_sequence))) throw invalid();
   return { ...page, items } as unknown as ProjectActivityPage;
 }
-export interface ActivityInvalidations { work: boolean; reports: boolean; settings: boolean; projects: boolean; }
+export interface ActivityInvalidations { externalResources: boolean; work: boolean; reports: boolean; settings: boolean; projects: boolean; }
 export function activityInvalidations(items: readonly ProjectActivityItem[]): ActivityInvalidations {
-  const result: ActivityInvalidations = { work: false, reports: false, settings: false, projects: false };
+  const result: ActivityInvalidations = { externalResources: false, work: false, reports: false, settings: false, projects: false };
   for (const item of items) {
+    if (item.kind.startsWith("external_")) result.externalResources = true;
     if (item.kind === "work_event" || item.kind === "lease_renewed") result.work = true;
     // Report envelopes include current source lifecycle, deletion and canonical identity.
     if (item.kind === "work_event" || item.kind.startsWith("job_completion_report_")) result.reports = true;
