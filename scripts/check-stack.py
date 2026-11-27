@@ -1771,8 +1771,8 @@ async def check(args: argparse.Namespace, key: str) -> None:
                 await tool(session, "list_projects", {})
                 print(
                     f"PASS: REST {__version__} cross-project relationship contract shape, work-move, "
-                    "code-review contract, real MCP initialization and orientation, 81-tool catalog, "
-                    "exact twenty-five protected mutation "
+                    f"code-review contract, real MCP initialization and orientation, {len(CANONICAL_TOOLS)}-tool catalog, "
+                    f"exact {len(PROTECTED_MUTATION_TOOLS)} protected mutation "
                     "schemas/annotations, and REST-backed project listing"
                 )
                 if not args.project_id:

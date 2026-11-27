@@ -46,3 +46,9 @@ already generated automatically. Prepared local artifact uploads retain the
 UUID frozen by `upload_artifact.py prepare` inside the upload intent; the adapter
 does not rewrite it or any other nested identifier. The current tool catalog has
 79 tools, 25 receipt-protected MCP writes and 38 REST receipt kinds.
+
+External leases use the same MCP retry controls. For a fresh `claim_external_lease`,
+omit `claim_request_id` to generate a UUIDv4 or supply a private UUID. Keep that key
+for exact claim recovery. `renew_external_lease` and `release_external_lease` accept
+an optional `client_operation_id`. On an uncertain result, keep all arguments,
+including the requested total quantity and any omitted duration, exactly as sent.

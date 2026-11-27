@@ -37,6 +37,9 @@ def _receipt_kinds(kinds: list[str]) -> None:
 
 
 def upgrade() -> None:
+    # Older revisions may have queued deferred journal checks in this transaction.
+    op.execute("SET CONSTRAINTS ALL IMMEDIATE")
+    op.execute("SET CONSTRAINTS ALL DEFERRED")
     op.create_table("external_resources", *resource_elements())
     op.create_table("external_resource_leases", *lease_elements())
     _receipt_kinds(PREVIOUS_KINDS + EXTERNAL_KINDS)
