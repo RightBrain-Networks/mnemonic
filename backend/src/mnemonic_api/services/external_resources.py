@@ -8,7 +8,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import and_, func, select, update
 from sqlalchemy.orm import Session
 
-from mnemonic_api.errors import ApplicationError, conflict, not_found
+from mnemonic_api.errors import ApplicationError, client_operation_secret_echo, conflict, not_found
 from mnemonic_api.external_resource_schemas import (
     ExternalLeaseClaim,
     ExternalLeaseClaimReceipt,
@@ -217,6 +217,12 @@ def claim(
     payload: ExternalLeaseClaim,
 ) -> ExternalLeaseClaimReceipt:
     resource = _resource(database, project_id, resource_id)
+    # Exact active-claim replay recovers the capability, so its key must stay private.
+    public_fields = (resource.name, payload.holder_client, payload.holder_session_id)
+    if payload.claim_request_id in (project_id, resource_id) or any(
+        payload.claim_request_id.hex in field.replace("-", "").casefold() for field in public_fields
+    ):
+        raise client_operation_secret_echo()
     now = database_now(database)
     _expire(database, resource, now)
     lease = database.scalar(

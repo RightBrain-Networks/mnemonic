@@ -271,3 +271,18 @@ def test_replayed_renewal_preserves_historical_result_after_lease_ends(api, path
     )
     for private in (held["lease_token"], original["claim_request_id"], replacement["lease_token"]):
         assert private not in str(current) + str(public)
+
+
+def test_claim_recovery_id_stays_private(api, paths):
+    agent, _ = paths
+    key = uuid4()
+    for intent in (
+        reservation(claim_request_id=str(key), holder_session_id=key.hex),
+        reservation(claim_request_id=str(key), holder_client=f"test-{str(key).upper()}"),
+        reservation(claim_request_id=agent.rsplit("/", 1)[1]),
+    ):
+        reply = api.post(agent + "/claim", json=intent)
+        assert reply.status_code == 422
+        assert reply.json()["detail"]["code"] == "client_operation_secret_echo"
+        assert intent["claim_request_id"] not in reply.text
+    assert api.get(agent).json()["leases"] == []
