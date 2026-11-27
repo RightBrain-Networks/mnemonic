@@ -37,6 +37,12 @@ def test_release_uses_images_and_explicit_storage_selection():
     assert services["api"]["depends_on"]["migrate"]["condition"] == "service_completed_successfully"
 
 
+def test_api_receives_progress_event_body_limit():
+    setting = "MNEMONIC_PROGRESS_EVENT_BODY_MAX_BYTES"
+    assert config()["services"]["api"]["environment"][setting] == "16384"
+    assert config(**{setting: "32768"})["services"]["api"]["environment"][setting] == "32768"
+
+
 def test_legacy_overlay_preserves_custom_paths_in_every_service(tmp_path):
     roots = {"MNEMONIC_ARTIFACT_DIR": str(tmp_path / "existing-artifacts"),
              "MNEMONIC_PROMPT_DIR": str(tmp_path / "existing-prompts"),

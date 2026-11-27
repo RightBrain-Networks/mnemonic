@@ -113,8 +113,8 @@ one-off ID needed before dispatch. Explicit IDs and REST receipts retain their
 contracts; prepared upload intents keep their helper-generated IDs. See
 `docs/automatic-uuids.md`. The tool idempotence hint is false for these calls.
 
-The current application/API/MCP/dashboard release is `0.126.0`, Claude plugin
-`0.75.0`, and Alembic head `0074_external_resources`. The catalog is exactly
+The current application/API/MCP/dashboard release is `0.127.0`, Claude plugin
+`0.75.0`, and Alembic head `0075_progress_body_limit`. The catalog is exactly
 85 MCP tools, 27 receipt-protected MCP writes, 43 REST receipt kinds, 35 protected
 browser mutations, 24 work-event types, and three plugin skills. Project priority
 guidance is editable in Settings > Workspace; agents explicitly call

@@ -205,7 +205,19 @@ test("activity is live, safe text, actor-attributed, and usable at both viewport
     await expect(hostileRow.locator("img, script")).toHaveCount(0);
     expect(await page.evaluate(() => (globalThis as typeof globalThis & { phase5Pwned?: boolean }).phase5Pwned)).toBeUndefined();
 
+    const runtime = await (await page.request.get("/api/mnemonic/runtime-config")).json();
+    const maximum = runtime.progress_event_body_max_bytes;
+    const atLimit = "🧠".repeat(Math.floor(maximum / 4)) + "x".repeat(maximum % 4);
+    await activity.getByLabel("Progress text").fill(atLimit + "x");
+    await expect(activity.getByLabel("Progress text")).toHaveValue(atLimit + "x");
+    await expect(activity.getByText(`${(maximum + 1).toLocaleString("en-US")} / ${maximum.toLocaleString("en-US")} UTF-8 bytes`)).toBeVisible();
+    await expect(activity.getByRole("button", { name: "Add progress update" })).toBeDisabled();
+    await activity.getByLabel("Progress text").fill(atLimit);
+    await expect(activity.getByRole("button", { name: "Add progress update" })).toBeEnabled();
     await activity.getByLabel("Progress text").fill(dashboardProgress);
+    if (process.env.MNEMONIC_CAPTURE_PROGRESS_BODY_SCREENSHOT && testInfo.project.name === "chromium-desktop") {
+      await activity.locator(".event-composer").screenshot({ path: "../docs/images/progress-event-body-limit.png" });
+    }
     await activity.getByRole("button", { name: "Add progress update" }).click();
     await expect(activity.locator("article.work-event").filter({ hasText: dashboardProgress })).toHaveCount(1);
     expect(eventRequests).toHaveLength(1);

@@ -13,11 +13,13 @@ from uuid import UUID
 
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
+from sqlalchemy.orm import Session
 
 from mnemonic_api.application.mutations import run_registered_mutation
-from mnemonic_api.application.state import api_key_of
+from mnemonic_api.application.state import api_key_of, settings_of
 from mnemonic_api.database import Database
+from mnemonic_api.errors import ApplicationError
 from mnemonic_api.models import Checkpoint
 from mnemonic_api.schemas import (
     CheckpointCreate,
@@ -29,6 +31,7 @@ from mnemonic_api.schemas import (
     WorkEventPage,
     WorkEventRead,
 )
+from mnemonic_api.services.client_operations import MAX_RESPONSE_BYTES
 from mnemonic_api.services.decision_scope_notices import pending_scope_notice
 from mnemonic_api.services.work_context import checkpoint_read
 from mnemonic_api.services.work_events import append_progress_event, list_work_events
@@ -135,9 +138,11 @@ def append_event(
             work_item_id,
             domain_payload,
             bearer_key=api_key_of(request),
+            body_max_bytes=settings_of(request).progress_event_body_max_bytes,
         )
         if domain_payload.lease_token is not None:
             result.review_scope_changed = pending_scope_notice(database, work_item_id)
+        _check_progress_receipt_size(database, result)
         return result
 
     return run_registered_mutation(
@@ -149,3 +154,19 @@ def append_event(
         payload=payload,
         execute=execute,
     )
+
+
+def _check_progress_receipt_size(database: Session, event: WorkEventRead) -> None:
+    # JSON escaping uses at most six bytes per character. This fast path leaves
+    # 256 KiB for the 16 KiB metadata and the bounded provenance and notice fields.
+    if len(event.body or "") <= MAX_RESPONSE_BYTES // 8:
+        return
+    wire = JSONResponse(event.model_dump(mode="json")).body
+    if len(wire) > MAX_RESPONSE_BYTES or database.scalar(
+        text("SELECT octet_length(CAST(CAST(:wire AS jsonb) AS text)) > :maximum"),
+        {"wire": bytes(wire).decode("utf-8"), "maximum": MAX_RESPONSE_BYTES},
+    ):
+        raise ApplicationError(
+            422, "progress_event_receipt_too_large",
+            "Shorten the progress event so its complete JSON receipt fits in 1 MiB.",
+        )

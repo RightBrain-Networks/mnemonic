@@ -1439,7 +1439,8 @@ class WorkEvent(Base):
         CheckConstraint(
             "(event_type IN ('progress', 'work_merged', 'human_attention_requested', "
             "'human_attention_resolved') AND body IS NOT NULL "
-            "AND length(body) <= 4000 AND mnemonic_has_non_whitespace(body)) OR "
+            "AND (event_type = 'progress' OR length(body) <= 4000) "
+            "AND mnemonic_has_non_whitespace(body)) OR "
             "(event_type NOT IN ('progress', 'work_merged', 'human_attention_requested', "
             "'human_attention_resolved') AND body IS NULL)",
             name="body_valid",

@@ -2974,8 +2974,10 @@ def _validate_event_body(event: WorkEventRead) -> None:
         return
     if event.origin != "live" or event.body is None:
         raise ValueError("Body-bearing events require a live body.")
-    if not 1 <= len(event.body) <= 4000 or not event.body.strip() or "\x00" in event.body:
-        raise ValueError("Event bodies must be bounded nonblank text.")
+    if not event.body.strip() or "\x00" in event.body:
+        raise ValueError("Event bodies must be nonblank text without NUL.")
+    if event.event_type != "progress" and len(event.body) > 4000:
+        raise ValueError("Gate and merge event bodies may contain at most 4000 characters.")
 
 
 def _validate_checkpoint_and_lease_references(event: WorkEventRead) -> None:

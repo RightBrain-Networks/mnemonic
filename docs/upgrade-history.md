@@ -6,6 +6,13 @@ the current startup procedure. Begin with [Upgrade from any release](operations.
 then apply the prerequisites for each boundary your database crosses. No command here
 authorizes a production interruption or a downgrade.
 
+## Configurable progress event bodies (0.127.0)
+
+Migration `0075_progress_body_limit` replaces the body check on `work_events`.
+Deploy the matching API, worker, MCP and dashboard versions. The new default
+applies automatically. Downgrade requires all retained progress events to fit
+the previous 4,000-character limit. See [Progress event body size](operations.md#progress-event-body-size).
+
 ## External leases (0.126.0)
 
 Upgrade the API, worker, MCP server and dashboard together. Migration

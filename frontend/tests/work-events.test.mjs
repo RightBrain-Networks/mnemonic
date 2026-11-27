@@ -232,6 +232,11 @@ test("hostile progress remains exact text and actor fallbacks never invent prove
   }))), "Unattributed earlier action");
 });
 
+test("retained progress can exceed the current write limit", () => {
+  const body = "🧠".repeat(8192);
+  assert.equal(decodeWorkEvent(event({ body })).body, body);
+});
+
 test("human-attention events retain literal question and answer bodies with typed gate metadata", () => {
   const gate = "1dfa9455-4a17-4cd4-938b-010ea17ccaf0";
   for (const [eventType, body] of [
@@ -346,7 +351,6 @@ test("strict decoders reject widened event/page responses and malformed metadata
   rejects({ actor_client: "x".repeat(81) });
   rejects({ body: "\t\n" });
   rejects({ body: `valid\0invalid` });
-  rejects({ body: "x".repeat(4001) });
   rejects({ metadata: { nested: { Authorization: "forbidden-key" } } });
   rejects({ metadata: { note: "x".repeat(16_384) } });
   rejects({

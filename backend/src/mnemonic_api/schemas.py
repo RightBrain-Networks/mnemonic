@@ -3297,14 +3297,12 @@ class DuplicateMergeEligibility(APIModel):
     source_lease_state: Literal["none", "expired", "active"]
 
 
-EventBody = Annotated[
-    str, StringConstraints(min_length=1, max_length=4000), AfterValidator(nonblank)
-]
-
-
 class ProgressEventCreate(APIModel):
     event_type: Literal["progress"] = "progress"
-    body: EventBody
+    body: Annotated[str, Field(min_length=1), AfterValidator(nonblank)] = Field(
+        description="Exact progress text. MNEMONIC_PROGRESS_EVENT_BODY_MAX_BYTES limits fresh "
+        "appends in UTF-8 bytes (default 16384)."
+    )
     metadata: ProgressRequestMetadata = Field(default_factory=dict)
     actor: MutationActor
     lease_token: LeaseToken | None = Field(default=None, repr=False)
@@ -3787,8 +3785,9 @@ class WorkEventRead(APIModel):
             return
         if self.origin != "live" or self.body is None:
             raise ValueError("Text events require a live body")
-        if not 1 <= len(self.body) <= 4000 or not self.body.strip() or "\x00" in self.body:
-            raise ValueError("Text event bodies must be bounded nonblank text")
+        nonblank(self.body)
+        if self.event_type != "progress" and len(self.body) > 4000:
+            raise ValueError("Gate and merge event bodies may contain at most 4000 characters")
 
     def _require_reference_columns(self) -> None:
         if (self.checkpoint_id is not None) != (self.event_type in _CHECKPOINT_EVENTS):

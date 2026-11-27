@@ -4,6 +4,7 @@ import { decodeRuntimeConfig, loadRuntimeConfig } from "../lib/runtime-config.ts
 
 const valid = {
   timezone: "America/Detroit", work_summary_max_chars: 2048,
+  progress_event_body_max_bytes: 16384,
   artifact_max_bytes: 67_108_864, backup_max_bytes: 67_108_864
 };
 
@@ -19,12 +20,14 @@ test("runtime settings accept the presentation contract and disabled artifacts",
 test("runtime settings reject missing, coerced and unsafe limits instead of using defaults", () => {
   for (const invalid of [null, [], {}, "config"]) assert.throws(() => decodeRuntimeConfig(invalid));
   assert.throws(() => decodeRuntimeConfig({ ...valid, unexpected: "not part of the contract" }));
-  for (const key of ["work_summary_max_chars", "artifact_max_bytes", "backup_max_bytes"]) {
+  for (const key of ["work_summary_max_chars", "progress_event_body_max_bytes", "artifact_max_bytes", "backup_max_bytes"]) {
     for (const value of [undefined, null, "1024", -1, 1.5, Infinity, Number.MAX_SAFE_INTEGER + 1]) {
       assert.throws(() => decodeRuntimeConfig({ ...valid, [key]: value }), `${key}: ${value}`);
     }
   }
   assert.throws(() => decodeRuntimeConfig({ ...valid, work_summary_max_chars: 0 }));
+  assert.throws(() => decodeRuntimeConfig({ ...valid, progress_event_body_max_bytes: 0 }));
+  assert.throws(() => decodeRuntimeConfig({ ...valid, progress_event_body_max_bytes: 1_048_577 }));
   assert.throws(() => decodeRuntimeConfig({ ...valid, backup_max_bytes: 0 }));
   assert.throws(() => decodeRuntimeConfig({ ...valid, artifact_max_bytes: 1_073_741_825 }));
   for (const timezone of [null, "", "invalid/timezone"]) {

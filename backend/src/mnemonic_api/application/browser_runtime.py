@@ -13,6 +13,7 @@ async def runtime_config(request: Request) -> JSONResponse:
         {
             "timezone": settings.timezone,
             "work_summary_max_chars": settings.work_summary_max_chars,
+            "progress_event_body_max_bytes": settings.progress_event_body_max_bytes,
             "artifact_max_bytes": settings.artifact_max_bytes,
             "backup_max_bytes": settings.backup_max_bytes,
         },

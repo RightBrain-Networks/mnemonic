@@ -1041,6 +1041,8 @@ async def test_tool_catalog_ready_event_and_gate_schemas(settings):
         assert f'"{forbidden}"' not in ready_schema
 
     append_input = tools["append_event"].inputSchema
+    assert "maxLength" not in append_input["properties"]["body"]
+    assert "MNEMONIC_PROGRESS_EVENT_BODY_MAX_BYTES" in append_input["properties"]["body"]["description"]
     assert set(append_input["properties"]) == {
         "project_id",
         "work_item_id",
@@ -2285,6 +2287,7 @@ def test_move_event_models_accept_client_and_unattributed_witnesses(progress_eve
 
 
 async def test_event_tools_use_exact_rest_contract(settings, progress_event):
+    progress_event = {**progress_event, "body": "🧠" * 8192}
     seen: list[str] = []
 
     def handler(request):
@@ -2350,6 +2353,24 @@ async def test_event_tools_use_exact_rest_contract(settings, progress_event):
     assert listed["items"] == [progress_event]
     assert listed["pre_phase5_history_may_be_incomplete"] is True
     assert seen == ["POST", "GET"]
+
+
+async def test_append_event_reports_configured_byte_limit_without_echo(settings):
+    def handler(request):
+        assert json.loads(request.content)["body"] == "private progress"
+        return httpx.Response(422, json={"detail": {
+            "code": "progress_event_body_too_large", "message": "private upstream detail",
+            "context": {"max_bytes": 8},
+        }})
+
+    server = adapter(settings, handler)
+    with pytest.raises(ToolError) as error:
+        await server.call_tool("append_event", {
+            "project_id": PROJECT_ID, "work_item_id": WORK_ID, "body": "private progress",
+            **ACTOR_ARGUMENTS, **OPERATION_ARGUMENT,
+        })
+    assert "at most 8 UTF-8 bytes" in str(error.value)
+    assert "private" not in str(error.value)
 
 
 async def test_historical_progress_operation_key_remains_readable(

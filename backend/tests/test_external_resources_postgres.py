@@ -236,7 +236,7 @@ def test_empty_downgrade_restores_exact_previous_catalog(pristine_postgres_engin
         command.downgrade(config, "0073_project_changes")
         assert not any(audit["_catalog_drift"](connection, "0073_project_changes").values())
         command.upgrade(config, "head")
-        assert not any(audit["_catalog_drift"](connection, "0074_external_resources").values())
+        assert not any(audit["_catalog_drift"](connection, "0075_progress_body_limit").values())
 
 
 def test_replayed_renewal_preserves_historical_result_after_lease_ends(api, paths):

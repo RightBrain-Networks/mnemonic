@@ -551,11 +551,19 @@ def append_progress_event(
     payload: ProgressEventCreate,
     *,
     bearer_key: str,
+    body_max_bytes: int,
 ) -> WorkEventRead:
     """Lock work first, validate any capability, then update activity and append."""
     from mnemonic_api.services.leases import validate_optional_lease_token
     from mnemonic_api.services.work_items import require_work_item
 
+    if len(payload.body.encode("utf-8")) > body_max_bytes:
+        raise ApplicationError(
+            422,
+            "progress_event_body_too_large",
+            f"Progress event body exceeds the configured maximum of {body_max_bytes} UTF-8 bytes.",
+            context={"max_bytes": body_max_bytes},
+        )
     reject_known_secret_echo(payload, bearer_key=bearer_key)
     work_item = require_work_item(database, project_id, work_item_id, lock=True)
     from mnemonic_api.services.duplicates import require_canonical_work_item

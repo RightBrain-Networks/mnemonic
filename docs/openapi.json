@@ -15052,7 +15052,7 @@
             "$ref": "#/components/schemas/MutationActor"
           },
           "body": {
-            "maxLength": 4000,
+            "description": "Exact progress text. MNEMONIC_PROGRESS_EVENT_BODY_MAX_BYTES limits fresh appends in UTF-8 bytes (default 16384).",
             "minLength": 1,
             "title": "Body",
             "type": "string"
@@ -25038,7 +25038,7 @@
   "info": {
     "description": "Durable project-scoped work with immutable agent checkpoints.",
     "title": "Mnemonic API",
-    "version": "0.126.0"
+    "version": "0.127.0"
   },
   "openapi": "3.1.0",
   "paths": {
