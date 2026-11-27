@@ -22,14 +22,14 @@ from .tag_models import TagMode, TagNames, tags_match
 
 ActivityFacet = Literal[
     "work_items", "artifacts", "decisions", "project", "settings", "knowledge_domains",
-    "tags", "transcripts",
+    "tags", "transcripts", "external_leases",
 ]
 ACTIVITY_FACETS: tuple[ActivityFacet, ...] = (
     "work_items", "artifacts", "decisions", "project", "settings", "knowledge_domains",
-    "tags", "transcripts",
+    "tags", "transcripts", "external_leases",
 )
 ActivityToken = Annotated[StrictStr, Field(min_length=1, max_length=2048)]
-ActivityFacets = Annotated[list[ActivityFacet], Field(min_length=1, max_length=8)]
+ActivityFacets = Annotated[list[ActivityFacet], Field(min_length=1, max_length=9)]
 ActivityLimit = Annotated[StrictInt, Field(ge=1, le=100)]
 ActivityView = Literal["resources", "events"]
 WorkActivityStatus = Literal[

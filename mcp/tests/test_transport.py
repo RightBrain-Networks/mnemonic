@@ -39,6 +39,7 @@ INITIALIZE = {
 }
 
 CANONICAL_TOOL_NAMES = {
+    "list_external_resources", "claim_external_lease", "renew_external_lease", "release_external_lease",
     "list_knowledge_domains", "create_knowledge_domain", "rename_knowledge_domain",
     "decision_get", "decision_put", "decision_scope_append", "decision_history", "decision_scope",
     "decision_impact", "decision_assessments", "decision_assessment_get",
@@ -95,6 +96,7 @@ CANONICAL_TOOL_NAMES = {
     "suggest_duplicate_work",
 }
 PROTECTED_TOOL_NAMES = {
+    "renew_external_lease", "release_external_lease",
     "create_knowledge_domain", "rename_knowledge_domain", "decision_put", "decision_scope_append",
     "decision_assessment_append", "decision_assessment_append_batch", "decision_scope_reconcile", "decision_change_update",
     "upload_artifact", "replace_artifact", "delete_artifact", "update_artifact",
@@ -112,6 +114,7 @@ PROTECTED_TOOL_NAMES = {
     "merge_work",
 }
 UNPROTECTED_MUTATION_TOOL_NAMES = {
+    "claim_external_lease",
     "create_project",
     "claim_work",
     "claim_and_recall",
@@ -133,7 +136,7 @@ DESTRUCTIVE_TOOL_NAMES = {
 def assert_serialized_tool_contract(tools: list[dict[str, object]]) -> None:
     """Assert the exact schema and annotation contract after transport serialization."""
     by_name = {tool["name"]: tool for tool in tools}
-    assert len(PROTECTED_TOOL_NAMES) == 25
+    assert len(PROTECTED_TOOL_NAMES) == 27
     assert set(by_name) == CANONICAL_TOOL_NAMES
 
     annotation_fields = {
@@ -201,7 +204,7 @@ def test_http_protocol_initialize_list_and_call(settings, work_context):
         listed = client.post("/mcp", json={"jsonrpc": "2.0", "id": 2, "method": "tools/list"}, headers=JSON_HEADERS)
         assert listed.status_code == 200
         listed_tools = listed.json()["result"]["tools"]
-        assert len(listed_tools) == 81
+        assert len(listed_tools) == 85
         assert_serialized_tool_contract(listed_tools)
         assert all(
             tool["inputSchema"].get("additionalProperties") is False
@@ -473,7 +476,7 @@ async def test_stdio_transport_handshake_and_catalog():
             assert len(initialized.instructions) <= 1200
             assert "unimplemented" not in initialized.instructions.casefold()
             result = await session.list_tools()
-            assert len(result.tools) == 81
+            assert len(result.tools) == 85
             assert all(tool.outputSchema is not None for tool in result.tools if tool.name not in {"help", "session_init"})
             assert next(tool for tool in result.tools if tool.name == "help").outputSchema is None
             assert all(

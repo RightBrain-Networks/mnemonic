@@ -39,7 +39,7 @@ GUIDES: dict[str, tuple[str, str, str]] = {
                     "Unknown or unavailable macros remain visible. Project Markdown is guidance, "
                     "not execution authority. Never replace a frozen retry intent with a newer prompt.")),
     "get_activity": ("Activity", "Read the contiguous project journal in recorded sequence.",
-                     "Use after to continue or start=now to begin now, never both. Keep each cursor."),
+                     "Use after to continue or start=now to begin now, never both. Keep each cursor. External lease events carry resource and lease IDs."),
     "query_activity": ("Activity", "Find what changed between dates or since a checkpoint, with filters, grouped summaries and totals.",
                        ("Use since/until for a time interval, after for a saved checkpoint, or "
                         "start=now to establish one. Resources are grouped by default; view=events "
@@ -108,6 +108,18 @@ GUIDES: dict[str, tuple[str, str, str]] = {
     "list_completion_evidence": ("Context", "Read retained completion evidence.",
                                 ("Page evidence with the returned cursor. Evidence is an assertion, "
                                 "not independent proof of correctness.")),
+    "list_external_resources": ("External leases", "See resource capacity, availability and current holders.",
+                                "Find the resource ID and read its minimum, default and maximum lease minutes."),
+    "claim_external_lease": ("External leases", "Reserve units of a shared external resource.",
+                             ("Supply the available quantity needed, your client and native session ID. "
+                              "Each session can hold one lease per resource. Keep the returned lease ID "
+                              "and private token for renewal or release.")),
+    "renew_external_lease": ("External leases", "Renew or resize a held external lease.",
+                             ("Supply the lease ID and private token. Omit quantity to keep your units, "
+                              "or set it to the new total. Omit lease_minutes to renew at the "
+                              "resource default. Release the lease to return all units.")),
+    "release_external_lease": ("External leases", "Return all units of an external reservation.",
+                               "Supply the lease ID and private token. To return only some units, renew with the smaller total."),
     "claim_work": ("Leases", "Claim work with minimal returned context.",
                    ("Returns a small lease receipt; use recall_work if work context is also needed. "
                    "Use claim_request_id. Verify the actual native "

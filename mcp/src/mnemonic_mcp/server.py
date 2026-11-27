@@ -2321,6 +2321,7 @@ def build_server(settings: Settings, api: MnemonicAPI | None = None) -> FastMCP:
     from .command_catalog import apply_catalog_descriptions
     from .command_help import register_help_tool
     from .download_grants import register_download_grants
+    from .external_lease_tools import register_external_lease_tools
     from .knowledge_tools import register_knowledge_tools
     from .search_tools import register_search_tool
     from .session_init import register_session_init_tool
@@ -2349,6 +2350,7 @@ def build_server(settings: Settings, api: MnemonicAPI | None = None) -> FastMCP:
     )
     _register_project_tools(server, api)
     register_tag_tools(server, api)
+    register_external_lease_tools(server, api)
     register_uuid_tool(server)
     register_phase12_tools(server, api)
     register_activity_query_tool(server, api)

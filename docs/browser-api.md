@@ -67,6 +67,9 @@ list. POST search is a safe read with its filter object in the JSON body.
 | `runtime-config` | GET | None |
 | `projects` | GET, POST | GET: `limit`, `offset` |
 | `P` | GET, PATCH | None |
+| `P/external-resources` | GET, POST | None |
+| `P/external-resources/{resource_id}` | GET, PUT | None |
+| `P/external-resources/{resource_id}/leases/{lease_id}/revoke` | POST | None |
 | `P/settings` | GET, PATCH | GET: `work_item_id` |
 | `P/priority-rubric` | GET, PATCH | None |
 | `P/prompts` | GET | None |

@@ -47,7 +47,7 @@ def activity_head_elements() -> list[SchemaItem]:
     ]
 
 
-def activity_matrix(*, reports: bool) -> str:
+def activity_matrix(*, reports: bool, external: bool = False) -> str:
     fields = ["work_event_id", "work_item_id", "lease_generation_id"]
     variants = {
         "work_event": {"work_event_id", "work_item_id"},
@@ -78,6 +78,12 @@ def activity_matrix(*, reports: bool) -> str:
                 "project_settings_updated": {"settings_revision"},
             }
         )
+    if external:
+        fields.extend(["external_resource_id", "external_lease_id"])
+        for action in ("created", "updated"):
+            variants[f"external_resource_{action}"] = {"external_resource_id"}
+        for action in ("claimed", "renewed", "released", "revoked", "expired"):
+            variants[f"external_lease_{action}"] = {"external_resource_id", "external_lease_id"}
     return " OR ".join(
         "(kind = '"
         + kind
@@ -90,7 +96,9 @@ def activity_matrix(*, reports: bool) -> str:
     )
 
 
-def activity_elements(*, reports: bool = True, movable_work: bool = False) -> list[SchemaItem]:
+def activity_elements(
+    *, reports: bool = True, movable_work: bool = False, external: bool = False,
+) -> list[SchemaItem]:
     elements: list[SchemaItem] = [
         sa.Column("project_id", sa.UUID(), primary_key=True),
         sa.Column("sequence", sa.BigInteger(), primary_key=True),
@@ -122,10 +130,15 @@ def activity_elements(*, reports: bool = True, movable_work: bool = False) -> li
         sa.CheckConstraint(
             "origin <> 'history_import' OR kind = 'work_event'", name="history_kind"
         ),
-        sa.CheckConstraint(activity_matrix(reports=reports), name="variant_valid"),
+        sa.CheckConstraint(
+            activity_matrix(reports=reports, external=external), name="variant_valid",
+        ),
     ]
     if reports:
         elements.extend(activity_report_elements())
+    if external:
+        elements.extend([sa.Column("external_resource_id", sa.UUID),
+                         sa.Column("external_lease_id", sa.UUID)])
     return elements
 
 

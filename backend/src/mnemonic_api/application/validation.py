@@ -64,6 +64,7 @@ PUBLIC_LOCATION_SEGMENTS = frozenset(
     decision_change_inheritance_exclusion origin_work_item_id origin_context_checkpoint_id
     change change_id assessment_ids expected_scope_version expected_work_version governing_reference
     requires_admission
+    resource_id lease_id quantity
     lease_minutes lease_default_minutes
     lease_minimum_minutes lease_maximum_minutes status_only
     """.split()

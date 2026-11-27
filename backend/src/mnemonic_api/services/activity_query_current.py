@@ -14,6 +14,7 @@ from mnemonic_api.models import (
     Artifact,
     DecisionDocument,
     DecisionRevision,
+    ExternalResource,
     KnowledgeDomain,
     ProjectChange,
     WorkItem,
@@ -127,6 +128,12 @@ def _decision_current(database: Session, project_id: UUID, ids: set[UUID]):
     ) for document, domain, title, state in rows}
 
 
+def _external_current(database: Session, project_id: UUID, ids: set[UUID]):
+    rows = database.execute(select(ExternalResource.id, ExternalResource.name).where(
+        ExternalResource.project_id == project_id, ExternalResource.id.in_(ids)))
+    return {row.id: ActivityCurrentState(exists=True, title=row.name) for row in rows}
+
+
 def current_states(
     database: Session, project_id: UUID, resources: list[tuple[str, UUID]], as_of: datetime,
 ) -> dict[tuple[str, UUID], ActivityCurrentState]:
@@ -134,6 +141,7 @@ def current_states(
     for facet, fetch in (
         ("work_items", lambda ids: _work_current(database, project_id, ids, as_of)),
         ("artifacts", lambda ids: _artifact_current(database, project_id, ids)),
+        ("external_leases", lambda ids: _external_current(database, project_id, ids)),
         ("decisions", lambda ids: _decision_current(database, project_id, ids)),
     ):
         ids = {identity for kind, identity in resources if kind == facet}

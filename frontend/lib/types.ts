@@ -968,12 +968,16 @@ export interface JobReportProvenancePage {
   next_cursor: string | null;
 }
 export type ProjectActivityKind =
+  | "external_resource_created" | "external_resource_updated" | "external_lease_claimed"
+  | "external_lease_renewed" | "external_lease_released" | "external_lease_revoked" | "external_lease_expired"
   | "work_event" | "job_completion_report_created" | "job_completion_report_dismissed"
   | "job_completion_report_follow_up_created" | "project_created" | "project_updated"
   | "project_settings_updated" | "lease_renewed";
 export interface ProjectActivityItem {
   sequence: string;
   kind: ProjectActivityKind;
+  external_resource_id: string | null;
+  external_lease_id: string | null;
   work_event_id: string | null;
   event_type: WorkEventType | null;
   work_item_id: string | null;

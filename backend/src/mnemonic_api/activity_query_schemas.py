@@ -19,11 +19,11 @@ from mnemonic_api.tag_types import AssignedTags
 
 ActivityFacet = Literal[
     "work_items", "artifacts", "decisions", "project", "settings", "knowledge_domains",
-    "tags", "transcripts",
+    "tags", "transcripts", "external_leases",
 ]
 ACTIVITY_FACETS: tuple[ActivityFacet, ...] = (
     "work_items", "artifacts", "decisions", "project", "settings", "knowledge_domains",
-    "tags", "transcripts",
+    "tags", "transcripts", "external_leases",
 )
 ActivityToken = Annotated[str, StringConstraints(min_length=1, max_length=2048)]
 ActivitySequence = Annotated[str, StringConstraints(pattern=r"^(0|[1-9][0-9]{0,18})$")]
@@ -62,7 +62,7 @@ class QueryActivityRequest(APIModel):
     cursor: ActivityToken | None = None
     start: Literal["now"] | None = None
     facets: list[ActivityFacet] = Field(
-        default_factory=lambda: list(ACTIVITY_FACETS), min_length=1, max_length=8,
+        default_factory=lambda: list(ACTIVITY_FACETS), min_length=1, max_length=9,
     )
     filters: ActivityFilters = Field(default_factory=ActivityFilters)
     view: Literal["resources", "events"] = "resources"

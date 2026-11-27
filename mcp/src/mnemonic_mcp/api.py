@@ -38,6 +38,12 @@ class TransportEffect(StrEnum):
 
 
 _APPLICATION_ERRORS = {
+    "external_resource_capacity": "Insufficient units. Check current availability with list_external_resources.",
+    "external_lease_held": "Your session already holds a lease. Use renew_external_lease to resize or renew it.",
+    "external_lease_inactive": "This lease ended. Check availability before making a fresh reservation.",
+    "external_lease_token_mismatch": "The token does not match this lease. Verify the original claim receipt.",
+    "external_lease_minutes_out_of_range": "Read the resource duration bounds with list_external_resources.",
+    "external_lease_request_mismatch": "This claim request ID was used with different arguments. Recover the exact original claim.",
     "tags_required": (
         "Call list_tags(project_id) and read its descriptions, then supply top-level tags "
         "using existing catalog names, or explicit null when no tags apply."
@@ -333,7 +339,7 @@ _APPLICATION_ERRORS = {
 }
 UNKNOWN_CLAIM_OUTCOME = (
     "Mnemonic API could not confirm the response; the claim outcome is unknown. Retry promptly "
-    "with the exact same claim_request_id and all arguments, including force and lease_minutes, from this "
+    "with the exact same claim_request_id and all arguments from this "
     "call. A new request ID can conflict, and search "
     "or recall cannot recover the lease token."
 )
@@ -436,6 +442,8 @@ async def _dispatch_request(
 
 
 _NOT_FOUND_MESSAGES = {
+    "external_resource_not_found": "Resource not found in this project. Use list_external_resources.",
+    "external_lease_not_found": "Lease not found on this resource. Use list_external_resources.",
     "artifact_related_artifact_not_found": "A linked artifact is unavailable in this project. Verify its exact ID and current metadata.",
     "artifact_work_item_not_found": "A linked artifact work item is not in this project.",
     "artifact_not_found": "Artifact not found in this project.",
@@ -934,8 +942,10 @@ class MnemonicAPI:
                         else _EXTENDED_READ_TIMEOUT_SECONDS)
         if extended_read_timeout and effect != TransportEffect.SAFE_READ:
             raise ValueError("Extended read timeout requires an explicit safe-read effect.")
-        if strict_wire_response and effect != TransportEffect.SAFE_READ:
-            raise ValueError("Explicit strict wire validation requires a safe-read effect.")
+        if strict_wire_response and effect not in {
+            TransportEffect.SAFE_READ, TransportEffect.LEASE_CLAIM,
+        }:
+            raise ValueError("Explicit strict wire validation requires a safe read or lease claim.")
         if bounded_identity_response and (
             effect != TransportEffect.SAFE_READ or method not in {"GET", "POST"}
         ):

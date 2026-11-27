@@ -6,6 +6,15 @@ the current startup procedure. Begin with [Upgrade from any release](operations.
 then apply the prerequisites for each boundary your database crosses. No command here
 authorizes a production interruption or a downgrade.
 
+## External leases (0.126.0)
+
+Upgrade the API, worker, MCP server and dashboard together. Migration
+`0074_external_resources` creates project-owned resource definitions and lease generations
+and extends both activity journals. Resources start empty. A project owner can add the first
+resource under **Resources → External Leases**. Project backups include definitions, lease
+generations and their activity. The new feature uses the existing shared worker for expiry
+processing and requires no configuration changes.
+
 ## Project activity deltas (0.124.0)
 
 Upgrade API, worker, MCP and dashboard together with plugin 0.74.0 and migration

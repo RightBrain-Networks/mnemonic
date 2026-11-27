@@ -28,7 +28,7 @@ KNOWN_GAPS = [
     "Prompt history begins at its first observed hash; unobserved edits may be missed.",
     "Prompt timestamps record observation, not the original external file edit time.",
     "Artifact metadata history does not preserve replaced or deleted file bytes.",
-    "Derived cache/index updates, lease renewals/heartbeats, and time-driven expiry are omitted.",
+    "Derived cache/index updates, work lease heartbeats, and unobserved expiry are omitted.",
     "Current facet membership is reevaluated on each page, not frozen at the upper sequence.",
 ]
 

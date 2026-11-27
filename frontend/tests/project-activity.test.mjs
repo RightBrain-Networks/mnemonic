@@ -8,7 +8,7 @@ const page=(overrides={})=>({project_id:f.project,stream_id:f.stream,items:[f.ac
 test("activity consumes every contiguous sequence with an exact discriminated reference matrix",()=>{
   const request={after:f.cursor({kind:"activity",after:"8"})};
   assert.equal(decodeActivityPage(page(),f.project,request).items.length,1);
-  assert.deepEqual(activityInvalidations([f.activity()]),{work:false,reports:true,settings:false,projects:false});
+  assert.deepEqual(activityInvalidations([f.activity()]),{externalResources:false,work:false,reports:true,settings:false,projects:false});
   for (const entry of [f.activity({kind:"work_event"}),f.activity({lease_generation_id:f.actionId}),f.activity({project_id:f.project}),f.activity({sequence:9}),f.activity({origin:"history_import"}),f.activity({summary:"Hidden prose"})]) assert.throws(()=>decodeActivityItem(entry));
   for (const overrides of [{items:[f.activity({sequence:"8"})]},{items:[f.activity(),f.activity()]},{through_sequence:"10"},{historical_through_sequence:"10"},{next_cursor:f.cursor({kind:"activity",after:"8"})},{stream_id:f.actionId},{items:[],has_more:true}]) assert.throws(()=>decodeActivityPage(page(overrides),f.project,request));
 });
@@ -48,6 +48,6 @@ test("work lifecycle and identity events refresh current source state in Summari
     "work_updated", "work_reopened", "work_merged", "work_moved", "work_deleted"
   ]) {
     const item=decodeActivityItem(f.activity({kind:"work_event",event_type,work_event_id:"8",job_completion_report_id:null}));
-    assert.deepEqual(activityInvalidations([item]),{work:true,reports:true,settings:false,projects:false});
+    assert.deepEqual(activityInvalidations([item]),{externalResources:false,work:true,reports:true,settings:false,projects:false});
   }
 });

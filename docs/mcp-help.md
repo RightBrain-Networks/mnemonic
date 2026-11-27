@@ -22,6 +22,10 @@ Pass an optional `topic` string. Each successive word selects a child page:
 | `help({"topic":"complete_work completion_evidence verification_results command"})` | The command verification variant and conditional exit-code requirements |
 | `help({"topic":"complete_work schema"})` | The exact full registered input JSON Schema |
 | `help({"topic":"complete_work completion_evidence schema"})` | Only that field's schema and its transitively referenced definitions |
+| `help({"topic":"list_external_resources usage"})` | Resource capacity, available units, active holders and duration policy |
+| `help({"topic":"claim_external_lease usage"})` | Reserve units with your native session ID and keep the private lease token |
+| `help({"topic":"renew_external_lease usage"})` | Renew the same lease, optionally setting a new total quantity |
+| `help({"topic":"release_external_lease usage"})` | Return all units held by your session |
 | `help({"topic":"claim_work force"})` | Lost-token recovery, checks for another active session, and exact force-claim retries |
 | `help({"topic":"decision_put depends_on"})` | Exact dependency revision pins and causal rationale |
 | `help({"topic":"decision_impact usage"})` | Causal impact versus reference context, missing commits, and coverage limits |

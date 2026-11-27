@@ -93,6 +93,19 @@ async def invoke(settings, document, arguments=None):
     return result[1], calls
 
 
+async def test_query_reports_external_lease_events_in_its_default_scope(settings):
+    args = {"view": "events"}
+    page = activity_page(args)
+    page.update(view="events", counts={
+        "changes": 1, "resources": 1, "by_facet": {"external_leases": {"changes": 1, "resources": 1}},
+    })
+    page["items"][0].update(resource_type="external_leases", title="pytest workers", current=None,
+                            operations=["external_lease_renewed"], change_count=1, first_sequence="8")
+    result, calls = await invoke(settings, page, args)
+    assert result == page
+    assert "external_leases" in json.loads(calls[0].content)["facets"]
+
+
 async def test_safe_query_sends_compact_typed_scope_and_accepts_sequence_gaps(settings):
     arguments = {
         "since": NOW, "facets": ["work_items"],

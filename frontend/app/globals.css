@@ -2981,3 +2981,16 @@ html[data-theme="dark"] :is(.operational-badge.planning-cycle, .dependency-cycle
 @media (max-width: 640px) {
   .backup-schedule-fields, .export-selectors { grid-template-columns: minmax(0, 1fr); }
 }
+
+.external-leases { display: grid; gap: 20px; }
+.external-leases .settings-card { width: 100%; }
+.external-leases .settings-card-heading { align-items: center; }
+.external-leases .settings-card-heading h2 { margin: 0; }
+.external-resource-editor { margin-top: 20px; }
+.external-resource-list { margin: 18px 0 0; padding: 0; list-style: none; }
+.external-resource-list li { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 16px 0; border-top: 1px solid var(--line); }
+.external-resource-list li:last-child { padding-bottom: 0; }
+.external-resource-list li > div { min-width: 0; overflow-wrap: anywhere; }
+.external-resource-list h3, .external-resource-list p { margin: 0 0 4px; }
+.external-resource-list h3 { font: 700 17px/1.4 var(--display); }
+.external-resource-list .text-link { text-decoration: underline; }

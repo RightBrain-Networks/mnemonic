@@ -55,7 +55,7 @@ async def test_orientation_catalog_is_complete_unique_and_order_independent(serv
     tools = {tool.name: tool for tool in await server.list_tools()}
     page = render_session_init(tools)
     entries = re.findall(r"^- ([a-z_]+): (.+)$", page, flags=re.MULTILINE)
-    assert len(tools) == 81
+    assert len(tools) == 85
     assert len(entries) == len(dict(entries)) == len(tools)
     assert dict(entries) == {name: GUIDES[name][1] for name in tools}
     assert tools.keys() == GUIDES.keys()

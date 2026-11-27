@@ -143,6 +143,13 @@ WorkEventType = Literal[
     "human_attention_resolved",
 ]
 ActivityKind = Literal[
+    "external_resource_created",
+    "external_resource_updated",
+    "external_lease_claimed",
+    "external_lease_renewed",
+    "external_lease_released",
+    "external_lease_revoked",
+    "external_lease_expired",
     "work_event",
     "project_created",
     "project_updated",
@@ -335,6 +342,13 @@ class WorkReportFollowUpPage(Phase12Model):
 
 
 _ACTIVITY_REFERENCES = {
+    "external_resource_created": {"external_resource_id"},
+    "external_resource_updated": {"external_resource_id"},
+    "external_lease_claimed": {"external_resource_id", "external_lease_id"},
+    "external_lease_renewed": {"external_resource_id", "external_lease_id"},
+    "external_lease_released": {"external_resource_id", "external_lease_id"},
+    "external_lease_revoked": {"external_resource_id", "external_lease_id"},
+    "external_lease_expired": {"external_resource_id", "external_lease_id"},
     "work_event": {"work_event_id", "event_type", "work_item_id"},
     "project_created": set(),
     "project_updated": set(),
@@ -358,6 +372,8 @@ _ACTIVITY_REFERENCE_FIELDS = frozenset().union(*_ACTIVITY_REFERENCES.values())
 class ProjectActivityRead(Phase12Model):
     sequence: PositiveRevision
     kind: ActivityKind
+    external_resource_id: UUID | None = None
+    external_lease_id: UUID | None = None
     work_event_id: PositiveRevision | None
     event_type: WorkEventType | None
     work_item_id: UUID | None

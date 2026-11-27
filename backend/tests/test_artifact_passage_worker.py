@@ -16,7 +16,7 @@ def test_scheduler_obeys_artifact_availability_without_pausing_other_job_kinds(
     monkeypatch, maximum,
 ):
     calls = {}
-    for name in ("recover_held_answers", "refresh_outdated_normalizations",
+    for name in ("expire_due_leases", "recover_held_answers", "refresh_outdated_normalizations",
                  "enqueue_transcript_jobs",
                  "enqueue_artifact_passage_jobs", "enqueue_duplicate_embedding_jobs",
                  "schedule_backups"):
@@ -43,7 +43,7 @@ def test_disabled_existing_delivery_defers_without_inference_or_attempt_exhausti
 
 def test_tokenizer_preparation_precedes_sql_and_failure_keeps_other_jobs(monkeypatch):
     order = []
-    for name in ("recover_held_answers", "refresh_outdated_normalizations",
+    for name in ("expire_due_leases", "recover_held_answers", "refresh_outdated_normalizations",
                  "enqueue_transcript_jobs",
                  "enqueue_artifact_passage_jobs", "enqueue_duplicate_embedding_jobs",
                  "schedule_backups"):
@@ -57,7 +57,7 @@ def test_tokenizer_preparation_precedes_sql_and_failure_keeps_other_jobs(monkeyp
     settings = SimpleNamespace(artifact_max_bytes=1024, prompt_root="/unused")
     database = SimpleNamespace(info={})
     schedule_jobs(database, settings, None, embedder=SimpleNamespace(passage_tokenizer=tokenizer))
-    assert order == ["prepare_tokenizer", "recover_held_answers",
+    assert order == ["prepare_tokenizer", "expire_due_leases", "recover_held_answers",
                      "refresh_outdated_normalizations",
                      "enqueue_transcript_jobs",
                      "enqueue_artifact_passage_jobs", "enqueue_duplicate_embedding_jobs",
@@ -68,7 +68,7 @@ def test_tokenizer_preparation_precedes_sql_and_failure_keeps_other_jobs(monkeyp
         raise RuntimeError("private model failure")
 
     schedule_jobs(database, settings, None, embedder=SimpleNamespace(passage_tokenizer=unavailable))
-    assert order == ["recover_held_answers", "refresh_outdated_normalizations",
+    assert order == ["expire_due_leases", "recover_held_answers", "refresh_outdated_normalizations",
                      "enqueue_transcript_jobs",
                      "enqueue_duplicate_embedding_jobs", "schedule_backups"]
 

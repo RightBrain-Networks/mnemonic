@@ -15,7 +15,7 @@ from sqlalchemy import Connection, text
 
 from mnemonic_api.models import Base
 
-HEAD = "0073_project_changes"
+HEAD = "0074_external_resources"
 # Infrastructure delivery state is neither project data nor a restore target.
 # The reconciler derives transcript jobs anew from the restored domain rows.
 INFRASTRUCTURE_TABLES = frozenset({
@@ -30,6 +30,7 @@ IDENTITY_COLUMNS = tuple(
     if column.identity is not None
 )
 CHILD_OWNERS = {
+    "external_resource_leases": ("resource_id", "external_resources", "id"),
     "work_change_inheritance_exclusions": ("work_item_id", "work_items", "id"),
     "decision_revision_changes": ("revision_id", "decision_revisions", "id"),
     "decision_change_assessments": ("change_id", "decision_changes", "id"),

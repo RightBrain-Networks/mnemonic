@@ -32,6 +32,15 @@ from mnemonic_api.errors import (
     client_operation_secret_echo,
     client_operation_unavailable,
 )
+from mnemonic_api.external_resource_schemas import (
+    ExternalLeaseRead,
+    ExternalLeaseRelease,
+    ExternalLeaseReleased,
+    ExternalLeaseRenew,
+    ExternalLeaseRevoke,
+    ExternalResourceRead,
+    ExternalResourceWrite,
+)
 from mnemonic_api.impact_schemas import (
     ImpactDispositionBatchCreate,
     ImpactDispositionBatchRead,
@@ -116,6 +125,7 @@ from mnemonic_api.schemas import (
 )
 from mnemonic_api.services.decision_change_receipts import change_matches
 from mnemonic_api.services.decision_provenance import reconciled_scope_matches
+from mnemonic_api.services.external_resources import response_matches as external_resource_matches
 from mnemonic_api.services.impact_receipts import disposition_batch_matches, disposition_matches
 from mnemonic_api.services.knowledge_deletion import deletion_matches
 from mnemonic_api.services.knowledge_receipts import (
@@ -128,6 +138,8 @@ from mnemonic_api.services.tags import tag_response_matches
 from mnemonic_api.tag_schemas import TagCatalog, TagCreate, TagDelete, TagOrder, TagPatch
 
 type OperationKind = Literal[
+    "create_external_resource", "update_external_resource", "renew_external_lease",
+    "release_external_lease", "revoke_external_lease",
     "create_tag", "update_tag", "delete_tag", "reorder_tags",
     "delete_knowledge_domain", "delete_decision",
     "update_decision_change", "assess_decision_impact", "assess_decision_impact_batch",
@@ -152,6 +164,8 @@ type OperationKind = Literal[
     "respond_to_work_follow_up", "complete_code_review",
 ]
 REGISTERED_OPERATION_KINDS: tuple[OperationKind, ...] = (
+    "create_external_resource", "update_external_resource", "renew_external_lease",
+    "release_external_lease", "revoke_external_lease",
     "create_tag", "update_tag", "delete_tag", "reorder_tags",
     "delete_knowledge_domain", "delete_decision",
     "update_decision_change", "assess_decision_impact", "assess_decision_impact_batch",
@@ -257,6 +271,16 @@ def _spec(
 
 
 _REGISTRY: dict[OperationKind, OperationSpec] = {
+    "create_external_resource": _spec("create_external_resource", ExternalResourceWrite,
+                                     ExternalResourceRead, 201),
+    "update_external_resource": _spec("update_external_resource", ExternalResourceWrite,
+                                     ExternalResourceRead, 200, "resource_id"),
+    "renew_external_lease": _spec("renew_external_lease", ExternalLeaseRenew, ExternalLeaseRead,
+                                 200, "resource_id", "lease_id"),
+    "release_external_lease": _spec("release_external_lease", ExternalLeaseRelease,
+                                   ExternalLeaseReleased, 200, "resource_id", "lease_id"),
+    "revoke_external_lease": _spec("revoke_external_lease", ExternalLeaseRevoke,
+                                  ExternalLeaseReleased, 200, "resource_id", "lease_id"),
     "create_tag": _spec("create_tag", TagCreate, TagCatalog, 201),
     "update_tag": _spec("update_tag", TagPatch, TagCatalog, 200, "tag_id"),
     "delete_tag": _spec("delete_tag", TagDelete, TagCatalog, 200, "tag_id"),
@@ -1521,6 +1545,11 @@ def _follow_up_matches(project_id: UUID, target: Mapping[str, str],
 
 _RESPONSE_MATCHERS: Mapping[OperationKind, ResponseMatcher] = MappingProxyType(
     {
+        "create_external_resource": external_resource_matches,
+        "update_external_resource": external_resource_matches,
+        "renew_external_lease": external_resource_matches,
+        "release_external_lease": external_resource_matches,
+        "revoke_external_lease": external_resource_matches,
         "create_tag": tag_response_matches, "update_tag": tag_response_matches,
         "delete_tag": tag_response_matches, "reorder_tags": tag_response_matches,
         "delete_knowledge_domain": deletion_matches,

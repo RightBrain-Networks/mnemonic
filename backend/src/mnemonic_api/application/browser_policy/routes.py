@@ -21,6 +21,10 @@ PROMPT_DETAIL = re.compile(rf"{PROJECT}/prompts/({'|'.join(PROMPT_IDS)})")
 
 # Each entry names one browser contract and its exact method/query surface.
 _ROUTES = (
+    ("external_resources", rf"{PROJECT}/external-resources", {"GET": "", "POST": ""}),
+    ("external_resource", rf"{PROJECT}/external-resources/{UUID}", {"GET": "", "PUT": ""}),
+    ("external_lease_revoke", rf"{PROJECT}/external-resources/{UUID}/leases/{UUID}/revoke",
+     {"POST": ""}),
     ("tags", rf"{PROJECT}/tags", {"GET": "", "POST": ""}),
     ("tag_order", rf"{PROJECT}/tags/order", {"PUT": ""}),
     ("tag", rf"{PROJECT}/tags/{UUID}", {"PATCH": "", "DELETE": ""}),
@@ -130,6 +134,8 @@ _ROUTES = (
 ROUTES = tuple((name, re.compile(pattern), methods) for name, pattern, methods in _ROUTES)
 PROTECTED_MUTATIONS = frozenset(
     {
+        ("external_resources", "POST"), ("external_resource", "PUT"),
+        ("external_lease_revoke", "POST"),
         ("tags", "POST"), ("tag", "PATCH"), ("tag", "DELETE"), ("tag_order", "PUT"),
         ("knowledge_domains", "POST"),
         ("knowledge_domain", "PATCH"),

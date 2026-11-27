@@ -3,7 +3,7 @@
 `query_activity` is a read-only MCP command backed by
 `POST /api/v1/projects/{project_id}/activity/query`. It returns bounded, compact
 project changes without requiring an agent to fetch the whole project.
-The existing `get_activity` command and contiguous journal remain unchanged.
+The `get_activity` command exposes the contiguous project journal, including external lease events.
 
 The command help is the agent-facing reference:
 `help(topic="query_activity usage")`, then `help(topic="query_activity details")`.
@@ -36,11 +36,17 @@ filters use catalog names with `tag_mode="or"` or `"and"`. Work tag filters also
 match intrinsic `remediation` and `dir` labels. Results keep assigned labels in
 `current.tags` and intrinsic labels in `current.system_tags`.
 
-The eight facets are work items, artifacts, decisions, project metadata,
-settings, knowledge domains, tags, and transcripts. Omission includes all.
+The nine facets are work items, artifacts, decisions, project metadata,
+settings, knowledge domains, tags, transcripts, and external leases. Omission includes all.
 `view="resources"` groups changes by resource; `view="events"` returns individual
 records. `limit` defaults to 20 and is at most 100. Aggregate counts distinguish
 change records from distinct resources and include facet breakdowns.
+
+The `external_leases` facet covers resource creation and edits, claims, renewals and quantity
+changes, releases, revocations, and observed expirations. Each change is grouped under the
+resource definition UUID. Event state includes the affected lease UUID, holder, quantity,
+and expiry. The shared worker records expirations, and a subsequent mutation can record them
+first. Availability uses the expiry timestamp immediately.
 
 ## Polling and pagination
 
@@ -55,7 +61,10 @@ change records from distinct resources and include facet breakdowns.
    intermediate continuation cursor is not a polling checkpoint.
 
 Checkpoints bind facets, filters and view; start a new query when changing that
-scope. Use closed date windows for reports and checkpoint polling for continuous
+scope. For a pre-0.126 default checkpoint or continuation, pass the previous facet list
+explicitly (`work_items`, `artifacts`, `decisions`, `project`, `settings`, `knowledge_domains`,
+`tags`, `transcripts`, in that order) to finish that stream. Begin a separate
+`external_leases` query to include its history. Use closed date windows for reports and checkpoint polling for continuous
 tracking. Pages also have a 32,768-byte bound, so follow `next_cursor`
 even when fewer than `limit` items are returned.
 
@@ -75,7 +84,7 @@ between pages. Omit mutable-state filters for a stable historical event set.
 Work status follows `search_work`: Pending means stored pending without a lease;
 Active/Dropped reflect lease expiry and review states follow current review
 disposition. Pending does not guarantee ready-to-claim; gates and dependencies
-still need checking. Lease renewals and heartbeats are intentionally omitted; time-driven lease
+still need checking. Work lease renewals and heartbeats are intentionally omitted; time-driven lease
 expiry does not itself imply a new stored change record.
 
 Summaries describe operations and changed field names deterministically. They

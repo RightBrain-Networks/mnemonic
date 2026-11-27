@@ -351,3 +351,19 @@ def test_every_fixture_is_stable_across_repeated_validation():
         before = copy.deepcopy(case["args"])
         FUNCTIONS[case["name"]](*case["args"])
         assert case["args"] == before
+
+
+def test_browser_can_define_capacity_and_release_but_cannot_adjust_held_quantity():
+    base = f"projects/{PROJECT}/external-resources"
+    resource = f"{base}/{WORK}"
+    revoke = f"{resource}/leases/{WORK}/revoke"
+    operation = {"client_operation_id": OPERATION}
+    definition = {**operation, "name": "GPU", "capacity": 1, "minimum_minutes": 1,
+                  "default_minutes": 15, "maximum_minutes": 30}
+    for path, method in [(base, "POST"), (resource, "PUT")]:
+        assert policy.invalid_mutation_body(path, method, definition) is None
+        assert policy.invalid_mutation_body(path, method, {**definition, "quantity": 1})
+    assert policy.invalid_mutation_body(revoke, "POST", operation) is None
+    assert policy.invalid_mutation_body(revoke, "POST", {**operation, "quantity": 1})
+    assert policy.invalid_mutation_body(revoke, "POST", {})
+    assert policy.allowed_query_keys(f"{resource}/leases/{WORK}/renew", "POST") is None
