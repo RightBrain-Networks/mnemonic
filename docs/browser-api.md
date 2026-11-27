@@ -129,12 +129,13 @@ duplicate suggestions, and 1 MiB for other JSON routes.
 
 ## Runtime configuration and sync
 
-`GET /api/mnemonic/runtime-config` exposes exactly four public fields:
+`GET /api/mnemonic/runtime-config` exposes these public settings.
 
 | Field | Runtime setting | Default and bounds |
 | --- | --- | --- |
 | `timezone` | `TIMEZONE` | Trimmed IANA timezone or fixed UTC offset; missing, blank, or invalid values use `UTC`. Compose supplies `America/Detroit` by default. |
 | `work_summary_max_chars` | `MNEMONIC_WORK_SUMMARY_MAX_CHARS` | `2048`; integer from 1 through `2^53 - 1` |
+| `progress_event_body_max_bytes` | `MNEMONIC_PROGRESS_EVENT_BODY_MAX_BYTES` | `16384` UTF-8 bytes, integer from 1 through `1048576` |
 | `artifact_max_bytes` | `MNEMONIC_ARTIFACT_MAX_BYTES` | `67108864`; integer from 0 through `1073741824`; 0 disables artifact uploads |
 | `backup_max_bytes` | `MNEMONIC_BACKUP_MAX_BYTES` | `67108864`; positive browser-safe integer through `2^53 - 1` |
 

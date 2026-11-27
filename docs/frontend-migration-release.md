@@ -198,7 +198,7 @@ listener and the host's `/mcp` route.
 
 | Setting | Owner and release check |
 | --- | --- |
-| `TIMEZONE`, `MNEMONIC_WORK_SUMMARY_MAX_CHARS`, `MNEMONIC_ARTIFACT_MAX_BYTES`, `MNEMONIC_BACKUP_MAX_BYTES` | API exposes only their four public runtime fields; apply API configuration and reload tabs to read changed settings. No web asset rebuild is needed. Keep worker backup limits and the edge restore limit consistent. |
+| `TIMEZONE`, `MNEMONIC_WORK_SUMMARY_MAX_CHARS`, `MNEMONIC_PROGRESS_EVENT_BODY_MAX_BYTES`, `MNEMONIC_ARTIFACT_MAX_BYTES`, `MNEMONIC_BACKUP_MAX_BYTES` | The API exposes these public runtime fields. Apply API configuration and reload tabs to read changed settings. Keep worker backup limits and the edge restore limit consistent. |
 | `MNEMONIC_DASHBOARD_ORIGINS` | API exact browser origin allowlist, including a customized local web port. Forwarded headers do not grant trust. |
 | `MNEMONIC_TLS_HOST` | `compose.tls.yaml` adds the public origin/MCP host. The host nginx file still needs the same literal hostname and certificate paths. |
 | `MNEMONIC_WEB_PORT`, `MNEMONIC_API_PORT`, `MNEMONIC_MCP_PORT` | Preserve loopback bindings and match host `proxy_pass` addresses. |

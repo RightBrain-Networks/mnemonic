@@ -230,7 +230,9 @@ ActorModelInput = Annotated[
 ]
 ProgressBodyInput = Annotated[
     str,
-    Field(min_length=1, max_length=4000),
+    Field(min_length=1, description="Exact progress text. The API setting "
+          "MNEMONIC_PROGRESS_EVENT_BODY_MAX_BYTES limits fresh appends in UTF-8 bytes "
+          "(default 16384)."),
     AfterValidator(_validated_stored_text),
 ]
 

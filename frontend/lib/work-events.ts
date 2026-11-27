@@ -358,7 +358,7 @@ function validReferences(event: JsonObject): boolean {
     || eventType === "human_attention_resolved"
     || eventType === "work_merged"
   ) {
-    if (!boundedText(event.body, 4000)) return false;
+    if (!boundedText(event.body, eventType === "progress" ? Infinity : 4000)) return false;
   } else if (event.body !== null) {
     return false;
   }

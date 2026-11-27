@@ -22,6 +22,7 @@ def test_runtime_config_exposes_only_public_runtime_values():
     app.state.settings = settings(
         timezone=" America/Detroit ",
         work_summary_max_chars=3456,
+        progress_event_body_max_bytes=32768,
         artifact_max_bytes=0,
         backup_max_bytes=123456,
         backup_url="http://private-worker.example:8002",
@@ -34,6 +35,7 @@ def test_runtime_config_exposes_only_public_runtime_values():
     assert response.json() == {
         "timezone": "America/Detroit",
         "work_summary_max_chars": 3456,
+        "progress_event_body_max_bytes": 32768,
         "artifact_max_bytes": 0,
         "backup_max_bytes": 123456,
     }
@@ -48,9 +50,11 @@ def test_runtime_config_exposes_only_public_runtime_values():
 
 def test_browser_runtime_defaults(monkeypatch):
     monkeypatch.delenv("TIMEZONE", raising=False)
+    monkeypatch.delenv("MNEMONIC_PROGRESS_EVENT_BODY_MAX_BYTES", raising=False)
     monkeypatch.delenv("MNEMONIC_BACKUP_MAX_BYTES", raising=False)
     config = settings()
     assert config.timezone == "UTC"
+    assert config.progress_event_body_max_bytes == 16_384
     assert config.backup_max_bytes == 67_108_864
 
 
@@ -69,15 +73,23 @@ def test_display_timezone_retains_browser_supported_spellings(timezone):
 
 def test_browser_runtime_settings_use_runtime_environment(monkeypatch):
     monkeypatch.setenv("TIMEZONE", "Europe/Paris")
+    monkeypatch.setenv("MNEMONIC_PROGRESS_EVENT_BODY_MAX_BYTES", "32768")
     monkeypatch.setenv("MNEMONIC_BACKUP_MAX_BYTES", "123456")
     monkeypatch.setenv("MNEMONIC_BACKUP_URL", "http://private-worker.example:8002")
     monkeypatch.setenv("MNEMONIC_BACKUP_TOKEN", "private-backup-token-" * 4)
     config = settings()
     assert config.timezone == "Europe/Paris"
+    assert config.progress_event_body_max_bytes == 32_768
     assert config.backup_max_bytes == 123456
     assert config.backup_url == "http://private-worker.example:8002"
     assert config.backup_token.get_secret_value() == "private-backup-token-" * 4
     assert "private-backup-token" not in repr(config)
+
+
+@pytest.mark.parametrize("size", ["", 0, -1, "NaN", 1_048_577, 1.5])
+def test_progress_event_maximum_rejects_invalid_limits(size):
+    with pytest.raises(ValidationError):
+        settings(progress_event_body_max_bytes=size)
 
 
 @pytest.mark.parametrize("size", ["", 0, -1, "NaN", 2**53, 1.5])

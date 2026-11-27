@@ -1969,7 +1969,7 @@ Inspect those work IDs for cycle evidence even when the ready list is empty.
 
 ```text
 event_type     progress (the only accepted literal)
-body           exact nonblank text, at most 4,000 characters
+body           exact nonblank text, default maximum 16,384 UTF-8 bytes
 metadata       finite JSON object, default {}, encoded size at most 16 KiB
 actor          required {actor_client, actor_session_id, actor_model?}
 lease_token    optional capability; validated when present
@@ -1981,6 +1981,13 @@ status/reopen, claim/release, checkpoint, relationship, completion, and deletion
 events arise from the transaction that proves the fact. Progress is allowed on
 visible terminal work, monotonically advances `updated_at`, and does not change
 the work version. A lease is not required; a supplied token is never ignored.
+
+The API reads `MNEMONIC_PROGRESS_EVENT_BODY_MAX_BYTES` from the deployment
+environment. Each fresh append counts the UTF-8 bytes of the decoded body,
+including whitespace. An oversized body returns HTTP 422 with
+`progress_event_body_too_large` and `context.max_bytes`. The separate 1 MiB
+limit on a complete JSON receipt can return `progress_event_receipt_too_large`.
+Historical reads and completed receipt replays survive a lower setting.
 
 Before persistence, progress rejects reserved secret-like metadata keys and
 case-insensitive `client_operation_id`, `gate_id`, and `gate_type` metadata

@@ -261,7 +261,8 @@ def test_runtime_route_and_machine_authentication_are_separate():
         response = client.get("/api/mnemonic/runtime-config", headers=HEADERS)
         assert response.status_code == 200
         assert set(response.json()) == {
-            "timezone", "work_summary_max_chars", "artifact_max_bytes", "backup_max_bytes",
+            "timezone", "work_summary_max_chars", "progress_event_body_max_bytes",
+            "artifact_max_bytes", "backup_max_bytes",
         }
         assert client.get("/api/mnemonic/runtime-config").status_code == 403
         assert not any(path.startswith("/api/mnemonic") for path in client.get(

@@ -1,12 +1,16 @@
 """Phase 5 immutable work-event behavior against real PostgreSQL."""
 
 from copy import deepcopy
+from uuid import uuid4
 
 import pytest
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 
 from tests.conftest import TEST_API_KEY
+
+from .test_artifact_extraction_migration_postgres import migrate
+from .test_browser_mutations import ACTOR, HEADERS
 
 pytestmark = pytest.mark.postgres
 
@@ -40,6 +44,66 @@ def events(api, project, work_item, **params):
     response = api.get(f"{item_path(project, work_item)}/events", params=params)
     assert response.status_code == 200, response.text
     return response.json()
+
+
+@pytest.mark.parametrize(("maximum", "character"), [(16_384, "a"), (16_384, "🧠"), (32_768, "é")])
+def test_fresh_progress_byte_limit_preserves_history_and_replay(
+    api, project, work_payload, monkeypatch, maximum, character,
+):
+    work = create_work(api, project, work_payload)["work_item"]
+    item = item_path(project, work)
+    path = item + "/events"
+    browser_path = path.replace("/api/v1/", "/api/mnemonic/")
+    settings = api.app.state.settings
+    monkeypatch.setattr(settings, "progress_event_body_max_bytes", maximum)
+    body = character * (maximum // len(character.encode("utf-8")))
+    payload = {"event_type": "progress", "body": body, "actor": ACTOR, "metadata": {},
+               "client_operation_id": str(uuid4())}
+    over = api.post(path, json={**payload, "body": body + "x"})
+    assert over.status_code == 422
+    assert over.json()["detail"] == {
+        "code": "progress_event_body_too_large",
+        "message": f"Progress event body exceeds the configured maximum of {maximum} UTF-8 bytes.",
+        "context": {"max_bytes": maximum},
+    }
+    created = api.post(browser_path, json=payload, headers=HEADERS)
+    assert created.status_code == 201, created.text
+    assert created.json()["body"] == body
+    monkeypatch.setattr(settings, "progress_event_body_max_bytes", 3)
+    assert api.post(browser_path, json=payload, headers=HEADERS).content == created.content
+    rejected = api.post(browser_path, headers=HEADERS, json={
+        **payload, "client_operation_id": str(uuid4()), "body": "🧠",
+    })
+    assert rejected.status_code == 422
+    assert rejected.json()["detail"]["context"] == {"max_bytes": 3}
+    assert events(api, project, work, event_type="progress")["items"] == [created.json()]
+    assert api.get(item + "/context").json()["recent_events"][-1]["body"] == body
+
+
+def test_large_configuration_respects_complete_receipt_and_downgrade_bounds(
+    api, project, work_payload, postgres_engine, monkeypatch,
+):
+    work = create_work(api, project, work_payload)["work_item"]
+    path = item_path(project, work) + "/events"
+    maximum = 1_048_576
+    monkeypatch.setattr(api.app.state.settings, "progress_event_body_max_bytes", maximum)
+
+    def append(body):
+        return api.post(path, json={"actor": actor(), "body": body,
+                                    "client_operation_id": str(uuid4())})
+
+    accepted = append("x" * 200_000)
+    assert accepted.status_code == 201, accepted.text
+    # The compact response fits, but PostgreSQL includes spaces in JSONB receipt text.
+    near_limit = maximum - len(accepted.content) + 200_000 - 8
+    for body in ("x" * near_limit, "\x01" * 200_000):
+        rejected = append(body)
+        assert rejected.status_code == 422
+        assert rejected.json()["detail"]["code"] == "progress_event_receipt_too_large"
+    assert events(api, project, work, event_type="progress")["total"] == 1
+    with pytest.raises(RuntimeError, match="previous 4000-character limit"):
+        migrate(postgres_engine, "0074_external_resources", downgrade=True)
+    assert events(api, project, work, event_type="progress")["items"] == [accepted.json()]
 
 
 def test_event_emission_replay_progress_reads_and_bounded_recall(api, project, work_payload):

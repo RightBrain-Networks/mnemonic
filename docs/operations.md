@@ -15,6 +15,20 @@ requires operator authorization before interrupting production services. Existin
 schedules must be enabled in **Backup & export** after upgrading. Legacy interval
 and retention-count environment variables are no longer used.
 
+## Progress event body size
+
+Set `MNEMONIC_PROGRESS_EVENT_BODY_MAX_BYTES` in `.env` to an integer from 1 to
+1,048,576. The default is 16,384 bytes (16 KiB). For example,
+`MNEMONIC_PROGRESS_EVENT_BODY_MAX_BYTES=32768` allows 32 KiB of UTF-8 text per
+new progress event. Apply the setting to the API and reload open dashboard tabs.
+Remote MCP clients use the API's limit.
+
+ASCII characters use one byte each. An emoji such as 🧠 uses four. Raising the
+limit allows larger timeline and recall responses. The complete JSON request
+through MCP or the dashboard and the operation receipt each have a separate
+1 MiB budget, including JSON escaping and metadata. Lowering the setting
+preserves history and exact retries of successful appends.
+
 ## Work summary length
 
 `MNEMONIC_WORK_SUMMARY_MAX_CHARS` is a positive integer in `.env`, defaulting to

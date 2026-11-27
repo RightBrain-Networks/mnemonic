@@ -283,6 +283,9 @@ _APPLICATION_ERRORS = {
     ),
     "parent_already_set": "That work item already has a parent.",
     "active_relationships": "Remove this work item's relationships before deleting it.",
+    "progress_event_receipt_too_large": (
+        "Shorten the progress event so its complete JSON receipt fits in 1 MiB."
+    ),
     "event_secret_echo": (
         "Mnemonic rejected progress because a request-known secret matched a persisted field."
     ),
@@ -552,8 +555,8 @@ def _application_error_message(code: str, context: dict[str, object]) -> str | N
         return _semantic_error_message(context, code)
     if code.startswith("artifact_human_approval"):
         return artifact_approval_message(code, context)
-    if code == "work_summary_too_long":
-        return _work_summary_limit_error(context)
+    if code in {"work_summary_too_long", "progress_event_body_too_large"}:
+        return _work_text_limit_error(code, context)
     if code in {"artifact_too_large", "artifact_library_disabled"}:
         return _artifact_policy_error(code, context)
     if code == "work_duplicate":
@@ -585,7 +588,12 @@ def _dependency_error_message(code: str, context: dict[str, object]) -> str:
     return f"{prefix} {cycle_description(issue)}; ask the owner to revise a dependency or parent assignment."
 
 
-def _work_summary_limit_error(context: dict[str, object]) -> str:
+def _work_text_limit_error(code: str, context: dict[str, object]) -> str:
+    if code == "progress_event_body_too_large":
+        maximum = context.get("max_bytes")
+        if type(maximum) is int and 1 <= maximum <= 1_048_576:
+            return f"Shorten the progress event body to at most {maximum} UTF-8 bytes."
+        return "Shorten the progress event body to the API's configured UTF-8 byte limit."
     maximum = context.get("max_chars")
     if type(maximum) is int and 1 <= maximum <= 2**53 - 1:
         return (

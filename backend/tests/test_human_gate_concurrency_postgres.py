@@ -363,6 +363,7 @@ def progress_work(
             actor=actor(label),
         ),
         bearer_key="mnemonic-integration-test-key-32-characters",
+        body_max_bytes=16_384,
     )
 
 

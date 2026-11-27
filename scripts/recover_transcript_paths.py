@@ -40,7 +40,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
-HEAD = "0074_external_resources"
+HEAD = "0075_progress_body_limit"
 MAX_MANIFEST_BYTES = 8 * 1024 * 1024
 
 

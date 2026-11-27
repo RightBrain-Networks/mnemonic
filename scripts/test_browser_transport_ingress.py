@@ -68,6 +68,9 @@ def runtime_configuration():
         "work_summary_max_chars": int(
             os.environ.get("MNEMONIC_E2E_WORK_SUMMARY_MAX_CHARS", "2048")
         ),
+        "progress_event_body_max_bytes": int(
+            os.environ.get("MNEMONIC_E2E_PROGRESS_EVENT_BODY_MAX_BYTES", "16384")
+        ),
         "artifact_max_bytes": 67108864,
         "backup_max_bytes": 2097152,
     }
@@ -246,6 +249,7 @@ def boundaries():
     assert json.loads(content).keys() == {
         "timezone",
         "work_summary_max_chars",
+        "progress_event_body_max_bytes",
         "artifact_max_bytes",
         "backup_max_bytes",
     }

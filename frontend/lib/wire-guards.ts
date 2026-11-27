@@ -48,7 +48,7 @@ export function boundedText(value: unknown, maximum: number): value is string {
     || value.includes("\0")
     || value.trim().length === 0
   ) return false;
-  return Array.from(value).length <= maximum;
+  return value.length <= maximum || Array.from(value).length <= maximum;
 }
 
 export function nullableBoundedText(value: unknown, maximum: number): value is string | null {

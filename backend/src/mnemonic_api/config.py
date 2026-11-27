@@ -61,6 +61,12 @@ class Settings(BaseSettings):
             "MNEMONIC_WORK_SUMMARY_MAX_CHARS", "work_summary_max_chars"
         ),
     )
+    progress_event_body_max_bytes: int = Field(
+        default=16_384, ge=1, le=1_048_576,
+        validation_alias=AliasChoices(
+            "MNEMONIC_PROGRESS_EVENT_BODY_MAX_BYTES", "progress_event_body_max_bytes"
+        ),
+    )
     prompt_root: Path = Field(
         default=Path("/var/lib/mnemonic/prompts"),
         validation_alias=AliasChoices("MNEMONIC_PROMPT_ROOT", "prompt_root"),

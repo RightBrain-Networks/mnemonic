@@ -30,7 +30,7 @@ def progress_event(body: JsonObject) -> bool:
     return (
         exact_keys(body, ["event_type", "body", "metadata", "actor", OPERATION])
         and body.get("event_type") == "progress"
-        and text(body.get("body"), 4_000)
+        and text(body.get("body"), float("inf"))
         and metadata(body.get("metadata"))
         and actor(body.get("actor"))
     )
